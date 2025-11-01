@@ -48,11 +48,10 @@ These instructions are for developers who want to build and run the project from
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/JMusicClient.git
+    git clone https://github.com/monsterwhat/JMusic.git
     cd JMusicClient/com.playdeca.JMusicClient
     ```
-    (Note: Replace `https://github.com/your-username/JMusicClient.git` with the actual repository URL if it's hosted elsewhere.)
-
+ 
 2.  **Run in development mode:**
     ```bash
     mvn quarkus:dev
