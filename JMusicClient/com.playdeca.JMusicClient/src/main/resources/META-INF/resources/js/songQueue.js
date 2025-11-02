@@ -17,6 +17,16 @@ function applyMarqueeEffectToQueue(element) {
     }
 }
 
+// Function to update the song queue count
+function updateQueueCount() {
+    const queueCountSpan = document.getElementById('queueCount');
+    const songQueueTableBody = document.querySelector('#songQueueTable tbody');
+    if (queueCountSpan && songQueueTableBody) {
+        const rowCount = songQueueTableBody.children.length;
+        queueCountSpan.textContent = rowCount.toString();
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const toggleQueueBtn = document.getElementById('toggleQueueBtn');
     const queueContent = document.getElementById('queueContent');
@@ -39,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: {'Content-Type': 'application/json'}
             }).then(() => {
                 htmx.trigger('#songQueueTable', 'load');
+                updateQueueCount(); // Update count after clearing
             });
         });
     }
@@ -49,13 +60,16 @@ document.addEventListener('DOMContentLoaded', () => {
         songQueueTable.setAttribute('hx-trigger', 'load, queueChanged from:body');
         htmx.process(songQueueTable);
 
-        // Listen for afterSwap to apply marquee effect
+        // Listen for afterSwap to apply marquee effect and update count
         songQueueTable.addEventListener('htmx:afterSwap', (event) => {
             const titleCells = event.detail.target.querySelectorAll('td:nth-child(1)');
             const artistCells = event.detail.target.querySelectorAll('td:nth-child(2)');
 
             titleCells.forEach(applyMarqueeEffectToQueue);
             artistCells.forEach(applyMarqueeEffectToQueue);
+            updateQueueCount(); // Update count after HTMX swap
         });
     }
+
+    updateQueueCount(); // Initial update on DOMContentLoaded
 });

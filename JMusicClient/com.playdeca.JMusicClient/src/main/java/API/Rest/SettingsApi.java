@@ -14,6 +14,11 @@ import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 
+import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
+import java.io.File;
+import java.util.concurrent.CompletableFuture;
+
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
@@ -24,6 +29,52 @@ public class SettingsApi {
 
     @Inject
     private PlaybackHistoryService playbackHistoryService;
+
+    // -----------------------------
+    // BROWSE FOLDER
+    // -----------------------------
+    @GET
+    @Path("/browse-folder")
+    public Response browseFolder() {
+        CompletableFuture<String> selectedPathFuture = new CompletableFuture<>();
+
+        SwingUtilities.invokeLater(() -> {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Select Music Folder");
+            fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            fileChooser.setAcceptAllFileFilterUsed(false); // Disable "All Files" option
+
+            // Set initial directory if available
+            String currentPath = settingsController.getMusicLibraryPath();
+            if (currentPath != null && !currentPath.isBlank()) {
+                File currentDir = new File(currentPath);
+                if (currentDir.exists() && currentDir.isDirectory()) {
+                    fileChooser.setCurrentDirectory(currentDir);
+                }
+            }
+
+            int userSelection = fileChooser.showOpenDialog(null); // null for parent component
+
+            if (userSelection == JFileChooser.APPROVE_OPTION) {
+                File selectedFile = fileChooser.getSelectedFile();
+                selectedPathFuture.complete(selectedFile.getAbsolutePath());
+            } else {
+                selectedPathFuture.complete(null);
+            }
+        });
+
+        try {
+            String selectedPath = selectedPathFuture.get(); // Block and wait for the result
+            if (selectedPath != null) {
+                return Response.ok(ApiResponse.success(selectedPath)).build();
+            } else {
+                return Response.status(Response.Status.NO_CONTENT).entity(ApiResponse.error("No folder selected")).build();
+            }
+        } catch (Exception e) {
+            settingsController.addLog("Error opening folder chooser: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error opening folder chooser")).build();
+        }
+    }
 
     // -----------------------------
     // GET CURRENT SETTINGS
@@ -44,6 +95,22 @@ public class SettingsApi {
     @Consumes(MediaType.WILDCARD)
     public Response toggleRunAsService() {
         settingsController.toggleAsService();
+        return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
+    }
+
+    // -----------------------------
+    // SET MUSIC LIBRARY PATH
+    // -----------------------------
+    @POST
+    @Path("/music-library-path")
+    @Transactional
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response setMusicLibraryPath(@FormParam("musicLibraryPathInput") String path) {
+        if (path == null || path.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Music library path cannot be empty")).build();
+        }
+        settingsController.setMusicLibraryPath(path);
+        settingsController.addLog("Music library path updated to: " + path);
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 

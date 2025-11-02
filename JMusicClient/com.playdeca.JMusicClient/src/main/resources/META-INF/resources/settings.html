@@ -104,9 +104,16 @@
                                             <div class="card-content" id="libraryManagementContent">
                                                 <div class="field">
                                                     <label class="label has-text-white">Music Library Folder</label>
-                                                    <div class="control">
-                                                        <p id="musicLibraryPath" class="has-text-weight-semibold">(not set)</p>
+                                                    <div class="control has-addons">
+                                                        <input id="musicLibraryPathInput" name="musicLibraryPathInput" class="input has-background-grey-darker has-text-white is-expanded" type="text" placeholder="Select music library folder" value="(not set)">
+                                                        <button id="browseMusicFolderBtn" class="button is-info">Browse</button>
                                                     </div>
+                                                </div>
+                                                <div class="buttons mt-3">
+                                                    <button id="saveMusicLibraryPathBtn" class="button is-success"
+                                                            hx-post="/api/settings/music-library-path"
+                                                            hx-include="#musicLibraryPathInput"
+                                                            hx-swap="none">Save Path</button>
                                                 </div>
                                                 <div class="buttons">
                                                     <button id="resetLibrary" class="button is-link">Reset to Default</button>
@@ -235,6 +242,14 @@
                     <!-- LEFT: Song Info -->
                     <div class="level-left is-hidden-mobile">
                         <div class="level-item">
+                            <div class="image-container mr-3">
+                                <figure class="image is-32x32">
+                                    <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                                </figure>
+                                <button id="expandImageBtn">
+                                    <span class="icon is-small"><i class="pi pi-expand"></i></span>
+                                </button>
+                            </div>
                             <div>
                                 <p id="songTitle" class="has-text-white has-text-weight-semibold is-size-6">Loading...</p>
                                 <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>

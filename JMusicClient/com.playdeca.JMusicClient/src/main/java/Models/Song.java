@@ -17,6 +17,7 @@ public class Song extends PanacheEntity {
     private String path; // local file path or URL
     private String coverImagePath;
     private String genre;
+    @Column(length = Integer.MAX_VALUE) // Set to max value to hint for CLOB/TEXT type
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;
 

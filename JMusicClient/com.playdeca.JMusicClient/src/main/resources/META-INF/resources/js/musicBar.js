@@ -10,11 +10,23 @@ const musicState = {
     duration: 0,
     volume: 0.8,
     shuffleEnabled: false,
-    repeatEnabled: false
+    repeatMode: "OFF"
 };
 
 let draggingSeconds = false;
 let draggingVolume = false;
+
+const volumeExponent = 2; // Moved to global scope
+
+const calculateExponentialVolume = (sliderValue) => { // Moved to global scope
+    const linearVol = sliderValue / 100;
+    return Math.pow(linearVol, volumeExponent);
+};
+
+const calculateLinearSliderValue = (exponentialVol) => { // Moved to global scope
+    const linearVol = Math.pow(exponentialVol, 1 / volumeExponent);
+    return linearVol * 100;
+};
 
 audio.volume = musicState.volume;
 
@@ -82,16 +94,24 @@ function updateMusicBar() {
     }
 
     const volumeSlider = document.querySelector('input[name="level"]');
-    if (volumeSlider && !draggingVolume)
-        volumeSlider.value = volume * 100;
+    if (volumeSlider && !draggingVolume) {
+        volumeSlider.value = calculateLinearSliderValue(volume);
+    }
 
     document.getElementById('shuffleIcon').className = shuffleEnabled
             ? "pi pi-sort-alt-slash has-text-success"
             : "pi pi-sort-alt";
 
-    document.getElementById('repeatIcon').className = repeatEnabled
-            ? "pi pi-refresh pi-spin has-text-success"
-            : "pi pi-refresh";
+    const repeatIcon = document.getElementById('repeatIcon');
+    if (repeatIcon) {
+        repeatIcon.className = "pi pi-refresh"; // Base class
+        if (musicState.repeatMode === "ONE") {
+            repeatIcon.classList.add("has-text-info"); // Example: blue for repeat one
+        } else if (musicState.repeatMode === "ALL") {
+            repeatIcon.classList.add("has-text-success"); // Example: green for repeat all
+            repeatIcon.classList.add("pi-spin"); // Add spin for repeat all
+        }
+    }
 }
 
 // ---------------- Audio Events ----------------
@@ -145,6 +165,13 @@ function UpdateAudioSource(song, play = false, backendTime = 0) {
     musicState.artist = song.artist ?? "Unknown Artist";
     musicState.currentTime = (sameSong || backendTime !== 0) ? (backendTime ?? 0) : 0;
     musicState.duration = song.durationSeconds ?? 0; // Prioritize duration from backend
+
+    // Update song cover image
+    const songCoverImageEl = document.getElementById('songCoverImage');
+    if (songCoverImageEl) {
+        songCoverImageEl.src = song.artworkBase64 && song.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + song.artworkBase64 : '/logo.png';
+    }
+
     updateMusicBar();
     updatePageTitle({name: musicState.songName, artist: musicState.artist});
 
@@ -201,7 +228,7 @@ function UpdateAudioSource(song, play = false, backendTime = 0) {
                         musicState.duration = state.duration;
                         musicState.volume = state.volume;
                         musicState.shuffleEnabled = state.shuffleEnabled;
-                        musicState.repeatEnabled = state.repeatEnabled;
+                        musicState.repeatMode = state.repeatMode;
             
                         console.log("[WS] handleWSMessage: songChanged=", songChanged, "state.currentSongId=", state.currentSongId, "musicState.currentSongId=", musicState.currentSongId);
             
@@ -287,14 +314,27 @@ function UpdateAudioSource(song, play = false, backendTime = 0) {
             if (!slider)
                 return;
 
+            const volumeExponent = 2; // Adjust this value to change the curve (e.g., 2 for quadratic, 3 for cubic)
+
+            const calculateExponentialVolume = (sliderValue) => {
+                const linearVol = sliderValue / 100;
+                return Math.pow(linearVol, volumeExponent);
+            };
+
+            // Inverse function to convert exponential volume back to linear slider value (0-100)
+            const calculateLinearSliderValue = (exponentialVol) => {
+                const linearVol = Math.pow(exponentialVol, 1 / volumeExponent);
+                return linearVol * 100;
+            };
+
             slider.onmousedown = slider.ontouchstart = () => draggingVolume = true;
             slider.onmouseup = slider.ontouchend = () => {
                 draggingVolume = false;
-                const vol = parseInt(slider.value, 10) / 100;
+                const vol = calculateExponentialVolume(parseInt(slider.value, 10));
                 sendWS('volume', {value: vol});
             };
             slider.oninput = e => {
-                const vol = parseInt(e.target.value, 10) / 100;
+                const vol = calculateExponentialVolume(parseInt(e.target.value, 10));
                 musicState.volume = vol;
                 audio.volume = vol;
                 sendWS('volume', {value: vol});
@@ -377,13 +417,183 @@ function UpdateAudioSource(song, play = false, backendTime = 0) {
             }
         }
 
-        // ---------------- Init ----------------
+                function bindImageExpansion() {
+            const expandImageBtn = document.getElementById('expandImageBtn');
+            const imageContainer = document.querySelector('.image-container');
+
+            if (expandImageBtn && imageContainer) {
+                expandImageBtn.addEventListener('click', () => {
+                    imageContainer.classList.toggle('is-expanded');
+                });
+            }
+        }
+
+let currentRightClickedSongId = null; // Global variable to store the ID
+
+        // Function to show the custom context menu
+        function showContextMenu(x, y) {
+            const contextMenu = document.getElementById('customContextMenu');
+            if (contextMenu) {
+                contextMenu.style.left = `${x}px`;
+                contextMenu.style.top = `${y}px`;
+                contextMenu.style.display = 'block';
+            }
+        }
+
+        // Function to hide the custom context menu
+        function hideContextMenu() {
+            const contextMenu = document.getElementById('customContextMenu');
+            if (contextMenu) {
+                contextMenu.style.display = 'none';
+                currentRightClickedSongId = null; // Clear the stored ID
+                // Also hide sub-menu if it's open
+                const playlistSubMenu = document.getElementById('playlistSubMenu');
+                if (playlistSubMenu) {
+                    playlistSubMenu.style.display = 'none';
+                }
+            }
+        }
+
+        // Function to fetch playlists and populate the sub-menu
+        async function populatePlaylistSubMenu() {
+            const playlistSubMenu = document.getElementById('playlistSubMenu');
+            if (!playlistSubMenu) return;
+
+            playlistSubMenu.innerHTML = '<div class="context-menu-item">Loading Playlists...</div>'; // Show loading state
+
+            try {
+                const response = await fetch('/api/music/playlists'); // Assuming this endpoint returns JSON
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const playlists = await response.json(); // Assuming playlists is an array of {id, name}
+
+                playlistSubMenu.innerHTML = ''; // Clear loading state
+
+                if (playlists.length === 0) {
+                    playlistSubMenu.innerHTML = '<div class="context-menu-item" data-disabled="true">No Playlists</div>';
+                    return;
+                }
+
+                playlists.forEach(playlist => {
+                    const playlistItem = document.createElement('div');
+                    playlistItem.classList.add('context-menu-item');
+                    playlistItem.textContent = playlist.name;
+                    playlistItem.dataset.playlistId = playlist.id;
+                    playlistItem.dataset.action = 'add-to-specific-playlist';
+                    playlistSubMenu.appendChild(playlistItem);
+                });
+            } catch (error) {
+                console.error('Error fetching playlists:', error);
+                playlistSubMenu.innerHTML = '<div class="context-menu-item" data-disabled="true">Error loading playlists</div>';
+            }
+        }
+
+        // Function to add song to a specific playlist
+        async function addSongToPlaylist(playlistId, songId) {
+            try {
+                const response = await fetch(`/api/music/playlists/${playlistId}/songs/${songId}`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                console.log(`Song ${songId} added to playlist ${playlistId}`);
+                // Optionally, show a success message to the user
+            } catch (error) {
+                console.error(`Error adding song ${songId} to playlist ${playlistId}:`, error);
+                // Optionally, show an error message to the user
+            }
+        }
+
+// ---------------- Init ----------------
 
         document.addEventListener('DOMContentLoaded', () => {
 
             bindMusicBarControls();
+            bindImageExpansion();
 
             connectWS();
+
+            // Add context menu listener to the document, using event delegation
+            document.addEventListener('contextmenu', (event) => {
+                console.log('[ContextMenu] Right-click detected.');
+                const songTableBody = document.querySelector('#songTable tbody');
+                
+                // If right-click is within the song table body, prevent default browser context menu
+                if (songTableBody && songTableBody.contains(event.target)) {
+                    event.preventDefault(); 
+                    console.log('[ContextMenu] Right-click within songTable tbody. Default prevented.');
+
+                    const clickedRow = event.target.closest('tr'); // Find the closest row
+                    
+                    if (clickedRow && clickedRow.dataset.songId) {
+                        currentRightClickedSongId = clickedRow.dataset.songId;
+                        console.log('[ContextMenu] Valid song row clicked. Song ID:', currentRightClickedSongId);
+                        showContextMenu(event.clientX, event.clientY);
+                    } else {
+                        console.log('[ContextMenu] Clicked within tbody but not on a valid song row. Hiding custom menu.');
+                        // If right-click was within tbody but not on a valid song row, just hide the custom menu
+                        hideContextMenu();
+                    }
+                } else {
+                    console.log('[ContextMenu] Right-click outside songTable tbody. Hiding custom menu.');
+                    // If right-click was outside the song table body, hide the custom menu
+                    hideContextMenu();
+                }
+            });
+
+            // Hide context menu and sub-menu when clicking anywhere else
+            document.addEventListener('click', (event) => {
+                const contextMenu = document.getElementById('customContextMenu');
+                const playlistSubMenu = document.getElementById('playlistSubMenu'); // Get sub-menu
+                if (contextMenu && contextMenu.style.display === 'block' && !contextMenu.contains(event.target)) {
+                    hideContextMenu();
+                }
+                // Also hide sub-menu if it's open and click is outside
+                if (playlistSubMenu && playlistSubMenu.style.display === 'block' && !playlistSubMenu.contains(event.target) && !event.target.closest('#addToPlaylistMenuItem')) {
+                    playlistSubMenu.style.display = 'none';
+                }
+            });
+
+            // Add click listeners to context menu items
+            const customContextMenu = document.getElementById('customContextMenu');
+            if (customContextMenu) {
+                customContextMenu.addEventListener('click', async (event) => { // Made async to use await
+                    const menuItem = event.target.closest('.context-menu-item');
+                    if (menuItem) {
+                        const action = menuItem.dataset.action;
+                        if (action === 'add-to-playlist') {
+                            // Toggle visibility of sub-menu
+                            const playlistSubMenu = document.getElementById('playlistSubMenu');
+                            if (playlistSubMenu) {
+                                if (playlistSubMenu.style.display === 'block') {
+                                    playlistSubMenu.style.display = 'none';
+                                } else {
+                                    playlistSubMenu.style.display = 'block';
+                                    await populatePlaylistSubMenu(); // Populate when shown
+                                }
+                            }
+                        } else if (action === 'add-to-specific-playlist') {
+                            const playlistId = menuItem.dataset.playlistId;
+                            if (currentRightClickedSongId && playlistId) {
+                                await addSongToPlaylist(playlistId, currentRightClickedSongId);
+                            }
+                            hideContextMenu(); // Hide all menus after adding
+                        } else if (action === 'edit-song') {
+                            console.log('Edit Song clicked for song ID:', currentRightClickedSongId);
+                            // TODO: Implement "Edit Song" logic
+                            hideContextMenu();
+                        } else if (action === 'share-song') {
+                            console.log('Share clicked for song ID:', currentRightClickedSongId);
+                            // TODO: Implement "Share" logic
+                            hideContextMenu();
+                        } else {
+                            hideContextMenu(); // Hide menu for other clicks within the menu
+                        }
+                    }
+                });
+            }
 
             applyThemePreference(); // Apply theme on load
 

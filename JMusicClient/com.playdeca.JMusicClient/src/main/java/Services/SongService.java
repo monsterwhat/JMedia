@@ -23,6 +23,11 @@ public class SongService {
     }
 
     @Transactional
+    public void clearAllSongs() {
+        em.createQuery("DELETE FROM Song").executeUpdate();
+    }
+
+    @Transactional
     public void delete(Song song) {
         if (song != null) {
             Song managed = em.contains(song) ? song : em.merge(song);

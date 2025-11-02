@@ -174,9 +174,13 @@ public class MusicUiApi {
 
                 String buttonClass = "button is-success is-rounded is-small" + (showPause ? " is-loading" : "");
 
-                html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>")
-                        .append("<td>").append(title).append("</td>")
-                        .append("<td>").append(artist).append("</td>")
+                html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>");
+                String imageUrl = s.getArtworkBase64() != null && !s.getArtworkBase64().isEmpty() ? "data:image/jpeg;base64," + s.getArtworkBase64() : "/logo.png";
+                html.append("<td style='vertical-align: middle; text-align: center;'><figure class='image is-48x48'><img src='").append(imageUrl).append("'></figure></td>")
+                        .append("<td>")
+                        .append("<div>").append(title).append("</div>")
+                        .append("<div class='has-text-success is-size-7'>").append(artist).append("</div>")
+                        .append("</td>")
                         .append("<td>").append(formatTime(duration)).append("</td>")
                         .append("<td>")
                         .append("<button class='button ").append(buttonClass).append("' ")
@@ -215,13 +219,41 @@ public class MusicUiApi {
                 queue = new ArrayList<>();
             }
 
-
-
             Song currentSong = playbackController.getCurrentSong();
+            List<Song> orderedQueue = new ArrayList<>();
+
+            if (currentSong != null && !queue.isEmpty()) {
+                int currentSongIndexInQueue = -1;
+                for (int i = 0; i < queue.size(); i++) {
+                    if (queue.get(i).id.equals(currentSong.id)) {
+                        currentSongIndexInQueue = i;
+                        break;
+                    }
+                }
+
+                if (currentSongIndexInQueue != -1) {
+                    // Add current song first
+                    orderedQueue.add(queue.get(currentSongIndexInQueue));
+                    // Add songs after current
+                    for (int i = currentSongIndexInQueue + 1; i < queue.size(); i++) {
+                        orderedQueue.add(queue.get(i));
+                    }
+                    // Add songs before current
+                    for (int i = 0; i < currentSongIndexInQueue; i++) {
+                        orderedQueue.add(queue.get(i));
+                    }
+                } else {
+                    // Current song not found in queue, just use original queue
+                    orderedQueue.addAll(queue);
+                }
+            } else {
+                // No current song or empty queue, just use original queue
+                orderedQueue.addAll(queue);
+            }
 
             StringBuilder html = new StringBuilder("<tbody>");
             int index = 0;
-            for (Song s : queue) {
+            for (Song s : orderedQueue) { // Iterate over orderedQueue
                 if (s == null) {
                     continue;
                 }
@@ -231,13 +263,16 @@ public class MusicUiApi {
 
                 boolean isCurrent = currentSong != null && s.id.equals(currentSong.id);
 
-                int originalIndex = queue.size() - 1 - index;
+                // The originalIndex calculation seems to be for reverse order, which is not needed now.
+                // The 'index' variable in the loop is the correct one for skip-to/remove actions.
 
+                String imageUrl = s.getArtworkBase64() != null && !s.getArtworkBase64().isEmpty() ? "data:image/jpeg;base64," + s.getArtworkBase64() : "/logo.png";
                 html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>")
-                        .append("<td class='is-size-7' style='width: 75%;'>").append(title).append("<br><span class='has-text-success is-size-7'>").append(artist).append("</span></td>")
+                        .append("<td style='vertical-align: middle; text-align: center;'><figure class='image is-24x24'><img src='").append(imageUrl).append("'/></figure></td>")
+                        .append("<td class='is-size-7' style='width: 75%;'><span>").append(title).append("</span><br><span class='has-text-success is-size-7'>").append(artist).append("</span></td>")
                         .append("<td class='has-text-right' style='width: 25%;'>")
-                        .append("<i class='pi pi-step-forward icon has-text-primary is-clickable' hx-post='/api/music/queue/skip-to/").append(index).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.ajax(\"GET\", \"/api/music/ui/queue-fragment\", {target: \"#songQueueTable tbody\", swap: \"innerHTML\"})' hx-headers='{\"Content-Type\": \"application/json\"}'></i>")
-                        .append("<i class='pi pi-times icon has-text-danger is-clickable' hx-post='/api/music/queue/remove/").append(index).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.ajax(\"GET\", \"/api/music/ui/queue-fragment\", {target: \"#songQueueTable tbody\", swap: \"innerHTML\"})' hx-headers='{\"Content-Type\": \"application/json\"}'></i>")
+                        .append("<i class='pi pi-step-forward icon has-text-primary is-clickable' hx-post='/api/music/queue/skip-to/").append(index).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.trigger(\"body\", \"queueChanged\")'></i>")
+                        .append("<i class='pi pi-times icon has-text-danger is-clickable' hx-post='/api/music/queue/remove/").append(index).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.ajax(\"GET\",\"/api/music/ui/queue-fragment\", {target: \"#songQueueTable tbody\", swap: \"innerHTML\"})' hx-headers='{\"Content-Type\": \"application/json\"}'></i>")
                         .append("</td>")
                         .append("</tr>");
                 index++;

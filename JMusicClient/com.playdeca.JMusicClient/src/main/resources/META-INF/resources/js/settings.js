@@ -3,9 +3,9 @@ window.resetLibrary = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Library reset to:", json.data.libraryPath);
-        const pathElem = document.getElementById("musicLibraryPath");
-        if (pathElem)
-            pathElem.textContent = json.data.libraryPath;
+        const pathInputElem = document.getElementById("musicLibraryPathInput");
+        if (pathInputElem)
+            pathInputElem.value = json.data.libraryPath;
     } else {
         console.error("[Settings] Failed to reset library:", json.error);
     }
@@ -190,9 +190,9 @@ window.refreshSettingsUI = async function () {
     const res = await fetch(`/api/settings`);
     const json = await res.json();
     if (res.ok && json.data) {
-        const pathElem = document.getElementById("musicLibraryPath");
-        if (pathElem && json.data.libraryPath)
-            pathElem.textContent = json.data.libraryPath;
+        const pathInputElem = document.getElementById("musicLibraryPathInput");
+        if (pathInputElem && json.data.libraryPath)
+            pathInputElem.value = json.data.libraryPath;
 
         const torrentBrowsingToggle = document.getElementById("torrentBrowsingToggle");
         const browseManagementContent = document.getElementById("browseManagementContent");
@@ -219,6 +219,11 @@ window.refreshSettingsUI = async function () {
         const torrentDiscoveryToggle = document.getElementById("torrentDiscoveryToggle");
         if (torrentDiscoveryToggle)
             torrentDiscoveryToggle.checked = json.data.torrentDiscoveryEnabled;
+
+        const runAsServiceToggle = document.getElementById("runAsServiceToggle");
+        if (runAsServiceToggle) {
+            runAsServiceToggle.checked = json.data.runAsService;
+        }
 
     } else {
         console.error("[Settings] Failed to refresh settings UI:", json.error);
@@ -271,6 +276,22 @@ window.refreshSettingsUI = async function () {
         document.getElementById("clearPlaybackHistory").onclick = () => showConfirmationDialog("Are you sure you want to clear the playback history? This action cannot be undone.", () => fetch('/api/settings/clearPlaybackHistory', {method: 'POST'}));
         document.getElementById("reloadMetadata").onclick = () => showConfirmationDialog("Are you sure you want to reload all song metadata? This might take a while.", window.reloadMetadata);
         document.getElementById("deleteDuplicates").onclick = () => showConfirmationDialog("Are you sure you want to delete duplicate songs? This action cannot be undone.", window.deleteDuplicates);
+
+        const browseMusicFolderBtn = document.getElementById("browseMusicFolderBtn");
+        if (browseMusicFolderBtn) {
+            browseMusicFolderBtn.onclick = async () => {
+                const res = await fetch(`/api/settings/browse-folder`);
+                const json = await res.json();
+                if (res.ok && json.data) {
+                    const pathInputElem = document.getElementById("musicLibraryPathInput");
+                    if (pathInputElem) {
+                        pathInputElem.value = json.data; // Corrected: use json.data directly
+                    }
+                } else {
+                    console.error("[Settings] Failed to browse folder:", json.error);
+                }
+            };
+        }
 
         // Attach event listeners for the new card header toggles
         const toggleLibraryManagementBtn = document.getElementById("toggleLibraryManagementBtn");

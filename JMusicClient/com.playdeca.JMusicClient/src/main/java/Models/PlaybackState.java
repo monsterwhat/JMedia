@@ -28,7 +28,7 @@ public class PlaybackState {
     private double duration; // Added duration field
     private float volume;
     private boolean shuffleEnabled;
-    private boolean repeatEnabled;
+
 
     @ElementCollection(fetch = FetchType.EAGER)
     private List<Long> cue = new ArrayList<>();

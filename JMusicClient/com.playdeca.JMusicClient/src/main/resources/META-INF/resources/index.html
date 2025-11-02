@@ -86,7 +86,7 @@
                     
                     <!-- Playlist Sidebar -->
                     <div class="column is-3 is-hidden-mobile is-mobile-sidebar" id="playlistSidebar">
-                        <div class="card has-background-grey-darker has-text-white" style="height: calc(35vh - 100px);">
+                        <div class="card has-background-grey-darker has-text-white" style="max-height: calc(45vh - 100px);">
                             <header class="card-header">
                                 <p class="card-header-title has-text-white">
                                     Playlists
@@ -142,7 +142,7 @@
                         <div class="card has-background-grey-darker has-text-white mt-4" id="songQueueCard">
                             <header class="card-header">
                                 <p class="card-header-title has-text-white">
-                                    Song Queue
+                                    Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span>
                                 </p>
                                 <button class="card-header-icon" aria-label="more options" id="toggleQueueBtn">
                                     <span class="icon">
@@ -155,8 +155,8 @@
                                     <table id="songQueueTable" class="table is-fullwidth is-hoverable is-striped">
                                         <thead>
                                             <tr>
-                                                <th>Title</th>
-                                                <th>Artist</th>
+                                                <th></th>
+                                                <th>Title / Artist</th>
                                                 <th>Action</th>
                                             </tr>
                                         </thead>
@@ -175,14 +175,17 @@
                         <div class="card has-background-grey-darker has-text-white">
                             <header class="card-header">
                                 <p id="playlistTitle" class="card-header-title has-text-white is-4">All Songs</p>
+                                <button class="is-small is-rounded has-text-success ml-2" hx-post="/api/music/playback/queue-all/0" hx-trigger="click" hx-swap="none" hx-on::after-request="htmx.ajax('GET','/api/music/ui/queue-fragment',{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/songs-fragment',{target:'#songTable tbody', swap:'innerHTML'});">
+                                    <i class="pi pi-play"></i> Play All
+                                </button>
                                 <button class="card-header-icon" aria-label="more options" id="toggleAllSongsBtn">
                                     <span class="icon">
                                         <i class="pi pi-angle-down" aria-hidden="true"></i>
                                     </span>
                                 </button>
                             </header>
-                            <div class="card-content" id="allSongsContent">
-                                <div id="songListContainer" style="max-height: calc(100vh - 300px); overflow-y: auto;">
+                            <div class="card-content m-0 p-0" id="allSongsContent">
+                                <div id="songListContainer" style="max-height: calc(100vh - 320px); overflow-y: auto;">
                                     <table id="songTable" class="table is-fullwidth is-hoverable is-striped"
                                            hx-get="/api/music/ui/songs-fragment"
                                            hx-trigger="load"
@@ -218,6 +221,14 @@
                     <!-- LEFT: Song Info -->
                     <div class="level-left is-hidden-mobile">
                         <div class="level-item">
+                            <div class="image-container mr-3">
+                                <figure class="image is-32x32">
+                                    <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                                </figure>
+                                <button id="expandImageBtn">
+                                    <span class="icon is-small"><i class="pi pi-expand"></i></span>
+                                </button>
+                            </div>
                             <div>
                                 <p id="songTitle" class="has-text-white has-text-weight-semibold is-size-6">Loading...</p>
                                 <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>
@@ -274,5 +285,18 @@
         <script src="/js/playlistBar.js"></script>
         <script src="/js/navbar.js"></script>
         <script src="/js/songQueue.js"></script>
+
+        <!-- Custom Context Menu -->
+        <div id="customContextMenu" class="context-menu" style="display: none;">
+            <div class="context-menu-item" id="editSongMenuItem" data-action="edit-song" data-disabled="true">Edit Song</div>
+            <div class="context-menu-item has-submenu" id="addToPlaylistMenuItem" data-action="add-to-playlist">
+                Add to Playlist
+                <div class="submenu" id="playlistSubMenu" style="display: none;">
+                    <!-- Playlists will be dynamically loaded here -->
+                    <div class="context-menu-item">Loading Playlists...</div>
+                </div>
+            </div>
+            <div class="context-menu-item" id="shareMenuItem" data-action="share-song" data-disabled="true">Share</div>
+        </div>
     </body>
 </html>

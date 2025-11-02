@@ -6,6 +6,7 @@ import jakarta.annotation.PostConstruct;
 import Models.Settings;
 import Models.SettingsLog;
 import Models.Song;
+import Services.PlaybackHistoryService;
 import Services.SettingsService;
 import Services.SongService;
 
@@ -39,6 +40,9 @@ public class SettingsController implements Serializable {
     private MusicSocket musicSocket;
 
     @Inject
+    private PlaybackHistoryService playbackHistoryService;
+    
+    @Inject
     private LogSocket logSocket;
 
     private String musicLibraryPath;
@@ -52,10 +56,9 @@ public class SettingsController implements Serializable {
 
     @PostConstruct
     public void init() {
-        if (musicLibraryPath == null) {
-            musicLibraryPath = getDefaultMusicFolder();
-            addLog("Default music folder initialized: " + musicLibraryPath);
-        }
+        Settings currentSettings = settingsService.getOrCreateSettings();
+        this.musicLibraryPath = currentSettings.getLibraryPath();
+        addLog("Music folder initialized from settings: " + musicLibraryPath);
     }
 
     public void selectMusicLibrary() {
@@ -192,7 +195,8 @@ public class SettingsController implements Serializable {
     }
 
     public File getMusicFolder() {
-        return new File(musicLibraryPath);
+        Settings currentSettings = settingsService.getOrCreateSettings();
+        return new File(currentSettings.getLibraryPath());
     }
 
     public void resetMusicLibrary() {
@@ -231,7 +235,15 @@ public class SettingsController implements Serializable {
     }
 
     public void setMusicLibraryPath(String path) {
-        this.musicLibraryPath = path;
+        Settings currentSettings = settingsService.getOrCreateSettings();
+        settingsService.setLibraryPath(currentSettings, path);
+        this.musicLibraryPath = currentSettings.getLibraryPath(); // Update from persisted value
+
+        // After setting a new path, clear old songs and scan the new library
+        addLog("Clearing existing songs and scanning new library path: " + path);
+        playbackHistoryService.clearHistory(); // Clear history first
+        songService.clearAllSongs();
+        scanLibrary();
     }
 
     public Settings getOrCreateSettings() {

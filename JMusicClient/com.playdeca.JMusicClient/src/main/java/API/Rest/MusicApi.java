@@ -299,6 +299,37 @@ public class MusicApi {
         return new File(settings.getLibraryPath());
     }
 
+    @POST
+    @Path("/playback/queue-all/{id}")
+    @Consumes(MediaType.WILDCARD)
+    public Response queueAllSongs(@PathParam("id") Long id) {
+        List<Song> songsToQueue;
+        if (id == null || id == 0) {
+            // Queue all songs
+            songsToQueue = playbackController.getSongs();
+        } else {
+            // Queue songs from a specific playlist
+            Playlist playlist = playbackController.findPlaylist(id);
+            if (playlist == null) {
+                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
+            }
+            songsToQueue = playlist.getSongs();
+        }
+
+        if (songsToQueue == null || songsToQueue.isEmpty()) {
+            return Response.ok(ApiResponse.success("No songs to queue")).build();
+        }
+
+        playbackController.clearQueue();
+        List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
+        playbackController.addToQueue(songIds, false);
+
+        // Start playback with the first song
+        playbackController.selectSong(songIds.get(0));
+
+        return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
+    }
+
     // -------------------------
     // Queue endpoints
     // -------------------------
@@ -326,16 +357,15 @@ public class MusicApi {
 
     @POST
     @Path("/queue/clear")
-        @Consumes(MediaType.WILDCARD)
-        public Response clearQueue() {
-            playbackController.clearQueue();
-            return Response.ok(ApiResponse.success("Queue cleared")).build();
-        }
-    
-        @GET
-        @Path("/history")
-        public Response getHistory() {
-            return Response.ok(ApiResponse.success(playbackController.getHistory())).build();
-        }
+    @Consumes(MediaType.WILDCARD)
+    public Response clearQueue() {
+        playbackController.clearQueue();
+        return Response.ok(ApiResponse.success("Queue cleared")).build();
     }
 
+    @GET
+    @Path("/history")
+    public Response getHistory() {
+        return Response.ok(ApiResponse.success(playbackController.getHistory())).build();
+    }
+}
