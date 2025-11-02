@@ -25,12 +25,12 @@ This project leverages modern technologies to deliver a seamless user experience
 
 ## Installation
 
-JMusicClient is designed for easy installation and use by end-users. Pre-built executables are available in the [GitHub Releases](https://github.com/your-username/JMusicClient/releases) section.
+JMusicClient is designed for easy installation and use by end-users. Pre-built executables are available in the [GitHub Releases](https://github.com/monsterwhat/JMusic/releases) section.
 
-*   **Windows Executable:** Download the `JMusicClient.exe` from the releases page. Simply run the executable to start the application.
-*   **Cross-Platform Uberjar:** Download the `quarkus-run.jar` from the releases page. Ensure you have Java 17 or newer installed on your system. You can run it via the command line:
+*   **Windows Executable:** Download the `JMusic.exe` from the releases page. Simply run the executable to start the application.
+*   **Cross-Platform Uberjar:** Download the `JMusicClient-runner.jar ` from the releases page. Ensure you have Java 21 or newer installed on your system. You can run it via the command line:
     ```bash
-    java -jar quarkus-run.jar
+    java -jar JMusicClient-runner.jar
     ```
 
 *   **Upcoming Native Executables:** We are actively working on providing native executables for Linux, macOS, and Windows in an upcoming beta phase. These will offer optimized performance and standalone deployment without requiring a separate Java installation.
@@ -41,18 +41,17 @@ These instructions are for developers who want to build and run the project from
 
 ### Prerequisites
 
-*   Java 17 or newer
+*   Java 21 or newer
 *   Maven 3.8.x or newer
 
 ### Building and Running
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/JMusicClient.git
+    git clone https://github.com/monsterwhat/JMusic.git
     cd JMusicClient/com.playdeca.JMusicClient
     ```
-    (Note: Replace `https://github.com/your-username/JMusicClient.git` with the actual repository URL if it's hosted elsewhere.)
-
+ 
 2.  **Run in development mode:**
     ```bash
     mvn quarkus:dev
