@@ -17,7 +17,11 @@ public class Playlist extends PanacheEntity {
     private String name;
     private String description;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "playlist_id") // foreign key in Song table
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+        name = "playlist_song",
+        joinColumns = @JoinColumn(name = "playlist_id"),
+        inverseJoinColumns = @JoinColumn(name = "song_id")
+    )
     private List<Song> songs = new ArrayList<>();
 }

@@ -172,6 +172,11 @@ function UpdateAudioSource(song, play = false, backendTime = 0) {
         songCoverImageEl.src = song.artworkBase64 && song.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + song.artworkBase64 : '/logo.png';
     }
 
+    const faviconEl = document.getElementById('favicon');
+    if (faviconEl) {
+        faviconEl.href = song.artworkBase64 && song.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + song.artworkBase64 : '/logo.png';
+    }
+
     updateMusicBar();
     updatePageTitle({name: musicState.songName, artist: musicState.artist});
 
@@ -370,7 +375,9 @@ function UpdateAudioSource(song, play = false, backendTime = 0) {
 // ---------------- UI ----------------
         function refreshSongTable() {
             console.log("[musicBar.js] refreshSongTable called");
-            htmx.ajax('GET', '/api/music/ui/songs-fragment', {target: '#songTable tbody', swap: 'outerHTML'});
+            const playlistView = document.getElementById('playlistView');
+            const currentPlaylistId = playlistView ? playlistView.dataset.playlistId : '0';
+            htmx.ajax('GET', `/api/music/ui/tbody/${currentPlaylistId}`, {target: '#songTable tbody', swap: 'innerHTML'});
         }
 
         function updatePageTitle(song) {

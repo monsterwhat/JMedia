@@ -1,6 +1,7 @@
 import Controllers.PlaybackController;
 import Models.Playlist;
 import Models.Song;
+import Services.PlaylistService;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -10,10 +11,11 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
- 
+
 
 @Path("/api/music/ui")
 @Produces(MediaType.TEXT_HTML)
@@ -22,9 +24,10 @@ public class MusicUiApi {
     @Inject
     private PlaybackController playbackController;
 
-    // -------------------------
-    // Playlists fragment
-    // -------------------------
+    @Inject
+    private PlaylistService playlistService;
+
+    // Returns the list of playlists for the sidebar
     @GET
     @Path("/playlists-fragment")
     @Blocking
@@ -37,28 +40,22 @@ public class MusicUiApi {
 
             StringBuilder html = new StringBuilder("<ul>");
 
-            // ---- Add "All Songs" button at the top ----
-            html.append("<li><button hx-post='/api/music/ui/playlists/0/select' ")
-                    .append("hx-target='#songTable tbody' hx-swap='innerHTML' ")
-                    .append("hx-on::after-request='handlePlaylistSelection(0, \"All Songs\")'>")
+            html.append("<li><button hx-get='/api/music/ui/playlist-view/0' ")
+                    .append("hx-target='#playlistView' hx-swap='outerHTML'")
+                    .append(">")
                     .append("All Songs")
                     .append("</button></li>");
 
-            // ---- Render existing playlists ----
             for (Playlist p : playlists) {
                 if (p == null) {
                     continue;
                 }
                 String name = p.getName() != null ? p.getName() : "Unnamed Playlist";
-                html.append("<li><button hx-post='/api/music/ui/playlists/")
+                html.append("<li><button hx-get='/api/music/ui/playlist-view/")
                         .append(p.id)
-                        .append("/select' ")
-                        .append("hx-target='#songTable tbody' hx-swap='innerHTML' ")
-                        .append("hx-on::after-request='handlePlaylistSelection(")
-                        .append(p.id)
-                        .append(", \"")
-                        .append(name)
-                        .append("\")'>")
+                        .append("' ")
+                        .append("hx-target='#playlistView' hx-swap='outerHTML'")
+                        .append(">")
                         .append(name)
                         .append("</button></li>");
             }
@@ -67,141 +64,112 @@ public class MusicUiApi {
             return html.toString();
         } catch (Exception e) {
             e.printStackTrace();
-            return "<ul></ul>"; // Return empty list on error
+            return "<ul></ul>";
         }
     }
 
-    @POST
-    @Path("/playlists/{id}/select")
-    @Consumes(MediaType.WILDCARD)
-    @Blocking
-    public String selectPlaylist(@PathParam("id") Long id) {
-        if (id == null || id == 0) {
-            // Special case: All Songs
-            playbackController.selectPlaylistForBrowsing(null); // deselect any playlist
-            return songsFragment(); // return all songs
-        }
-
-        Playlist playlist = playbackController.findPlaylist(id);
-        if (playlist != null) {
-            playbackController.selectPlaylistForBrowsing(playlist);
-            return playlistSongsFragment(playlist);
-        }
-
-        return "<tbody></tbody>";
-    }
-
+    // Returns the main view component for a selected playlist
+    @GET
+    @Path("/playlist-view/{id}")
     @Produces(MediaType.TEXT_HTML)
     @Blocking
-    public String playlistSongsFragment(Playlist playlist) {
-        try {
-            if (playlist == null || playlist.getSongs() == null) {
-                return "<tbody></tbody>";
-            }
+    public String getPlaylistView(@PathParam("id") Long id) {
+        String playlistName;
+        long playlistId = (id == null) ? 0L : id;
 
-            List<Song> songs = playlist.getSongs();
-            Song currentSong = playbackController.getCurrentSong();
-            boolean isPlaying = playbackController.getState().isPlaying();
-
-            StringBuilder html = new StringBuilder("<tbody>");
-
-            for (Song s : songs) {
-                if (s == null) {
-                    continue;
-                }
-
-                String title = s.getTitle() != null ? s.getTitle() : "Unknown Title";
-                String artist = s.getArtist() != null ? s.getArtist() : "Unknown Artist";
-                int duration = s.getDurationSeconds() >= 0 ? s.getDurationSeconds() : 0;
-
-                boolean isCurrent = currentSong != null && s.id.equals(currentSong.id);
-                boolean showPause = isCurrent && isPlaying;
-
-                String buttonClass = "button is-success is-rounded is-small" + (showPause ? " is-loading" : "");
-
-                html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>")
-                        .append("<td>").append(title).append("</td>")
-                        .append("<td>").append(artist).append("</td>")
-                        .append("<td>").append(formatTime(duration)).append("</td>")
-                        .append("<td>")
-                        .append("<button class='button ").append(buttonClass).append("' ")
-                        .append("hx-post='/api/music/playback/select/").append(s.id).append("' ")
-                        .append("hx-trigger='click' ")
-                        .append("hx-swap='outerHTML' ")
-                        .append("hx-on:afterRequest=\"htmx.ajax('GET','/api/music/ui/songs-fragment',{target:'#songTable tbody'})\">")
-                        .append(showPause ? "Pause" : "Play")
-                        .append("</button>")
-                        .append("</td>")
-                        .append("</tr>");
-            }
-
-            html.append("</tbody>");
-            return html.toString();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "<tbody></tbody>"; // Return empty table body on error
+        if (playlistId == 0) {
+            playlistName = "All Songs";
+        } else {
+            Playlist playlist = playbackController.findPlaylist(playlistId);
+            playlistName = (playlist != null) ? playlist.getName() : "Playlist not found";
         }
+
+        String html = "<div class='column is-9 is-full-mobile' id='playlistView' data-playlist-id='" + playlistId + "'>" +
+            "<div class='card has-background-grey-darker has-text-white'>" +
+            "<header class='card-header'>" +
+            "<p id='playlistTitle' class='card-header-title has-text-white is-4'>" + playlistName + "</p>" +
+            "<button class='is-small is-rounded has-text-success ml-2' hx-post='/api/music/playback/queue-all/" + playlistId + "' hx-trigger='click' hx-swap='none' hx-on::after-request=\"htmx.ajax('GET','/api/music/ui/queue-fragment',{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/tbody/" + playlistId + "',{target:'#songTable tbody', swap:'innerHTML'});\">" +
+            "<i class='pi pi-play'></i> Play All" +
+            "</button>" +
+            "<button class='card-header-icon' aria-label='more options' id='toggleAllSongsBtn'>" +
+            "<span class='icon'><i class='pi pi-angle-down' aria-hidden='true'></i></span>" +
+            "</button>" +
+            "</header>" +
+            "<div class='card-content m-0 p-0' id='allSongsContent'>" +
+            "<div id='songListContainer' style='max-height: calc(100vh - 320px); overflow-y: auto;'>" +
+            "<table id='songTable' class='table is-fullwidth is-hoverable is-striped'>" +
+            "<thead><tr><th></th><th>Title / Artist</th><th>Date Added</th><th>Duration</th><th>Action</th></tr></thead>" +
+            "<tbody hx-get='/api/music/ui/tbody/" + playlistId + "' hx-trigger='load' hx-swap='innerHTML'>" +
+            "</tbody>" +
+            "</table>" +
+            "</div>" +
+            "</div>" +
+            "</div>" +
+            "</div>";
+
+        return html;
     }
 
-    // -------------------------
-    // Songs fragment
-    // -------------------------
+    // Returns the TBODY content for a given playlist
     @GET
-    @Path("/songs-fragment")
-    public String songsFragment() {
-        try {
-            List<Song> songs = playbackController.getSongs();
-            if (songs == null) {
-                songs = new ArrayList<>();
-            }
+    @Path("/tbody/{id}")
+    @Produces(MediaType.TEXT_HTML)
+    @Blocking
+    public String getPlaylistTbody(@PathParam("id") Long id) {
+        List<Song> songs;
+        long playlistId = (id == null) ? 0L : id;
 
-            Song currentSong = playbackController.getCurrentSong();
-            boolean isPlaying = playbackController.getState().isPlaying(); // get actual playback state
-
-            StringBuilder html = new StringBuilder("<tbody>");
-
-            for (Song s : songs) {
-                if (s == null) {
-                    continue;
-                }
-
-                String title = s.getTitle() != null ? s.getTitle() : "Unknown Title";
-                String artist = s.getArtist() != null ? s.getArtist() : "Unknown Artist";
-                int duration = s.getDurationSeconds() >= 0 ? s.getDurationSeconds() : 0;
-
-                boolean isCurrent = currentSong != null && s.id.equals(currentSong.id);
-                boolean showPause = isCurrent && isPlaying;
-
-                String buttonClass = "button is-success is-rounded is-small" + (showPause ? " is-loading" : "");
-
-                html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>");
-                String imageUrl = s.getArtworkBase64() != null && !s.getArtworkBase64().isEmpty() ? "data:image/jpeg;base64," + s.getArtworkBase64() : "/logo.png";
-                html.append("<td style='vertical-align: middle; text-align: center;'><figure class='image is-48x48'><img src='").append(imageUrl).append("'></figure></td>")
-                        .append("<td>")
-                        .append("<div>").append(title).append("</div>")
-                        .append("<div class='has-text-success is-size-7'>").append(artist).append("</div>")
-                        .append("</td>")
-                        .append("<td>").append(formatTime(duration)).append("</td>")
-                        .append("<td>")
-                        .append("<button class='button ").append(buttonClass).append("' ")
-                        .append("hx-post='/api/music/playback/select/").append(s.id).append("' ")
-                        .append("hx-trigger='click' ")
-                        .append("hx-swap='outerHTML' ")
-                        .append("hx-on:afterRequest=\"htmx.ajax('GET','/api/music/ui/songs-fragment',{target:'#songTable tbody'})\">")
-                        .append(showPause ? "Pause" : "Play")
-                        .append("</button>")
-                        .append("</td>")
-                        .append("</tr>");
-
-            }
-
-            html.append("</tbody>");
-            return html.toString();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "<tbody></tbody>"; // Return empty table body on error
+        if (playlistId == 0) {
+            songs = playbackController.getSongs();
+        } else {
+            Playlist playlist = playbackController.findPlaylist(playlistId);
+            songs = (playlist != null) ? playlist.getSongs() : new ArrayList<>();
         }
+        
+        if (songs == null) {
+            songs = new ArrayList<>();
+        }
+
+        Song currentSong = playbackController.getCurrentSong();
+        boolean isPlaying = playbackController.getState().isPlaying();
+        StringBuilder songRows = new StringBuilder();
+        for (Song s : songs) {
+            if (s == null) continue;
+
+            boolean isCurrent = currentSong != null && s.id.equals(currentSong.id);
+            boolean showPause = isCurrent && isPlaying;
+            String title = s.getTitle() != null ? s.getTitle() : "Unknown Title";
+            String artist = s.getArtist() != null ? s.getArtist() : "Unknown Artist";
+            String dateAdded = s.getDateAdded() != null ? s.getDateAdded().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")) : "Unknown";
+            int duration = s.getDurationSeconds();
+            String imageUrl = s.getArtworkBase64() != null && !s.getArtworkBase64().isEmpty() ? "data:image/jpeg;base64," + s.getArtworkBase64() : "/logo.png";
+
+            songRows.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>")
+                .append("<td style='vertical-align: middle; text-align: center; width: 5%;'><figure class='image is-48x48'><img src='").append(imageUrl).append("'/></figure></td>")
+                .append("<td><div>").append(title).append("</div><div class='has-text-success is-size-7'>").append(artist).append("</div></td>")
+                .append("<td>").append(dateAdded).append("</td>")
+                .append("<td>").append(formatTime(duration)).append("</td>")
+                .append("<td>");
+
+            String refreshScript = "htmx.ajax('GET','/api/music/ui/tbody/" + playlistId + "',{target:'#songTable tbody', swap:'innerHTML'})";
+
+            if (playlistId == 0) { // All Songs view
+                songRows.append("<button class='button is-success is-rounded is-small' hx-post='/api/music/playback/select/").append(s.id).append("' hx-trigger='click' hx-swap='none' hx-on:after-request=\"").append(refreshScript).append("\">").append(showPause ? "Pause" : "Play").append("</button>")
+                    .append("<button class='button is-info is-rounded is-small ml-1' hx-get='/api/music/ui/add-to-playlist-dialog/").append(s.id).append("' hx-target='#addToPlaylistModalContent' hx-trigger='click' hx-on::after-request=\"document.getElementById('addToPlaylistModal').classList.add('is-active')\">")
+                    .append("<i class='pi pi-plus'></i></button>");
+            } else { // Playlist view
+                songRows.append("<button class='button is-success is-rounded is-small' hx-post='/api/music/playback/select/").append(s.id).append("' hx-trigger='click' hx-swap='none' hx-on:after-request=\"").append(refreshScript).append("\">").append(showPause ? "Pause" : "Play").append("</button>")
+                    .append("<button class='button is-danger is-rounded is-small ml-1' hx-delete='/api/music/playlists/").append(playlistId).append("/songs/").append(s.id).append("' hx-trigger='click' hx-swap='outerHTML' hx-target='closest tr'>")
+                    .append("<i class='pi pi-minus'></i></button>");
+            }
+            songRows.append("</td></tr>");
+        }
+        return songRows.toString();
     }
+
+    // -------------------------
+    // Other fragments (Queue, etc.)
+    // -------------------------
 
     private String formatTime(double seconds) {
         int m = (int) (seconds / 60);
@@ -232,47 +200,39 @@ public class MusicUiApi {
                 }
 
                 if (currentSongIndexInQueue != -1) {
-                    // Add current song first
                     orderedQueue.add(queue.get(currentSongIndexInQueue));
-                    // Add songs after current
                     for (int i = currentSongIndexInQueue + 1; i < queue.size(); i++) {
                         orderedQueue.add(queue.get(i));
                     }
-                    // Add songs before current
                     for (int i = 0; i < currentSongIndexInQueue; i++) {
                         orderedQueue.add(queue.get(i));
                     }
                 } else {
-                    // Current song not found in queue, just use original queue
                     orderedQueue.addAll(queue);
                 }
             } else {
-                // No current song or empty queue, just use original queue
                 orderedQueue.addAll(queue);
             }
 
             StringBuilder html = new StringBuilder("<tbody>");
             int index = 0;
-            for (Song s : orderedQueue) { // Iterate over orderedQueue
+            for (Song s : orderedQueue) {
                 if (s == null) {
                     continue;
                 }
 
                 String title = s.getTitle() != null ? s.getTitle() : "Unknown Title";
                 String artist = s.getArtist() != null ? s.getArtist() : "Unknown Artist";
-
                 boolean isCurrent = currentSong != null && s.id.equals(currentSong.id);
-
-                // The originalIndex calculation seems to be for reverse order, which is not needed now.
-                // The 'index' variable in the loop is the correct one for skip-to/remove actions.
+                int originalIndex = queue.indexOf(s);
 
                 String imageUrl = s.getArtworkBase64() != null && !s.getArtworkBase64().isEmpty() ? "data:image/jpeg;base64," + s.getArtworkBase64() : "/logo.png";
-                html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>")
+                html.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("' >")
                         .append("<td style='vertical-align: middle; text-align: center;'><figure class='image is-24x24'><img src='").append(imageUrl).append("'/></figure></td>")
                         .append("<td class='is-size-7' style='width: 75%;'><span>").append(title).append("</span><br><span class='has-text-success is-size-7'>").append(artist).append("</span></td>")
                         .append("<td class='has-text-right' style='width: 25%;'>")
-                        .append("<i class='pi pi-step-forward icon has-text-primary is-clickable' hx-post='/api/music/queue/skip-to/").append(index).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.trigger(\"body\", \"queueChanged\")'></i>")
-                        .append("<i class='pi pi-times icon has-text-danger is-clickable' hx-post='/api/music/queue/remove/").append(index).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.ajax(\"GET\",\"/api/music/ui/queue-fragment\", {target: \"#songQueueTable tbody\", swap: \"innerHTML\"})' hx-headers='{\"Content-Type\": \"application/json\"}'></i>")
+                        .append("<i class='pi pi-step-forward icon has-text-primary is-clickable' hx-post='/api/music/queue/skip-to/").append(originalIndex).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.trigger(\"body\", \"queueChanged\")'></i>")
+                        .append("<i class='pi pi-times icon has-text-danger is-clickable' hx-post='/api/music/queue/remove/").append(originalIndex).append("' hx-trigger='click' hx-swap='none' hx-on::after-request='htmx.ajax(\"GET\",\"/api/music/ui/queue-fragment\", {target: \"#songQueueTable tbody\", swap: \"innerHTML\"})' hx-headers='{\"Content-Type\": \"application/json\"}'></i>")
                         .append("</td>")
                         .append("</tr>");
                 index++;
@@ -282,65 +242,66 @@ public class MusicUiApi {
             return html.toString();
         } catch (Exception e) {
             e.printStackTrace();
-            return "<tbody></tbody>"; // Return empty table body on error
+            return "<tbody></tbody>";
         }
     }
 
     @GET
-    @Path("/all-songs-for-playlist-fragment/{playlistId}")
+    @Path("/add-to-playlist-dialog/{songId}")
     @Blocking
-    public String allSongsForPlaylistFragment(@PathParam("playlistId") Long playlistId) {
+    public String addToPlaylistDialog(@PathParam("songId") Long songId) {
         try {
-            List<Song> allSongs = playbackController.getSongs();
-            if (allSongs == null) {
-                allSongs = new ArrayList<>();
+            List<Playlist> allPlaylists = playbackController.getPlaylists();
+            if (allPlaylists == null) {
+                allPlaylists = new ArrayList<>();
             }
 
-            Playlist currentPlaylist = null;
-            if (playlistId != null && playlistId != 0) {
-                currentPlaylist = playbackController.findPlaylist(playlistId);
-            }
+            StringBuilder html = new StringBuilder("<div class='modal-card' style='width: 480px;'>");
+            html.append("<header class='modal-card-head'>");
+            html.append("<p class='modal-card-title'>Add to Playlist</p>");
+            html.append("<button class='delete' aria-label='close' onclick='document.getElementById(\"addToPlaylistModal\").classList.remove(\"is-active\")'></button>");
+            html.append("</header>");
+            html.append("<section class='modal-card-body'>");
+            html.append("<div class='field'>");
 
-            if (currentPlaylist == null) {
-                return ""; // Don't show this fragment if no playlist is selected
-            }
-
-            StringBuilder html = new StringBuilder("<table class='table is-fullwidth is-hoverable is-striped'>");
-            html.append("<thead><tr><th>Title</th><th>Artist</th><th>Duration</th><th>Action</th></tr></thead><tbody>");
-
-            for (Song s : allSongs) {
-                if (s == null) {
+            for (Playlist p : allPlaylists) {
+                if (p == null) {
                     continue;
                 }
+                String name = p.getName() != null ? p.getName() : "Unnamed Playlist";
+                boolean isSongInPlaylist = p.getSongs() != null && p.getSongs().stream().anyMatch(s -> s.id.equals(songId));
+                String checked = isSongInPlaylist ? "checked" : "";
 
-                String title = s.getTitle() != null ? s.getTitle() : "Unknown Title";
-                String artist = s.getArtist() != null ? s.getArtist() : "Unknown Artist";
-                int duration = s.getDurationSeconds() >= 0 ? s.getDurationSeconds() : 0;
-
-                html.append("<tr>")
-                        .append("<td>").append(title).append("</td>")
-                        .append("<td>").append(artist).append("</td>")
-                        .append("<td>").append(formatTime(duration)).append("</td>")
-                        .append("<td>")
-                        .append("<button class='button is-small is-primary' hx-post='/api/music/playback/select/").append(s.id).append("' hx-trigger='click' hx-swap='none'>")
-                        .append("<i class='pi pi-play'></i>")
-                        .append("</button>");
-
-                if (!currentPlaylist.getSongs().contains(s)) {
-                    html.append("<button class='button is-small is-success' hx-post='/api/music/playlists/").append(playlistId).append("/songs/").append(s.id).append("' hx-trigger='click' hx-swap='outerHTML' hx-target='this'>")
-                            .append("<i class='pi pi-plus'></i>")
-                            .append("</button>");
-                }
-
-                html.append("</td>")
-                        .append("</tr>");
+                html.append("<div class='control'>");
+                html.append("<label class='checkbox'>");
+                html.append("<input type='checkbox' ").append(checked).append(" ");
+                html.append("hx-post='/api/music/ui/playlists/").append(p.id).append("/songs/").append(songId).append("/toggle' ");
+                html.append("hx-trigger='change' hx-swap='none'>");
+                html.append(" ").append(name);
+                html.append("</label>");
+                html.append("</div>");
             }
 
-            html.append("</tbody></table>");
+            html.append("</div>");
+            html.append("</section>");
+            html.append("<footer class='modal-card-foot'>");
+            html.append("<button class='button' onclick='document.getElementById(\"addToPlaylistModal\").classList.remove(\"is-active\")'>Close</button>");
+            html.append("</footer>");
+            html.append("</div>");
+
             return html.toString();
+
         } catch (Exception e) {
             e.printStackTrace();
-            return ""; // Return empty on error
+            return "<div class='modal-card'><header class='modal-card-head'><p class='modal-card-title'>Error</p></header><section class='modal-card-body'><p>Could not load playlists.</p></section><footer class='modal-card-foot'><button class='button' onclick='document.getElementById(\"addToPlaylistModal\").classList.remove(\"is-active\")'>Close</button></footer></div>";
         }
+    }
+
+    @POST
+    @Path("/playlists/{playlistId}/songs/{songId}/toggle")
+    @Consumes(MediaType.WILDCARD)
+    @Blocking
+    public void toggleSongInPlaylist(@PathParam("playlistId") Long playlistId, @PathParam("songId") Long songId) {
+        playlistService.toggleSongInPlaylist(playlistId, songId);
     }
 }

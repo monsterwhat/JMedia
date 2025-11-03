@@ -15,7 +15,7 @@
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
 
-        <link rel="icon" type="image/x-icon" href="logo.png">
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <style>
             html, body {
@@ -85,7 +85,7 @@
                 <div class="columns p-0 m-0" style="width:100%;">
                     
                     <!-- Playlist Sidebar -->
-                    <div class="column is-3 is-hidden-mobile is-mobile-sidebar" id="playlistSidebar">
+                    <div class="column is-3 is-full-mobile" id="playlistSidebar">
                         <div class="card has-background-grey-darker has-text-white" style="max-height: calc(45vh - 100px);">
                             <header class="card-header">
                                 <p class="card-header-title has-text-white">
@@ -168,6 +168,14 @@
                                 <button id="clearQueueBtn" class="button is-danger is-fullwidth mt-2">Clear Queue</button>
                             </div>
                         </div>
+
+                        <!-- Add to Playlist Modal -->
+                        <div id="addToPlaylistModal" class="modal">
+                            <div class="modal-background" onclick="document.getElementById('addToPlaylistModal').classList.remove('is-active')"></div>
+                            <div id="addToPlaylistModalContent">
+                                <!-- Content will be loaded here via HTMX -->
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Playlist View -->
@@ -185,20 +193,25 @@
                                 </button>
                             </header>
                             <div class="card-content m-0 p-0" id="allSongsContent">
+                                <div id="allSongsForPlaylistContainer" style="display: none;">
+                                    <div id="allSongsForPlaylist">
+                                        <!-- Content for all songs in a specific playlist will be loaded here -->
+                                    </div>
+                                </div>
                                 <div id="songListContainer" style="max-height: calc(100vh - 320px); overflow-y: auto;">
-                                    <table id="songTable" class="table is-fullwidth is-hoverable is-striped"
-                                           hx-get="/api/music/ui/songs-fragment"
-                                           hx-trigger="load"
-                                           hx-swap="innerHTML">
+                                    <table id="songTable" class="table is-fullwidth is-hoverable is-striped">
                                         <thead>
                                             <tr>
                                                 <th></th>
                                                 <th>Title / Artist</th>
+                                                <th>Date Added</th>
                                                 <th>Duration</th>
                                                 <th>Action</th>
                                             </tr>
                                         </thead>
-                                        <tbody>
+                                        <tbody hx-get="/api/music/ui/tbody/0"
+                                           hx-trigger="load"
+                                           hx-swap="innerHTML">
                                             <!-- Songs populated via HTMX -->
                                         </tbody>
                                     </table>

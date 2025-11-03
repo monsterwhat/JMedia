@@ -103,27 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-function handlePlaylistSelection(playlistId, playlistName) {
-    const allSongsContainer = document.getElementById('allSongsForPlaylistContainer');
-    const allSongsForPlaylist = document.getElementById('allSongsForPlaylist');
 
-    if (playlistId === 0) {
-        // "All Songs" selected
-        allSongsContainer.style.display = 'none';
-        allSongsForPlaylist.innerHTML = '';
-        document.getElementById('playlistTitle').innerText = 'All Songs';
-        document.getElementById('songListContainer').style.maxHeight = 'calc(100vh - 300px)';
-    } else {
-        // Playlist selected
-        allSongsContainer.style.display = 'block';
-        htmx.ajax('GET', `/api/music/ui/all-songs-for-playlist-fragment/${playlistId}`, {
-            target: '#allSongsForPlaylist',
-            swap: 'innerHTML'
-        });
-        document.getElementById('playlistTitle').innerText = playlistName;
-        document.getElementById('songListContainer').style.maxHeight = 'calc(50vh - 150px)';
-    }
-}
 
 document.body.addEventListener('htmx:afterRequest', function(evt) {
     const requestPath = evt.detail.requestConfig.path;

@@ -178,9 +178,27 @@ public class MusicApi {
 
     @DELETE
     @Path("/playlists/{playlistId}/songs/{songId}")
+    @Consumes(MediaType.WILDCARD)
     public Response removeSongFromPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid) {
         Playlist p = requirePlaylist(pid);
-        p.getSongs().removeIf(song -> song.id.equals(sid));
+        playbackController.updatePlaylist(p);
+        return Response.ok().build();
+    }
+
+    @POST
+    @Path("/playlists/{playlistId}/songs/{songId}/toggle")
+    @Consumes(MediaType.WILDCARD)
+    public Response toggleSongInPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid) {
+        Playlist p = requirePlaylist(pid);
+        Song s = requireSong(sid);
+
+        boolean songExistsInPlaylist = p.getSongs().stream().anyMatch(song -> song.id.equals(sid));
+
+        if (songExistsInPlaylist) {
+            p.getSongs().removeIf(song -> song.id.equals(sid));
+        } else {
+            p.getSongs().add(s);
+        }
         playbackController.updatePlaylist(p);
         return Response.ok(ApiResponse.success(p)).build();
     }

@@ -3,10 +3,8 @@ package Models;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 
 @Data
-@EqualsAndHashCode(callSuper = false) 
 @Entity
 public class Song extends PanacheEntity {
 
@@ -25,4 +23,17 @@ public class Song extends PanacheEntity {
     private byte[] artwork;
 
     // Playlist foreign key is managed by @JoinColumn in Playlist
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Song song = (Song) o;
+        return id != null && id.equals(song.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 0;
+    }
 }

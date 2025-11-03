@@ -76,4 +76,13 @@
                 <goal>build</goal>
             </goals>
         </action>
+        <action>
+            <actionName>CUSTOM-Build UberJar</actionName>
+            <displayName>Build UberJar</displayName>
+            <goals>
+                <goal>clean</goal>
+                <goal>package</goal>
+                <goal>-Dquarkus.package.jar.type=uber-jar</goal>
+            </goals>
+        </action>
     </actions>
