@@ -28,7 +28,7 @@ This project leverages modern technologies to deliver a seamless user experience
 JMusicClient is designed for easy installation and use by end-users. Pre-built executables are available in the [GitHub Releases](https://github.com/monsterwhat/JMusic/releases) section.
 
 *   **Windows Executable:** Download the `JMusic.exe` from the releases page. Simply run the executable to start the application.
-*   **Cross-Platform Uberjar:** Download the `JMusicClient-runner.jar ` from the releases page. Ensure you have Java 21 or newer installed on your system. You can run it via the command line:
+*   **Cross-Platform Uberjar:** Download the `JMusicClient-runner.jar ` from the releases page. Ensure you have Java 21 or newer installed on your system. You can run it via the command line or double clicking it:
     ```bash
     java -jar JMusicClient-runner.jar
     ```
