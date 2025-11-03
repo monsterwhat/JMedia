@@ -1,3 +1,4 @@
+
 import Controllers.PlaybackController;
 import Models.Playlist;
 import Models.Song;
@@ -15,7 +16,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
 
 @Path("/api/music/ui")
 @Produces(MediaType.TEXT_HTML)
@@ -38,37 +38,32 @@ public class MusicUiApi {
                 playlists = new ArrayList<>();
             }
 
-            StringBuilder html = new StringBuilder("<ul>");
+            StringBuilder html = new StringBuilder("<div id=\"sidebarPlaylistListContainer\">");
+            html.append("<table class=\"table is-fullwidth is-hoverable is-striped\">");
+            html.append("<tbody>");
 
-            html.append("<li><button hx-get='/api/music/ui/playlist-view/0' ")
-                    .append("hx-target='#playlistView' hx-swap='outerHTML'")
-                    .append(">")
-                    .append("All Songs")
-                    .append("</button></li>");
+            // "All Songs" entry
+            html.append("<tr><td style=\"vertical-align: middle;\"><button class=\"button is-ghost is-fullwidth has-text-left\" hx-get='/api/music/ui/playlist-view/0' hx-target='#playlistView' hx-swap='outerHTML'>\nAll Songs</button></td><td style=\"vertical-align: middle;\"></td></tr>"); // Empty action column for "All Songs"
 
             for (Playlist p : playlists) {
                 if (p == null) {
                     continue;
                 }
                 String name = p.getName() != null ? p.getName() : "Unnamed Playlist";
-                html.append("<li><button hx-get='/api/music/ui/playlist-view/")
-                        .append(p.id)
-                        .append("' ")
-                        .append("hx-target='#playlistView' hx-swap='outerHTML'")
-                        .append(">")
-                        .append(name)
-                        .append("</button></li>");
+                html.append("<tr><td style=\"vertical-align: middle;\"><button class=\"button is-ghost is-fullwidth has-text-left\" hx-get='/api/music/ui/playlist-view/").append(p.id).append("' hx-target='#playlistView' hx-swap='outerHTML'>\n").append(name).append("</button></td>");
+                html.append("<td style=\"vertical-align: middle;\"><div class=\"has-text-right\"><i class=\"pi pi-trash has-text-danger is-clickable\" hx-delete=\"/api/music/playlists/").append(p.id).append("\" hx-confirm=\"Are you sure you want to delete playlist '").append(name).append("'?\" hx-target=\"closest tr\" hx-swap=\"outerHTML\" hx-on::after-request=\"htmx.ajax('GET','/api/music/ui/playlists-fragment',{target:'#sidebarPlaylistList', swap:'innerHTML'});\"></i></div></td></tr>");
             }
 
-            html.append("</ul>");
+            html.append("</tbody>");
+            html.append("</table>");
+            html.append("</div>"); // Close sidebarPlaylistListContainer
             return html.toString();
         } catch (Exception e) {
             e.printStackTrace();
-            return "<ul></ul>";
+            return "<div></div>"; // Return an empty div on error
         }
-    }
+    }    // Returns the main view component for a selected playlist
 
-    // Returns the main view component for a selected playlist
     @GET
     @Path("/playlist-view/{id}")
     @Produces(MediaType.TEXT_HTML)
@@ -84,28 +79,28 @@ public class MusicUiApi {
             playlistName = (playlist != null) ? playlist.getName() : "Playlist not found";
         }
 
-        String html = "<div class='column is-9 is-full-mobile' id='playlistView' data-playlist-id='" + playlistId + "'>" +
-            "<div class='card has-background-grey-darker has-text-white'>" +
-            "<header class='card-header'>" +
-            "<p id='playlistTitle' class='card-header-title has-text-white is-4'>" + playlistName + "</p>" +
-            "<button class='is-small is-rounded has-text-success ml-2' hx-post='/api/music/playback/queue-all/" + playlistId + "' hx-trigger='click' hx-swap='none' hx-on::after-request=\"htmx.ajax('GET','/api/music/ui/queue-fragment',{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/tbody/" + playlistId + "',{target:'#songTable tbody', swap:'innerHTML'});\">" +
-            "<i class='pi pi-play'></i> Play All" +
-            "</button>" +
-            "<button class='card-header-icon' aria-label='more options' id='toggleAllSongsBtn'>" +
-            "<span class='icon'><i class='pi pi-angle-down' aria-hidden='true'></i></span>" +
-            "</button>" +
-            "</header>" +
-            "<div class='card-content m-0 p-0' id='allSongsContent'>" +
-            "<div id='songListContainer' style='max-height: calc(100vh - 320px); overflow-y: auto;'>" +
-            "<table id='songTable' class='table is-fullwidth is-hoverable is-striped'>" +
-            "<thead><tr><th></th><th>Title / Artist</th><th>Date Added</th><th>Duration</th><th>Action</th></tr></thead>" +
-            "<tbody hx-get='/api/music/ui/tbody/" + playlistId + "' hx-trigger='load' hx-swap='innerHTML'>" +
-            "</tbody>" +
-            "</table>" +
-            "</div>" +
-            "</div>" +
-            "</div>" +
-            "</div>";
+        String html = "<div class='column is-9 is-full-mobile' id='playlistView' data-playlist-id='" + playlistId + "'>"
+                + "<div class='card has-background-grey-darker has-text-white'>"
+                + "<header class='card-header'>"
+                + "<p id='playlistTitle' class='card-header-title has-text-white is-4'>" + playlistName + "</p>"
+                + "<button class='is-small is-rounded has-text-success ml-2' hx-post='/api/music/playback/queue-all/" + playlistId + "' hx-trigger='click' hx-swap='none' hx-on::after-request=\"htmx.ajax('GET','/api/music/ui/queue-fragment',{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/tbody/" + playlistId + "',{target:'#songTable tbody', swap:'innerHTML'});\">"
+                + "<i class='pi pi-play'></i> Play All"
+                + "</button>"
+                + "<button class='card-header-icon' aria-label='more options' id='toggleAllSongsBtn'>"
+                + "<span class='icon'><i class='pi pi-angle-down' aria-hidden='true'></i></span>"
+                + "</button>"
+                + "</header>"
+                + "<div class='card-content m-0 p-0' id='allSongsContent'>"
+                + "<div id='songListContainer' style='max-height: calc(100vh - 320px); overflow-y: auto;'>"
+                + "<table id='songTable' class='table is-fullwidth is-hoverable is-striped'>"
+                + "<thead><tr><th></th><th>Title / Artist</th><th>Date Added</th><th>Duration</th><th>Action</th></tr></thead>"
+                + "<tbody hx-get='/api/music/ui/tbody/" + playlistId + "' hx-trigger='load' hx-swap='innerHTML'>"
+                + "</tbody>"
+                + "</table>"
+                + "</div>"
+                + "</div>"
+                + "</div>"
+                + "</div>";
 
         return html;
     }
@@ -143,26 +138,26 @@ public class MusicUiApi {
             String dateAdded = s.getDateAdded() != null ? s.getDateAdded().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")) : "Unknown";
             int duration = s.getDurationSeconds();
             String imageUrl = s.getArtworkBase64() != null && !s.getArtworkBase64().isEmpty() ? "data:image/jpeg;base64," + s.getArtworkBase64() : "/logo.png";
-
+            
             songRows.append("<tr class='").append(isCurrent ? "has-background-grey" : "").append("'>")
                 .append("<td style='vertical-align: middle; text-align: center; width: 5%;'><figure class='image is-48x48'><img src='").append(imageUrl).append("'/></figure></td>")
-                .append("<td><div>").append(title).append("</div><div class='has-text-success is-size-7'>").append(artist).append("</div></td>")
-                .append("<td>").append(dateAdded).append("</td>")
-                .append("<td>").append(formatTime(duration)).append("</td>")
-                .append("<td>");
+                .append("<td style='vertical-align: middle;'><div>").append(title).append("</div><div class='has-text-success is-size-7'>").append(artist).append("</div></td>")
+                .append("<td style='vertical-align: middle;'>").append(dateAdded).append("</td>")
+                .append("<td style='vertical-align: middle;'>").append(formatTime(duration)).append("</td>")
+                .append("<td style='vertical-align: middle;'><div class=\"is-flex is-align-items-center is-justify-content-center\">"); // Added div with flex classes
 
             String refreshScript = "htmx.ajax('GET','/api/music/ui/tbody/" + playlistId + "',{target:'#songTable tbody', swap:'innerHTML'})";
 
             if (playlistId == 0) { // All Songs view
                 songRows.append("<button class='button is-success is-rounded is-small' hx-post='/api/music/playback/select/").append(s.id).append("' hx-trigger='click' hx-swap='none' hx-on:after-request=\"").append(refreshScript).append("\">").append(showPause ? "Pause" : "Play").append("</button>")
-                    .append("<button class='button is-info is-rounded is-small ml-1' hx-get='/api/music/ui/add-to-playlist-dialog/").append(s.id).append("' hx-target='#addToPlaylistModalContent' hx-trigger='click' hx-on::after-request=\"document.getElementById('addToPlaylistModal').classList.add('is-active')\">")
-                    .append("<i class='pi pi-plus'></i></button>");
+                    .append("<button class='has-text-info is-small ml-1' hx-get='/api/music/ui/add-to-playlist-dialog/").append(s.id).append("' hx-target='#addToPlaylistModalContent' hx-trigger='click' hx-on::after-request=\"document.getElementById('addToPlaylistModal').classList.add('is-active')\">")
+                    .append("<i class='pi pi-plus-circle'></i></button>");
             } else { // Playlist view
                 songRows.append("<button class='button is-success is-rounded is-small' hx-post='/api/music/playback/select/").append(s.id).append("' hx-trigger='click' hx-swap='none' hx-on:after-request=\"").append(refreshScript).append("\">").append(showPause ? "Pause" : "Play").append("</button>")
-                    .append("<button class='button is-danger is-rounded is-small ml-1' hx-delete='/api/music/playlists/").append(playlistId).append("/songs/").append(s.id).append("' hx-trigger='click' hx-swap='outerHTML' hx-target='closest tr'>")
-                    .append("<i class='pi pi-minus'></i></button>");
+                    .append("<button class='has-text-danger is-small ml-1' hx-delete='/api/music/playlists/").append(playlistId).append("/songs/").append(s.id).append("' hx-trigger='click' hx-swap='outerHTML' hx-target='closest tr'>")
+                    .append("<i class='pi pi-minus-circle'></i></button>");
             }
-            songRows.append("</td></tr>");
+            songRows.append("</div></td></tr>");
         }
         return songRows.toString();
     }
@@ -170,7 +165,6 @@ public class MusicUiApi {
     // -------------------------
     // Other fragments (Queue, etc.)
     // -------------------------
-
     private String formatTime(double seconds) {
         int m = (int) (seconds / 60);
         int s = (int) (seconds % 60);
