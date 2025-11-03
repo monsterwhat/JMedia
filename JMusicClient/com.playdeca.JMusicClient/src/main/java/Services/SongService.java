@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @ApplicationScoped
@@ -12,6 +13,9 @@ public class SongService {
 
     @PersistenceContext
     private EntityManager em;
+
+    @Inject
+    PlaylistService playlistService;
 
     @Transactional
     public void save(Song song) {
@@ -24,6 +28,7 @@ public class SongService {
 
     @Transactional
     public void clearAllSongs() {
+        playlistService.clearAllPlaylistSongs();
         em.createQuery("DELETE FROM Song").executeUpdate();
     }
 

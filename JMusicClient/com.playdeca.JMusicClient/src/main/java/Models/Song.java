@@ -22,8 +22,6 @@ public class Song extends PanacheEntity {
     @Transient
     private byte[] artwork;
 
-    // Playlist foreign key is managed by @JoinColumn in Playlist
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

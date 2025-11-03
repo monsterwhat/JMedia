@@ -43,15 +43,15 @@ public class MusicUiApi {
             html.append("<tbody>");
 
             // "All Songs" entry
-            html.append("<tr><td style=\"vertical-align: middle;\"><button class=\"button is-ghost is-fullwidth has-text-left\" hx-get='/api/music/ui/playlist-view/0' hx-target='#playlistView' hx-swap='outerHTML'>\nAll Songs</button></td><td style=\"vertical-align: middle;\"></td></tr>"); // Empty action column for "All Songs"
+            html.append("<tr><td style=\"vertical-align: middle;\"><button class=\"button is-ghost is-fullwidth has-text-left has-text-primary\" hx-get='/api/music/ui/playlist-view/0' hx-target='#playlistView' hx-swap='outerHTML'>\nAll Songs</button></td><td style=\"vertical-align: middle;\"></td></tr>"); // Empty action column for "All Songs"
 
             for (Playlist p : playlists) {
                 if (p == null) {
                     continue;
                 }
                 String name = p.getName() != null ? p.getName() : "Unnamed Playlist";
-                html.append("<tr><td style=\"vertical-align: middle;\"><button class=\"button is-ghost is-fullwidth has-text-left\" hx-get='/api/music/ui/playlist-view/").append(p.id).append("' hx-target='#playlistView' hx-swap='outerHTML'>\n").append(name).append("</button></td>");
-                html.append("<td style=\"vertical-align: middle;\"><div class=\"has-text-right\"><i class=\"pi pi-trash has-text-danger is-clickable\" hx-delete=\"/api/music/playlists/").append(p.id).append("\" hx-confirm=\"Are you sure you want to delete playlist '").append(name).append("'?\" hx-target=\"closest tr\" hx-swap=\"outerHTML\" hx-on::after-request=\"htmx.ajax('GET','/api/music/ui/playlists-fragment',{target:'#sidebarPlaylistList', swap:'innerHTML'});\"></i></div></td></tr>");
+                html.append("<tr><td style=\"vertical-align: middle;\"><button class=\"button is-ghost is-fullwidth has-text-left has-text-primary\" hx-get='/api/music/ui/playlist-view/").append(p.id).append("' hx-target='#playlistView' hx-swap='outerHTML'>\n").append(name).append("</button></td>");
+                html.append("<td style=\"vertical-align: middle;\"><div class=\"has-text-right\"><i class=\"pi pi-trash has-text-danger is-clickable\" hx-delete=\"/api/music/playlists/").append(p.id).append("\" hx-confirm=\"Are you sure you want to delete playlist '").append(name).append("'?\" hx-swap=\"none\" hx-on::after-request=\"htmx.ajax('GET','/api/music/ui/playlists-fragment',{target:'#sidebarPlaylistList', swap:'innerHTML'});\"></i></div></td></tr>");
             }
 
             html.append("</tbody>");

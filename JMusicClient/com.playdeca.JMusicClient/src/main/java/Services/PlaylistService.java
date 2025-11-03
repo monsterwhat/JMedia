@@ -31,6 +31,13 @@ public class PlaylistService {
     public void delete(Playlist playlist) {
         if (playlist != null) {
             Playlist managed = em.contains(playlist) ? playlist : em.merge(playlist);
+
+            // Disassociate songs from the playlist before deleting the playlist
+            for (Song song : managed.getSongs()) {
+                em.merge(song); // Persist the change to the song
+            }
+            managed.getSongs().clear(); // Clear the collection to remove join table entries
+
             em.remove(managed);
         }
     }
@@ -41,7 +48,7 @@ public class PlaylistService {
 
     public List<Playlist> findAll() {
         return em.createQuery("SELECT p FROM Playlist p", Playlist.class)
-                 .getResultList();
+                .getResultList();
     }
 
     @Transactional
@@ -56,6 +63,12 @@ public class PlaylistService {
                 playlist.getSongs().add(song);
             }
             em.merge(playlist);
+            em.flush();
         }
+    }
+
+    @Transactional
+    public void clearAllPlaylistSongs() {
+        em.createNativeQuery("DELETE FROM playlist_song").executeUpdate();
     }
 }

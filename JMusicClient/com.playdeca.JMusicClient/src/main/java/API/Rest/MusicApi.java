@@ -158,6 +158,7 @@ public class MusicApi {
 
     @DELETE
     @Path("/playlists/{id}")
+    @Consumes(MediaType.WILDCARD)
     public Response deletePlaylist(@PathParam("id") Long id) {
         Playlist p = requirePlaylist(id);
         playbackController.deletePlaylist(p);
