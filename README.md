@@ -80,6 +80,13 @@ This means:
 
 ---
 
+## Features
+
+JMusic is packed with music playback, library management, and peer-to-peer sharing features.  
+For a full list of features, see the [Features Overview](https://github.com/monsterwhat/JMusic/blob/main/features.md).
+
+---
+
 ## 🚀 Installation
 
 ### 🔹 **Prebuilt Executables**
