@@ -2,9 +2,8 @@ package Services;
 
 import Models.PlaybackState;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import jakarta.inject.Provider;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 
@@ -13,12 +12,11 @@ public class PlaybackStateService {
 
     private static final Long SINGLETON_ID = 1L;
 
-    @Inject
-    Provider<EntityManager> emProvider;
+    @PersistenceContext
+    private EntityManager em;
 
     @Transactional
-    public synchronized PlaybackState getState() {
-        EntityManager em = emProvider.get();
+    public synchronized PlaybackState getOrCreateState() {
         PlaybackState state = em.find(PlaybackState.class, SINGLETON_ID);
         if (state == null) {
             state = new PlaybackState();
@@ -33,12 +31,11 @@ public class PlaybackStateService {
     }
 
     @Transactional
-    public synchronized void updateState(PlaybackState newState) {
+    public synchronized void saveState(PlaybackState newState) {
         if (newState == null) {
             return;
         }
         newState.setId(SINGLETON_ID);
-        EntityManager em = emProvider.get();
         em.merge(newState);
         em.flush();
     }
@@ -47,7 +44,6 @@ public class PlaybackStateService {
     public synchronized void resetState() {
         PlaybackState state = new PlaybackState();
         state.setId(SINGLETON_ID);
-        EntityManager em = emProvider.get();
         em.merge(state);
         em.flush();
     }

@@ -5,17 +5,13 @@ import Models.PlaybackState;
 import Models.Playlist;
 import Models.Settings;
 import Models.Song;
-import Services.PlaybackStateService;
 import Services.PlaylistService;
 import Services.SongService;
 import Services.PlaybackHistoryService;
 import Models.PlaybackHistory;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
@@ -24,16 +20,12 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PlaybackController {
 
-    private static final long MIN_SAVE_INTERVAL_MS = 1000; // 1 second between saves
-
-    private final ObjectMapper mapper = new ObjectMapper();
     private PlaybackState memoryState;
-    private long lastSaveTime = 0;
-    private List<Long> shuffledCue;
-    private int shuffledCueIndex = -1;
 
     @Inject
-    PlaybackStateService playbackStateService;
+    PlaybackPersistenceController playbackPersistenceController;
+    @Inject
+    PlaybackQueueController playbackQueueController;
     @Inject
     SettingsController currentSettings;
     @Inject
@@ -53,7 +45,7 @@ public class PlaybackController {
 
     @PostConstruct
     public void init() {
-        memoryState = playbackStateService.getState();
+        memoryState = playbackPersistenceController.loadState();
         if (memoryState == null) {
             memoryState = new PlaybackState();
         }
@@ -73,16 +65,9 @@ public class PlaybackController {
             memoryState.setCueIndex(0);
         }
 
-        memoryState.setPlaying(false); // Always start in a paused state
-        updateState(memoryState, false); // Persist initial state without broadcasting
+        memoryState.setPlaying(false);
 
         System.out.println("[PlaybackController] Initial state loaded: " + safeSummary(memoryState));
-    }
-
-    @PreDestroy
-    public void onShutdown() {
-        System.out.println("[PlaybackController] Shutdown: forcing final persist...");
-        persistMemoryState(true);
     }
 
     // -----------------------------
@@ -90,7 +75,7 @@ public class PlaybackController {
     // -----------------------------
     public synchronized PlaybackState getState() {
         if (memoryState == null) {
-            memoryState = playbackStateService.getState();
+            memoryState = playbackPersistenceController.loadState();
             if (memoryState == null) {
                 memoryState = new PlaybackState();
             }
@@ -100,7 +85,7 @@ public class PlaybackController {
 
     public synchronized void updateState(PlaybackState newState, boolean shouldBroadcast) {
         if (memoryState == null) {
-            memoryState = playbackStateService.getState();
+            memoryState = playbackPersistenceController.loadState();
         }
 
         if (newState.getCurrentSongId() != null) {
@@ -131,85 +116,10 @@ public class PlaybackController {
 
         memoryState = newState;
 
-        maybePersistThrottled(); // persist only
+        playbackPersistenceController.maybePersist(memoryState); // persist only
 
         if (shouldBroadcast && ws != null) {
             ws.broadcastAll();
-        }
-    }
-
-    // Updated maybePersistThrottled()
-    private synchronized void maybePersistThrottled() {
-        long now = System.currentTimeMillis();
-        if (now - lastSaveTime >= MIN_SAVE_INTERVAL_MS) {
-            persistMemoryState(false);
-        }
-    }
-
-    private PlaybackState lastPersistedState = null;
-
-    // Updated persistMemoryState()
-    private synchronized void persistMemoryState(boolean force) {
-        if (memoryState == null) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-
-        if (!force && now - lastSaveTime < MIN_SAVE_INTERVAL_MS) {
-            return;
-        }
-
-        // Avoid persisting if nothing has changed
-        if (!force && memoryState.equals(lastPersistedState)) {
-            return;
-        }
-
-        System.out.println("[PlaybackController] Persisting in-memory state: " + safeSummary(memoryState));
-
-        playbackStateService.updateState(memoryState);
-
-        try {
-            lastPersistedState = mapper.readValue(mapper.writeValueAsString(memoryState), PlaybackState.class);
-        } catch (IOException e) {
-            System.out.println("Error Persisting memory!");
-            lastPersistedState = memoryState;
-        }
-
-        lastSaveTime = now;
-
-    }
-
-    // -----------------------------
-    // JSON serialization/deserialization
-    // -----------------------------
-    public PlaybackState fromJson(String json) throws IOException {
-        if (json == null || json.isEmpty()) {
-            return new PlaybackState();
-        }
-        return mapper.readValue(json, PlaybackState.class);
-    }
-
-    public synchronized String toJson() {
-        try {
-            return mapper.writeValueAsString(getState());
-        } catch (IOException e) {
-            System.err.println("[PlaybackController] ❌ Failed to serialize state: " + e.getMessage());
-            return "{}";
-        }
-    }
-
-    public synchronized void applyMessage(String json) throws IOException {
-        if (json == null || json.isEmpty()) {
-            return;
-        }
-
-        var node = mapper.readTree(json);
-        if (node.has("action")) {
-            handleAction(node);
-        } else {
-            PlaybackState incoming = mapper.treeToValue(node, PlaybackState.class);
-            incoming.setVolume(memoryState.getVolume()); // preserve existing
-            updateState(incoming, true);
         }
     }
 
@@ -253,18 +163,10 @@ public class PlaybackController {
     }
 
     private void addSongToCueIfNotPresent(PlaybackState st, Long songId) {
-        List<Long> cue = st.getCue();
-        if (cue == null) {
-            cue = new ArrayList<>();
-            st.setCue(cue);
-        }
-        if (!cue.contains(songId)) {
-            cue.add(Math.min(st.getCueIndex() + 1, cue.size()), songId);
-        }
-        st.setCueIndex(cue.indexOf(songId));
+        List<Long> songIds = new ArrayList<>();
+        songIds.add(songId);
+        playbackQueueController.addToQueue(st, songIds, false);
     }
-
-
 
     private synchronized void updateLastSongs(PlaybackState state, Long songId) {
         if (state == null || songId == null) {
@@ -286,19 +188,9 @@ public class PlaybackController {
         }
     }
 
-
-
-    private synchronized List<Long> generateShuffledCue(List<Long> originalCue) {
-        List<Long> newShuffledCue = new ArrayList<>(originalCue);
-        java.util.Collections.shuffle(newShuffledCue);
-        return newShuffledCue;
-    }
-
     private synchronized void stopPlayback() {
         PlaybackState st = getState();
-        st.setCurrentSongId(null);
-        st.setPlaying(false);
-        st.setCueIndex(-1);
+        playbackQueueController.clear(st);
         updateState(st, true);
     }
 
@@ -335,7 +227,7 @@ public class PlaybackController {
         }
 
         // Persist throttled to DB
-        maybePersistThrottled();
+        playbackPersistenceController.maybePersist(state);
     }
 
     // -----------------------------
@@ -388,143 +280,27 @@ public class PlaybackController {
     // Helper method to advance song
     private synchronized void advanceSong(boolean forward) {
         PlaybackState st = getState();
-        List<Long> cue = st.getCue(); // Original queue
 
         // Populate cue if empty (initial state)
-        if (cue == null || cue.isEmpty()) {
+        if (st.getCue() == null || st.getCue().isEmpty()) {
             List<Song> allSongs = getSongs();
-            cue = new ArrayList<>(allSongs.stream().map(s -> s.id).toList());
-            st.setCue(cue);
-            st.setCueIndex(cue.isEmpty() ? -1 : 0);
-            if (cue.isEmpty()) {
+            List<Long> allSongIds = allSongs.stream().map(s -> s.id).toList();
+            playbackQueueController.populateCue(st, allSongIds);
+            if (st.getCue().isEmpty()) {
                 stopPlayback();
                 return;
             }
         }
 
-        Long oldCurrentSongId = st.getCurrentSongId();
-        Long determinedNextSongId = null; // This will hold the ID of the song that *should* play next
-        int determinedNextCueIndex = -1; // This will hold the index in the *original* cue
+        Long nextSongId = playbackQueueController.advance(st, forward);
 
-        // --- Determine the potential next song and its index ---
-        if (st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
-            determinedNextSongId = oldCurrentSongId;
-            determinedNextCueIndex = st.getCueIndex();
-            st.setCurrentTime(0); // Reset time for repeat one
-        } else if (st.isShuffleEnabled()) {
-            // SHUFFLE is ON
-            if (shuffledCue == null || shuffledCue.isEmpty()) {
-                shuffledCue = generateShuffledCue(cue);
-                shuffledCueIndex = 0;
-            }
-
-            if (forward) {
-                shuffledCueIndex++;
-                if (shuffledCueIndex >= shuffledCue.size()) {
-                    if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                        shuffledCue = generateShuffledCue(cue); // Reshuffle and start again
-                        shuffledCueIndex = 0;
-                    } else { // Shuffle ON, Repeat OFF (no wrap, stop playback)
-                        stopPlayback();
-                        return;
-                    }
-                }
-            } else { // Backward in shuffled mode
-                shuffledCueIndex--;
-                if (shuffledCueIndex < 0) {
-                    if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                        shuffledCue = generateShuffledCue(cue); // Reshuffle and go to the end
-                        shuffledCueIndex = shuffledCue.size() - 1;
-                    }
-                    else { // Shuffle ON, Repeat OFF (no wrap, stay at beginning)
-                        shuffledCueIndex = 0;
-                    }
-                }
-            }
-            determinedNextSongId = shuffledCue.get(shuffledCueIndex);
-            determinedNextCueIndex = cue.indexOf(determinedNextSongId); // Index in original cue
-
-        } else {
-            // SHUFFLE is OFF
-            int currentSongIndexInOriginalCue = st.getCueIndex();
-            if (forward) {
-                determinedNextCueIndex = currentSongIndexInOriginalCue + 1;
-                if (determinedNextCueIndex >= cue.size()) {
-                    if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                        determinedNextCueIndex = 0; // Wrap around to the beginning
-                    } else { // Shuffle OFF, Repeat OFF (no wrap, stop playback)
-                        stopPlayback();
-                        return;
-                    }
-                }
-            }
-            else { // Backward in sequential mode
-                determinedNextCueIndex = currentSongIndexInOriginalCue - 1;
-                if (determinedNextCueIndex < 0) {
-                    if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                        determinedNextCueIndex = cue.size() - 1; // Wrap around to the end
-                    }
-                    else { // Shuffle OFF, Repeat OFF (no wrap, stay at beginning)
-                        determinedNextCueIndex = 0;
-                    }
-                }
-            }
-            determinedNextSongId = cue.get(determinedNextCueIndex);
-        }
-
-        // --- Handle Song Removal (if applicable) ---
-        // Songs should be removed from the queue after playback, ONLY if RepeatMode.OFF
-        boolean shouldRemoveSong = (st.getRepeatMode() == PlaybackState.RepeatMode.OFF);
-
-        if (shouldRemoveSong && oldCurrentSongId != null && forward) {
-            if (st.isShuffleEnabled()) {
-                // Remove from shuffledCue
-                int indexToRemove = shuffledCue.indexOf(oldCurrentSongId);
-                if (indexToRemove != -1) {
-                    shuffledCue.remove(indexToRemove);
-                    // Adjust shuffledCueIndex if the removed song was before the determined next song
-                    if (indexToRemove < shuffledCueIndex) {
-                        shuffledCueIndex--;
-                    }
-                    // After removal, re-determine next song based on adjusted shuffledCueIndex
-                    if (!shuffledCue.isEmpty()) {
-                        determinedNextSongId = shuffledCue.get(shuffledCueIndex);
-                        determinedNextCueIndex = cue.indexOf(determinedNextSongId);
-                    } else {
-                        stopPlayback();
-                        return;
-                    }
-                }
-            } else {
-                // Remove from original cue
-                int indexToRemove = cue.indexOf(oldCurrentSongId);
-                if (indexToRemove != -1) {
-                    cue.remove(indexToRemove);
-                    // Adjust determinedNextCueIndex if the removed song was before the determined next song
-                    if (indexToRemove < determinedNextCueIndex) {
-                        determinedNextCueIndex--;
-                    }
-                    // After removal, re-determine next song based on adjusted determinedNextCueIndex
-                    if (!cue.isEmpty()) {
-                        determinedNextSongId = cue.get(determinedNextCueIndex);
-                    } else {
-                        stopPlayback();
-                        return;
-                    }
-                }
-            }
-        }
-
-        // If queue becomes empty after removal, stop playback
-        if (cue.isEmpty() || (st.isShuffleEnabled() && shuffledCue.isEmpty())) {
+        if (nextSongId == null) {
             stopPlayback();
             return;
         }
 
-        // Update state with the determined next song
-        st.setCueIndex(determinedNextCueIndex);
-        st.setCurrentSongId(determinedNextSongId);
-        Song newSong = findSong(determinedNextSongId);
+        st.setCurrentSongId(nextSongId);
+        Song newSong = findSong(nextSongId);
         st.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
         st.setSongName(newSong != null ? newSong.getTitle() : "Unknown Title");
         st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
@@ -533,7 +309,7 @@ public class PlaybackController {
         if (st.getRepeatMode() != PlaybackState.RepeatMode.ONE) {
             st.setCurrentTime(0);
         }
-        updateLastSongs(st, determinedNextSongId);
+        updateLastSongs(st, nextSongId);
 
         if (newSong != null) {
             playbackHistoryService.add(newSong);
@@ -541,6 +317,7 @@ public class PlaybackController {
 
         updateState(st, true); // persists + broadcasts
     }
+
     public synchronized void next() {
         currentSettings.addLog("Skipped to next song.");
         System.out.println("Next");
@@ -557,7 +334,7 @@ public class PlaybackController {
         currentSettings.addLog("Playback toggled.");
         System.out.println("Toggle");
         PlaybackState state = getState();
-        state.setPlaying(!state.isPlaying());
+        playbackQueueController.togglePlay(state);
         updateState(state, true);
     }
 
@@ -570,31 +347,9 @@ public class PlaybackController {
         state.setShuffleEnabled(newShuffleState);
 
         if (newShuffleState) {
-            // When shuffle is enabled, generate a new shuffled cue, keeping current song at the start
-            List<Long> originalCue = state.getCue();
-            Long currentSongId = state.getCurrentSongId();
-
-            if (originalCue != null && !originalCue.isEmpty() && currentSongId != null) {
-                List<Long> remainingSongs = new ArrayList<>(originalCue);
-                remainingSongs.remove(currentSongId); // Remove current song
-
-                java.util.Collections.shuffle(remainingSongs); // Shuffle the rest
-
-                shuffledCue = new ArrayList<>();
-                shuffledCue.add(currentSongId); // Add current song to the beginning
-                shuffledCue.addAll(remainingSongs); // Add shuffled remaining songs
-
-                shuffledCueIndex = 0; // Current song is now at index 0 of shuffledCue
-            } else {
-                // Fallback if no current song or empty cue
-                shuffledCue = generateShuffledCue(originalCue);
-                shuffledCueIndex = 0;
-            }
+            playbackQueueController.initShuffle(state);
         } else {
-            // When shuffle is disabled, clear the shuffled cue and reset its index
-            shuffledCue = null;
-            shuffledCueIndex = -1;
-            // The current song and cueIndex should remain unchanged until advanceSong is called.
+            playbackQueueController.clearShuffle(state);
         }
 
         currentSettings.addLog("Shuffle toggled to: " + state.isShuffleEnabled());
@@ -606,25 +361,8 @@ public class PlaybackController {
      */
     public synchronized void toggleRepeat() {
         PlaybackState state = getState();
-        PlaybackState.RepeatMode currentMode = state.getRepeatMode();
-        PlaybackState.RepeatMode nextMode;
-
-        switch (currentMode) {
-            case OFF:
-                nextMode = PlaybackState.RepeatMode.ONE;
-                break;
-            case ONE:
-                nextMode = PlaybackState.RepeatMode.ALL;
-                break;
-            case ALL:
-                nextMode = PlaybackState.RepeatMode.OFF;
-                break;
-            default:
-                nextMode = PlaybackState.RepeatMode.OFF;
-                break;
-        }
-        state.setRepeatMode(nextMode);
-        currentSettings.addLog("Repeat mode toggled to: " + nextMode);
+        playbackQueueController.toggleRepeat(state);
+        currentSettings.addLog("Repeat mode toggled to: " + state.getRepeatMode());
         updateState(state, true);
     }
 
@@ -633,7 +371,7 @@ public class PlaybackController {
      */
     public synchronized void changeVolume(float level) {
         PlaybackState st = getState();
-        st.setVolume(Math.max(0f, Math.min(1f, level)));
+        playbackQueueController.changeVolume(st, level);
         updateState(st, true);
     }
 
@@ -642,7 +380,7 @@ public class PlaybackController {
      */
     public synchronized void setSeconds(double seconds) {
         PlaybackState st = getState();
-        st.setCurrentTime(Math.max(0, seconds));
+        playbackQueueController.setSeconds(st, seconds);
         updateState(st, true);
     }
 
@@ -679,12 +417,8 @@ public class PlaybackController {
             // If queue is empty, populate with all songs
             if (cue == null || cue.isEmpty()) {
                 List<Song> allSongs = getSongs();
-                cue = allSongs.stream().map(s -> s.id).toList();
-                st.setCue(new ArrayList<>(cue));
-                st.setCueIndex(cue.isEmpty() ? -1 : 0);
-                st.setCurrentSongId(cue.isEmpty() ? null : cue.get(0));
-                st.setPlaying(!cue.isEmpty());
-                st.setCurrentTime(0);
+                List<Long> allSongIds = allSongs.stream().map(s -> s.id).toList();
+                playbackQueueController.populateCue(st, allSongIds);
             }
 
         } else {
@@ -694,18 +428,10 @@ public class PlaybackController {
             List<Song> songs = playlist.getSongs();
             if (songs != null && !songs.isEmpty()) {
                 List<Long> cue = songs.stream().map(s -> s.id).toList();
-                st.setCue(new ArrayList<>(cue));
-                st.setCueIndex(0);
-                st.setCurrentSongId(cue.get(0));
-                st.setCurrentTime(0);
-                st.setPlaying(true);
+                playbackQueueController.populateCue(st, cue);
             } else {
                 // empty playlist → stop playback
-                st.setCue(new ArrayList<>());
-                st.setCueIndex(-1);
-                st.setCurrentSongId(null);
-                st.setCurrentTime(0);
-                st.setPlaying(false);
+                playbackQueueController.clear(st);
             }
         }
     }
@@ -723,24 +449,7 @@ public class PlaybackController {
         }
 
         PlaybackState st = getState();
-        List<Long> cue = st.getCue();
-        if (cue == null) {
-            cue = new ArrayList<>();
-            st.setCue(cue);
-        }
-
-        int insertIndex = playNext && st.getCueIndex() != -1
-                ? st.getCueIndex() + 1
-                : cue.size();
-
-        for (Long id : songIds) {
-            if (!cue.contains(id)) {
-                cue.add(insertIndex, id);
-                insertIndex++;
-            }
-        }
-
-        st.setCue(cue);
+        playbackQueueController.addToQueue(st, songIds, playNext);
         updateState(st, true);
     }
 
@@ -750,40 +459,7 @@ public class PlaybackController {
      */
     public synchronized void removeFromQueue(Long songId) {
         PlaybackState st = getState();
-        List<Long> cue = st.getCue();
-        if (cue == null || cue.isEmpty()) {
-            return;
-        }
-
-        int currentIndex = st.getCueIndex();
-        Long currentId = st.getCurrentSongId();
-
-        int removeIndex = cue.indexOf(songId);
-        if (removeIndex == -1) {
-            return;
-        }
-
-        cue.remove(removeIndex);
-
-        if (songId.equals(currentId)) {
-            // If we removed the currently playing song
-            if (cue.isEmpty()) {
-                stopPlayback();
-                return;
-            }
-            // Try to move to next song (wrap if necessary)
-            // If the removed song was the last one, play the new last song
-            currentIndex = Math.min(removeIndex, cue.size() - 1);
-            st.setCueIndex(currentIndex);
-            st.setCurrentSongId(cue.get(currentIndex));
-            st.setCurrentTime(0);
-            st.setPlaying(true); // Continue playing with the new current song
-        } else if (removeIndex < currentIndex) {
-            // If a song before the current one was removed, adjust the index
-            st.setCueIndex(currentIndex - 1);
-        }
-
-        st.setCue(cue);
+        playbackQueueController.removeFromQueue(st, songId);
         updateState(st, true);
     }
 
@@ -792,11 +468,7 @@ public class PlaybackController {
      */
     public synchronized void clearQueue() {
         PlaybackState st = getState();
-        st.setCue(new ArrayList<>());
-        st.setCueIndex(-1);
-        st.setCurrentSongId(null);
-        st.setPlaying(false);
-        st.setCurrentTime(0);
+        playbackQueueController.clear(st);
         updateState(st, true);
     }
 
@@ -805,30 +477,7 @@ public class PlaybackController {
      */
     public synchronized void moveInQueue(int fromIndex, int toIndex) {
         PlaybackState st = getState();
-        List<Long> cue = st.getCue();
-        if (cue == null || cue.isEmpty()) {
-            return;
-        }
-
-        if (fromIndex < 0 || fromIndex >= cue.size()
-                || toIndex < 0 || toIndex >= cue.size()) {
-            return;
-        }
-
-        Long songId = cue.remove(fromIndex);
-        cue.add(toIndex, songId);
-
-        // Adjust cue index if needed
-        int currentIdx = st.getCueIndex();
-        if (currentIdx == fromIndex) {
-            st.setCueIndex(toIndex);
-        } else if (fromIndex < currentIdx && toIndex >= currentIdx) {
-            st.setCueIndex(currentIdx - 1);
-        } else if (fromIndex > currentIdx && toIndex <= currentIdx) {
-            st.setCueIndex(currentIdx + 1);
-        }
-
-        st.setCue(cue);
+        playbackQueueController.moveInQueue(st, fromIndex, toIndex);
         updateState(st, true);
     }
 
@@ -873,45 +522,29 @@ public class PlaybackController {
     public synchronized void skipToQueueIndex(int index) {
         LOGGER.info("skipToQueueIndex called with index: " + index);
         PlaybackState st = getState();
-        List<Long> cue = st.getCue();
-        LOGGER.info("skipToQueueIndex: Original cue: " + cue);
-        if (cue == null || index < 0 || index >= cue.size()) {
-            LOGGER.warning("skipToQueueIndex: Invalid index or empty cue. Index: " + index + ", Cue size: " + (cue != null ? cue.size() : "null"));
-            return;
-        }
+        LOGGER.info("skipToQueueIndex: Original cue: " + st.getCue());
+        playbackQueueController.skipToQueueIndex(st, index);
 
-        st.setCueIndex(index);
-
-        Long songId = cue.get(index);
-        st.setCurrentSongId(songId);
+        Long songId = st.getCurrentSongId();
         LOGGER.info("skipToQueueIndex: Setting current songId to: " + songId);
         Song newSong = findSong(songId);
         LOGGER.info("skipToQueueIndex: Found song for ID " + songId + ": " + (newSong != null ? newSong.getTitle() : "null"));
         st.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
         st.setSongName(newSong != null ? newSong.getTitle() : "Unknown Title");
         st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
-        st.setPlaying(true);
-        st.setCurrentTime(0);
         updateLastSongs(st, songId);
         updateState(st, true);
     }
 
     public synchronized void removeFromQueue(int index) {
-
         PlaybackState st = getState();
-
         List<Long> cue = st.getCue();
-
         if (cue == null || cue.isEmpty() || index < 0 || index >= cue.size()) {
-
             return;
-
         }
-
         Long songIdToRemove = cue.get(index);
-
-        removeFromQueue(songIdToRemove); // Reuse existing logic
-
+        playbackQueueController.removeFromQueue(st, songIdToRemove);
+        updateState(st, true);
     }
 
     public List<PlaybackHistory> getHistory() {

@@ -43,25 +43,40 @@ public class TorrentController {
     @Inject
     Services.Torrents.BanService banService;
 
+    @Inject
+    SettingsService settingsService;
+
     private final Map<UUID, Torrent> activeCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
 
     // Fetch a torrent (cached if available)
     public Torrent getTorrent(UUID id) {
+        if (!settingsService.getOrCreateSettings().getTorrentBrowsingEnabled()) {
+            throw new IllegalStateException("Torrent browsing is disabled. Cannot perform getTorrent operation.");
+        }
         return activeCache.computeIfAbsent(id, torrentService::findById);
     }
 
     public List<Torrent> listAllTorrents() {
+        if (!settingsService.getOrCreateSettings().getTorrentBrowsingEnabled()) {
+            throw new IllegalStateException("Torrent browsing is disabled. Cannot perform listAllTorrents operation.");
+        }
         return torrentService.findAll();
     }
 
     public Models.DTOs.PaginatedTorrents listAllTorrentsPaginated(int pageNumber, int pageSize) {
+        if (!settingsService.getOrCreateSettings().getTorrentBrowsingEnabled()) {
+            throw new IllegalStateException("Torrent browsing is disabled. Cannot perform listAllTorrentsPaginated operation.");
+        }
         List<Torrent> torrents = torrentService.findAll(pageNumber, pageSize, "createdAt", "DESC");
         long totalCount = torrentService.countAll();
         return new Models.DTOs.PaginatedTorrents(torrents, totalCount);
     }
 
     public Models.DTOs.PaginatedTorrents listAllTorrentsPaginatedAndFiltered(int pageNumber, int pageSize, String tag, String sortBy, String order) {
+        if (!settingsService.getOrCreateSettings().getTorrentBrowsingEnabled()) {
+            throw new IllegalStateException("Torrent browsing is disabled. Cannot perform listAllTorrentsPaginatedAndFiltered operation.");
+        }
         List<Torrent> torrents;
         long totalCount;
 
@@ -85,6 +100,9 @@ public class TorrentController {
 
     // Called when a peer connects via WebSocket
     public void onPeerConnected(PeerReference peer) {
+        if (!settingsService.getOrCreateSettings().getTorrentBrowsingEnabled()) {
+            throw new IllegalStateException("Torrent browsing is disabled. Cannot perform onPeerConnected operation.");
+        }
         if (peer == null) {
             return;
         }
