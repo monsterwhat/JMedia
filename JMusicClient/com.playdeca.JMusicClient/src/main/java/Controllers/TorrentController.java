@@ -10,6 +10,7 @@ import Services.Torrents.PeerService;
 import Services.Torrents.RatingService;
 import Services.Torrents.TrustService;
 import API.WS.WebSocketManager; 
+import Services.SettingsService;
 import static bt.magnet.UtMetadata.request;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject; 

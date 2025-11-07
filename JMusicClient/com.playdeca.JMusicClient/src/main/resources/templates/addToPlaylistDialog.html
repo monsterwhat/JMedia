@@ -1,0 +1,30 @@
+<div class='modal-card' style='width: 480px;'>
+    <header class='modal-card-head'>
+        <p class='modal-card-title'>Add to Playlist</p>
+        <button class='delete' aria-label='close'
+                onclick="document.getElementById('addToPlaylistModal').classList.remove('is-active')">
+        </button>
+    </header>
+
+    <section class='modal-card-body'>
+        <div class='field'>
+            {#for p in playlists}
+            <div class='control'>
+                <label class='checkbox'>
+                    <input
+                        type='checkbox'
+                        {#if p.containsSong}checked{/if}
+                        hx-post='/api/music/ui/playlists/{p.id}/songs/{songId}/toggle'
+                        hx-trigger='change'
+                        hx-swap='none'>
+                    {p.name}
+                </label>
+            </div>
+            {/for}
+        </div>
+    </section>
+
+    <footer class='modal-card-foot'>
+        <button class='button' onclick="document.getElementById('addToPlaylistModal').classList.remove('is-active')">Close</button>
+    </footer>
+</div>

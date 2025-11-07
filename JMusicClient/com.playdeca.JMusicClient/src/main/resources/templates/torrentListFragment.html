@@ -1,0 +1,75 @@
+<!-- Force re-evaluation -->
+<div id="torrent-list">
+    <h2 class="title is-4">Torrents</h2>
+    <div class="field has-addons">
+        <div class="control is-expanded">
+            <input class="input" type="text" placeholder="Filter by tag" name="tag" value="{currentTag}"
+                   hx-get="/ui/torrents/list"
+                   hx-trigger="keyup changed delay:500ms, search"
+                   hx-target="#torrent-list"
+                   hx-swap="outerHTML">
+        </div>
+        <div class="control">
+            <button class="button is-info" hx-get="/ui/torrents/list?tag=" hx-target="#torrent-list" hx-swap="outerHTML">Clear</button>
+        </div>
+    </div>
+    <button class="button is-primary mb-3" hx-get="/ui/torrents/create-form" hx-target="#create-torrent-form-container" hx-swap="innerHTML show:top">Add New Torrent</button>
+
+    <div id="create-torrent-form-container"></div>
+
+    {#if torrents.isEmpty}
+    <p>No torrents found.</p>
+    {#else}
+    <table class="table is-fullwidth is-striped is-hoverable">
+        <thead>
+            <tr>
+                <th hx-get="/ui/torrents/list?page={currentPage}&size={pageSize}{#if currentTag}&tag={currentTag}{/if}&sortBy=name&order={#if sortBy == 'name' && order == 'ASC'}DESC{#else}ASC{/if}" hx-target="#torrent-list" hx-swap="outerHTML">Name {#if sortBy == 'name'}{#if order == 'ASC'}<i class="pi pi-sort-alpha-down"></i>{#else}<i class="pi pi-sort-alpha-up"></i>{/if}{/if}</th>
+                <th hx-get="/ui/torrents/list?page={currentPage}&size={pageSize}{#if currentTag}&tag={currentTag}{/if}&sortBy=infoHash&order={#if sortBy == 'infoHash' && order == 'ASC'}DESC{#else}ASC{/if}" hx-target="#torrent-list" hx-swap="outerHTML">Info Hash {#if sortBy == 'infoHash'}{#if order == 'ASC'}<i class="pi pi-sort-alpha-down"></i>{#else}<i class="pi pi-sort-alpha-up"></i>{/if}{/if}</th>
+                <th hx-get="/ui/torrents/list?page={currentPage}&size={pageSize}{#if currentTag}&tag={currentTag}{/if}&sortBy=creator.userId&order={#if sortBy == 'creator.userId' && order == 'ASC'}DESC{#else}ASC{/if}" hx-target="#torrent-list" hx-swap="outerHTML">Creator {#if sortBy == 'creator.userId'}{#if order == 'ASC'}<i class="pi pi-sort-alpha-down"></i>{#else}<i class="pi pi-sort-alpha-up"></i>{/if}{/if}</th>
+                <th>Tags</th>
+                <th hx-get="/ui/torrents/list?page={currentPage}&size={pageSize}{#if currentTag}&tag={currentTag}{/if}&sortBy=verified&order={#if sortBy == 'verified' && order == 'ASC'}DESC{#else}ASC{/if}" hx-target="#torrent-list" hx-swap="outerHTML">Verified {#if sortBy == 'verified'}{#if order == 'ASC'}<i class="pi pi-sort-numeric-down"></i>{#else}<i class="pi pi-sort-numeric-up"></i>{/if}{/if}</th>
+                <th hx-get="/ui/torrents/list?page={currentPage}&size={pageSize}{#if currentTag}&tag={currentTag}{/if}&sortBy=active&order={#if sortBy == 'active' && order == 'ASC'}DESC{#else}ASC{/if}" hx-target="#torrent-list" hx-swap="outerHTML">Active {#if sortBy == 'active'}{#if order == 'ASC'}<i class="pi pi-sort-numeric-down"></i>{#else}<i class="pi pi-sort-numeric-up"></i>{/if}{/if}</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#for torrent in torrents}
+            <tr data-torrent-id="{torrent.id}">
+                <td>{torrent.name}</td>
+                <td>{torrent.infoHash}</td>
+                <td>{torrent.creator.userId}</td>
+                <td>
+                    {#each torrent.tags}
+                    <span class="tag is-info is-light mr-1" hx-get="/ui/torrents/list?tag={.}" hx-target="#torrent-list" hx-swap="outerHTML">{.}{#if !for.isLast}, {/if}</span>
+                    {/each}
+                </td>
+                <td>{#if torrent.verified}Yes{/if}{#if !torrent.verified}No{/if}</td>
+                <td>{#if torrent.active}Yes{/if}{#if !torrent.active}No{/if}</td>
+                <td>
+                    <button class="button is-small is-info" hx-get="/ui/torrents/edit-form/{torrent.id}" hx-target="#edit-torrent-form-container" hx-swap="innerHTML show:top">Edit</button>
+                    <button class="button is-small is-danger" hx-delete="/api/torrents/{torrent.id}" hx-confirm="Are you sure you want to delete {torrent.name}?" hx-target="closest tr" hx-swap="outerHTML swap:0.5s" hx-on--after-request="window.handleTorrentFormResponse(event, 'Torrent deleted successfully!', 'Error deleting torrent.');">Delete</button>
+                </td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {/if}
+    <div id="edit-torrent-form-container"></div>
+
+    <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+        <a class="pagination-previous"
+                          {#if currentPage == 0}disabled{/if} hx-get="/ui/torrents/list?page=0&size=10&tag=&sortBy=&order="           hx-target="#torrent-list" hx-swap="outerHTML">Previous</a>
+        <a class="pagination-next"
+                          {#if startIndex + torrents.size >= totalCount}disabled{/if} hx-get="/ui/torrents/list?page=1&size=10&tag=&sortBy=&order="            hx-target="#torrent-list" hx-swap="outerHTML">Next page</a>
+        {#if totalCount > pageSize}
+        <ul class="pagination-list">
+            {#for i in 0..totalPages-1}
+            <li>
+                                    <a class="pagination-link {#if i == currentPage}is-current{/if}" hx-get="/ui/torrents/list?page={i}&size=10&tag=&sortBy=&order="                   hx-target="#torrent-list" hx-swap="outerHTML"
+                   aria-label="Goto page {i + 1}">{i + 1}</a>
+            </li>
+            {/for}
+        </ul>
+        {/if}
+    </nav> 
+</div>

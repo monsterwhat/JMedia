@@ -1,0 +1,30 @@
+<div id="sidebarPlaylistListContainer">
+    <table class="table is-fullwidth is-hoverable is-striped">
+        <tbody>
+            <tr>
+                <td>
+                    <button
+                        class="button is-ghost is-fullwidth has-text-left has-text-primary"
+                        hx-get="/api/music/ui/playlist-view/0"
+                        hx-target="#playlistView"
+                        hx-swap="outerHTML">
+                        All Songs
+                    </button>
+                </td>
+            </tr>
+            {#for p in playlists}
+            <tr>
+                <td>
+                    <button
+                        class="button is-ghost is-fullwidth has-text-left has-text-primary"
+                        hx-get="/api/music/ui/playlist-view/{p.id}"
+                        hx-target="#playlistView"
+                        hx-swap="outerHTML">
+                        {p.name ?: 'Unnamed Playlist'}
+                    </button>
+                </td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+</div>

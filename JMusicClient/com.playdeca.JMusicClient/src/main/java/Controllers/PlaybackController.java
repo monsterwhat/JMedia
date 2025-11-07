@@ -1,14 +1,13 @@
 package Controllers;
 
 import API.WS.MusicSocket;
+import Models.PlaybackHistory;
 import Models.PlaybackState;
 import Models.Playlist;
 import Models.Settings;
 import Models.Song;
 import Services.PlaylistService;
 import Services.SongService;
-import Services.PlaybackHistoryService;
-import Models.PlaybackHistory;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -22,20 +21,12 @@ public class PlaybackController {
 
     private PlaybackState memoryState;
 
-    @Inject
-    PlaybackPersistenceController playbackPersistenceController;
-    @Inject
-    PlaybackQueueController playbackQueueController;
-    @Inject
-    SettingsController currentSettings;
-    @Inject
-    SongService songService;
-    @Inject
-    PlaylistService playlistService;
-    @Inject
-    MusicSocket ws;
-    @Inject
-    PlaybackHistoryService playbackHistoryService;
+    @Inject PlaybackPersistenceController playbackPersistenceController;
+    @Inject PlaybackQueueController playbackQueueController;
+    @Inject SettingsController currentSettings;
+    @Inject SongService songService;
+    @Inject PlaylistService playlistService;
+    @Inject MusicSocket ws;
 
     private static final Logger LOGGER = Logger.getLogger(PlaybackController.class.getName());
 
@@ -140,22 +131,9 @@ public class PlaybackController {
             st.setPlaying(true);
             st.setCurrentTime(0);
             currentSettings.addLog("Song selected: " + (newSong != null ? newSong.getTitle() : "Unknown Title"));
-            if (newSong != null) {
-                playbackHistoryService.add(newSong);
-            }
+            playbackQueueController.songSelected(id);
 
             addSongToCueIfNotPresent(st, id);
-
-            // Update recent songs
-            List<Long> last = st.getLastSongs();
-            if (last == null) {
-                last = new ArrayList<>();
-            }
-            last.add(id);
-            if (last.size() > 5) {
-                last.remove(0);
-            }
-            st.setLastSongs(last);
         }
 
         updateState(st, true);
@@ -166,26 +144,6 @@ public class PlaybackController {
         List<Long> songIds = new ArrayList<>();
         songIds.add(songId);
         playbackQueueController.addToQueue(st, songIds, false);
-    }
-
-    private synchronized void updateLastSongs(PlaybackState state, Long songId) {
-        if (state == null || songId == null) {
-            return;
-        }
-
-        List<Long> last = state.getLastSongs();
-        if (last == null) {
-            last = new ArrayList<>();
-            state.setLastSongs(last);
-        }
-
-        last.add(songId); // append newest
-        final int MAX_LAST_SONGS = 5;
-
-        if (last.size() > MAX_LAST_SONGS) {
-            // remove oldest
-            last.remove(0);
-        }
     }
 
     private synchronized void stopPlayback() {
@@ -308,11 +266,6 @@ public class PlaybackController {
         // currentTime is already set to 0 for RepeatMode.ONE. For others, it should be 0.
         if (st.getRepeatMode() != PlaybackState.RepeatMode.ONE) {
             st.setCurrentTime(0);
-        }
-        updateLastSongs(st, nextSongId);
-
-        if (newSong != null) {
-            playbackHistoryService.add(newSong);
         }
 
         updateState(st, true); // persists + broadcasts
@@ -532,7 +485,6 @@ public class PlaybackController {
         st.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
         st.setSongName(newSong != null ? newSong.getTitle() : "Unknown Title");
         st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
-        updateLastSongs(st, songId);
         updateState(st, true);
     }
 
@@ -550,7 +502,10 @@ public class PlaybackController {
     public List<PlaybackHistory> getHistory() {
 
         return PlaybackHistory.listAll();
-
     }
 
+    public void toggleSongInPlaylist(Long playlistId, Long songId) {
+        //TODO should remove the song from a playlist or add it via playlistController -> service
+    }
+    
 }

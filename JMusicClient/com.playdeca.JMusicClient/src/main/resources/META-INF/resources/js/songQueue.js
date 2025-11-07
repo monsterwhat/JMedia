@@ -1,8 +1,9 @@
-// New function to apply marquee effect conditionally to queue table cells
+// -------------------------
+// Marquee effect for overflowing text
+// -------------------------
 function applyMarqueeEffectToQueue(element) {
     const span = element.querySelector('span');
     if (span) {
-        // Temporarily remove overflow to measure scrollWidth correctly
         const originalOverflow = element.style.overflow;
         element.style.overflow = 'visible';
 
@@ -13,25 +14,76 @@ function applyMarqueeEffectToQueue(element) {
             span.classList.remove('marquee');
             span.classList.add('no-scroll');
         }
-        element.style.overflow = originalOverflow; // Restore original overflow
+
+        element.style.overflow = originalOverflow;
     }
 }
 
-// Function to update the song queue count
+// -------------------------
+// Update queue count
+// -------------------------
 function updateQueueCount() {
     const queueCountSpan = document.getElementById('queueCount');
     const songQueueTableBody = document.querySelector('#songQueueTable tbody');
     if (queueCountSpan && songQueueTableBody) {
-        const rowCount = songQueueTableBody.children.length;
-        queueCountSpan.textContent = rowCount.toString();
+        queueCountSpan.textContent = songQueueTableBody.children.length.toString();
     }
 }
 
+// -------------------------
+// Infinite scroll variables
+// -------------------------
+let queueOffset = 0;
+const queueLimit = 50;
+let totalQueueSize = Infinity;
+let isFetchingQueue = false;
+
+// -------------------------
+// Load a page of the queue
+// -------------------------
+function loadQueuePage() {
+    if (isFetchingQueue || queueOffset >= totalQueueSize)
+        return;
+    isFetchingQueue = true;
+
+    htmx.ajax('GET', `/api/music/ui/queue-fragment?offset=${queueOffset}&limit=${queueLimit}`, {
+        target: '#songQueueTable tbody',
+        swap: queueOffset === 0 ? 'innerHTML' : 'afterend',
+        headers: {'Content-Type': 'application/json'}
+    }).then(() => {
+        const table = document.getElementById('songQueueTable');
+        const tbody = table.querySelector('tbody');
+
+        // Update offset and total size
+        queueOffset += queueLimit;
+        totalQueueSize = parseInt(table.dataset.totalQueueSize || totalQueueSize);
+        isFetchingQueue = false;
+
+        // Apply marquee effect to new rows
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(row => {
+            const titleCell = row.querySelector('td:nth-child(2)');
+            if (titleCell)
+                applyMarqueeEffectToQueue(titleCell);
+        });
+
+        updateQueueCount();
+    });
+}
+
+// -------------------------
+// DOM Ready
+// -------------------------
 document.addEventListener('DOMContentLoaded', () => {
     const toggleQueueBtn = document.getElementById('toggleQueueBtn');
     const queueContent = document.getElementById('queueContent');
     const songQueueCard = document.getElementById('songQueueCard');
+    const clearQueueBtn = document.getElementById('clearQueueBtn');
+    const table = document.getElementById('songQueueTable');
+    
+    table.dataset.totalQueueSize = totalQueueSize;
 
+    // Toggle queue visibility
     if (toggleQueueBtn && queueContent && songQueueCard) {
         toggleQueueBtn.addEventListener('click', () => {
             const isHidden = queueContent.style.display === 'none';
@@ -41,35 +93,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    const clearQueueBtn = document.getElementById('clearQueueBtn');
+    // Clear queue
     if (clearQueueBtn) {
         clearQueueBtn.addEventListener('click', () => {
             htmx.ajax('POST', '/api/music/queue/clear', {
                 swap: 'none',
                 headers: {'Content-Type': 'application/json'}
             }).then(() => {
-                htmx.trigger('#songQueueTable', 'load');
-                updateQueueCount(); // Update count after clearing
+                const tbody = document.querySelector('#songQueueTable tbody');
+                tbody.innerHTML = ''; // clear table
+                queueOffset = 0;
+                totalQueueSize = Infinity;
+                loadQueuePage(); // reload first page (empty or initial)
+                updateQueueCount();
             });
         });
     }
 
-    const songQueueTable = document.getElementById('songQueueTable');
-    if (songQueueTable) {
-        songQueueTable.setAttribute('hx-get', '/api/music/ui/queue-fragment');
-        songQueueTable.setAttribute('hx-trigger', 'load, queueChanged from:body');
-        htmx.process(songQueueTable);
-
-        // Listen for afterSwap to apply marquee effect and update count
-        songQueueTable.addEventListener('htmx:afterSwap', (event) => {
-            const titleCells = event.detail.target.querySelectorAll('td:nth-child(1)');
-            const artistCells = event.detail.target.querySelectorAll('td:nth-child(2)');
-
-            titleCells.forEach(applyMarqueeEffectToQueue);
-            artistCells.forEach(applyMarqueeEffectToQueue);
-            updateQueueCount(); // Update count after HTMX swap
+    // Infinite scroll listener
+    if (queueContent) {
+        queueContent.addEventListener('scroll', () => {
+            if (queueContent.scrollTop + queueContent.clientHeight >= queueContent.scrollHeight - 50) {
+                loadQueuePage();
+            }
         });
     }
 
-    updateQueueCount(); // Initial update on DOMContentLoaded
+    // Initial load
+    loadQueuePage();
 });

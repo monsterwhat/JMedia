@@ -1,0 +1,15 @@
+ 
+    {#for s in queue}
+    <tr class="{#if currentSong != null && s.id == currentSong.id}has-background-grey{/if}">
+        <td style="text-align:center;">
+            <figure class="image is-24x24">
+                <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy"/>
+            </figure>
+        </td>
+        <td class="is-size-7" style="width:75%;">
+            <span>{s.title ?: "Unknown"}</span><br>
+            <span class="has-text-success is-size-7">{s.artist ?: "Unknown"}</span>
+        </td>
+    </tr>
+    {/for}
+ 

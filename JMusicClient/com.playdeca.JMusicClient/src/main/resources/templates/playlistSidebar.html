@@ -1,0 +1,43 @@
+<div class="column is-2" id="playlistSidebar">
+    <div class="box">
+        <button id="createPlaylistBtn" class="button is-primary is-fullwidth" style="margin-bottom:0.5rem;">
+            <i class="pi pi-plus"></i> Create Playlist
+        </button>
+
+        <hr/> 
+
+        <ul id="sidebarPlaylistList" class="menu-list">
+            <!-- This will be populated via HTMX fragment -->
+            <li hx-get="/api/music/ui/playlists-fragment" hx-trigger="load" hx-target="#sidebarPlaylistList" hx-swap="innerHTML"></li>
+        </ul> 
+
+        <!-- Create Playlist Modal (keep here, controlled by JS) -->
+        <div id="createPlaylistModal" class="modal">
+            <div class="modal-background"></div>
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">Create Playlist</p>
+                    <button class="delete" aria-label="close" id="closeCreatePlaylistModal"></button>
+                </header>
+                <section class="modal-card-body">
+                    <div class="field">
+                        <label class="label">Playlist Name</label>
+                        <div class="control">
+                            <input class="input" type="text" id="newPlaylistName" placeholder="Enter playlist name">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label">Description</label>
+                        <div class="control">
+                            <textarea class="textarea" id="newPlaylistDescription" placeholder="Enter description (optional)"></textarea>
+                        </div>
+                    </div>
+                </section>
+                <footer class="modal-card-foot">
+                    <button class="button is-success" id="savePlaylistBtn">Save</button>
+                    <button class="button" id="cancelPlaylistBtn">Cancel</button>
+                </footer>
+            </div>
+        </div> 
+    </div> 
+</div>

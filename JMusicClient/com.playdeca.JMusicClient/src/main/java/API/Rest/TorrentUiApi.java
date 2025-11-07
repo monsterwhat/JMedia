@@ -18,15 +18,15 @@ import java.util.UUID;
 public class TorrentUiApi {
 
     @Inject
-    @Location("components/torrentListFragment.html")
+    @Location("torrentListFragment.html")
     Template torrentListFragment;
 
     @Inject
-    @Location("components/createTorrentFormFragment.html")
+    @Location("createTorrentFormFragment.html")
     Template createTorrentFormFragment;
 
     @Inject
-    @Location("components/editTorrentFormFragment.html")
+    @Location("editTorrentFormFragment.html")
     Template editTorrentFormFragment;
 
     @Inject

@@ -163,6 +163,7 @@ public class SettingsApi {
     // CLEAR PLAYBACK HISTORY
     // -----------------------------
     @POST
+    @Consumes(MediaType.WILDCARD)
     @Path("/clearPlaybackHistory")
     @Transactional
     public Response clearPlaybackHistory() {
