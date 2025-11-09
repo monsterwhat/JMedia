@@ -38,6 +38,9 @@ public class PlaybackState {
     @ElementCollection(fetch = FetchType.EAGER)
     private List<Long> lastSongs = new ArrayList<>();
 
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<Long> originalCue = new ArrayList<>();
+
     @Enumerated(EnumType.STRING)
     private RepeatMode repeatMode = RepeatMode.OFF;
 

@@ -1,6 +1,6 @@
 package Controllers;
 
-import Models.PlaybackState; 
+import Models.PlaybackState;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -11,8 +11,8 @@ import Services.SongService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import Models.PlaybackHistory;
- 
-@ApplicationScoped 
+
+@ApplicationScoped
 public class PlaybackQueueController {
 
     public List<PlaybackHistory> getHistory() {
@@ -33,10 +33,11 @@ public class PlaybackQueueController {
         if (song != null) {
             playbackHistoryService.add(song);
         }
-    } 
+    }
 
     public void populateCue(PlaybackState state, List<Long> songIds) {
         state.setCue(new ArrayList<>(songIds));
+        state.setOriginalCue(new ArrayList<>()); // Clear any previously saved original cue
         state.setCueIndex(songIds.isEmpty() ? -1 : 0);
         state.setCurrentSongId(songIds.isEmpty() ? null : songIds.get(0));
         state.setPlaying(!songIds.isEmpty());
@@ -44,122 +45,100 @@ public class PlaybackQueueController {
     }
 
     public Long advance(PlaybackState state, boolean forward) {
+        if (!forward) {
+            // 'previous' logic can be simple
+            List<Long> cue = state.getCue();
+            if (cue == null || cue.isEmpty()) return null;
+            int prevIndex = state.getCueIndex() - 1;
+            if (prevIndex < 0) {
+                // At the beginning, wrap to end if repeating, otherwise stay at 0
+                prevIndex = state.getRepeatMode() == PlaybackState.RepeatMode.ALL ? cue.size() - 1 : 0;
+            }
+            state.setCueIndex(prevIndex);
+            return cue.get(prevIndex);
+        }
+
+        // --- FORWARD ADVANCEMENT ---
+        addSongToHistory(state.getCurrentSongId());
         List<Long> cue = state.getCue();
-        List<Long> lastSongs = state.getLastSongs();
+        if (cue == null || cue.isEmpty()) return null;
 
-        if (cue == null) {
-            cue = new ArrayList<>();
-            state.setCue(cue);
-        }
-        if (lastSongs == null) {
-            lastSongs = new ArrayList<>();
-            state.setLastSongs(lastSongs);
-        }
-
-        // Handle RepeatMode.ONE first, as it doesn't advance the queue
-        if (state.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
-            state.setCurrentTime(0);
-            return state.getCurrentSongId();
-        }
-
-        Long oldCurrentSongId = state.getCurrentSongId();
-        addSongToHistory(oldCurrentSongId);
-
-        if (state.isShuffleEnabled()) {
-            // In shuffle mode, remove the played song and move it to lastSongs
-            if (oldCurrentSongId != null) {
-                cue.remove(oldCurrentSongId);
-                if (!lastSongs.contains(oldCurrentSongId)) {
-                    lastSongs.add(oldCurrentSongId);
-                }
+        // Logic for RepeatMode.OFF (song removal)
+        if (state.getRepeatMode() == PlaybackState.RepeatMode.OFF) {
+            int playedIndex = state.getCueIndex();
+            if (playedIndex >= 0 && playedIndex < cue.size()) {
+                cue.remove(playedIndex);
             }
-
-            if (cue.isEmpty()) {
-                if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL && !lastSongs.isEmpty()) {
-                    // Reshuffle and start again from the beginning
-                    cue.addAll(lastSongs);
-                    lastSongs.clear();
-                    Collections.shuffle(cue);
-                } else {
-                    // End of queue
-                    state.setCurrentSongId(null);
-                    state.setPlaying(false);
-                    return null;
-                }
-            }
-
-            // The next song in shuffle mode is the first one in the modified cue
-            Long nextSongId = cue.get(0);
-            state.setCueIndex(0);
-            return nextSongId;
-
-        } else {
-            // Sequential playback logic
-            if (cue.isEmpty()) {
+            // After removal, the next song is at the same index, unless we removed the last item.
+            if (playedIndex >= cue.size() || cue.isEmpty()) {
+                // We removed the last item, or the queue is now empty.
+                state.setPlaying(false);
                 return null;
             }
-            int currentSongIndex = state.getCueIndex();
-            int nextIndex = currentSongIndex + (forward ? 1 : -1);
-
-            if (nextIndex >= cue.size()) {
-                if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                    nextIndex = 0; // Wrap around to the beginning
-                } else {
-                    return null; // End of queue, no repeat
-                }
-            } else if (nextIndex < 0) {
-                if (state.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
-                    nextIndex = cue.size() - 1; // Wrap around to the end
-                } else {
-                    nextIndex = 0; // Stay at the beginning
-                }
-            }
-            state.setCueIndex(nextIndex);
-            return cue.get(nextIndex);
+            // The new index is the one we just removed from.
+            state.setCueIndex(playedIndex);
+            return cue.get(playedIndex);
         }
+
+        // Logic for RepeatMode.ALL (no removal, just advance index)
+        // This applies to both shuffle and sequential, as the cue is already in its desired order.
+        int nextIndex = state.getCueIndex() + 1;
+        if (nextIndex >= cue.size()) {
+            nextIndex = 0; // Wrap around
+            // NO Collections.shuffle(cue) here, as per user's clarification.
+        }
+
+        state.setCueIndex(nextIndex);
+        return cue.get(nextIndex);
     }
 
     public void initShuffle(PlaybackState state) {
-        List<Long> originalCue = state.getCue();
+        // Save the original order before shuffling if it's not already saved
+        if (state.getOriginalCue() == null || state.getOriginalCue().isEmpty()) {
+            state.setOriginalCue(new ArrayList<>(state.getCue()));
+        }
+
+        List<Long> cue = state.getCue();
         Long currentSongId = state.getCurrentSongId();
 
-        if (originalCue == null || originalCue.isEmpty() || currentSongId == null) {
-            // If no current song or empty cue, just shuffle all songs
-            List<Long> shuffled = new ArrayList<>(originalCue != null ? originalCue : Collections.emptyList());
-            Collections.shuffle(shuffled);
-            state.setCue(shuffled);
-            state.setCueIndex(shuffled.isEmpty() ? -1 : 0);
+        if (cue == null || cue.isEmpty()) {
+            return; // Nothing to shuffle
+        }
+
+        // Keep current song at the top, shuffle the rest
+        if (currentSongId != null && cue.contains(currentSongId)) {
+            cue.remove(currentSongId);
+            Collections.shuffle(cue);
+            cue.add(0, currentSongId);
+            state.setCueIndex(0);
         } else {
-            List<Long> remainingSongs = new ArrayList<>(originalCue);
-            remainingSongs.remove(currentSongId);
-            Collections.shuffle(remainingSongs);
-
-            List<Long> newShuffledCue = new ArrayList<>();
-            newShuffledCue.add(currentSongId);
-            newShuffledCue.addAll(remainingSongs);
-
-            state.setCue(newShuffledCue);
+            // If no current song or it's not in the cue, just shuffle everything
+            Collections.shuffle(cue);
             state.setCueIndex(0);
         }
     }
 
     public void clearShuffle(PlaybackState state) {
-        // When shuffle is disabled, revert to the original order if possible
-        // For now, we'll just clear the shuffled state and let the main cue be used directly.
-        // A more sophisticated approach might store the original cue when shuffle is enabled.
-        // For this migration, we assume the 'cue' in PlaybackState always holds the active queue.
-        // If shuffle was active, the 'cue' would have been modified by initShuffle.
-        // To truly revert, we'd need a 'pristineCue' in PlaybackState.
-        // For now, we just ensure the index is valid for the current (potentially shuffled) cue.
-        if (state.getCue() != null && !state.getCue().isEmpty() && state.getCurrentSongId() != null) {
-            state.setCueIndex(state.getCue().indexOf(state.getCurrentSongId()));
+        List<Long> originalCue = state.getOriginalCue();
+        // Check if there is an original cue to restore from
+        if (originalCue != null && !originalCue.isEmpty()) {
+            state.setCue(new ArrayList<>(originalCue));
+            state.setOriginalCue(new ArrayList<>()); // Clear the saved cue
+        }
+
+        // After restoring, find the index of the current song
+        if (state.getCue() != null && state.getCurrentSongId() != null) {
+            int newIndex = state.getCue().indexOf(state.getCurrentSongId());
+            state.setCueIndex(newIndex);
         } else {
             state.setCueIndex(-1);
         }
     }
 
     public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext) {
-        if (songIds == null || songIds.isEmpty()) return;
+        if (songIds == null || songIds.isEmpty()) {
+            return;
+        }
         List<Long> cue = state.getCue();
         if (cue == null) {
             cue = new ArrayList<>();
@@ -180,7 +159,9 @@ public class PlaybackQueueController {
 
     public void removeFromQueue(PlaybackState state, Long songId) {
         List<Long> cue = state.getCue();
-        if (cue == null || !cue.contains(songId)) return;
+        if (cue == null || !cue.contains(songId)) {
+            return;
+        }
 
         int index = cue.indexOf(songId);
         cue.remove(songId);
@@ -203,6 +184,7 @@ public class PlaybackQueueController {
 
     public void clear(PlaybackState state) {
         state.setCue(new ArrayList<>());
+        state.setOriginalCue(new ArrayList<>());
         state.setCueIndex(-1);
         state.setCurrentSongId(null);
         state.setPlaying(false);
@@ -272,8 +254,29 @@ public class PlaybackQueueController {
             return;
         }
         addSongToHistory(state.getCurrentSongId()); // Add the song we are skipping from
-        state.setCueIndex(index);
-        state.setCurrentSongId(cue.get(index));
+
+        // Create the new truncated cue
+        List<Long> newCue = new ArrayList<>(cue.subList(index, cue.size()));
+
+        // If shuffle was active, we must also filter the originalCue to keep it consistent
+        List<Long> originalCue = state.getOriginalCue();
+        if (originalCue != null && !originalCue.isEmpty()) {
+            // Create a set of the IDs that will remain in the active cue for efficient lookup
+            java.util.Set<Long> remainingIds = new java.util.HashSet<>(newCue);
+
+            // Filter the originalCue, keeping only the songs that are in the new active cue
+            List<Long> newOriginalCue = originalCue.stream()
+                    .filter(remainingIds::contains)
+                    .collect(java.util.stream.Collectors.toList());
+            state.setOriginalCue(newOriginalCue);
+        }
+
+        // Set the new active cue
+        state.setCue(newCue);
+
+        // The new song is now at index 0 of the new cue
+        state.setCueIndex(0);
+        state.setCurrentSongId(newCue.get(0));
         state.setCurrentTime(0);
         state.setPlaying(true);
     }

@@ -10,7 +10,6 @@ import jakarta.inject.Inject;
 public class PlaybackPersistenceController {
     private static final long MIN_SAVE_INTERVAL_MS = 1000;
     private long lastSaveTime = 0;
-    private PlaybackState lastPersistedState = null; // Keep track of the last state we actually persisted
 
     @Inject
     PlaybackStateService stateService;
@@ -40,16 +39,8 @@ public class PlaybackPersistenceController {
             return;
         }
 
-        // Avoid persisting if the state object reference hasn't changed and it's not a forced save
-        // A more robust check would be a deep comparison, but for now, this prevents redundant saves
-        // if the PlaybackController passes the same object without modifications.
-        if (!force && state == lastPersistedState) {
-            return;
-        }
-
         System.out.println("[PlaybackPersistenceManager] Persisting state.");
         stateService.saveState(state);
-        lastPersistedState = state; // Store the reference to the last persisted state
         lastSaveTime = now;
     }
 

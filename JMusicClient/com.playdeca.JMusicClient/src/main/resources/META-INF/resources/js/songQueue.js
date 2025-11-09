@@ -26,7 +26,11 @@ function updateQueueCount() {
     const queueCountSpan = document.getElementById('queueCount');
     const songQueueTableBody = document.querySelector('#songQueueTable tbody');
     if (queueCountSpan && songQueueTableBody) {
-        queueCountSpan.textContent = songQueueTableBody.children.length.toString();
+        const newCount = songQueueTableBody.children.length.toString();
+        console.log("[songQueue.js] updateQueueCount: Updating queue count to", newCount);
+        queueCountSpan.textContent = newCount;
+    } else {
+        console.log("[songQueue.js] updateQueueCount: queueCountSpan or songQueueTableBody not found.");
     }
 }
 
@@ -42,22 +46,43 @@ let isFetchingQueue = false;
 // Load a page of the queue
 // -------------------------
 function loadQueuePage() {
-    if (isFetchingQueue || queueOffset >= totalQueueSize)
+    console.log("[songQueue.js] loadQueuePage called. isFetchingQueue:", isFetchingQueue, "queueOffset:", queueOffset, "totalQueueSize:", totalQueueSize);
+    if (isFetchingQueue || queueOffset >= totalQueueSize) {
+        console.log("[songQueue.js] loadQueuePage: Aborting due to fetching in progress or end of queue.");
         return;
+    }
     isFetchingQueue = true;
 
-    htmx.ajax('GET', `/api/music/ui/queue-fragment?offset=${queueOffset}&limit=${queueLimit}`, {
-        target: '#songQueueTable tbody',
-        swap: queueOffset === 0 ? 'innerHTML' : 'afterend',
-        headers: {'Content-Type': 'application/json'}
-    }).then(() => {
-        const table = document.getElementById('songQueueTable');
-        const tbody = table.querySelector('tbody');
+    fetch(`/api/music/ui/queue-fragment?offset=${queueOffset}&limit=${queueLimit}`, {
+        headers: {'Accept': 'application/json'} // Request JSON
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        const tbody = document.querySelector('#songQueueTable tbody');
+        if (!tbody) {
+            console.error("[songQueue.js] loadQueuePage: #songQueueTable tbody not found.");
+            isFetchingQueue = false;
+            return;
+        }
 
-        // Update offset and total size
+        // Manually swap the HTML
+        if (queueOffset === 0) {
+            tbody.innerHTML = data.html;
+        } else {
+            tbody.insertAdjacentHTML('beforeend', data.html);
+        }
+        
+        // Update offset and total size from the JSON response
         queueOffset += queueLimit;
-        totalQueueSize = parseInt(table.dataset.totalQueueSize || totalQueueSize);
+        totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
         isFetchingQueue = false;
+
+        console.log("[songQueue.js] loadQueuePage: Request successful. New queueOffset:", queueOffset, "totalQueueSize:", totalQueueSize);
 
         // Apply marquee effect to new rows
         const rows = tbody.querySelectorAll('tr');
@@ -68,6 +93,10 @@ function loadQueuePage() {
         });
 
         updateQueueCount();
+    })
+    .catch(error => {
+        console.error("[songQueue.js] loadQueuePage: Request failed:", error);
+        isFetchingQueue = false;
     });
 }
 
@@ -75,50 +104,102 @@ function loadQueuePage() {
 // DOM Ready
 // -------------------------
 document.addEventListener('DOMContentLoaded', () => {
-    const toggleQueueBtn = document.getElementById('toggleQueueBtn');
-    const queueContent = document.getElementById('queueContent');
-    const songQueueCard = document.getElementById('songQueueCard');
+    const queueTabContent = document.getElementById('queueTabContent');
     const clearQueueBtn = document.getElementById('clearQueueBtn');
     const table = document.getElementById('songQueueTable');
-    
-    table.dataset.totalQueueSize = totalQueueSize;
 
-    // Toggle queue visibility
-    if (toggleQueueBtn && queueContent && songQueueCard) {
-        toggleQueueBtn.addEventListener('click', () => {
-            const isHidden = queueContent.style.display === 'none';
-            queueContent.style.display = isHidden ? 'block' : 'none';
-            toggleQueueBtn.querySelector('i').className = isHidden ? 'pi pi-angle-down' : 'pi pi-angle-up';
-            songQueueCard.style.height = isHidden ? 'calc(50vh - 100px)' : 'auto';
-        });
-    }
+    table.dataset.totalQueueSize = totalQueueSize;
 
     // Clear queue
     if (clearQueueBtn) {
         clearQueueBtn.addEventListener('click', () => {
-            htmx.ajax('POST', '/api/music/queue/clear', {
-                swap: 'none',
-                headers: {'Content-Type': 'application/json'}
-            }).then(() => {
+            fetch('/api/music/queue/clear', {
+                method: 'POST',
+                headers: {'Accept': 'application/json'}
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json(); // Expecting JSON response from clearQueueUi
+            })
+            .then(data => {
                 const tbody = document.querySelector('#songQueueTable tbody');
-                tbody.innerHTML = ''; // clear table
+                if (tbody) {
+                    tbody.innerHTML = data.html; // Use HTML from response
+                }
                 queueOffset = 0;
-                totalQueueSize = Infinity;
-                loadQueuePage(); // reload first page (empty or initial)
+                totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
+                // No need to call loadQueuePage() here, as the HTML is already in data.html
                 updateQueueCount();
+            })
+            .catch(error => {
+                console.error("[songQueue.js] clearQueueBtn click: Request failed:", error);
             });
         });
     }
 
     // Infinite scroll listener
-    if (queueContent) {
-        queueContent.addEventListener('scroll', () => {
-            if (queueContent.scrollTop + queueContent.clientHeight >= queueContent.scrollHeight - 50) {
+    if (queueTabContent) {
+        queueTabContent.addEventListener('scroll', () => {
+            if (queueTabContent.scrollTop + queueTabContent.clientHeight >= queueTabContent.scrollHeight - 50) {
                 loadQueuePage();
             }
         });
     }
 
+    // Expose a global function to refresh the queue
+    window.refreshQueue = () => {
+        queueOffset = 0; // Reset offset to load from the beginning
+        totalQueueSize = Infinity; // Reset total size
+        loadQueuePage();
+    };
+
     // Initial load
-    loadQueuePage();
+    window.refreshQueue();
 });
+
+// Global function to handle queue actions (skip/remove)
+window.handleQueueAction = (action, index) => {
+    console.log(`[songQueue.js] handleQueueAction: ${action} at index ${index}`);
+    let url = '';
+    if (action === 'skip') {
+        url = `/api/music/ui/queue/skip-to/${index}`;
+    } else if (action === 'remove') {
+        url = `/api/music/ui/queue/remove/${index}`;
+    } else {
+        console.error(`[songQueue.js] handleQueueAction: Unknown action type: ${action}`);
+        return;
+    }
+
+    fetch(url, {
+        method: 'POST',
+        headers: {'Accept': 'application/json'}
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        const tbody = document.querySelector('#songQueueTable tbody');
+        if (tbody) {
+            tbody.innerHTML = data.html; // Update tbody with new HTML
+        }
+        // After any action, reset offset and update totalQueueSize
+        queueOffset = 0; // Reset offset to load from the beginning next time
+        totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
+        updateQueueCount();
+        // Optionally, re-apply marquee effect to new rows if needed
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(row => {
+            const titleCell = row.querySelector('td:nth-child(2)');
+            if (titleCell)
+                applyMarqueeEffectToQueue(titleCell);
+        });
+    })
+    .catch(error => {
+        console.error(`[songQueue.js] handleQueueAction: Request failed for ${action} at index ${index}:`, error);
+    });
+};

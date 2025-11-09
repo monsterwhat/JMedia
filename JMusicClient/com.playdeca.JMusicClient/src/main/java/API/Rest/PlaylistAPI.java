@@ -107,7 +107,7 @@ public class PlaylistAPI {
             p.getSongs().add(s);
         }
         playbackController.updatePlaylist(p);
-        return Response.ok(ApiResponse.success(p)).build();
+        return Response.ok().build();
     }
 
     private Playlist requirePlaylist(Long id) {

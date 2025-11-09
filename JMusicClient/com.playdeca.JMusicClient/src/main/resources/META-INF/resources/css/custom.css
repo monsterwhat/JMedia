@@ -227,11 +227,6 @@ input[type="range"] {
     pointer-events: auto; /* Enable clicks when visible */
 }
 
-.image-container #expandImageBtn .icon {
-    margin: 0;
-}
-
-/* Add transition to the base image figure for smooth scaling */
 .image-container figure.image {
     transition: width 0.2s ease-in-out, height 0.2s ease-in-out;
 }
@@ -282,3 +277,16 @@ input[type="range"] {
     z-index: 1001; /* Ensure it's above the main context menu */
     min-width: 150px;
 }
+
+/* Custom styling for active tab text */
+.tabs li.is-active a {
+    color: #48c78e !important; /* Bulma's success green */
+    font-weight: bold !important;
+}
+
+/* Ensure inactive tabs retain their default text color */
+.tabs li:not(.is-active) a {
+    color: var(--text-color) !important; /* Use theme text color for inactive tabs */
+}
+
+

@@ -24,4 +24,17 @@ public class Playlist extends PanacheEntity {
         inverseJoinColumns = @JoinColumn(name = "song_id")
     )
     private List<Song> songs = new ArrayList<>();
+
+    @Transient // Not to be persisted
+    private boolean containsSong;
+
+    // Getter for containsSong (Lombok will generate for @Data, but explicit for clarity/control)
+    public boolean getContainsSong() {
+        return containsSong;
+    }
+
+    // Setter for containsSong
+    public void setContainsSong(boolean containsSong) {
+        this.containsSong = containsSong;
+    }
 }

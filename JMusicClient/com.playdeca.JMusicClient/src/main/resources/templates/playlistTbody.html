@@ -1,42 +1,46 @@
-<table id="songTable">
-    <tbody id="songTableBody"
-           data-playlist-id="{playlistId}"
-           data-offset="{nextOffset}"
-           data-limit="{limit}"
-           data-total-songs="{totalSongs}">
-        {#for s in songs}
-        <tr class='{#if currentSong != null && s.id == currentSong.id}has-background-grey{/if}'>
-            <td style='text-align:center;width:5%;'>
-                <figure class='image is-48x48'>
-                    <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy"/>
-                </figure>
-            </td>
-            <td>
-                <div>{s.title ?: "Unknown Title"}</div>
-                <div class='has-text-success is-size-7'>{s.artist ?: "Unknown Artist"}</div>
-            </td>
-            <td>{formatDate.apply(s.dateAdded)}</td>
-            <td>{formatDuration.apply(s.durationSeconds)}</td>
-            <td>
-                <div class="is-flex is-align-items-center is-justify-content-center">
-                    <button
-                        class='is-small is-rounded has-text-success ml-2 play-song-btn'
-                        hx-post='/api/music/playback/select/{s.id}'
-                        hx-trigger='click'
-                        hx-swap='none'
-                        data-playlist-id="{playlistId}">
-                        <i class='pi pi-play'></i> Play
-                    </button>
-                </div>
-            </td>
-        </tr>
-        {/for}
-    </tbody>
-</table>
+{#for s in songs}
+<tr data-song-id="{s.id}" class="{#if currentSong != null && s.id == currentSong.id}has-background-grey-dark has-text-white{/if}">
+    <!-- Artwork -->
+    <td class="has-text-centered" style="width: 5%;">
+        <figure class="image is-48x48 is-inline-block">
+            <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy" alt="Artwork">
+        </figure>
+    </td>
 
-<div class="load-all-controls">
-    <button id="loadAllBtn" class="button is-small">Load All</button>
-</div>
+    <!-- Title + Artist -->
+    <td>
+        <div class="has-text-white has-text-weight-semibold">{s.title ?: "Unknown Title"}</div>
+        <div class="has-text-success is-size-7">{s.artist ?: "Unknown Artist"}</div>
+    </td>
 
+    <!-- Date -->
+    <td class="has-text-centered is-centered is-vcentered has-text-white has-text-weight-semibold">{formatDate.apply(s.dateAdded)}</td>
 
-<script src="/js/playlistBodyHelper.js"></script>
+    <!-- Duration -->
+    <td class="has-text-centered is-centered is-vcentered has-text-white has-text-weight-semibold">{formatDuration.apply(s.durationSeconds)}</td>
+
+    <!-- Play button -->
+    <td class="has-text-centered is-centered is-vcentered">
+        <div class="buttons is-small is-grouped is-centered is-vcentered">
+            <button
+                class="button is-small is-rounded is-success"
+                hx-post="/api/music/playback/select/{s.id}"
+                hx-trigger="click"
+                hx-swap="none"
+                data-playlist-id="{playlistId}">
+                <i class="pi pi-play"></i>
+            </button>
+            {#if playlistId == 0}
+            <button
+                class="button is-small is-rounded is-info"
+                hx-get="/api/music/ui/add-to-playlist-dialog/{s.id}"
+                hx-target="#addToPlaylistModalContent"
+                hx-swap="innerHTML"
+                hx-on::after-request="document.getElementById('addToPlaylistModal').classList.add('is-active')">
+                <i class="pi pi-plus"></i>
+            </button>
+            {/if}
+        </div>
+    </td>
+</tr>
+{/for}

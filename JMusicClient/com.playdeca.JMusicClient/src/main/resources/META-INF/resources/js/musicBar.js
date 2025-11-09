@@ -117,11 +117,6 @@ function updateMusicBar() {
 // ---------------- Audio Events ----------------
 const throttledSendWS = throttle(sendWS, 300); // Send a message at most every 300ms
 
-function sendWS(type, payload) {
-    if (ws && ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({type, payload}));
-}
-
 audio.ontimeupdate = () => {
     if (!draggingSeconds) {
         musicState.currentTime = audio.currentTime;
@@ -132,24 +127,8 @@ audio.ontimeupdate = () => {
 };
 
 audio.onended = () => {
-    console.log("[musicBar.js] audio.onended: Song ended, sending 'next'");
-    // tell backend to go to next song
-    sendWS("next", {});
-
-    // immediately fetch the new current song from backend
-    fetch('/api/music/playback/current')
-            .then(r => r.json())
-            .then(json => {
-                if (!json.data || !json.data.id)
-                    return;
-
-                // update the audio element with new song
-                UpdateAudioSource(json.data, true, json.data.currentTime ?? 0);
-
-                // force UI refresh
-                refreshSongTable();
-            })
-            .catch(console.error);
+    console.log("[musicBar.js] audio.onended: Song ended, calling /api/music/playback/next.");
+    fetch('/api/music/playback/next', { method: 'POST' });
 };
 
 
@@ -246,7 +225,9 @@ function handleWSMessage(msg) {
                             console.log("[WS] handleWSMessage: Calling UpdateAudioSource with data:", json.data);
                             UpdateAudioSource(json.data, state.playing, state.currentTime ?? 0);
                             refreshSongTable();
-                            htmx.trigger('body', 'queueChanged');
+                            if (window.refreshQueue) {
+                                window.refreshQueue();
+                            }
                         }
                     });
         } else if (playChanged) { // If only play state changed, re-initialize audio source to ensure duration is correct
@@ -374,16 +355,38 @@ function bindPlaybackButtons() {
 
 
 // ---------------- UI ----------------
-function refreshSongTable() {
+async function refreshSongTable() { // Make it async
     console.log("[musicBar.js] refreshSongTable called");
-    const playlistView = document.getElementById('playlistView');
-    const currentPlaylistId = playlistView?.dataset?.playlistId ?? '0'; // Use nullish coalescing
-    console.log("[musicBar.js] currentPlaylistId =", currentPlaylistId);
+    const songTableBody = document.querySelector('#songTable tbody');
+    if (!songTableBody) {
+        console.log("[musicBar.js] refreshSongTable: #songTable tbody not found.");
+        return;
+    }
 
-    htmx.ajax('GET', `/api/music/ui/tbody/${currentPlaylistId}`, {
-        target: '#songTable tbody',
-        swap: 'innerHTML'
-    });
+    try {
+        const response = await fetch('/api/music/playback/current');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const currentSongData = await response.json();
+        const currentSongId = currentSongData.data ? String(currentSongData.data.id) : null;
+
+        console.log("[musicBar.js] refreshSongTable: Current song ID from API:", currentSongId);
+
+        // Iterate through all song rows and update their styling
+        const songRows = songTableBody.querySelectorAll('tr');
+        songRows.forEach(row => {
+            const rowSongId = row.dataset.songId; // Assuming song ID is stored in data-song-id attribute on the tr
+            if (rowSongId && rowSongId === currentSongId) {
+                row.classList.add('has-background-grey-dark', 'has-text-white');
+                console.log(`[musicBar.js] refreshSongTable: Highlighted song ID: ${rowSongId}`);
+            } else {
+                row.classList.remove('has-background-grey-dark', 'has-text-white');
+            }
+        });
+    } catch (error) {
+        console.error("[musicBar.js] refreshSongTable: Error fetching current song or updating table:", error);
+    }
 }
 
 
@@ -482,11 +485,12 @@ async function populatePlaylistSubMenu() {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const playlists = await response.json(); // Assuming playlists is an array of {id, name}
+        const apiResponse = await response.json();
+        const playlists = apiResponse.data; // Extract the actual playlist array from the ApiResponse
 
         playlistSubMenu.innerHTML = ''; // Clear loading state
 
-        if (playlists.length === 0) {
+        if (!playlists || playlists.length === 0) { // Add a check for null/undefined playlists
             playlistSubMenu.innerHTML = '<div class="context-menu-item" data-disabled="true">No Playlists</div>';
             return;
         }

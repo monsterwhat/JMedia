@@ -1,14 +1,26 @@
  
-    {#for s in queue}
-    <tr class="{#if currentSong != null && s.id == currentSong.id}has-background-grey{/if}">
+{#for s_with_index in queue}
+    <tr class="{#if currentSong != null && s_with_index.song.id == currentSong.id}has-background-grey{/if}">
         <td style="text-align:center;">
             <figure class="image is-24x24">
-                <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy"/>
+                <img src="{artworkUrl.apply(s_with_index.song.artworkBase64)}" loading="lazy"/>
             </figure>
         </td>
-        <td class="is-size-7" style="width:75%;">
-            <span>{s.title ?: "Unknown"}</span><br>
-            <span class="has-text-success is-size-7">{s.artist ?: "Unknown"}</span>
+        <td class="is-size-7" style="width:60%;">
+            <span>{s_with_index.song.title ?: "Unknown"}</span><br>
+            <span class="has-text-success is-size-7">{s_with_index.song.artist ?: "Unknown"}</span>
+        </td>
+        <td class="is-size-7" style="width:20%;">
+            <div class="buttons is-small has-text-centered">
+                <button class="is-small has-text-success"
+                        onclick="handleQueueAction('skip', {s_with_index.index})">
+                    <i class="pi pi-play"></i>
+                </button>
+                <button class="is-small has-text-danger"
+                        onclick="handleQueueAction('remove', {s_with_index.index})">
+                    <i class="pi pi-times"></i>
+                </button>
+            </div>
         </td>
     </tr>
     {/for}

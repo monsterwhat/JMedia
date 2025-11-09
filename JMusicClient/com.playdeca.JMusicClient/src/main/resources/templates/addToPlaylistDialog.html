@@ -14,9 +14,10 @@
                     <input
                         type='checkbox'
                         {#if p.containsSong}checked{/if}
-                        hx-post='/api/music/ui/playlists/{p.id}/songs/{songId}/toggle'
+                        hx-post='/api/music/playlists/{p.id}/songs/{songId}/toggle'
                         hx-trigger='change'
-                        hx-swap='none'>
+                        hx-swap='none'
+                        hx-on::before-swap="event.preventDefault()">
                     {p.name}
                 </label>
             </div>

@@ -330,7 +330,7 @@ window.refreshSettingsUI = async function () {
         }
 
         window.refreshSettingsUI?.();
-        window.setupLogWebSocket?.();
+        setTimeout(() => window.setupLogWebSocket?.(), 0);
 
         const runAsServiceToggle = document.getElementById("runAsServiceToggle");
         const runAsServiceModal = document.getElementById("runAsServiceModal");

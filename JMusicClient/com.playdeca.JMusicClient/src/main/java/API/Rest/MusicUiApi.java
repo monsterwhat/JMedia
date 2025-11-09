@@ -8,6 +8,7 @@ import io.quarkus.qute.TemplateInstance;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
@@ -73,75 +74,117 @@ public class MusicUiApi {
     // -------------------------
     // Queue actions
     // -------------------------
+    // DTO for queue fragment response
+    public record QueueFragmentResponse(String html, int totalQueueSize) {}
+
     @POST
     @Path("/playback/queue-all/{id}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    public TemplateInstance queueAllSongsUi(@PathParam("id") Long id) {
+    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
+    public QueueFragmentResponse queueAllSongsUi(@PathParam("id") Long id) { // Change return type
         // Call the JSON API to do the actual queuing
         Response apiResponse = queueAPI.queueAllSongs(id);
 
         // Then return the updated queue fragment for HTMX
         List<Song> updatedQueue = playbackController.getQueue();
 
-        return queueFragment
-                .data("queue", updatedQueue)
+        // Create a list of SongWithIndex objects
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < updatedQueue.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+        }
+
+        String html = queueFragment
+                .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl);
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .render();
+
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
     }
 
     @POST
     @Path("/queue/skip-to/{index}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    public TemplateInstance skipToQueueIndexUi(@PathParam("index") int index) {
+    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
+    public QueueFragmentResponse skipToQueueIndexUi(@PathParam("index") int index) { // Change return type
         queueAPI.skipToQueueIndex(index);
 
         List<Song> updatedQueue = playbackController.getQueue();
-        return queueFragment
-                .data("queue", updatedQueue)
+        // Create a list of SongWithIndex objects
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < updatedQueue.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+        }
+
+        String html = queueFragment
+                .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl);
-    }
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .render();
 
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
+    }
     @POST
     @Path("/queue/remove/{index}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    public TemplateInstance removeFromQueueUi(@PathParam("index") int index) {
+    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
+    public QueueFragmentResponse removeFromQueueUi(@PathParam("index") int index) { // Change return type
         queueAPI.removeFromQueue(index);
 
         List<Song> updatedQueue = playbackController.getQueue();
-        return queueFragment
-                .data("queue", updatedQueue)
+        // Create a list of SongWithIndex objects
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < updatedQueue.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+        }
+
+        String html = queueFragment
+                .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl);
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .render();
+
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
     }
 
     @POST
     @Path("/queue/clear")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    public TemplateInstance clearQueueUi() {
+    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
+    public QueueFragmentResponse clearQueueUi() { // Change return type
         queueAPI.clearQueue();
 
         List<Song> updatedQueue = playbackController.getQueue();
-        return queueFragment
-                .data("queue", updatedQueue)
+        // Create a list of SongWithIndex objects
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < updatedQueue.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
+        }
+
+        String html = queueFragment
+                .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl);
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .render();
+
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
     }
 
     // -------------------------
@@ -174,9 +217,7 @@ public class MusicUiApi {
     @Path("/tbody/{id}")
     @Blocking
     public String getPlaylistTbody(
-            @PathParam("id") Long id,
-            @QueryParam("offset") Integer offset,
-            @QueryParam("limit") Integer limit) {
+            @PathParam("id") Long id) { // Removed offset and limit
 
         try {
             long playlistId = (id == null) ? 0L : id;
@@ -186,40 +227,14 @@ public class MusicUiApi {
                             .map(Playlist::getSongs)
                             .orElse(new ArrayList<>());
 
-            if (offset == null || offset < 0) {
-                offset = 0;
-            }
-            if (limit == null || limit <= 0) {
-                limit = 20;
-            }
-
-            if (offset > allSongs.size()) {
-                offset = Math.max(allSongs.size() - limit, 0);
-            }
-
-            int toIndex = Math.min(offset + limit, allSongs.size());
-            List<Song> page = allSongs.isEmpty() ? new ArrayList<>() : allSongs.subList(offset, toIndex);
-
-            int prevOffset = Math.max(offset - limit, 0);
-            int nextOffset = offset + limit;
-            int totalPages = (int) Math.ceil(allSongs.size() / (double) limit);
-            int currentPage = (allSongs.isEmpty()) ? 1 : offset / limit + 1;
-
             Song currentSong = playbackController.getCurrentSong();
             boolean isPlaying = playbackController.getState() != null && playbackController.getState().isPlaying();
 
             return playlistTbody
                     .data("playlistId", playlistId)
-                    .data("songs", page)
+                    .data("songs", allSongs) // Pass allSongs directly
                     .data("currentSong", currentSong)
                     .data("isPlaying", isPlaying)
-                    .data("offset", offset)
-                    .data("limit", limit)
-                    .data("totalSongs", allSongs.size())
-                    .data("prevOffset", prevOffset)
-                    .data("nextOffset", nextOffset)
-                    .data("currentPage", currentPage)
-                    .data("totalPages", totalPages)
                     .data("formatDate", (Function<Object, String>) this::formatDate)
                     .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                     .data("artworkUrl", (Function<String, String>) this::artworkUrl)
@@ -231,29 +246,46 @@ public class MusicUiApi {
 
     }
 
+    // Helper record to pass song and its index to the template
+    public record SongWithIndex(Song song, int index) {}
+
     @GET
     @Path("/queue-fragment")
     @Blocking
-    public String getQueueFragment(@QueryParam("offset") Integer offset,
-            @QueryParam("limit") Integer limit) {
-        if (offset == null) {
-            offset = 0;
-        }
-        if (limit == null) {
-            limit = 50;
-        }
+    @Produces(MediaType.APPLICATION_JSON)
+    public QueueFragmentResponse getQueueFragment() {
 
         List<Song> queue = playbackController.getQueue();
-        int toIndex = Math.min(offset + limit, queue.size());
-        List<Song> page = queue.subList(offset, toIndex);
 
-        return queueFragment
-                .data("queue", page)
+        // Create a list of SongWithIndex objects
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < queue.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(queue.get(i), i));
+        }
+
+        String html = queueFragment
+                .data("queue", queueWithIndex) // Pass the list with index
                 .data("currentSong", playbackController.getCurrentSong())
-                .data("offset", offset)
-                .data("limit", limit)
                 .data("totalQueueSize", queue.size())
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .render();
+
+        return new QueueFragmentResponse(html, queue.size()); // Return DTO
+    }
+
+    @GET
+    @Path("/add-to-playlist-dialog/{songId}")
+    @Blocking
+    @Produces(MediaType.TEXT_HTML)
+    public String getAddToPlaylistDialog(@PathParam("songId") Long songId) {
+        List<Playlist> playlists = playbackController.getPlaylists();
+        // For each playlist, check if the song is already in it
+        playlists.forEach(p -> p.setContainsSong(p.getSongs().stream().anyMatch(s -> s.id.equals(songId))));
+
+        return addToPlaylistDialog
+                .data("playlists", playlists)
+                .data("songId", songId)
+                .render();
     }
 }
+

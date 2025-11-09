@@ -81,32 +81,59 @@
 
             <!-- Hero Body (Main content area) -->
             <div class="hero-body m-0 p-0">
-                
+
                 <div class="columns p-0 m-0" style="width:100%;">
-                    
+
                     <!-- Playlist Sidebar -->
                     <div class="column is-3 is-full-mobile" id="playlistSidebar">
-                        <div class="card has-background-grey-darker has-text-white" style="max-height: calc(45vh - 100px);">
-                            <header class="card-header">
-                                <p class="card-header-title has-text-white">
-                                    Playlists
-                                </p>
-                                <button class="card-header-icon" aria-label="more options" id="togglePlaylistsBtn">
-                                    <span class="icon">
-                                        <i class="pi pi-angle-up" aria-hidden="true"></i>
-                                    </span>
-                                </button>
-                            </header>
-                            <div class="card-content is-hidden p-0 m-0" id="playlistsContent" style="max-height: calc(45vh - 150px); overflow-y: auto;">
-                                <button id="createPlaylistBtn" class="button is-primary is-fullwidth" style="margin-bottom:0.5rem;">
-                                    <i class="pi pi-plus"></i> Create Playlist
-                                </button>
-                                <hr/>
-                                <div id="sidebarPlaylistList"
-                                     hx-get="/api/music/ui/playlists-fragment"
-                                     hx-trigger="load"
-                                     hx-swap="innerHTML">
-                                    <!-- dynamically populated -->
+                        <div class="card has-background-grey-darker has-text-white">
+                            <div class="card-header">
+                                <div class="tabs is-fullwidth">
+                                    <ul>
+                                        <li class="has-text-white is-active" id="playlistsTab"><a>Playlists</a></li>
+                                        <li id="queueTab"><a class="has-text-white">Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span></a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="card-content p-0 m-0" style="height: calc(100vh - 320px); overflow-y: scroll;">
+                                <div id="playlistsTabContent" >
+                                    <button id="createPlaylistBtn" class="button is-primary is-fullwidth"  >
+                                        <i class="pi pi-plus"></i> Create Playlist
+                                    </button> 
+                                    <div id="sidebarPlaylistList"
+                                         hx-get="/api/music/ui/playlists-fragment"
+                                         hx-trigger="load"
+                                         hx-swap="innerHTML">
+                                        <!-- dynamically populated -->
+                                    </div>
+                                </div>
+
+                                <div id="queueTabContent" class="is-hidden" >
+                                    <div id="songQueueContainer">
+                                        <table id="songQueueTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                                            <thead>
+                                                <tr>
+                                                    <th></th>
+                                                    <th class="has-text-white has-text-weight-semibold">Title / Artist</th>
+                                                    <th class="has-text-white has-text-weight-semibold" style="width:20%;">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="songQueueTableBody"
+                                                   hx-get="/api/music/ui/queue-fragment"
+                                                   hx-trigger="load"
+                                                   hx-swap="innerHTML"
+                                                   hx-indicator="#queueLoadingIndicator">
+                                                <tr id="queueLoadingIndicator" class="htmx-indicator">
+                                                    <td colspan="3" class="has-text-centered py-4">
+                                                        <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                                        <p>Loading queue...</p>
+                                                    </td>
+                                                </tr>
+                                                <!-- Queue populated via HTMX -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <button id="clearQueueBtn" class="button is-danger is-fullwidth mt-2">Clear Queue</button>
                                 </div>
                             </div>
 
@@ -139,35 +166,6 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="card has-background-grey-darker has-text-white mt-4" id="songQueueCard">
-                            <header class="card-header">
-                                <p class="card-header-title has-text-white">
-                                    Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span>
-                                </p>
-                                <button class="card-header-icon" aria-label="more options" id="toggleQueueBtn">
-                                    <span class="icon">
-                                        <i class="pi pi-angle-up" aria-hidden="true"></i>
-                                    </span>
-                                </button>
-                            </header>
-                            <div class="card-content p-0" id="queueContent">
-                                <div id="songQueueContainer" style="max-height: calc(40vh - 100px); overflow-y: scroll;">
-                                    <table id="songQueueTable" class="table is-fullwidth is-hoverable is-striped">
-                                        <thead>
-                                            <tr>
-                                                <th></th>
-                                                <th>Title / Artist</th>
-                                                <th>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <!-- Queue populated via HTMX -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <button id="clearQueueBtn" class="button is-danger is-fullwidth mt-2">Clear Queue</button>
-                            </div>
-                        </div>
 
                         <!-- Add to Playlist Modal -->
                         <div id="addToPlaylistModal" class="modal">
@@ -192,38 +190,34 @@
                                     </span>
                                 </button>
                             </header>
-                            <div class="card-content m-0 p-0" id="allSongsContent">
+                            <div class="card-content m-0 p-0" style="max-height: calc(100vh - 320px); overflow-y: auto;" id="allSongsContent">
                                 <div id="allSongsForPlaylistContainer" style="display: none;">
                                     <div id="allSongsForPlaylist">
                                         <!-- Content for all songs in a specific playlist will be loaded here -->
                                     </div>
                                 </div>
-                                <div id="songListContainer" style="max-height: calc(100vh - 320px); overflow-y: auto;">
-                                    <table id="songTable" class="table is-fullwidth is-hoverable is-striped">
+                                <div id="songListContainer" >
+                                    <table id="songTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
                                         <thead>
                                             <tr>
                                                 <th></th>
-                                                <th>Title / Artist</th>
-                                                <th>Date Added</th>
-                                                <th>Duration</th>
-                                                <th>Action</th>
+                                                <th class="has-text-white has-text-weight-semibold">Title / Artist</th>
+                                                <th class="has-text-white has-text-weight-semibold">Date Added</th>
+                                                <th class="has-text-white has-text-weight-semibold">Duration</th>
+                                                <th class="has-text-white has-text-weight-semibold">Action</th>
                                             </tr>
                                         </thead>
-                                        <tbody hx-get="/api/music/ui/tbody/0"
-                                           hx-trigger="load"
-                                           hx-swap="innerHTML">
+                                        <tbody hx-get="/api/music/ui/tbody/0?limit=50"
+                                               hx-trigger="load"
+                                               hx-swap="innerHTML"
+                                               id="songTableBody">
                                             <!-- Songs populated via HTMX -->
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <!-- TODO -->
-                    <!-- Create another column below the playlists one (so same size, column is-3 is-hidden-mobile is-mobile-sidebar )
-                        Have this column contain the current Song Queue as a table with the same style as the other ones, with a button to skip to song in queue, remove song from queue and clear queue, allow minimizing it to a small tab with only the title -->
-                    
+                    </div>  
                 </div>
             </div>
 
@@ -299,6 +293,7 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/songQueue.js"></script>
 
+
         <!-- Custom Context Menu -->
         <div id="customContextMenu" class="context-menu" style="display: none;">
             <div class="context-menu-item" id="editSongMenuItem" data-action="edit-song" data-disabled="true">Edit Song</div>
@@ -313,3 +308,17 @@
         </div>
     </body>
 </html>
+
+<script>
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        // Check if the swapped content is for the song table body
+        if (event.detail.target.id === 'songTableBody') {
+            console.log("[index.html] htmx:afterSwap detected for songTableBody. Calling initPlaylistBodyHelper.");
+            if (window.initPlaylistBodyHelper) {
+                window.initPlaylistBodyHelper();
+            } else {
+                console.error("[index.html] window.initPlaylistBodyHelper is not defined after songTableBody swap.");
+            }
+        }
+    });
+</script>

@@ -134,6 +134,11 @@ public class PlaybackController {
             playbackQueueController.songSelected(id);
 
             addSongToCueIfNotPresent(st, id);
+
+            // FIX: Update the cue index to match the selected song
+            if (st.getCue() != null) {
+                st.setCueIndex(st.getCue().indexOf(id));
+            }
         }
 
         updateState(st, true);
@@ -153,7 +158,7 @@ public class PlaybackController {
     }
 
     private void handleAction(com.fasterxml.jackson.databind.JsonNode node) {
-        String action = node.get("action").asText();
+        String action = node.get("type").asText();
         PlaybackState state = getState();
 
         switch (action) {
@@ -175,6 +180,9 @@ public class PlaybackController {
                 break;
             case "previous":
                 previous();
+                break;
+            case "song_ended": // New case for natural song end
+                handleSongEnded();
                 break;
             case "shuffle":
                 toggleShuffle();
@@ -236,7 +244,7 @@ public class PlaybackController {
     }
 
     // Helper method to advance song
-    private synchronized void advanceSong(boolean forward) {
+    private synchronized void advanceSong(boolean forward, boolean fromSongEnd) { // Added fromSongEnd parameter
         PlaybackState st = getState();
 
         // Populate cue if empty (initial state)
@@ -248,6 +256,14 @@ public class PlaybackController {
                 stopPlayback();
                 return;
             }
+        }
+
+        // Handle RepeatMode.ONE when song ends naturally
+        if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
+            st.setCurrentTime(0); // Restart current song
+            st.setPlaying(true); // Ensure it keeps playing
+            updateState(st, true); // Persist and broadcast
+            return;
         }
 
         Long nextSongId = playbackQueueController.advance(st, forward);
@@ -263,10 +279,7 @@ public class PlaybackController {
         st.setSongName(newSong != null ? newSong.getTitle() : "Unknown Title");
         st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
         st.setPlaying(true);
-        // currentTime is already set to 0 for RepeatMode.ONE. For others, it should be 0.
-        if (st.getRepeatMode() != PlaybackState.RepeatMode.ONE) {
-            st.setCurrentTime(0);
-        }
+        st.setCurrentTime(0); // Always reset time for a new song
 
         updateState(st, true); // persists + broadcasts
     }
@@ -274,13 +287,19 @@ public class PlaybackController {
     public synchronized void next() {
         currentSettings.addLog("Skipped to next song.");
         System.out.println("Next");
-        advanceSong(true);
+        advanceSong(true, false); // Explicit user action
     }
 
     public synchronized void previous() {
         currentSettings.addLog("Skipped to previous song.");
         System.out.println("Previous");
-        advanceSong(false);
+        advanceSong(false, false); // Explicit user action
+    }
+
+    public synchronized void handleSongEnded() {
+        currentSettings.addLog("Song ended naturally.");
+        System.out.println("Song Ended");
+        advanceSong(true, true); // Automatic advance due to song end
     }
 
     public synchronized void togglePlay() {
