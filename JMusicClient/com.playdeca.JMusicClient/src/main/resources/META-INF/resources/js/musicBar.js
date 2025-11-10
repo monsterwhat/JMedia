@@ -75,9 +75,9 @@ function updateMusicBar() {
     if (artistEl)
         artistEl.innerText = artist ?? "Unknown Artist";
 
-    // Apply marquee effect for mobile elements
-    applyMarqueeEffect('songTitleMobile', songName ?? "Unknown Title");
-    applyMarqueeEffect('songArtistMobile', artist ?? "Unknown Artist");
+    // Apply marquee effect to main song title and artist
+    applyMarqueeEffect('songTitle', songName ?? "Unknown Title");
+    applyMarqueeEffect('songArtist', artist ?? "Unknown Artist");
 
     document.getElementById('playPauseIcon').className = playing
             ? "pi pi-pause button is-warning is-rounded is-large"
@@ -86,16 +86,35 @@ function updateMusicBar() {
     document.getElementById('currentTime').innerText = formatTime(currentTime);
     document.getElementById('totalTime').innerText = formatTime(duration);
 
-    const timeSlider = document.querySelector('input[name="seconds"]');
+    const timeSlider = document.getElementById('playbackProgressBar'); // Use getElementById for direct access
     if (timeSlider) {
         timeSlider.max = duration;
-        if (!draggingSeconds)
+
+        // Update the slider's value based on currentTime if not dragging
+        // If dragging, the slider's value is already updated by the browser
+        if (!draggingSeconds) {
             timeSlider.value = currentTime;
+        }
+
+        // Always update the progress bar's visual fill, regardless of dragging state
+        // Use the current value of the slider for calculation, which will be
+        // either currentTime (if not dragging) or the dragged value (if dragging)
+        const currentSliderValue = parseFloat(timeSlider.value);
+        const progress = (currentSliderValue / duration) * 100;
+        timeSlider.style.setProperty('--progress-value', `${progress}%`);
     }
 
-    const volumeSlider = document.querySelector('input[name="level"]');
-    if (volumeSlider && !draggingVolume) {
-        volumeSlider.value = calculateLinearSliderValue(volume);
+    const volumeSlider = document.getElementById('volumeProgressBar'); // Use getElementById
+    if (volumeSlider) {
+        // Update the slider's value based on musicState.volume if not dragging
+        if (!draggingVolume) {
+            volumeSlider.value = calculateLinearSliderValue(volume);
+        }
+
+        // Always update the progress bar's visual fill, regardless of dragging state
+        const currentSliderValue = parseFloat(volumeSlider.value);
+        const progress = (currentSliderValue / 100) * 100; // Volume max is 100
+        volumeSlider.style.setProperty('--progress-value', `${progress}%`);
     }
 
     document.getElementById('shuffleIcon').className = shuffleEnabled

@@ -9,18 +9,21 @@ import Models.Song;
 import Services.PlaybackHistoryService;
 import Services.SettingsService;
 import Services.SongService;
-
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
-import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.mp3.MP3File;
 import org.jaudiotagger.tag.FieldKey;
@@ -41,11 +44,14 @@ public class SettingsController implements Serializable {
 
     @Inject
     private PlaybackHistoryService playbackHistoryService;
-    
+
     @Inject
     private LogSocket logSocket;
 
     private String musicLibraryPath;
+
+    private static final int THREADS = Math.max(4, Math.max(1, Runtime.getRuntime().availableProcessors() / 2));
+    private static final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
 
     public void toggleAsService() {
         Settings currentSettings = settingsService.getOrCreateSettings();
@@ -61,103 +67,315 @@ public class SettingsController implements Serializable {
         addLog("Music folder initialized from settings: " + musicLibraryPath);
     }
 
+    @PreDestroy
+    public void shutdownExecutor() {
+        try {
+            executor.shutdown();
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException ignored) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
     public void selectMusicLibrary() {
         addLog("Music library set to: " + musicLibraryPath);
     }
 
-    @Transactional
     public void scanLibrary() {
         addLog("Scanning music library: " + musicLibraryPath);
-
         File folder = getMusicFolder();
+
         if (!folder.exists() || !folder.isDirectory()) {
             addLog("Music folder does not exist: " + folder.getAbsolutePath());
             return;
         }
 
-        int totalAdded = scanFolderRecursively(folder);
-        addLog("Scan completed. Total MP3 files added: " + totalAdded);
-        musicSocket.broadcastAll(); // Trigger UI refresh
-    }
+        List<File> mp3Files = new ArrayList<>();
+        collectMp3Files(folder, mp3Files);
+        addLog("Found " + mp3Files.size() + " MP3 files. Starting parallel metadata reading...");
 
-    private int scanFolderRecursively(File folder) {
-        int addedCount = 0;
+        ExecutorCompletionService<Integer> completion = new ExecutorCompletionService<>(executor);
+        mp3Files.forEach(f -> completion.submit(() -> processFile(f)));
 
-        File[] files = folder.listFiles();
-        if (files == null) {
-            return addedCount;
-        }
-
-        for (File file : files) {
-            if (file.isDirectory()) {
-                addedCount += scanFolderRecursively(file);
-            } else if (file.isFile() && file.getName().toLowerCase().endsWith(".mp3")) {
-                try {
-                    File baseFolder = getMusicFolder();
-                    String relativePath = baseFolder.toURI().relativize(file.toURI()).getPath();
-
-                    Song song = songService.findByPath(relativePath);
-                    if (song == null) {
-                        song = new Song();
-                        song.setPath(relativePath);
-                        song.setDateAdded(java.time.LocalDateTime.now()); // Set dateAdded only for new songs
-                    }
-
-                    MP3File mp3File = (MP3File) AudioFileIO.read(file);
-                    Tag tag = mp3File.getTag();
-
-                    if (tag != null) {
-                        song.setTitle(tag.getFirst(FieldKey.TITLE));
-                        song.setArtist(tag.getFirst(FieldKey.ARTIST));
-                        song.setAlbum(tag.getFirst(FieldKey.ALBUM));
-
-                        // Extract artwork
-                        try {
-                            Artwork artwork = tag.getFirstArtwork();
-                            if (artwork != null) {
-                                byte[] imageData = artwork.getBinaryData();
-                                song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(imageData));
-                            } else {
-                                song.setArtworkBase64(null); // Clear if no artwork found
-                            }
-                        } catch (Exception artworkException) {
-                            addLog("WARNING: Failed to extract artwork for " + file.getName() + ": " + artworkException.getMessage());
-                            song.setArtworkBase64(null); // Ensure it's null on error
-                        }
-                    } else {
-                        String fileName = file.getName();
-                        if (fileName.toLowerCase().endsWith(".mp3")) {
-                            fileName = fileName.substring(0, fileName.length() - 4);
-                        }
-                        song.setTitle(fileName);
-                        song.setArtist("Unknown Artist");
-                        song.setArtworkBase64(null); // No tags, no artwork
-                    }
-                    int trackLength = mp3File.getAudioHeader().getTrackLength();
-                    addLog("DEBUG: Read duration for " + file.getName() + ": " + trackLength + " seconds.");
-                    song.setDurationSeconds(trackLength);
-                    addLog("DEBUG: Song object duration set to: " + song.getDurationSeconds() + " seconds.");
-
-                    // Check for potentially corrupt files (Unknown Artist and 0:00 duration)
-                    if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank()) && song.getDurationSeconds() == 0) {
-                        addLog("WARNING: Skipping potentially corrupt song (Unknown Artist and 0:00 duration): " + file.getName());
-                        continue; // Skip saving this song
-                    }
-
-                    songService.save(song);
-                    addLog("DEBUG: Song saved to service for " + file.getName() + ".");
-
-                    addLog("Added/Updated song: " + file.getName() + " (title: " + song.getTitle() + ", artist: " + song.getArtist() + ")");
-                    addedCount++;
-                } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
-                    addLog("WARNING: Skipping song " + file.getName() + " due to invalid audio frame (corrupted/malformed file?): " + e.getMessage());
-                } catch (Exception e) {
-                    addLog("Failed to add/update song " + file.getName() + ": " + e.getMessage(), e);
+        int totalAdded = 0;
+        for (int i = 0; i < mp3Files.size(); i++) {
+            try {
+                totalAdded += completion.take().get();
+                if ((i + 1) % 50 == 0) {
+                    addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files...");
                 }
+            } catch (Exception e) {
+                addLog("Error while processing file in parallel: " + e.getMessage(), e);
             }
         }
 
-        return addedCount;
+        addLog("Scan completed. Total MP3 files added: " + totalAdded);
+        musicSocket.broadcastAll();
+    }
+
+    private void collectMp3Files(File folder, List<File> mp3Files) {
+        File[] files = folder.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File f : files) {
+            if (f.isDirectory()) {
+                collectMp3Files(f, mp3Files);
+            } else if (f.isFile() && f.getName().toLowerCase().endsWith(".mp3")) {
+                mp3Files.add(f);
+            }
+        }
+    }
+
+    /**
+     * Process a single MP3 file. Returns 1 if a song was added/updated, 0
+     * otherwise.
+     */
+    private int processFile(File file) {
+        try {
+            File baseFolder = getMusicFolder();
+            String relativePath = baseFolder.toURI().relativize(file.toURI()).getPath();
+
+            Song song = songService.findByPathInNewTx(relativePath);
+            if (song == null) {
+                song = new Song();
+                song.setPath(relativePath);
+                song.setDateAdded(java.time.LocalDateTime.now());
+            }
+
+            MP3File mp3File = null;
+            Tag tag = null;
+            try {
+                mp3File = (MP3File) AudioFileIO.read(file);
+                tag = mp3File.getTag();
+            } catch (org.jaudiotagger.audio.exceptions.CannotReadException e) {
+                addLog("[org.jau.tag.id3] WARNING: Could not read MP3 metadata for " + file.getName() + ": " + e.getMessage());
+            } catch (RuntimeException e) {
+                addLog("[org.jau.tag.id3] WARNING: Runtime error while reading tag for " + file.getName() + ": " + e.getMessage(), e);
+            }
+
+            if (tag != null) {
+                song.setTitle(tag.getFirst(FieldKey.TITLE));
+                song.setArtist(tag.getFirst(FieldKey.ARTIST));
+                song.setAlbum(tag.getFirst(FieldKey.ALBUM));
+
+                try {
+                    Artwork artwork = tag.getFirstArtwork();
+                    if (artwork != null) {
+                        byte[] imageData = artwork.getBinaryData();
+                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(imageData));
+                     } else {
+                        song.setArtworkBase64(null);
+                    }
+                } catch (Exception artworkException) {
+                    addLog("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName() + ": " + artworkException.getMessage());
+                    song.setArtworkBase64(null);
+                }
+            } else {
+                String fileName = file.getName().replaceFirst("(?i)\\.mp3$", "");
+                song.setTitle(fileName);
+                song.setArtist("Unknown Artist");
+                song.setAlbum("Unknown Album");
+                song.setArtworkBase64(null);
+            }
+
+            try {
+                if (mp3File != null && mp3File.getAudioHeader() != null) {
+                    int trackLength = mp3File.getAudioHeader().getTrackLength();
+                    song.setDurationSeconds(trackLength);
+                 } else {
+                    song.setDurationSeconds(0);
+                    addLog("[org.jau.tag.id3] WARNING: Could not read duration for " + file.getName() + ".");
+                }
+            } catch (Exception e) {
+                addLog("[org.jau.tag.id3] WARNING: Error reading duration for " + file.getName() + ": " + e.getMessage());
+                song.setDurationSeconds(0);
+            }
+
+            if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
+                    && song.getDurationSeconds() == 0) {
+                addLog("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist and 0:00): " + file.getName());
+                return 0;
+            }
+
+            // Persist using REQUIRES_NEW transaction per-file
+            songService.persistSongInNewTx(song);
+              return 1;
+        } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
+            addLog("[org.jau.tag.id3] WARNING: Skipping song " + file.getName() + " due to invalid audio frame: " + e.getMessage());
+            return 0;
+        } catch (Exception e) {
+            addLog("[org.jau.tag.id3] ERROR: Failed to add/update song " + file.getName() + ": " + e.getMessage(), e);
+            return 0;
+        }
+    }
+
+    // -------------------------------
+    // Parallel reloadAllSongsMetadata
+    // -------------------------------
+    public void reloadAllSongsMetadata() {
+        addLog("[org.jau.tag.id3] Reloading metadata for all songs...");
+        // Grab list of songs up-front
+        List<Song> allSongs = songService.findAll();
+        addLog("[org.jau.tag.id3] Found " + (allSongs == null ? 0 : allSongs.size()) + " songs to reload.");
+
+        if (allSongs == null || allSongs.isEmpty()) {
+            addLog("[org.jau.tag.id3] No songs to reload.");
+            return;
+        }
+
+        List<Future<Boolean>> futures = new ArrayList<>(allSongs.size());
+        for (Song song : allSongs) {
+            // Submit a task per-song
+            futures.add(executor.submit(() -> reloadMetadataForSong(song)));
+        }
+
+        int updatedCount = 0;
+        for (Future<Boolean> f : futures) {
+            try {
+                if (f.get()) {
+                    updatedCount++;
+                }
+            } catch (Exception e) {
+                addLog("[org.jau.tag.id3] ERROR: reload task failed: " + e.getMessage(), e);
+            }
+        }
+
+        addLog(String.format("[org.jau.tag.id3] Metadata reload completed. %d songs updated.", updatedCount));
+        musicSocket.broadcastAll();
+    }
+
+    private Boolean reloadMetadataForSong(Song song) {
+        try {
+            File songFile = new File(getMusicFolder(), song.getPath());
+            if (!(songFile.exists() && songFile.isFile())) {
+                addLog("[org.jau.tag.id3] Skipping metadata reload for missing file: " + song.getPath());
+                return false;
+            }
+
+            addLog("[org.jau.tag.id3] Reading MP3 file: " + songFile.getName());
+            MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
+            Tag tag = mp3File.getTag();
+
+            if (tag != null) {
+                String title = tag.getFirst(FieldKey.TITLE);
+                String artist = tag.getFirst(FieldKey.ARTIST);
+                String album = tag.getFirst(FieldKey.ALBUM);
+
+                addLog(String.format("[org.jau.tag.id3] Frame TIT2 (Title): %s", title != null ? title : "(none)"));
+                addLog(String.format("[org.jau.tag.id3] Frame TPE1 (Artist): %s", artist != null ? artist : "(none)"));
+                addLog(String.format("[org.jau.tag.id3] Frame TALB (Album): %s", album != null ? album : "(none)"));
+
+                song.setTitle(title);
+                song.setArtist(artist);
+                song.setAlbum(album);
+
+                try {
+                    Artwork artwork = tag.getFirstArtwork();
+                    if (artwork != null) {
+                        byte[] data = artwork.getBinaryData();
+                        String mime = artwork.getMimeType();
+                        addLog(String.format("[org.jau.tag.id3] Found APIC (Artwork): %d bytes (%s) for %s", data.length, mime, song.getPath()));
+                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
+                    } else {
+                        addLog("[org.jau.tag.id3] No APIC frame found (no artwork) for " + song.getPath());
+                        song.setArtworkBase64(null);
+                    }
+                } catch (Exception artEx) {
+                    addLog("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
+                    song.setArtworkBase64(null);
+                }
+            } else {
+                addLog("[org.jau.tag.id3] No tag found — using filename as title for " + songFile.getName());
+                String baseName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                song.setTitle(baseName);
+                song.setArtist("Unknown Artist");
+                song.setAlbum(null);
+                song.setArtworkBase64(null);
+            }
+
+            int duration = mp3File.getAudioHeader().getTrackLength();
+            addLog(String.format("[org.jau.tag.id3] AudioHeader: Duration = %d seconds for %s", duration, song.getPath()));
+            song.setDurationSeconds(duration);
+
+            if ((song.getArtist() == null || song.getArtist().isBlank() || "Unknown Artist".equals(song.getArtist()))
+                    && song.getDurationSeconds() == 0) {
+                addLog("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist + 0:00): " + song.getPath());
+                return false;
+            }
+
+            // Persist changes per-song
+            songService.persistSongInNewTx(song);
+            addLog("[org.jau.tag.id3] Successfully reloaded metadata for: " + song.getPath());
+            return true;
+        } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
+            addLog("[org.jau.tag.id3] WARNING: Skipping " + song.getPath() + " — invalid audio frame: " + e.getMessage());
+            return false;
+        } catch (Exception e) {
+            addLog("[org.jau.tag.id3] ERROR: Failed to reload metadata for " + song.getPath() + ": " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    // -------------------------------
+    // Parallel deleteDuplicateSongs
+    // -------------------------------
+    public void deleteDuplicateSongs() {
+        addLog("Deleting duplicate songs...");
+        List<Song> allSongs = songService.findAll();
+        if (allSongs == null || allSongs.isEmpty()) {
+            addLog("No songs to check for duplicates.");
+            return;
+        }
+
+        // Identify duplicates (single-threaded pass)
+        List<Song> songsToDelete = new ArrayList<>();
+        java.util.Set<String> uniqueSongs = new java.util.HashSet<>();
+
+        for (Song song : allSongs) {
+            String songIdentifier = (song.getTitle() == null ? "" : song.getTitle())
+                    + "-" + (song.getArtist() == null ? "" : song.getArtist())
+                    + "-" + (song.getAlbum() == null ? "" : song.getAlbum())
+                    + "-" + song.getDurationSeconds();
+            if (uniqueSongs.contains(songIdentifier)) {
+                songsToDelete.add(song);
+            } else {
+                uniqueSongs.add(songIdentifier);
+            }
+        }
+
+        addLog("Found " + songsToDelete.size() + " duplicates to delete. Deleting in parallel...");
+
+        List<Future<Boolean>> futures = new ArrayList<>(songsToDelete.size());
+        for (Song s : songsToDelete) {
+            futures.add(executor.submit(() -> {
+                try {
+                    songService.delete(s);
+                    addLog("Deleted duplicate song: " + s.getTitle() + " by " + s.getArtist());
+                    return true;
+                } catch (Exception e) {
+                    addLog("Failed to delete duplicate song " + s.getTitle() + ": " + e.getMessage(), e);
+                    return false;
+                }
+            }));
+        }
+
+        int deleted = 0;
+        for (Future<Boolean> f : futures) {
+            try {
+                if (f.get()) {
+                    deleted++;
+                }
+            } catch (Exception e) {
+                addLog("Error in duplicate deletion task: " + e.getMessage(), e);
+            }
+        }
+
+        addLog("Duplicate deletion completed. " + deleted + " songs deleted.");
+        musicSocket.broadcastAll();
     }
 
     public void clearLogs() {
@@ -210,7 +428,7 @@ public class SettingsController implements Serializable {
                 .collect(Collectors.toList());
     }
 
-    public void addLog(String message, Throwable t) {
+    public synchronized void addLog(String message, Throwable t) {
         Settings settings = settingsService.getOrCreateSettings();
         SettingsLog log = new SettingsLog();
         if (t != null) {
@@ -226,7 +444,7 @@ public class SettingsController implements Serializable {
         logSocket.broadcast(log.getMessage());
     }
 
-    public void addLog(String message) {
+    public synchronized void addLog(String message) {
         addLog(message, null);
     }
 
@@ -248,101 +466,6 @@ public class SettingsController implements Serializable {
 
     public Settings getOrCreateSettings() {
         return settingsService.getOrCreateSettings();
-    }
-
-    public void reloadAllSongsMetadata() {
-        addLog("Reloading metadata for all songs...");
-        List<Song> allSongs = songService.findAll();
-        int updatedCount = 0;
-
-        for (Song song : allSongs) {
-            try {
-                File songFile = new File(getMusicFolder(), song.getPath());
-                if (songFile.exists() && songFile.isFile()) {
-                    MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
-                    Tag tag = mp3File.getTag();
-
-                    // Update existing song with new metadata
-                    if (tag != null) {
-                        song.setTitle(tag.getFirst(FieldKey.TITLE));
-                        song.setArtist(tag.getFirst(FieldKey.ARTIST));
-                        song.setAlbum(tag.getFirst(FieldKey.ALBUM));
-
-                        // Extract artwork
-                        try {
-                            Artwork artwork = tag.getFirstArtwork();
-                            if (artwork != null) {
-                                byte[] imageData = artwork.getBinaryData();
-                                song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(imageData));
-                            } else {
-                                song.setArtworkBase64(null); // Clear if no artwork found
-                            }
-                        } catch (Exception artworkException) {
-                            addLog("WARNING: Failed to extract artwork for " + song.getPath() + " during reload: " + artworkException.getMessage());
-                            song.setArtworkBase64(null); // Ensure it's null on error
-                        }
-                    } else {
-                        String fileName = songFile.getName();
-                        if (fileName.toLowerCase().endsWith(".mp3")) {
-                            fileName = fileName.substring(0, fileName.length() - 4);
-                        }
-                        song.setTitle(fileName);
-                        song.setArtist("Unknown Artist");
-                        song.setArtworkBase64(null); // No tags, no artwork
-                    }
-                    int trackLength = mp3File.getAudioHeader().getTrackLength();
-                    addLog("DEBUG: Reloaded duration for " + song.getPath() + ": " + trackLength + " seconds.");
-                    song.setDurationSeconds(trackLength);
-                    addLog("DEBUG: Song object duration set to: " + song.getDurationSeconds() + " seconds.");
-
-                    // Check for potentially corrupt files (Unknown Artist and 0:00 duration)
-                    if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank()) && song.getDurationSeconds() == 0) {
-                        addLog("WARNING: Skipping potentially corrupt song (Unknown Artist and 0:00 duration) during reload: " + song.getPath());
-                        continue; // Skip saving this song
-                    }
-
-                    songService.save(song); // This will merge the changes to the existing entity
-                    addLog("DEBUG: Song saved to service for " + song.getPath() + ".");
-                    updatedCount++;
-                } else {
-                    addLog("Skipping metadata reload for missing file: " + song.getPath());
-                }
-            } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
-                addLog("WARNING: Skipping metadata reload for " + song.getPath() + " due to invalid audio frame (corrupted/malformed file?): " + e.getMessage());
-            } catch (Exception e) {
-                addLog("Failed to reload metadata for song " + song.getPath() + ": " + e.getMessage(), e);
-            }
-            addLog("Metadata reload completed. " + updatedCount + " songs updated.");
-            musicSocket.broadcastAll(); // Trigger UI refresh
-        }
-    }
-
-    public void deleteDuplicateSongs() {
-        addLog("Deleting duplicate songs...");
-        List<Song> allSongs = songService.findAll();
-        List<Song> songsToDelete = new java.util.ArrayList<>();
-        java.util.Set<String> uniqueSongs = new java.util.HashSet<>();
-
-        for (Song song : allSongs) {
-            // Using a combination of title, artist, album, and duration to identify duplicates
-            String songIdentifier = song.getTitle() + "-" + song.getArtist() + "-" + song.getAlbum() + "-" + song.getDurationSeconds();
-            if (uniqueSongs.contains(songIdentifier)) {
-                songsToDelete.add(song);
-            } else {
-                uniqueSongs.add(songIdentifier);
-            }
-        }
-
-        for (Song song : songsToDelete) {
-            try {
-                songService.delete(song);
-                addLog("Deleted duplicate song: " + song.getTitle() + " by " + song.getArtist());
-            } catch (Exception e) {
-                addLog("Failed to delete duplicate song " + song.getTitle() + ": " + e.getMessage());
-            }
-        }
-        addLog("Duplicate deletion completed. " + songsToDelete.size() + " songs deleted.");
-        musicSocket.broadcastAll(); // Trigger UI refresh
     }
 
     public void toggleTorrentBrowsing(boolean enabled) {

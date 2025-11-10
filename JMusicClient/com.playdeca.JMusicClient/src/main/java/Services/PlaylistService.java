@@ -71,4 +71,50 @@ public class PlaylistService {
     public void clearAllPlaylistSongs() {
         em.createNativeQuery("DELETE FROM playlist_song").executeUpdate();
     }
+
+    public record PaginatedPlaylistSongs(List<Song> songs, long totalCount) {}
+
+    public PaginatedPlaylistSongs findSongsByPlaylist(Long playlistId, int page, int limit) {
+        List<Song> songs = em.createQuery("SELECT s FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId ORDER BY s.dateAdded DESC", Song.class)
+                .setParameter("playlistId", playlistId)
+                .setFirstResult((page - 1) * limit)
+                .setMaxResults(limit)
+                .getResultList();
+        long totalCount = countSongsByPlaylist(playlistId);
+        return new PaginatedPlaylistSongs(songs, totalCount);
+    }
+
+    public long countSongsByPlaylist(Long playlistId) {
+        return em.createQuery("SELECT COUNT(s) FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId", Long.class)
+                .setParameter("playlistId", playlistId)
+                .getSingleResult();
+    }
+
+    public Playlist findWithSongs(Long id) {
+        try {
+            return em.createQuery("SELECT p FROM Playlist p LEFT JOIN FETCH p.songs WHERE p.id = :id", Playlist.class)
+                    .setParameter("id", id)
+                    .getSingleResult();
+        } catch (jakarta.persistence.NoResultException e) {
+            return null;
+        }
+    }
+
+    public List<Playlist> findAllWithSongStatus(Long songId) {
+        List<Playlist> playlists = findAll();
+        if (songId == null) {
+            return playlists;
+        }
+        List<Long> playlistIdsWithSong = em.createQuery(
+                "SELECT p.id FROM Playlist p JOIN p.songs s WHERE s.id = :songId", Long.class)
+                .setParameter("songId", songId)
+                .getResultList();
+
+        for (Playlist p : playlists) {
+            if (playlistIdsWithSong.contains(p.id)) {
+                p.setContainsSong(true);
+            }
+        }
+        return playlists;
+    }
 }

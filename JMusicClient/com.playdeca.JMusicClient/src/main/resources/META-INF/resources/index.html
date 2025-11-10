@@ -118,18 +118,14 @@
                                                     <th class="has-text-white has-text-weight-semibold" style="width:20%;">Action</th>
                                                 </tr>
                                             </thead>
-                                            <tbody id="songQueueTableBody"
-                                                   hx-get="/api/music/ui/queue-fragment"
-                                                   hx-trigger="load"
-                                                   hx-swap="innerHTML"
-                                                   hx-indicator="#queueLoadingIndicator">
+                                            <tbody id="songQueueTableBody">
                                                 <tr id="queueLoadingIndicator" class="htmx-indicator">
                                                     <td colspan="3" class="has-text-centered py-4">
                                                         <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
                                                         <p>Loading queue...</p>
                                                     </td>
                                                 </tr>
-                                                <!-- Queue populated via HTMX -->
+                                                <!-- Queue populated via JS -->
                                             </tbody>
                                         </table>
                                     </div>
@@ -207,7 +203,7 @@
                                                 <th class="has-text-white has-text-weight-semibold">Action</th>
                                             </tr>
                                         </thead>
-                                        <tbody hx-get="/api/music/ui/tbody/0?limit=50"
+                                        <tbody hx-get="/api/music/ui/tbody/0?page=1&limit=50"
                                                hx-trigger="load"
                                                hx-swap="innerHTML"
                                                id="songTableBody">
@@ -310,7 +306,7 @@
 </html>
 
 <script>
-    document.body.addEventListener('htmx:afterSwap', function(event) {
+    document.body.addEventListener('htmx:afterSwap', function (event) {
         // Check if the swapped content is for the song table body
         if (event.detail.target.id === 'songTableBody') {
             console.log("[index.html] htmx:afterSwap detected for songTableBody. Calling initPlaylistBodyHelper.");

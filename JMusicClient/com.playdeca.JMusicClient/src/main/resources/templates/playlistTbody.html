@@ -44,3 +44,51 @@
     </td>
 </tr>
 {/for}
+
+{#if totalPages > 1}
+<tr>
+    <td colspan="5">
+        <nav class="pagination is-centered py-4" role="navigation" aria-label="pagination">
+            <a class="pagination-previous"
+               {#if currentPage > 1}
+                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage - 1}&limit={limit}"
+                   hx-target="#songTableBody"
+                   hx-swap="innerHTML"
+               {#else}
+                   disabled
+               {/if}>
+                Previous
+            </a>
+            <a class="pagination-next"
+               {#if currentPage < totalPages}
+                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage + 1}&limit={limit}"
+                   hx-target="#songTableBody"
+                   hx-swap="innerHTML"
+               {#else}
+                   disabled
+               {/if}>
+                Next
+            </a>
+            <ul class="pagination-list">
+                {#for p in pageNumbers}
+                    {#if p == -1}
+                        <li><span class="pagination-ellipsis">&hellip;</span></li>
+                    {#else if p == currentPage}
+                        <li><a class="pagination-link is-current" aria-label="Page {p}" aria-current="page">{p}</a></li>
+                    {#else}
+                        <li>
+                            <a class="pagination-link"
+                               aria-label="Goto page {p}"
+                               hx-get="/api/music/ui/tbody/{playlistId}?page={p}&limit={limit}"
+                               hx-target="#songTableBody"
+                               hx-swap="innerHTML">
+                                {p}
+                            </a>
+                        </li>
+                    {/if}
+                {/for}
+            </ul>
+        </nav>
+    </td>
+</tr>
+{/if}

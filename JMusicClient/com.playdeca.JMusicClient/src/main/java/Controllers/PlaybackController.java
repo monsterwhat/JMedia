@@ -203,8 +203,16 @@ public class PlaybackController {
         return playlistService.find(id);
     }
 
+    public Playlist findPlaylistWithSongs(Long id) {
+        return playlistService.findWithSongs(id);
+    }
+
     public List<Playlist> getPlaylists() {
         return playlistService.findAll();
+    }
+
+    public List<Playlist> getPlaylistsWithSongStatus(Long songId) {
+        return playlistService.findAllWithSongStatus(songId);
     }
 
     public void createPlaylist(Playlist playlist) {
@@ -225,6 +233,14 @@ public class PlaybackController {
 
     public List<Song> getSongs() {
         return songService.findAll();
+    }
+
+    public SongService.PaginatedSongs getSongs(int page, int limit) {
+        return songService.findAll(page, limit);
+    }
+
+    public PlaylistService.PaginatedPlaylistSongs getSongsByPlaylist(Long playlistId, int page, int limit) {
+        return playlistService.findSongsByPlaylist(playlistId, page, limit);
     }
 
     public Song findSong(Long id) {
@@ -397,7 +413,10 @@ public class PlaybackController {
             // Set the current playlist normally
             st.setCurrentPlaylistId(playlist.id);
 
-            List<Song> songs = playlist.getSongs();
+            // Re-fetch playlist with songs to avoid LazyInitializationException
+            Playlist fullPlaylist = findPlaylistWithSongs(playlist.id);
+            List<Song> songs = (fullPlaylist != null) ? fullPlaylist.getSongs() : null;
+
             if (songs != null && !songs.isEmpty()) {
                 List<Long> cue = songs.stream().map(s -> s.id).toList();
                 playbackQueueController.populateCue(st, cue);
@@ -470,10 +489,16 @@ public class PlaybackController {
      * @param playNext if true, insert after current song; else append at end
      */
     public synchronized void addPlaylistToQueue(Playlist playlist, boolean playNext) {
-        if (playlist == null || playlist.getSongs() == null || playlist.getSongs().isEmpty()) {
+        if (playlist == null) {
             return;
         }
-        List<Long> songIds = playlist.getSongs().stream()
+        // Re-fetch playlist with songs to avoid LazyInitializationException
+        Playlist fullPlaylist = findPlaylistWithSongs(playlist.id);
+
+        if (fullPlaylist == null || fullPlaylist.getSongs() == null || fullPlaylist.getSongs().isEmpty()) {
+            return;
+        }
+        List<Long> songIds = fullPlaylist.getSongs().stream()
                 .map(s -> s.id)
                 .toList();
         addToQueue(songIds, playNext);
@@ -489,6 +514,29 @@ public class PlaybackController {
                 .map(this::findSong)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
+    }
+
+    public record PaginatedQueue(List<Song> songs, int totalSize) {}
+
+    public PaginatedQueue getQueuePage(int page, int limit) {
+        PlaybackState st = getState();
+        List<Long> cueIds = st.getCue();
+        if (cueIds == null || cueIds.isEmpty()) {
+            return new PaginatedQueue(new ArrayList<>(), 0);
+        }
+
+        int totalSize = cueIds.size();
+        int fromIndex = (page - 1) * limit;
+        int toIndex = Math.min(fromIndex + limit, totalSize);
+
+        if (fromIndex >= totalSize) {
+            return new PaginatedQueue(new ArrayList<>(), totalSize);
+        }
+
+        List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
+        List<Song> songs = songService.findByIds(pageOfIds);
+
+        return new PaginatedQueue(songs, totalSize);
     }
 
     public synchronized void skipToQueueIndex(int index) {

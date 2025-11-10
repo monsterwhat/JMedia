@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title id="pageTitle">JMusic Player</title>
+
+        <script src="/js/theme-initializer.js"></script>
+
+        <!-- Bulma CSS -->
+        <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@6.0.1/primeicons.css">
+        <link rel="stylesheet" href="/css/custom.css"/>
+
+        <!-- HTMX -->
+        <script src="/js/htmx.min.js"></script>
+
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+
+        <style>
+            html, body {
+                height: 100%;
+                overflow: hidden; /* Prevent scrolling on the main page */
+            }
+
+            .hero {
+                height: 100vh; /* full height layout */
+                display: flex;
+                flex-direction: column;
+            }
+
+            .hero-body {
+                flex-grow: 1;
+                overflow: auto; /* Allow content within hero-body to scroll if needed */
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background-color: #222; /* Dark background for player */
+            }
+
+            /* Styles for the fullscreen player content */
+            .fullscreen-player-content {
+                text-align: center;
+                color: white;
+                padding: 20px;
+            }
+
+            .fullscreen-player-content img {
+                max-width: 80%;
+                max-height: 60vh;
+                object-fit: contain;
+                margin-bottom: 20px;
+            }
+
+            .fullscreen-player-content .song-details {
+                margin-bottom: 20px;
+            }
+
+            .fullscreen-player-content .song-details .title {
+                font-size: 2em;
+                font-weight: bold;
+                margin-bottom: 5px;
+            }
+
+            .fullscreen-player-content .song-details .artist {
+                font-size: 1.2em;
+                color: #48c78e; /* Bulma success color */
+            }
+
+            /* Vertical Volume Slider */
+            .is-vertical-volume {
+                position: relative; /* Establish positioning context */
+                height: 100px; /* Sufficient height for bar + icon + spacing */
+                width: 30px; /* Width of the container */
+                margin-left: 1rem; /* Spacing from progress bar */
+            }
+
+            .is-vertical-volume .pi {
+                position: absolute;
+                top: 50%; /* Center icon vertically initially */
+                left: 50%;
+                transform: translate(-50%, -50%); /* Center icon initially */
+                transition: all 0.1s ease-out;
+            }
+
+            /* Thicker Volume Bar */
+            #volumeProgressBar {
+                -webkit-appearance: none; /* Override default appearance */
+                width: 100px; /* This will be the height when rotated */
+                height: 10px; /* This will be the width when rotated */
+                background: transparent; /* Make background transparent */
+                margin: 0; /* Remove default margins */
+                padding: 0; /* Remove default padding */
+                -webkit-appearance: slider-vertical; /* WebKit browsers */
+                writing-mode: bt-lr; /* IE */
+                opacity: 0; /* Initially hidden */
+                transition: all 0.1s ease-in-out;
+            }
+
+            /* Track styling for Webkit (Chrome, Safari) */
+            #volumeProgressBar::-webkit-slider-runnable-track {
+                width: 100%;
+                height: 10px; /* Thickness of the track */
+                cursor: pointer;
+                background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+                border-radius: 5px;
+            }
+
+            /* Thumb styling for Webkit */
+            #volumeProgressBar::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                border: none;
+                height: 20px; /* Size of the thumb */
+                width: 20px; /* Size of the thumb */
+                border-radius: 50%;
+                background: #48c78e; /* Bulma success color */
+                cursor: pointer;
+                margin-top: -5px; /* Center the thumb vertically on the track */
+            }
+
+            /* Track styling for Firefox */
+            #volumeProgressBar::-moz-range-track {
+                width: 100%;
+                height: 10px;
+                cursor: pointer;
+                background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+                border-radius: 5px;
+            }
+
+            /* Thumb styling for Firefox */
+            #volumeProgressBar::-moz-range-thumb {
+                border: none;
+                height: 20px;
+                width: 20px;
+                border-radius: 50%;
+                background: #48c78e;
+                cursor: pointer;
+            }
+
+            /* Track styling for IE/Edge */
+            #volumeProgressBar::-ms-track {
+                width: 100%;
+                height: 10px;
+                cursor: pointer;
+                background: transparent; /* IE needs this to be transparent */
+                border-color: transparent;
+                color: transparent;
+            }
+
+            #volumeProgressBar::-ms-fill-lower {
+                background: #48c78e; /* Filled part */
+                border-radius: 5px;
+            }
+
+            #volumeProgressBar::-ms-fill-upper {
+                background: #dbdbdb; /* Unfilled part */
+                border-radius: 5px;
+            }
+
+            /* Thumb styling for IE/Edge */
+            #volumeProgressBar::-ms-thumb {
+                height: 20px;
+                width: 20px;
+                border-radius: 50%;
+                background: #48c78e;
+                cursor: pointer;
+                margin-top: 0; /* IE centers thumb automatically */
+            }
+
+            #toggledVBar:hover .is-vertical-volume .pi {
+                bottom: 0; /* Icon stays at the bottom */
+                top: auto; /* Reset top */
+                transform: translateX(calc(-50% + 10px)) translateY(-40px); /* Move icon up by 40px and 10px to the right */
+            }
+
+            #toggledVBar:hover .is-vertical-volume input[type="range"] {
+                bottom: 50px; /* Bar stays at its position */
+                opacity: 1; /* Make visible */
+                transform: translateX(-50%) rotate(-90deg); /* Stay vertical */
+            }
+            .fullscreen-player-content .buttons .pi {
+                font-size: 2.5rem; /* Make icons larger */
+            }
+
+            .fullscreen-player-content input[type="range"] {
+                /* Removed generic width styling, now handled by #playbackProgressBar */
+            }
+
+            /* Thicker Playback Bar */
+            #playbackProgressBar {
+                -webkit-appearance: none; /* Override default appearance */
+                width: 100%; /* Ensure it takes full width */
+                height: 10px; /* Overall height of the range input */
+                background: transparent; /* Make background transparent */
+            }
+
+            /* Track styling for Webkit (Chrome, Safari) */
+            #playbackProgressBar::-webkit-slider-runnable-track {
+                width: 100%;
+                height: 10px; /* Thickness of the track */
+                cursor: pointer;
+                background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+                border-radius: 5px; /* Adjust border-radius for new thickness */
+            }
+
+            /* Thumb styling for Webkit */
+            #playbackProgressBar::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                border: none;
+                height: 20px; /* Size of the thumb */
+                width: 20px; /* Size of the thumb */
+                border-radius: 50%;
+                background: #48c78e; /* Bulma success color */
+                cursor: pointer;
+                margin-top: -5px; /* Center the thumb vertically on the track */
+            }
+
+            /* Track styling for Firefox */
+            #playbackProgressBar::-moz-range-track {
+                width: 100%;
+                height: 10px;
+                cursor: pointer;
+                background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+                border-radius: 5px;
+            }
+
+            /* Thumb styling for Firefox */
+            #playbackProgressBar::-moz-range-thumb {
+                border: none;
+                height: 20px;
+                width: 20px;
+                border-radius: 50%;
+                background: #48c78e;
+                cursor: pointer;
+            }
+
+            /* Track styling for IE/Edge */
+            #playbackProgressBar::-ms-track {
+                width: 100%;
+                height: 10px;
+                cursor: pointer;
+                background: transparent; /* IE needs this to be transparent */
+                border-color: transparent;
+                color: transparent;
+            }
+
+            #playbackProgressBar::-ms-fill-lower {
+                background: #48c78e; /* Filled part */
+                border-radius: 5px;
+            }
+
+            #playbackProgressBar::-ms-fill-upper {
+                background: #dbdbdb; /* Unfilled part */
+                border-radius: 5px;
+            }
+
+            /* Thumb styling for IE/Edge */
+            #playbackProgressBar::-ms-thumb {
+                height: 20px;
+                width: 20px;
+                border-radius: 50%;
+                background: #48c78e;
+                cursor: pointer;
+                margin-top: 0; /* IE centers thumb automatically */
+            }
+        </style>
+    </head>
+    <body>
+
+        <audio id="audioPlayer" preload="metadata"></audio>
+
+        <!-- Hero layout -->
+        <section class="hero is-fullheight">
+
+            <!-- Hero Head (Navbar) -->
+            <div class="hero-head">
+                <nav class="navbar" role="navigation">
+                    <div class="navbar-brand">
+                        <a class="navbar-item" href="/index.html"><strong>JMusic</strong></a>
+                        <a role="button" class="navbar-item" id="themeToggle">
+                            <i class="pi pi-sun" id="themeIcon"></i>
+                        </a>
+                    </div>
+                </nav>
+            </div>
+
+            <!-- Hero Body (Main content area for fullscreen player) -->
+            <div class="hero-body m-0 p-0">
+                <div class="fullscreen-player-content">
+                    <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                    <div class="song-details">
+                        <p id="songTitle" class="title has-text-white">Loading...</p>
+                        <p id="songArtist" class="artist">Unknown Artist</p>
+                    </div>
+
+
+
+                    <!-- Music controls will be dynamically loaded or managed here -->
+
+                    <!-- CENTER: Controls + Progress -->
+                    <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
+                        <!-- Playback buttons -->
+                        <div class="buttons are-large mb-2">
+                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                            <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
+                            <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="nextBtn"   title="Next"><i class="pi pi-step-forward"></i></button>
+                            <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                        </div>
+
+                        <!-- Progress bar and Volume Control -->
+                        <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                            <!-- Progress bar -->
+                            <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                                <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-4 mr-2">0:00</span>
+                                <input type="range" min="0" max="100" value="0"
+                                       style="width:100%"
+                                       name="seconds" id="playbackProgressBar"/>
+                                <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-4 ml-2">0:00</span>
+                            </div>
+
+                            <!-- Volume Control (hidden on mobile) -->
+                            <div id="toggledVBar">
+                                <div class="is-flex is-align-items-center is-hidden-mobile ml-4 is-vertical-volume">
+                                    <i class="pi pi-volume-up has-text-white"></i>
+                                    <input type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>  
+        </section>
+
+        <script src="/js/musicBar.js"></script>
+        <script src="/js/navbar.js"></script>
+        <script src="/js/songQueue.js"></script>
+    </body>
+</html>

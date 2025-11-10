@@ -36,7 +36,7 @@ public class QueueAPI {
             songsToQueue = playbackController.getSongs();
         } else {
             // Queue songs from a specific playlist
-            Playlist playlist = playbackController.findPlaylist(id);
+            Playlist playlist = playbackController.findPlaylistWithSongs(id);
             if (playlist == null) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
             }

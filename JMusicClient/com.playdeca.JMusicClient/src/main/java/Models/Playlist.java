@@ -17,7 +17,7 @@ public class Playlist extends PanacheEntity {
     private String name;
     private String description;
 
-    @ManyToMany(fetch = FetchType.EAGER)
+    @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
         name = "playlist_song",
         joinColumns = @JoinColumn(name = "playlist_id"),

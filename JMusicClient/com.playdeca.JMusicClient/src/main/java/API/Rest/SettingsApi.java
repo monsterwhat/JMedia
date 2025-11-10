@@ -18,6 +18,7 @@ import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
+import org.eclipse.microprofile.context.ManagedExecutor;
 
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
@@ -29,6 +30,8 @@ public class SettingsApi {
 
     @Inject
     private PlaybackHistoryService playbackHistoryService;
+    
+    @Inject ManagedExecutor executor;
 
     // -----------------------------
     // BROWSE FOLDER
@@ -131,9 +134,9 @@ public class SettingsApi {
     @POST
     @Path("/scanLibrary")
     public Response scanLibrary() {
-        new Thread(() -> {
+        executor.submit(() -> {
             settingsController.scanLibrary();
-        }, "LibraryScanThread").start();
+        }, "LibraryScanThread");
 
         return Response.ok(ApiResponse.success("Scan started")).build();
     }
@@ -198,9 +201,9 @@ public class SettingsApi {
     @POST
     @Path("/reloadMetadata")
     public Response reloadMetadata() {
-        new Thread(() -> {
+        executor.submit(() -> {
             settingsController.reloadAllSongsMetadata();
-        }, "MetadataReloadThread").start();
+        }, "MetadataReloadThread");
 
         return Response.ok(ApiResponse.success("Metadata reload started")).build();
     }
@@ -211,9 +214,9 @@ public class SettingsApi {
     @POST
     @Path("/deleteDuplicates")
     public Response deleteDuplicates() {
-        new Thread(() -> {
+        executor.submit(() -> {
             settingsController.deleteDuplicateSongs();
-        }, "DeleteDuplicatesThread").start();
+        }, "DeleteDuplicatesThread");
 
         return Response.ok(ApiResponse.success("Duplicate deletion started")).build();
     }

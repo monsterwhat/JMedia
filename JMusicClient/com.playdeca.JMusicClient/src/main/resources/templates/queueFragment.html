@@ -24,4 +24,44 @@
         </td>
     </tr>
     {/for}
- 
+{#if totalPages > 1}
+<tr>
+    <td colspan="3">
+        <nav class="pagination is-centered py-4" role="navigation" aria-label="pagination">
+            <a class="pagination-previous"
+               {#if currentPage > 1}
+                   onclick="loadQueuePage({currentPage - 1})"
+               {#else}
+                   disabled
+               {/if}>
+                Previous
+            </a>
+            <a class="pagination-next"
+               {#if currentPage < totalPages}
+                   onclick="loadQueuePage({currentPage + 1})"
+               {#else}
+                   disabled
+               {/if}>
+                Next
+            </a>
+            <ul class="pagination-list">
+                {#for p in pageNumbers}
+                    {#if p == -1}
+                        <li><span class="pagination-ellipsis">&hellip;</span></li>
+                    {#else if p == currentPage}
+                        <li><a class="pagination-link is-current" aria-label="Page {p}" aria-current="page">{p}</a></li>
+                    {#else}
+                        <li>
+                            <a class="pagination-link"
+                               aria-label="Goto page {p}"
+                               onclick="loadQueuePage({p})">
+                                {p}
+                            </a>
+                        </li>
+                    {/if}
+                {/for}
+            </ul>
+        </nav>
+    </td>
+</tr>
+{/if} 

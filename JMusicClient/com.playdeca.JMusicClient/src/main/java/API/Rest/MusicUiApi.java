@@ -1,26 +1,25 @@
-
-import API.Rest.QueueAPI;
+package API.Rest;
+ 
 import Controllers.PlaybackController;
 import Models.Playlist;
 import Models.Song;
+import Services.PlaylistService;
+import Services.SongService;
 import io.quarkus.qute.Template;
-import io.quarkus.qute.TemplateInstance;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.List; 
+import java.util.Set;
 import java.util.function.Function;
 
 @Path("/api/music/ui")
@@ -71,11 +70,42 @@ public class MusicUiApi {
         return "/logo.png";
     }
 
+    private List<Integer> getPaginationNumbers(int currentPage, int totalPages) {
+        Set<Integer> pageNumbers = new java.util.LinkedHashSet<>(); // Corrected: declare as Set
+
+        // Always add page 1 and the last page
+        pageNumbers.add(1);
+        pageNumbers.add(totalPages);
+
+        // Add pages around the current page
+        for (int i = currentPage - 2; i <= currentPage + 2; i++) {
+            if (i > 0 && i <= totalPages) {
+                pageNumbers.add(i);
+            }
+        }
+
+        List<Integer> sortedPageNumbers = new ArrayList<>(pageNumbers);
+        java.util.Collections.sort(sortedPageNumbers);
+
+        List<Integer> result = new ArrayList<>();
+        int last = 0;
+        for (int number : sortedPageNumbers) {
+            if (last != 0 && number - last > 1) {
+                result.add(-1); // Ellipsis
+            }
+            result.add(number);
+            last = number;
+        }
+        return result;
+    }
+
     // -------------------------
     // Queue actions
     // -------------------------
     // DTO for queue fragment response
-    public record QueueFragmentResponse(String html, int totalQueueSize) {}
+    public record QueueFragmentResponse(String html, int totalQueueSize) {
+
+    }
 
     @POST
     @Path("/playback/queue-all/{id}")
@@ -133,6 +163,7 @@ public class MusicUiApi {
 
         return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
     }
+
     @POST
     @Path("/queue/remove/{index}")
     @Consumes(MediaType.WILDCARD)
@@ -213,64 +244,99 @@ public class MusicUiApi {
                 .render();
     }
 
-    @GET
-    @Path("/tbody/{id}")
-    @Blocking
-    public String getPlaylistTbody(
-            @PathParam("id") Long id) { // Removed offset and limit
-
-        try {
-            long playlistId = (id == null) ? 0L : id;
-            List<Song> allSongs = (playlistId == 0)
-                    ? playbackController.getSongs()
-                    : Optional.ofNullable(playbackController.findPlaylist(playlistId))
-                            .map(Playlist::getSongs)
-                            .orElse(new ArrayList<>());
-
-            Song currentSong = playbackController.getCurrentSong();
-            boolean isPlaying = playbackController.getState() != null && playbackController.getState().isPlaying();
-
-            return playlistTbody
-                    .data("playlistId", playlistId)
-                    .data("songs", allSongs) // Pass allSongs directly
-                    .data("currentSong", currentSong)
-                    .data("isPlaying", isPlaying)
-                    .data("formatDate", (Function<Object, String>) this::formatDate)
-                    .data("formatDuration", (Function<Integer, String>) this::formatDuration)
-                    .data("artworkUrl", (Function<String, String>) this::artworkUrl)
-                    .render();
-        } catch (Exception e) {
-            System.out.println("Error: " + e.getLocalizedMessage());
-            return null;
+        @GET
+        @Path("/tbody/{id}")
+        @Blocking
+        public String getPlaylistTbody(
+                @PathParam("id") Long id,
+                @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+                @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+    
+            try {
+                long playlistId = (id == null) ? 0L : id;
+                
+                List<Song> paginatedSongs;
+                long totalSongs;
+    
+                if (playlistId == 0) {
+                    SongService.PaginatedSongs result = playbackController.getSongs(page, limit);
+                    paginatedSongs = result.songs();
+                    totalSongs = result.totalCount();
+                } else {
+                    PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit);
+                    paginatedSongs = result.songs();
+                    totalSongs = result.totalCount();
+                }
+    
+                if (totalSongs == 0) {
+                    return "<tr><td colspan='5' class='has-text-centered'>No songs found.</td></tr>";
+                }
+                int totalPages = (int) Math.ceil((double) totalSongs / limit);
+                int currentPage = Math.max(1, Math.min(page, totalPages));
+    
+                Song currentSong = playbackController.getCurrentSong();
+                boolean isPlaying = playbackController.getState() != null && playbackController.getState().isPlaying();
+    
+                List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+    
+                return playlistTbody
+                        .data("playlistId", playlistId)
+                        .data("songs", paginatedSongs)
+                        .data("currentSong", currentSong)
+                        .data("isPlaying", isPlaying)
+                        .data("formatDate", (Function<Object, String>) this::formatDate)
+                        .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                        .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                        .data("limit", limit)
+                        .data("currentPage", currentPage)
+                        .data("totalPages", totalPages)
+                        .data("pageNumbers", pageNumbers)
+                        .render();
+            } catch (Exception e) {
+                System.out.println("Error: " + e.getLocalizedMessage());
+                return null;
+            }
         }
+    // Helper record to pass song and its index to the template
+    public record SongWithIndex(Song song, int index) {
 
     }
-
-    // Helper record to pass song and its index to the template
-    public record SongWithIndex(Song song, int index) {}
 
     @GET
     @Path("/queue-fragment")
     @Blocking
     @Produces(MediaType.APPLICATION_JSON)
-    public QueueFragmentResponse getQueueFragment() {
+    public QueueFragmentResponse getQueueFragment(
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
-        List<Song> queue = playbackController.getQueue();
+        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit);
+        List<Song> queuePage = paginatedQueue.songs();
+        int totalQueueSize = paginatedQueue.totalSize();
 
-        // Create a list of SongWithIndex objects
+        // The template needs the index of each song *within the full queue*.
+        int offset = (page - 1) * limit;
         List<SongWithIndex> queueWithIndex = new ArrayList<>();
-        for (int i = 0; i < queue.size(); i++) {
-            queueWithIndex.add(new SongWithIndex(queue.get(i), i));
+        for (int i = 0; i < queuePage.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(queuePage.get(i), offset + i));
         }
 
+        int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
+        int currentPage = Math.max(1, Math.min(page, totalPages)); // Sanitize page number
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
         String html = queueFragment
-                .data("queue", queueWithIndex) // Pass the list with index
+                .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
-                .data("totalQueueSize", queue.size())
+                .data("totalQueueSize", totalQueueSize)
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .data("limit", limit)
                 .render();
 
-        return new QueueFragmentResponse(html, queue.size()); // Return DTO
+        return new QueueFragmentResponse(html, totalQueueSize);
     }
 
     @GET
@@ -278,14 +344,10 @@ public class MusicUiApi {
     @Blocking
     @Produces(MediaType.TEXT_HTML)
     public String getAddToPlaylistDialog(@PathParam("songId") Long songId) {
-        List<Playlist> playlists = playbackController.getPlaylists();
-        // For each playlist, check if the song is already in it
-        playlists.forEach(p -> p.setContainsSong(p.getSongs().stream().anyMatch(s -> s.id.equals(songId))));
-
+        List<Playlist> playlists = playbackController.getPlaylistsWithSongStatus(songId);
         return addToPlaylistDialog
                 .data("playlists", playlists)
                 .data("songId", songId)
                 .render();
     }
 }
-
