@@ -43,13 +43,64 @@
                 text-align: center;
                 color: white;
                 padding: 20px;
+                display: flex; /* Make fullscreen-player-content a flex container */
+                flex-direction: column; /* Stack children vertically */
+                align-items: center; /* Center items horizontally */
             }
 
-            .fullscreen-player-content img {
-                max-width: 80%;
+            .song-cover-row {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                gap: 20px;
+                margin-bottom: 20px;
+                width: 100%; /* Allow it to take full width of its parent */
+                overflow-x: hidden; /* Hide overflowing parts */
+            }
+
+            .main-song-cover {
+                flex-grow: 0; /* Don't grow */
+                flex-shrink: 0; /* Don't shrink initially */
+                max-width: 400px; /* Max size for main cover */
                 max-height: 60vh;
                 object-fit: contain;
-                margin-bottom: 20px;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+                transition: all 0.3s ease-in-out;
+            }
+
+            .side-song-cover {
+                flex-grow: 0;
+                flex-shrink: 1; /* Allow to shrink */
+                flex-basis: 300px; /* Desired size, but can shrink */
+                max-width: 300px; /* Max size for side covers */
+                height: 300px; /* Fixed height, but width can shrink */
+                object-fit: cover;
+                opacity: 0.5;
+                border-radius: 5px;
+                transition: all 0.3s ease-in-out;
+                cursor: pointer; /* Add pointer cursor to indicate clickability */
+            }
+
+            /* Media query for mobile devices */
+            @media (max-width: 768px) {
+                .fullscreen-player-content {
+                    padding: 10px; /* Reduce padding on mobile */
+                }
+
+                .song-cover-row {
+                    gap: 5px; /* Smaller gap on mobile */
+                }
+
+                .main-song-cover {
+                    max-width: 50vw; /* Fluid max-width on mobile */
+                    max-height: 35vh; /* Adjust height as well */
+                }
+
+                .side-song-cover {
+                    flex-basis: 80px; /* Smaller desired size on mobile */
+                    max-width: 80px; /* Smaller max size on mobile */
+                    height: 80px; /* Fixed height */
+                }
             }
 
             .fullscreen-player-content .song-details {
@@ -263,6 +314,9 @@
                 cursor: pointer;
                 margin-top: 0; /* IE centers thumb automatically */
             }
+            .playback-progress-volume-container {
+                margin-top: 50px; /* Move the playback bar lower */
+            }
         </style>
     </head>
     <body>
@@ -287,7 +341,11 @@
             <!-- Hero Body (Main content area for fullscreen player) -->
             <div class="hero-body m-0 p-0">
                 <div class="fullscreen-player-content">
-                    <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                    <div class="song-cover-row">
+                        <img id="prevSongCoverImage" src="/logo.png" alt="Previous Song Cover" class="side-song-cover">
+                        <img id="songCoverImage" src="/logo.png" alt="Song Cover" class="main-song-cover">
+                        <img id="nextSongCoverImage" src="/logo.png" alt="Next Song Cover" class="side-song-cover">
+                    </div>
                     <div class="song-details">
                         <p id="songTitle" class="title has-text-white">Loading...</p>
                         <p id="songArtist" class="artist">Unknown Artist</p>
@@ -309,7 +367,7 @@
                         </div>
 
                         <!-- Progress bar and Volume Control -->
-                        <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                        <div class="is-flex is-align-items-center is-justify-content-center playback-progress-volume-container" style="width: 100%;">
                             <!-- Progress bar -->
                             <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
                                 <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-4 mr-2">0:00</span>
@@ -333,6 +391,7 @@
         </section>
 
         <script src="/js/musicBar.js"></script>
+        <script src="/js/mediaSession.js"></script>
         <script src="/js/navbar.js"></script>
         <script src="/js/songQueue.js"></script>
     </body>

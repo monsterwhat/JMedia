@@ -10,11 +10,13 @@ const musicState = {
     duration: 0,
     volume: 0.8,
     shuffleEnabled: false,
-    repeatMode: "OFF"
+    repeatMode: "OFF",
+    isMaster: false // New property to track master status
 };
 
 let draggingSeconds = false;
 let draggingVolume = false;
+let mySessionId = null; // New global variable to store this client's session ID // New flag
 
 const volumeExponent = 2; // Moved to global scope
 
@@ -66,7 +68,8 @@ function applyMarqueeEffect(elementId, text) {
 }
 
 function updateMusicBar() {
-    const {songName, artist, playing, currentTime, duration, volume, shuffleEnabled, repeatEnabled} = musicState;
+    const {songName, artist, playing, currentTime, duration, volume, shuffleEnabled, repeatMode} = musicState;
+    console.log("[musicBar.js] updateMusicBar: Called with musicState.currentTime:", currentTime);
 
     const titleEl = document.getElementById('songTitle');
     const artistEl = document.getElementById('songArtist');
@@ -83,6 +86,7 @@ function updateMusicBar() {
             ? "pi pi-pause button is-warning is-rounded is-large"
             : "pi pi-play button is-success is-rounded is-large";
 
+    console.log("[musicBar.js] updateMusicBar: Updating currentTime text to:", formatTime(currentTime));
     document.getElementById('currentTime').innerText = formatTime(currentTime);
     document.getElementById('totalTime').innerText = formatTime(duration);
 
@@ -93,6 +97,7 @@ function updateMusicBar() {
         // Update the slider's value based on currentTime if not dragging
         // If dragging, the slider's value is already updated by the browser
         if (!draggingSeconds) {
+            console.log("[musicBar.js] updateMusicBar: Updating timeSlider.value to:", currentTime);
             timeSlider.value = currentTime;
         }
 
@@ -131,18 +136,31 @@ function updateMusicBar() {
             repeatIcon.classList.add("pi-spin"); // Add spin for repeat all
         }
     }
+
+    // Update Media Session API
+    if ('mediaSession' in navigator && window.updateMediaSessionMetadata && window.updateMediaSessionPlaybackState) {
+        const songCoverImageEl = document.getElementById('songCoverImage');
+        const artworkUrl = songCoverImageEl ? songCoverImageEl.src : '/logo.png';
+        window.updateMediaSessionMetadata(musicState.songName, musicState.artist, artworkUrl);
+        window.updateMediaSessionPlaybackState(musicState.playing);
+    }
 }
 
 // ---------------- Audio Events ----------------
 const throttledSendWS = throttle(sendWS, 300); // Send a message at most every 300ms
 
 audio.ontimeupdate = () => {
+
     if (!draggingSeconds) {
+
         musicState.currentTime = audio.currentTime;
-        throttledSendWS("seek", {value: audio.currentTime});
+        if (musicState.isMaster) { // Only send seek if this client is the master
+            throttledSendWS("seek", {value: audio.currentTime});
+        }
         updateMusicBar(); // Update UI more frequently
 
     }
+
 };
 
 audio.onended = () => {
@@ -152,33 +170,64 @@ audio.onended = () => {
 
 
 // ---------------- Update Audio Source ----------------
-function UpdateAudioSource(song, play = false, backendTime = 0) {
-    console.log("[musicBar.js] UpdateAudioSource called with song:", song, "play:", play, "backendTime:", backendTime);
-    if (!song || !song.id)
+function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
+    console.log("[musicBar.js] UpdateAudioSource called with currentSong:", currentSong, "prevSong:", prevSong, "nextSong:", nextSong, "play:", play, "backendTime:", backendTime);
+    if (!currentSong || !currentSong.id)
         return;
 
-    const sameSong = String(musicState.currentSongId) === String(song.id);
-    musicState.currentSongId = song.id;
-    musicState.songName = song.title ?? "Unknown Title";
-    musicState.artist = song.artist ?? "Unknown Artist";
+    const sameSong = String(musicState.currentSongId) === String(currentSong.id);
+    musicState.currentSongId = currentSong.id;
+    musicState.songName = currentSong.title ?? "Unknown Title";
+    musicState.artist = currentSong.artist ?? "Unknown Artist";
     musicState.currentTime = (sameSong || backendTime !== 0) ? (backendTime ?? 0) : 0;
-    musicState.duration = song.durationSeconds ?? 0; // Prioritize duration from backend
+    musicState.duration = currentSong.durationSeconds ?? 0; // Prioritize duration from backend
 
-    // Update song cover image
+    // Update current song cover image
     const songCoverImageEl = document.getElementById('songCoverImage');
     if (songCoverImageEl) {
-        songCoverImageEl.src = song.artworkBase64 && song.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + song.artworkBase64 : '/logo.png';
+        songCoverImageEl.src = currentSong.artworkBase64 && currentSong.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 : '/logo.png';
+    }
+
+    // Update previous song cover image
+    const prevSongCoverImageEl = document.getElementById('prevSongCoverImage');
+    if (prevSongCoverImageEl) {
+        if (prevSong && prevSong.artworkBase64 && prevSong.artworkBase64 !== '') {
+            prevSongCoverImageEl.src = 'data:image/jpeg;base64,' + prevSong.artworkBase64;
+            prevSongCoverImageEl.style.display = 'block'; // Show if available
+        } else {
+            prevSongCoverImageEl.src = '/logo.png'; // Default image
+            prevSongCoverImageEl.style.display = 'none'; // Hide if no previous song
+        }
+    }
+
+    // Update next song cover image
+    const nextSongCoverImageEl = document.getElementById('nextSongCoverImage');
+    if (nextSongCoverImageEl) {
+        if (nextSong && nextSong.artworkBase64 && nextSong.artworkBase64 !== '') {
+            nextSongCoverImageEl.src = 'data:image/jpeg;base64,' + nextSong.artworkBase64;
+            nextSongCoverImageEl.style.display = 'block'; // Show if available
+        } else {
+            nextSongCoverImageEl.src = '/logo.png'; // Default image
+            nextSongCoverImageEl.style.display = 'none'; // Hide if no next song
+        }
     }
 
     const faviconEl = document.getElementById('favicon');
     if (faviconEl) {
-        faviconEl.href = song.artworkBase64 && song.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + song.artworkBase64 : '/logo.png';
-    }
+        faviconEl.href = currentSong.artworkBase64 && currentSong.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 : '/logo.png';
+            }
+    
+                    // Call updateMusicBar() after a small delay to allow audio element to process currentTime change
+    
+                            setTimeout(() => {
+    
+                                console.log("[WS] handleWSMessage (setTimeout): Calling updateMusicBar() with musicState.currentTime:", musicState.currentTime);
+    
+                                updateMusicBar();
+    
+                            }, 500); // Increased delay to 500ms    updatePageTitle({name: musicState.songName, artist: musicState.artist});
 
-    updateMusicBar();
-    updatePageTitle({name: musicState.songName, artist: musicState.artist});
-
-    audio.src = `/api/music/stream/${song.id}`;
+    audio.src = `/api/music/stream/${currentSong.id}`;
     audio.load();
     audio.volume = musicState.volume;
 
@@ -211,86 +260,235 @@ function connectWS() {
 }
 
 function handleWSMessage(msg) {
+
+    console.log("[musicBar.js] handleWSMessage: Raw message received:", msg.data);
+
     let message;
+
     try {
+
         message = JSON.parse(msg.data);
+
+        console.log("[musicBar.js] handleWSMessage: Parsed message type:", message.type, "payload:", message.payload);
+
     } catch (e) {
+
+        console.error("[musicBar.js] handleWSMessage: Error parsing message:", e);
+
         return console.error(e);
+
     }
 
+
+
     if (message.type === 'state') {
+
         const state = message.payload;
+
         const songChanged = String(state.currentSongId) !== String(musicState.currentSongId);
+
         const playChanged = state.playing !== musicState.playing;
 
+
+
         musicState.currentSongId = state.currentSongId;
+
         // musicState.songName = state.songName; // Removed: Prioritize API for songName
+
         musicState.artist = state.artist ?? "Unknown Artist";
+
         musicState.playing = state.playing;
+
         musicState.currentTime = state.currentTime;
+
         musicState.duration = state.duration;
+
         musicState.volume = state.volume;
+
         musicState.shuffleEnabled = state.shuffleEnabled;
+
         musicState.repeatMode = state.repeatMode;
+
+
 
         console.log("[WS] handleWSMessage: songChanged=", songChanged, "state.currentSongId=", state.currentSongId, "musicState.currentSongId=", musicState.currentSongId);
 
+        console.log("[WS] handleWSMessage: Received state - currentTime:", state.currentTime, "currentSongId:", state.currentSongId);
+
+
+
         if (songChanged) {
-            console.log("[WS] handleWSMessage: Song changed, fetching current song details.");
-            fetch(`/api/music/playback/current`)
-                    .then(r => r.json())
-                    .then(json => {
-                        if (json.data) {
-                            console.log("[WS] handleWSMessage: Calling UpdateAudioSource with data:", json.data);
-                            UpdateAudioSource(json.data, state.playing, state.currentTime ?? 0);
-                            refreshSongTable();
-                            if (window.refreshQueue) {
-                                window.refreshQueue();
-                            }
-                        }
-                    });
+
+            console.log("[WS] handleWSMessage: Song changed, fetching current, previous, and next song details.");
+
+            Promise.all([
+
+                fetch(`/api/music/playback/current`).then(r => r.json()),
+
+                fetch(`/api/music/playback/previousSong`).then(r => r.json()),
+
+                fetch(`/api/music/playback/nextSong`).then(r => r.json())
+
+            ])
+
+            .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
+
+                const currentSong = currentSongResponse.data;
+
+                const prevSong = prevSongResponse.data;
+
+                const nextSong = nextSongResponse.data;
+
+
+
+                if (currentSong) {
+
+                    console.log("[WS] handleWSMessage: Calling UpdateAudioSource with data:", currentSong, prevSong, nextSong);
+
+                    UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
+
+                    refreshSongTable();
+
+                    if (window.refreshQueue) {
+
+                        window.refreshQueue();
+
+                    }
+
+                }
+
+            })
+
+            .catch(error => console.error("Error fetching song context:", error));
+
         } else if (playChanged) { // If only play state changed, re-initialize audio source to ensure duration is correct
+
+            console.log("[WS] handleWSMessage: Play state changed, fetching current song details.");
+
             fetch(`/api/music/playback/current`)
+
                     .then(r => r.json())
+
                     .then(json => {
+
                         if (json.data) {
-                            UpdateAudioSource(json.data, state.playing, state.currentTime ?? 0);
+
+                            // When only play state changes, prev/next songs haven't changed.
+
+                            // Pass null for prev/next.
+
+                            UpdateAudioSource(json.data, null, null, state.playing, state.currentTime ?? 0);
+
                         }
+
                     });
+
         }
 
-        if (!draggingSeconds) {
-            if (Math.abs(audio.currentTime - musicState.currentTime) > 1) {
-                audio.currentTime = musicState.currentTime;
-            }
-        }
+
+
+        // Always synchronize audio element's current time if it deviates significantly
+
+        // This ensures seek events from other clients are reflected locally.
+
+        console.log("[WS] handleWSMessage: Before audio currentTime sync - audio.currentTime:", audio.currentTime, "musicState.currentTime:", musicState.currentTime);
+
+                        // Always synchronize audio element's current time to the received state
+
+                        const currentAudioTime = audio.currentTime;
+
+                        const remoteTime = musicState.currentTime;
+
+                        const timeDifference = Math.abs(currentAudioTime - remoteTime);
+
+                
+
+                                                audio.currentTime = remoteTime; // Always set audio.currentTime to the remote time
+
+                
+
+                                const wasPlaying = !audio.paused; // Check if audio was playing BEFORE setting currentTime
+
+                
+
+                        
+
+                
+
+                                audio.currentTime = remoteTime; // Always set audio.currentTime to the remote time
+
+                
+
+                                ignoreNextTimeUpdate = true; // Set flag to ignore next ontimeupdate
+
+                
+
+                        
+
+                
+
+                                // Always briefly pause and play if it was playing, to force UI update and jump
+
+                
+
+                                if (wasPlaying) {
+
+                
+
+                                    audio.pause();
+
+                
+
+                                    audio.play().catch(console.error);
+
+                
+
+                                }
+
+
+
+
 
         if (playChanged) {
+
             audio.currentTime = musicState.currentTime; // Synchronize audio element's current time
+
             if (musicState.playing) {
+
                 audio.play().catch(console.error);
+
             } else {
+
                 audio.pause();
+
             }
+
         }
 
+
+
         updateMusicBar();
+
     }
+
 }
 
 function sendWS(type, payload) {
+    console.log(`[musicBar.js] sendWS: Sending type=${type}, payload=`, payload);
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({type, payload}));
 }
 
 // ---------------- Controls ----------------
 function setPlaybackTime(newTime, fromClient = false) {
+    console.log(`[musicBar.js] setPlaybackTime called: newTime=${newTime}, fromClient=${fromClient}`);
     musicState.currentTime = newTime;
     audio.currentTime = newTime;
     updateMusicBar();
     if (fromClient) {
+        console.log(`[musicBar.js] setPlaybackTime: Sending seek WS message for newTime=${newTime}`);
         sendWS('seek', {value: newTime});
-}
+    }
 }
 
 function handleSeek(newTime) {
@@ -362,6 +560,23 @@ function bindPlaybackButtons() {
         console.log("[musicBar.js] nextBtn clicked");
         apiPost('next');
     };
+
+    // Add click listeners for previous and next song cover images
+    const prevSongCoverImage = document.getElementById('prevSongCoverImage');
+    if (prevSongCoverImage) {
+        prevSongCoverImage.onclick = () => {
+            console.log("[musicBar.js] prevSongCoverImage clicked");
+            apiPost('previous');
+        };
+    }
+
+    const nextSongCoverImage = document.getElementById('nextSongCoverImage');
+    if (nextSongCoverImage) {
+        nextSongCoverImage.onclick = () => {
+            console.log("[musicBar.js] nextSongCoverImage clicked");
+            apiPost('next');
+        };
+    }
     document.getElementById('shuffleBtn').onclick = () => {
         console.log("[musicBar.js] shuffleBtn clicked");
         apiPost('shuffle');
@@ -551,6 +766,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindMusicBarControls();
     bindImageExpansion();
+
+    // Initialize Media Session API handlers
+    if ('mediaSession' in navigator && window.setupMediaSessionHandlers) {
+        const apiPost = (path) => fetch(`/api/music/playback/${path}`, {method: 'POST'});
+        window.setupMediaSessionHandlers(apiPost, setPlaybackTime, audio);
+    }
 
     connectWS();
 

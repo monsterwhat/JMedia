@@ -31,47 +31,91 @@ public class MusicSocket {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    @OnOpen
-    public void onOpen(Session session) {
-        CompletableFuture.runAsync(() -> {
-            webSocketManager.addMusicSession(session);
-            sendCurrentState(session);
-            viewSession.clientConnected();
-        });
-    }
+        @OnOpen
 
-    @OnClose
-    public void onClose(Session session) {
-        CompletableFuture.runAsync(() -> {
-            webSocketManager.removeMusicSession(session);
-            viewSession.clientDisconnected();
-        });
-    }
+        public void onOpen(Session session) {
 
-    @OnMessage
-    public void onMessage(Session session, String message) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                ObjectNode node = mapper.readValue(message, ObjectNode.class);
-                String type = node.get("type").asText();
-                JsonNode payload = node.get("payload");
+            CompletableFuture.runAsync(() -> {
 
-                switch (type) {
-                    case "seek":
-                        playbackController.setSeconds(payload.get("value").asDouble());
-                        break;
-                    case "volume":
-                        playbackController.changeVolume((float) payload.get("value").asDouble());
-                        break;
-                    case "next":
-                        playbackController.next();
-                        break;
+                webSocketManager.addMusicSession(session);
+
+                sendCurrentState(session);
+
+                viewSession.clientConnected();
+
+            });
+
+        }
+
+    
+
+        @OnClose
+
+        public void onClose(Session session) {
+
+            CompletableFuture.runAsync(() -> {
+
+                webSocketManager.removeMusicSession(session);
+
+                viewSession.clientDisconnected();
+
+            });
+
+        }
+
+    
+
+        @OnMessage
+
+        public void onMessage(Session session, String message) {
+
+            CompletableFuture.runAsync(() -> {
+
+                try {
+
+                    ObjectNode node = mapper.readValue(message, ObjectNode.class);
+
+                    String type = node.get("type").asText();
+
+                    JsonNode payload = node.get("payload");
+
+    
+
+                    switch (type) {
+
+                        case "seek":
+
+                            double seekValue = payload.get("value").asDouble();
+
+                            System.out.println("[MusicSocket] Received seek message with value: " + seekValue);
+
+                            playbackController.setSeconds(seekValue);
+
+                            break;
+
+                        case "volume":
+
+                            playbackController.changeVolume((float) payload.get("value").asDouble());
+
+                            break;
+
+                        case "next":
+
+                            playbackController.next();
+
+                            break;
+
+                    }
+
+                } catch (IOException e) {
+
+                    e.printStackTrace();
+
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        });
-    }
+
+            });
+
+        }
 
     private void sendCurrentState(Session session) {
         PlaybackState state = playbackController.getState();
@@ -87,16 +131,22 @@ public class MusicSocket {
         }
     }
 
-    public void broadcastAll() {
+    public void broadcastLibraryUpdate() {
         PlaybackState state = playbackController.getState();
-        if (state == null) {
+        broadcastAll(state);
+    }
+
+    public void broadcastAll(PlaybackState stateToBroadcast) {
+        if (stateToBroadcast == null) {
+            System.out.println("[MusicSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
             return;
         }
+        System.out.println("[MusicSocket] broadcastAll: Broadcasting state with currentTime: " + stateToBroadcast.getCurrentTime());
 
         try {
             ObjectNode message = mapper.createObjectNode();
             message.put("type", "state");
-            message.set("payload", mapper.valueToTree(state));
+            message.set("payload", mapper.valueToTree(stateToBroadcast));
             webSocketManager.broadcastToMusic(mapper.writeValueAsString(message));
         } catch (IOException e) {
             e.printStackTrace();

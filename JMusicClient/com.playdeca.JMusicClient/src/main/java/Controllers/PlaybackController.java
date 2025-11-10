@@ -110,7 +110,7 @@ public class PlaybackController {
         playbackPersistenceController.maybePersist(memoryState); // persist only
 
         if (shouldBroadcast && ws != null) {
-            ws.broadcastAll();
+            ws.broadcastAll(newState);
         }
     }
 
@@ -367,8 +367,10 @@ public class PlaybackController {
      * Sets the playback position in seconds and persists state
      */
     public synchronized void setSeconds(double seconds) {
+        System.out.println("[PlaybackController] setSeconds called with: " + seconds);
         PlaybackState st = getState();
         playbackQueueController.setSeconds(st, seconds);
+        System.out.println("[PlaybackController] PlaybackState currentTime after setSeconds: " + st.getCurrentTime());
         updateState(st, true);
     }
 
@@ -388,6 +390,36 @@ public class PlaybackController {
         }
         List<Song> allSongs = getSongs();
         return allSongs.isEmpty() ? null : allSongs.get(0);
+    }
+
+    /**
+     * Returns the previous song in the queue, or null if none.
+     */
+    public synchronized Song getPreviousSong() {
+        PlaybackState st = getState();
+        List<Long> cue = st.getCue();
+        int cueIndex = st.getCueIndex();
+
+        if (cue == null || cue.isEmpty() || cueIndex <= 0) {
+            return null; // No previous song
+        }
+        Long prevSongId = cue.get(cueIndex - 1);
+        return findSong(prevSongId);
+    }
+
+    /**
+     * Returns the next song in the queue, or null if none.
+     */
+    public synchronized Song getNextSong() {
+        PlaybackState st = getState();
+        List<Long> cue = st.getCue();
+        int cueIndex = st.getCueIndex();
+
+        if (cue == null || cue.isEmpty() || cueIndex >= cue.size() - 1) {
+            return null; // No next song
+        }
+        Long nextSongId = cue.get(cueIndex + 1);
+        return findSong(nextSongId);
     }
 
     public synchronized void replaceQueueWithPlaylist(Playlist playlist) {

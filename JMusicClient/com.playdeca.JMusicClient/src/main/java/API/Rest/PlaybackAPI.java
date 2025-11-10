@@ -24,6 +24,20 @@ public class PlaybackAPI {
         return Response.ok(ApiResponse.success(current)).build();
     }
 
+    @GET
+    @Path("/previousSong")
+    public Response getPreviousSong() {
+        var previous = playbackController.getPreviousSong();
+        return Response.ok(ApiResponse.success(previous)).build();
+    }
+
+    @GET
+    @Path("/nextSong")
+    public Response getNextSong() {
+        var next = playbackController.getNextSong();
+        return Response.ok(ApiResponse.success(next)).build();
+    }
+
     @POST
     @Path("/toggle")
     public Response togglePlay() {

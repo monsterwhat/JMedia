@@ -113,7 +113,7 @@ public class SettingsController implements Serializable {
         }
 
         addLog("Scan completed. Total MP3 files added: " + totalAdded);
-        musicSocket.broadcastAll();
+        musicSocket.broadcastLibraryUpdate();
     }
 
     private void collectMp3Files(File folder, List<File> mp3Files) {
@@ -245,7 +245,7 @@ public class SettingsController implements Serializable {
         }
 
         addLog(String.format("[org.jau.tag.id3] Metadata reload completed. %d songs updated.", updatedCount));
-        musicSocket.broadcastAll();
+        musicSocket.broadcastLibraryUpdate();
     }
 
     private Boolean reloadMetadataForSong(Song song) {
@@ -375,7 +375,7 @@ public class SettingsController implements Serializable {
         }
 
         addLog("Duplicate deletion completed. " + deleted + " songs deleted.");
-        musicSocket.broadcastAll();
+        musicSocket.broadcastLibraryUpdate();
     }
 
     public void clearLogs() {
