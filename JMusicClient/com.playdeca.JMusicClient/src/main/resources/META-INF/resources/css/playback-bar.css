@@ -1,0 +1,155 @@
+/* Thicker Playback Bar */
+#playbackProgressBar {
+    -webkit-appearance: none; /* Override default appearance */
+    width: 100%; /* Ensure it takes full width */
+    height: 10px; /* Overall height of the range input */
+    background: transparent; /* Make background transparent */
+}
+
+/* Track styling for Webkit (Chrome, Safari) */
+#playbackProgressBar::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 10px; /* Thickness of the track */
+    cursor: pointer;
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    border-radius: 5px; /* Adjust border-radius for new thickness */
+}
+
+/* Thumb styling for Webkit */
+#playbackProgressBar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    border: none;
+    height: 20px; /* Size of the thumb */
+    width: 20px; /* Size of the thumb */
+    border-radius: 50%;
+    background: #48c78e; /* Bulma success color */
+    cursor: pointer;
+    margin-top: -5px; /* Center the thumb vertically on the track */
+}
+
+/* Track styling for Firefox */
+#playbackProgressBar::-moz-range-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    border-radius: 5px;
+}
+
+/* Thumb styling for Firefox */
+#playbackProgressBar::-moz-range-thumb {
+    border: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #48c78e;
+    cursor: pointer;
+}
+
+/* Track styling for IE/Edge */
+#playbackProgressBar::-ms-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: transparent; /* IE needs this to be transparent */
+    border-color: transparent;
+    color: transparent;
+}
+
+#playbackProgressBar::-ms-fill-lower {
+    background: #48c78e; /* Filled part */
+    border-radius: 5px;
+}
+
+#playbackProgressBar::-ms-fill-upper {
+    background: #dbdbdb; /* Unfilled part */
+    border-radius: 5px;
+}
+
+/* Thumb styling for IE/Edge */
+#playbackProgressBar::-ms-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #48c78e;
+    cursor: pointer;
+    margin-top: 0; /* IE centers thumb automatically */
+}
+
+/* Thicker Volume Bar */
+#volumeProgressBar {
+    -webkit-appearance: none; /* Override default appearance */
+    width: 100%; /* Ensure it takes full width */
+    height: 10px; /* Overall height of the range input */
+    background: transparent; /* Make background transparent */
+}
+
+/* Track styling for Webkit (Chrome, Safari) */
+#volumeProgressBar::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 10px; /* Thickness of the track */
+    cursor: pointer;
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    border-radius: 5px; /* Adjust border-radius for new thickness */
+}
+
+/* Thumb styling for Webkit */
+#volumeProgressBar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    border: none;
+    height: 20px; /* Size of the thumb */
+    width: 20px; /* Size of the thumb */
+    border-radius: 50%;
+    background: #48c78e; /* Bulma success color */
+    cursor: pointer;
+    margin-top: -5px; /* Center the thumb vertically on the track */
+}
+
+/* Track styling for Firefox */
+#volumeProgressBar::-moz-range-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    border-radius: 5px;
+}
+
+/* Thumb styling for Firefox */
+#volumeProgressBar::-moz-range-thumb {
+    border: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #48c78e;
+    cursor: pointer;
+}
+
+/* Track styling for IE/Edge */
+#volumeProgressBar::-ms-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: transparent; /* IE needs this to be transparent */
+    border-color: transparent;
+    color: transparent;
+}
+
+#volumeProgressBar::-ms-fill-lower {
+    background: #48c78e; /* Filled part */
+    border-radius: 5px;
+}
+
+#volumeProgressBar::-ms-fill-upper {
+    background: #dbdbdb; /* Unfilled part */
+    border-radius: 5px;
+}
+
+/* Thumb styling for IE/Edge */
+#volumeProgressBar::-ms-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #48c78e;
+    cursor: pointer;
+    margin-top: 0; /* IE centers thumb automatically */
+}

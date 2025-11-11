@@ -11,8 +11,13 @@ import Services.SongService;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -28,6 +33,10 @@ public class PlaybackController {
     @Inject PlaylistService playlistService;
     @Inject MusicSocket ws;
 
+    private ScheduledExecutorService scheduler;
+    private ScheduledFuture<?> playbackTask;
+    private static final long PLAYBACK_UPDATE_INTERVAL_MS = 300; // Update every 300ms
+
     private static final Logger LOGGER = Logger.getLogger(PlaybackController.class.getName());
 
     public PlaybackController() {
@@ -36,6 +45,7 @@ public class PlaybackController {
 
     @PostConstruct
     public void init() {
+        scheduler = Executors.newSingleThreadScheduledExecutor();
         memoryState = playbackPersistenceController.loadState();
         if (memoryState == null) {
             memoryState = new PlaybackState();
@@ -59,6 +69,58 @@ public class PlaybackController {
         memoryState.setPlaying(false);
 
         System.out.println("[PlaybackController] Initial state loaded: " + safeSummary(memoryState));
+
+        if (memoryState.isPlaying()) {
+            startPlaybackTimer();
+        }
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void shutdownScheduler() {
+        if (playbackTask != null) {
+            playbackTask.cancel(true);
+        }
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
+    }
+
+    private synchronized void startPlaybackTimer() {
+        if (playbackTask != null && !playbackTask.isDone()) {
+            playbackTask.cancel(false); // Allow current task to complete if running
+        }
+
+        playbackTask = scheduler.scheduleAtFixedRate(() -> {
+            processPlaybackTick();
+        }, 0, PLAYBACK_UPDATE_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        LOGGER.info("Playback timer started.");
+    }
+
+    @jakarta.transaction.Transactional // Ensure database operations run in a transaction
+    protected void processPlaybackTick() {
+        try {
+            PlaybackState st = getState();
+            if (st.isPlaying() && st.getCurrentSongId() != null) {
+                double newTime = st.getCurrentTime() + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
+                if (newTime >= st.getDuration() && st.getDuration() > 0) {
+                    // Song ended naturally, advance to next
+                    handleSongEnded();
+                } else {
+                    st.setCurrentTime(newTime);
+                    updateState(st, true); // Broadcast updated time
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.severe("Error in playback timer task: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private synchronized void stopPlaybackTimer() {
+        if (playbackTask != null && !playbackTask.isDone()) {
+            playbackTask.cancel(true); // Interrupt if running
+            LOGGER.info("Playback timer stopped.");
+        }
     }
 
     // -----------------------------
@@ -107,6 +169,7 @@ public class PlaybackController {
 
         memoryState = newState;
 
+        newState.setLastUpdateTime(System.currentTimeMillis()); // Set timestamp for latency compensation
         playbackPersistenceController.maybePersist(memoryState); // persist only
 
         if (shouldBroadcast && ws != null) {
@@ -122,6 +185,11 @@ public class PlaybackController {
             // Toggle play/pause
             st.setPlaying(!st.isPlaying());
             currentSettings.addLog("Playback toggled for song: " + current.getTitle());
+            if (st.isPlaying()) {
+                startPlaybackTimer();
+            } else {
+                stopPlaybackTimer();
+            }
         } else {
             st.setCurrentSongId(id);
             Song newSong = findSong(id);
@@ -139,6 +207,7 @@ public class PlaybackController {
             if (st.getCue() != null) {
                 st.setCueIndex(st.getCue().indexOf(id));
             }
+            startPlaybackTimer(); // Start timer for new song
         }
 
         updateState(st, true);
@@ -154,6 +223,7 @@ public class PlaybackController {
     private synchronized void stopPlayback() {
         PlaybackState st = getState();
         playbackQueueController.clear(st);
+        stopPlaybackTimer(); // Stop the timer when playback is stopped
         updateState(st, true);
     }
 
@@ -282,6 +352,17 @@ public class PlaybackController {
             return;
         }
 
+        // Persist the song that just finished playing to history
+        if (st.getCurrentSongId() != null) {
+            Song finishedSong = findSong(st.getCurrentSongId());
+            if (finishedSong != null) {
+                PlaybackHistory historyEntry = new PlaybackHistory();
+                historyEntry.song = finishedSong;
+                historyEntry.playedAt = LocalDateTime.now();
+                historyEntry.persist(); // Persist the history entry
+            }
+        }
+
         Long nextSongId = playbackQueueController.advance(st, forward);
 
         if (nextSongId == null) {
@@ -296,6 +377,7 @@ public class PlaybackController {
         st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
         st.setPlaying(true);
         st.setCurrentTime(0); // Always reset time for a new song
+        startPlaybackTimer(); // Ensure timer is running for new song
 
         updateState(st, true); // persists + broadcasts
     }
@@ -323,6 +405,11 @@ public class PlaybackController {
         System.out.println("Toggle");
         PlaybackState state = getState();
         playbackQueueController.togglePlay(state);
+        if (state.isPlaying()) {
+            startPlaybackTimer();
+        } else {
+            stopPlaybackTimer();
+        }
         updateState(state, true);
     }
 
@@ -401,7 +488,12 @@ public class PlaybackController {
         int cueIndex = st.getCueIndex();
 
         if (cue == null || cue.isEmpty() || cueIndex <= 0) {
-            return null; // No previous song
+            // If no previous song in queue, try to get from history
+            PlaybackHistory lastPlayed = PlaybackHistory.find("order by playedAt desc").firstResult();
+            if (lastPlayed != null && lastPlayed.song != null) {
+                return lastPlayed.song;
+            }
+            return null; // No previous song in queue or history
         }
         Long prevSongId = cue.get(cueIndex - 1);
         return findSong(prevSongId);

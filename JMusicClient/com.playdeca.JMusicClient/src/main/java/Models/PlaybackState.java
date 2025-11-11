@@ -28,6 +28,7 @@ public class PlaybackState {
     private double duration; // Added duration field
     private float volume;
     private boolean shuffleEnabled;
+    private long lastUpdateTime; // Timestamp of the last state update on the server
 
 
     @ElementCollection(fetch = FetchType.EAGER)

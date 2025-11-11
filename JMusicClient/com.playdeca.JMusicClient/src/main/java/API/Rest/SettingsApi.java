@@ -90,6 +90,20 @@ public class SettingsApi {
     }
 
     // -----------------------------
+    // GET MUSIC LIBRARY PATH
+    // -----------------------------
+    @GET
+    @Path("/music-library-path")
+    public Response getMusicLibraryPath() {
+        String path = settingsController.getMusicLibraryPath();
+        if (path != null && !path.isBlank()) {
+            return Response.ok(ApiResponse.success(path)).build();
+        } else {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Music library path not configured")).build();
+        }
+    }
+
+    // -----------------------------
     // TOGGLE RUN AS SERVICE
     // -----------------------------
     @POST
@@ -114,6 +128,10 @@ public class SettingsApi {
         }
         settingsController.setMusicLibraryPath(path);
         settingsController.addLog("Music library path updated to: " + path);
+        // Trigger a library scan after the path is updated
+        executor.submit(() -> {
+            settingsController.scanLibrary();
+        }, "LibraryScanThread");
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 

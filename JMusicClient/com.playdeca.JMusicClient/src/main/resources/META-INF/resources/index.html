@@ -11,6 +11,7 @@
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="https://unpkg.com/primeicons@6.0.1/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
+        <link rel="stylesheet" href="/css/playback-bar.css"/>
 
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
@@ -74,6 +75,7 @@
                             <a class="navbar-item" href="/index.html">Home</a>
                             <a class="navbar-item" href="/browse.html">Browse</a>
                             <a class="navbar-item" href="/settings.html">Settings</a>
+                            <a class="navbar-item" href="/import.html">Import</a>
                         </div>
                     </div>
                 </nav>
@@ -252,11 +254,11 @@
 
                         <!-- Progress bar -->
                         <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
-                            <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-7 mr-2">0:00</span>
+                            <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-6 mr-2">0:00</span>
                             <input type="range" min="0" max="100" value="0"
                                    style="width:100%"
-                                   name="seconds"/>
-                            <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-7 ml-2">0:00</span>
+                                   name="seconds" id="playbackProgressBar"/>
+                            <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-6 ml-2">0:00</span>
                         </div>
 
                         <!-- Song Info for mobile -->
@@ -275,7 +277,7 @@
                         <div class="level-item">
                             <div class="is-flex is-align-items-center">
                                 <i class="pi pi-volume-up has-text-white mr-2"></i>
-                                <input type="range" min="0" max="100" value="80" name="level"/>
+                                <input type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
                             </div>
                         </div>
                     </div> 

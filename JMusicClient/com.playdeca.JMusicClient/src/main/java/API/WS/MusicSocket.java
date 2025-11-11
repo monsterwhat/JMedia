@@ -31,91 +31,48 @@ public class MusicSocket {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-        @OnOpen
+    @OnOpen
+    public void onOpen(Session session) {
+        CompletableFuture.runAsync(() -> {
+            webSocketManager.addMusicSession(session);
+            sendCurrentState(session);
+            viewSession.clientConnected();
+        });
 
-        public void onOpen(Session session) {
+    }
 
-            CompletableFuture.runAsync(() -> {
+    @OnClose
+    public void onClose(Session session) {
+        CompletableFuture.runAsync(() -> {
+            webSocketManager.removeMusicSession(session);
+            viewSession.clientDisconnected();
+        });
+    }
 
-                webSocketManager.addMusicSession(session);
-
-                sendCurrentState(session);
-
-                viewSession.clientConnected();
-
-            });
-
-        }
-
-    
-
-        @OnClose
-
-        public void onClose(Session session) {
-
-            CompletableFuture.runAsync(() -> {
-
-                webSocketManager.removeMusicSession(session);
-
-                viewSession.clientDisconnected();
-
-            });
-
-        }
-
-    
-
-        @OnMessage
-
-        public void onMessage(Session session, String message) {
-
-            CompletableFuture.runAsync(() -> {
-
-                try {
-
-                    ObjectNode node = mapper.readValue(message, ObjectNode.class);
-
-                    String type = node.get("type").asText();
-
-                    JsonNode payload = node.get("payload");
-
-    
-
-                    switch (type) {
-
-                        case "seek":
-
-                            double seekValue = payload.get("value").asDouble();
-
-                            System.out.println("[MusicSocket] Received seek message with value: " + seekValue);
-
-                            playbackController.setSeconds(seekValue);
-
-                            break;
-
-                        case "volume":
-
-                            playbackController.changeVolume((float) payload.get("value").asDouble());
-
-                            break;
-
-                        case "next":
-
-                            playbackController.next();
-
-                            break;
-
-                    }
-
-                } catch (IOException e) {
-
-                    e.printStackTrace();
-
+    @OnMessage
+    public void onMessage(Session session, String message) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                ObjectNode node = mapper.readValue(message, ObjectNode.class);
+                String type = node.get("type").asText();
+                JsonNode payload = node.get("payload");
+                switch (type) {
+                    case "seek":
+                        double seekValue = payload.get("value").asDouble();
+                        playbackController.setSeconds(seekValue);
+                        break;
+                    case "volume":
+                        playbackController.changeVolume((float) payload.get("value").asDouble());
+                        break;
+                    case "next":
+                        playbackController.next();
+                        break;
                 }
-
-            });
-
-        }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+    }
 
     private void sendCurrentState(Session session) {
         PlaybackState state = playbackController.getState();
@@ -141,7 +98,6 @@ public class MusicSocket {
             System.out.println("[MusicSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
             return;
         }
-        System.out.println("[MusicSocket] broadcastAll: Broadcasting state with currentTime: " + stateToBroadcast.getCurrentTime());
 
         try {
             ObjectNode message = mapper.createObjectNode();

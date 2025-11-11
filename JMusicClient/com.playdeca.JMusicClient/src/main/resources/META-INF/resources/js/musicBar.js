@@ -17,6 +17,7 @@ const musicState = {
 let draggingSeconds = false;
 let draggingVolume = false;
 let mySessionId = null; // New global variable to store this client's session ID // New flag
+let isUpdatingAudioSource = false; // New flag to prevent ontimeupdate during audio source changes
 
 const volumeExponent = 2; // Moved to global scope
 
@@ -69,7 +70,6 @@ function applyMarqueeEffect(elementId, text) {
 
 function updateMusicBar() {
     const {songName, artist, playing, currentTime, duration, volume, shuffleEnabled, repeatMode} = musicState;
-    console.log("[musicBar.js] updateMusicBar: Called with musicState.currentTime:", currentTime);
 
     const titleEl = document.getElementById('songTitle');
     const artistEl = document.getElementById('songArtist');
@@ -86,19 +86,17 @@ function updateMusicBar() {
             ? "pi pi-pause button is-warning is-rounded is-large"
             : "pi pi-play button is-success is-rounded is-large";
 
-    console.log("[musicBar.js] updateMusicBar: Updating currentTime text to:", formatTime(currentTime));
-    document.getElementById('currentTime').innerText = formatTime(currentTime);
+    document.getElementById('currentTime').innerText = formatTime(Math.floor(currentTime));
     document.getElementById('totalTime').innerText = formatTime(duration);
 
     const timeSlider = document.getElementById('playbackProgressBar'); // Use getElementById for direct access
     if (timeSlider) {
         timeSlider.max = duration;
 
-        // Update the slider's value based on currentTime if not dragging
+        // Update the slider's value based on audio.currentTime if not dragging
         // If dragging, the slider's value is already updated by the browser
         if (!draggingSeconds) {
-            console.log("[musicBar.js] updateMusicBar: Updating timeSlider.value to:", currentTime);
-            timeSlider.value = currentTime;
+            timeSlider.value = audio.currentTime;
         }
 
         // Always update the progress bar's visual fill, regardless of dragging state
@@ -147,33 +145,29 @@ function updateMusicBar() {
 }
 
 // ---------------- Audio Events ----------------
-const throttledSendWS = throttle(sendWS, 300); // Send a message at most every 300ms
+const throttledSendWS = throttle(sendWS, 100); // Send a message at most every 300ms
 
 audio.ontimeupdate = () => {
-
-    if (!draggingSeconds) {
-
+    if (!draggingSeconds && !isUpdatingAudioSource) { // Add isUpdatingAudioSource check
         musicState.currentTime = audio.currentTime;
-        if (musicState.isMaster) { // Only send seek if this client is the master
-            throttledSendWS("seek", {value: audio.currentTime});
-        }
-        updateMusicBar(); // Update UI more frequently
-
+        updateMusicBar(); // Update UI more frequently for smooth playback bar
     }
-
 };
 
 audio.onended = () => {
     console.log("[musicBar.js] audio.onended: Song ended, calling /api/music/playback/next.");
-    fetch('/api/music/playback/next', { method: 'POST' });
+    fetch('/api/music/playback/next', {method: 'POST'});
 };
 
 
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
+    isUpdatingAudioSource = true; // Set flag to true at the beginning
     console.log("[musicBar.js] UpdateAudioSource called with currentSong:", currentSong, "prevSong:", prevSong, "nextSong:", nextSong, "play:", play, "backendTime:", backendTime);
-    if (!currentSong || !currentSong.id)
+    if (!currentSong || !currentSong.id) {
+        isUpdatingAudioSource = false; // Reset flag if no current song
         return;
+    }
 
     const sameSong = String(musicState.currentSongId) === String(currentSong.id);
     musicState.currentSongId = currentSong.id;
@@ -215,17 +209,9 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     const faviconEl = document.getElementById('favicon');
     if (faviconEl) {
         faviconEl.href = currentSong.artworkBase64 && currentSong.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 : '/logo.png';
-            }
-    
-                    // Call updateMusicBar() after a small delay to allow audio element to process currentTime change
-    
-                            setTimeout(() => {
-    
-                                console.log("[WS] handleWSMessage (setTimeout): Calling updateMusicBar() with musicState.currentTime:", musicState.currentTime);
-    
-                                updateMusicBar();
-    
-                            }, 500); // Increased delay to 500ms    updatePageTitle({name: musicState.songName, artist: musicState.artist});
+    }
+
+    updatePageTitle({name: musicState.songName, artist: musicState.artist});
 
     audio.src = `/api/music/stream/${currentSong.id}`;
     audio.load();
@@ -240,8 +226,11 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
         audio.currentTime = musicState.currentTime; // set backend time after duration is known
         if (play)
             audio.play().catch(console.error);
+        else // Pause if 'play' is false
+            audio.pause();
         updateMusicBar();
         console.log("[musicBar.js] onloadedmetadata: musicState.duration (final)=", musicState.duration);
+        isUpdatingAudioSource = false; // Reset flag after UI update
     };
 }
 
@@ -261,216 +250,94 @@ function connectWS() {
 
 function handleWSMessage(msg) {
 
-    console.log("[musicBar.js] handleWSMessage: Raw message received:", msg.data);
-
     let message;
 
     try {
-
         message = JSON.parse(msg.data);
-
-        console.log("[musicBar.js] handleWSMessage: Parsed message type:", message.type, "payload:", message.payload);
-
     } catch (e) {
-
         console.error("[musicBar.js] handleWSMessage: Error parsing message:", e);
-
         return console.error(e);
-
     }
 
-
-
     if (message.type === 'state') {
-
         const state = message.payload;
-
         const songChanged = String(state.currentSongId) !== String(musicState.currentSongId);
-
         const playChanged = state.playing !== musicState.playing;
 
-
-
         musicState.currentSongId = state.currentSongId;
-
-        // musicState.songName = state.songName; // Removed: Prioritize API for songName
-
         musicState.artist = state.artist ?? "Unknown Artist";
-
         musicState.playing = state.playing;
-
         musicState.currentTime = state.currentTime;
-
         musicState.duration = state.duration;
-
         musicState.volume = state.volume;
-
+        audio.volume = state.volume; // Synchronize actual audio volume
         musicState.shuffleEnabled = state.shuffleEnabled;
-
         musicState.repeatMode = state.repeatMode;
 
-
-
-        console.log("[WS] handleWSMessage: songChanged=", songChanged, "state.currentSongId=", state.currentSongId, "musicState.currentSongId=", musicState.currentSongId);
-
-        console.log("[WS] handleWSMessage: Received state - currentTime:", state.currentTime, "currentSongId:", state.currentSongId);
-
-
-
         if (songChanged) {
-
             console.log("[WS] handleWSMessage: Song changed, fetching current, previous, and next song details.");
-
             Promise.all([
-
                 fetch(`/api/music/playback/current`).then(r => r.json()),
-
                 fetch(`/api/music/playback/previousSong`).then(r => r.json()),
-
                 fetch(`/api/music/playback/nextSong`).then(r => r.json())
-
             ])
-
-            .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
-
-                const currentSong = currentSongResponse.data;
-
-                const prevSong = prevSongResponse.data;
-
-                const nextSong = nextSongResponse.data;
-
-
-
-                if (currentSong) {
-
-                    console.log("[WS] handleWSMessage: Calling UpdateAudioSource with data:", currentSong, prevSong, nextSong);
-
-                    UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
-
-                    refreshSongTable();
-
-                    if (window.refreshQueue) {
-
-                        window.refreshQueue();
-
+                    .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
+                        const currentSong = currentSongResponse.data;
+                        const prevSong = prevSongResponse.data;
+                        const nextSong = nextSongResponse.data;
+                        if (currentSong) {
+                            console.log("[WS] handleWSMessage: Calling UpdateAudioSource with data:", currentSong, prevSong, nextSong);
+                            UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
+                            refreshSongTable();
+                            if (window.refreshQueue) {
+                                window.refreshQueue();
+                            }
                     }
-
-                }
-
-            })
-
-            .catch(error => console.error("Error fetching song context:", error));
+                    }).catch(error => console.error("Error fetching song context:", error));
 
         } else if (playChanged) { // If only play state changed, re-initialize audio source to ensure duration is correct
 
             console.log("[WS] handleWSMessage: Play state changed, fetching current song details.");
-
             fetch(`/api/music/playback/current`)
-
                     .then(r => r.json())
-
                     .then(json => {
-
                         if (json.data) {
-
-                            // When only play state changes, prev/next songs haven't changed.
-
-                            // Pass null for prev/next.
-
                             UpdateAudioSource(json.data, null, null, state.playing, state.currentTime ?? 0);
-
                         }
-
                     });
-
         }
 
+        // If neither song nor play state changed, but time might have drifted, synchronize currentTime
 
+        if (!songChanged && !playChanged) {
 
-        // Always synchronize audio element's current time if it deviates significantly
+            const clientReceiveTime = Date.now(); // Use Date.now() for epoch-based timestamp
 
-        // This ensures seek events from other clients are reflected locally.
+            const serverSendTime = state.lastUpdateTime; // Server's timestamp when state was sent
 
-        console.log("[WS] handleWSMessage: Before audio currentTime sync - audio.currentTime:", audio.currentTime, "musicState.currentTime:", musicState.currentTime);
+            // Calculate estimated latency (in milliseconds)
 
-                        // Always synchronize audio element's current time to the received state
+            const estimatedLatencyMs = clientReceiveTime - serverSendTime;
 
-                        const currentAudioTime = audio.currentTime;
+            const estimatedLatencySeconds = estimatedLatencyMs / 1000.0;
 
-                        const remoteTime = musicState.currentTime;
+            // Project the server's currentTime to the client's current local time
 
-                        const timeDifference = Math.abs(currentAudioTime - remoteTime);
+            const currentAudioTime = audio.currentTime;
 
-                
+            const projectedRemoteTime = state.currentTime + estimatedLatencySeconds;
 
-                                                audio.currentTime = remoteTime; // Always set audio.currentTime to the remote time
+            const timeDifference = Math.abs(currentAudioTime - projectedRemoteTime);
 
-                
+            // Only adjust if the difference is significant to avoid constant small adjustments
 
-                                const wasPlaying = !audio.paused; // Check if audio was playing BEFORE setting currentTime
-
-                
-
-                        
-
-                
-
-                                audio.currentTime = remoteTime; // Always set audio.currentTime to the remote time
-
-                
-
-                                ignoreNextTimeUpdate = true; // Set flag to ignore next ontimeupdate
-
-                
-
-                        
-
-                
-
-                                // Always briefly pause and play if it was playing, to force UI update and jump
-
-                
-
-                                if (wasPlaying) {
-
-                
-
-                                    audio.pause();
-
-                
-
-                                    audio.play().catch(console.error);
-
-                
-
-                                }
-
-
-
-
-
-        if (playChanged) {
-
-            audio.currentTime = musicState.currentTime; // Synchronize audio element's current time
-
-            if (musicState.playing) {
-
-                audio.play().catch(console.error);
-
-            } else {
-
-                audio.pause();
-
+            if (timeDifference > 0.5) { // e.g., if difference is more than 0.5 seconds
+                console.log(`[WS] handleWSMessage: Correcting time. Local: ${currentAudioTime.toFixed(2)}, Server (projected): ${projectedRemoteTime.toFixed(2)}, Diff: ${timeDifference.toFixed(2)}, Latency: ${estimatedLatencyMs.toFixed(2)}ms`);
+                audio.currentTime = projectedRemoteTime;
             }
-
         }
-
-
-
         updateMusicBar();
-
     }
-
 }
 
 function sendWS(type, payload) {
@@ -488,7 +355,7 @@ function setPlaybackTime(newTime, fromClient = false) {
     if (fromClient) {
         console.log(`[musicBar.js] setPlaybackTime: Sending seek WS message for newTime=${newTime}`);
         sendWS('seek', {value: newTime});
-    }
+}
 }
 
 function handleSeek(newTime) {
@@ -541,6 +408,7 @@ function bindVolumeSlider() {
         const vol = calculateExponentialVolume(parseInt(e.target.value, 10));
         musicState.volume = vol;
         audio.volume = vol;
+        updateMusicBar(); // Add this line
         sendWS('volume', {value: vol});
     };
 }

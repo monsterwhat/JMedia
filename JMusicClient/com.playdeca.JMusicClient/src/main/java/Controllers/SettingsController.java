@@ -93,9 +93,25 @@ public class SettingsController implements Serializable {
             return;
         }
 
+        performScan(folder, "full library");
+    }
+
+    public void scanImportFolder() {
+        addLog("Scanning import folder for new songs...");
+        File importFolder = new File(getMusicFolder(), "import");
+
+        if (!importFolder.exists() || !importFolder.isDirectory()) {
+            addLog("Import folder does not exist: " + importFolder.getAbsolutePath());
+            return;
+        }
+
+        performScan(importFolder, "import folder");
+    }
+
+    private void performScan(File folderToScan, String scanType) {
         List<File> mp3Files = new ArrayList<>();
-        collectMp3Files(folder, mp3Files);
-        addLog("Found " + mp3Files.size() + " MP3 files. Starting parallel metadata reading...");
+        collectMp3Files(folderToScan, mp3Files);
+        addLog("Found " + mp3Files.size() + " MP3 files in " + scanType + ". Starting parallel metadata reading...");
 
         ExecutorCompletionService<Integer> completion = new ExecutorCompletionService<>(executor);
         mp3Files.forEach(f -> completion.submit(() -> processFile(f)));
@@ -105,14 +121,14 @@ public class SettingsController implements Serializable {
             try {
                 totalAdded += completion.take().get();
                 if ((i + 1) % 50 == 0) {
-                    addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files...");
+                    addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files from " + scanType + "...");
                 }
             } catch (Exception e) {
-                addLog("Error while processing file in parallel: " + e.getMessage(), e);
+                addLog("Error while processing file in parallel from " + scanType + ": " + e.getMessage(), e);
             }
         }
 
-        addLog("Scan completed. Total MP3 files added: " + totalAdded);
+        addLog("Scan of " + scanType + " completed. Total MP3 files added: " + totalAdded);
         musicSocket.broadcastLibraryUpdate();
     }
 
