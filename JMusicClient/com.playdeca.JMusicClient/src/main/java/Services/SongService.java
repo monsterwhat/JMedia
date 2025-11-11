@@ -87,18 +87,49 @@ public class SongService {
 
     public record PaginatedSongs(List<Song> songs, long totalCount) {}
 
-    public PaginatedSongs findAll(int page, int limit) {
-        List<Song> songs = em.createQuery("SELECT s FROM Song s ORDER BY s.dateAdded DESC", Song.class)
+    public PaginatedSongs findAll(int page, int limit, String search) {
+        String baseQuery = "SELECT s FROM Song s";
+        String whereClause = "";
+
+        if (search != null && !search.isBlank()) {
+            whereClause = " WHERE LOWER(s.title) LIKE :search OR "
+                    + "LOWER(s.artist) LIKE :search OR "
+                    + "LOWER(s.album) LIKE :search OR "
+                    + "LOWER(s.albumArtist) LIKE :search OR "
+                    + "LOWER(s.genre) LIKE :search";
+        }
+
+        jakarta.persistence.TypedQuery<Song> query = em.createQuery(baseQuery + whereClause + " ORDER BY s.dateAdded DESC", Song.class);
+
+        if (search != null && !search.isBlank()) {
+            query.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+
+        List<Song> songs = query
                 .setFirstResult((page - 1) * limit)
                 .setMaxResults(limit)
                 .getResultList();
-        long totalCount = countAll();
+        long totalCount = countAll(search);
         return new PaginatedSongs(songs, totalCount);
     }
 
-    public long countAll() {
-        return em.createQuery("SELECT COUNT(s) FROM Song s", Long.class)
-                .getSingleResult();
+    public long countAll(String search) {
+        String countQuery = "SELECT COUNT(s) FROM Song s";
+        String whereClause = "";
+
+        if (search != null && !search.isBlank()) {
+            whereClause = " WHERE LOWER(s.title) LIKE :search OR "
+                    + "LOWER(s.artist) LIKE :search OR "
+                    + "LOWER(s.album) LIKE :search OR "
+                    + "LOWER(s.albumArtist) LIKE :search OR "
+                    + "LOWER(s.genre) LIKE :search";
+        }
+
+        jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery + whereClause, Long.class);
+        if (search != null && !search.isBlank()) {
+            query.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+        return query.getSingleResult();
     }
 
     public List<Song> findByIds(List<Long> ids) {
@@ -111,6 +142,27 @@ public class SongService {
         // Re-order based on the original ID list
         java.util.Map<Long, Song> songMap = unorderedSongs.stream().collect(java.util.stream.Collectors.toMap(s -> s.id, s -> s));
         return ids.stream().map(songMap::get).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toList());
+    }
+
+    public Song findRandomSongByGenre(String genre, Long excludeSongId, List<Long> songPoolIds) {
+        if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
+            return null;
+        }
+
+        List<Long> matchingIds = em.createQuery(
+                "SELECT s.id FROM Song s WHERE s.id IN :songPoolIds AND LOWER(s.genre) = :genre AND s.id != :excludeSongId", Long.class)
+                .setParameter("songPoolIds", songPoolIds)
+                .setParameter("genre", genre.toLowerCase())
+                .setParameter("excludeSongId", excludeSongId)
+                .getResultList();
+
+        if (matchingIds.isEmpty()) {
+            return null;
+        }
+
+        java.util.Collections.shuffle(matchingIds);
+        Long randomId = matchingIds.get(0);
+        return find(randomId); // This fetches the single, full Song object
     }
 
 }

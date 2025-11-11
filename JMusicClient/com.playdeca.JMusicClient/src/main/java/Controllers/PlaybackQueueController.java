@@ -60,6 +60,12 @@ public class PlaybackQueueController {
 
         // --- FORWARD ADVANCEMENT ---
         addSongToHistory(state.getCurrentSongId());
+
+        // Smart shuffle: find a suitable next song and move it to the next position in the cue
+        if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            findAndPrepareNextSmartSong(state);
+        }
+
         List<Long> cue = state.getCue();
         if (cue == null || cue.isEmpty()) return null;
 
@@ -115,6 +121,54 @@ public class PlaybackQueueController {
             // If no current song or it's not in the cue, just shuffle everything
             Collections.shuffle(cue);
             state.setCueIndex(0);
+        }
+    }
+
+    public void initSmartShuffle(PlaybackState state) {
+        // 1. Get the pool of songs
+        List<Long> songPoolIds = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
+                ? new ArrayList<>(state.getOriginalCue())
+                : new ArrayList<>(state.getCue());
+
+        if (songPoolIds.isEmpty()) {
+            return;
+        }
+
+        // Save original cue if it wasn't saved before
+        if (state.getOriginalCue() == null || state.getOriginalCue().isEmpty()) {
+            state.setOriginalCue(new ArrayList<>(songPoolIds));
+        }
+
+        List<Song> allSongs = songService.findByIds(songPoolIds);
+
+        // 2. Group songs by genre
+        java.util.Map<String, List<Song>> songsByGenre = allSongs.stream()
+                .collect(java.util.stream.Collectors.groupingBy(song ->
+                        song.getGenre() == null || song.getGenre().isBlank() ? "Unknown" : song.getGenre()
+                ));
+
+        // 3. Shuffle the order of genres
+        List<String> genres = new ArrayList<>(songsByGenre.keySet());
+        Collections.shuffle(genres);
+
+        // 4. Build the new queue
+        List<Long> newCue = new ArrayList<>();
+        for (String genre : genres) {
+            List<Song> songsInGenre = songsByGenre.get(genre);
+            Collections.shuffle(songsInGenre);
+            for (Song song : songsInGenre) {
+                newCue.add(song.id);
+            }
+        }
+
+        // 5. Update the state
+        state.setCue(newCue);
+        int newIndex = newCue.indexOf(state.getCurrentSongId());
+        state.setCueIndex(newIndex != -1 ? newIndex : 0);
+
+        // If current song was not found (shouldn't happen), set to first song
+        if (newIndex == -1 && !newCue.isEmpty()) {
+            state.setCurrentSongId(newCue.get(0));
         }
     }
 
@@ -279,5 +333,41 @@ public class PlaybackQueueController {
         state.setCurrentSongId(newCue.get(0));
         state.setCurrentTime(0);
         state.setPlaying(true);
+    }
+
+    private void findAndPrepareNextSmartSong(PlaybackState state) {
+        Song currentSong = songService.find(state.getCurrentSongId());
+        if (currentSong == null || currentSong.getGenre() == null || currentSong.getGenre().isBlank()) {
+            return;
+        }
+
+        List<Long> cue = state.getCue();
+        int cueSize = (cue != null) ? cue.size() : 0;
+        if (cueSize <= 1) {
+            return;
+        }
+
+        // Use originalCue for a wider selection pool if available
+        List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
+                ? state.getOriginalCue() : cue;
+
+        Song nextSong = songService.findRandomSongByGenre(currentSong.getGenre(), currentSong.id, songPool);
+
+        if (nextSong == null) {
+            return; // No smart match found, let the default (shuffled) order proceed
+        }
+
+        Long nextSongId = nextSong.id;
+
+        // Move the chosen song to be the next one in the cue
+        int currentSongIndexInCue = state.getCueIndex();
+        int nextSongCurrentIndex = cue.indexOf(nextSongId);
+
+        // If the smart song is already in the cue and not next, move it.
+        if (nextSongCurrentIndex != -1 && nextSongCurrentIndex != currentSongIndexInCue + 1) {
+            Long songToMove = cue.remove(nextSongCurrentIndex);
+            int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
+            cue.add(insertionPoint, songToMove);
+        }
     }
 }

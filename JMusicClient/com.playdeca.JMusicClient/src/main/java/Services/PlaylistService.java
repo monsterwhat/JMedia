@@ -74,20 +74,42 @@ public class PlaylistService {
 
     public record PaginatedPlaylistSongs(List<Song> songs, long totalCount) {}
 
-    public PaginatedPlaylistSongs findSongsByPlaylist(Long playlistId, int page, int limit) {
-        List<Song> songs = em.createQuery("SELECT s FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId ORDER BY s.dateAdded DESC", Song.class)
+    public PaginatedPlaylistSongs findSongsByPlaylist(Long playlistId, int page, int limit, String search) {
+        StringBuilder baseQuery = new StringBuilder("SELECT s FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
+        
+        if (search != null && !search.isBlank()) {
+            baseQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search)");
+        }
+        baseQuery.append(" ORDER BY s.dateAdded DESC");
+
+        jakarta.persistence.TypedQuery<Song> songsQuery = em.createQuery(baseQuery.toString(), Song.class)
                 .setParameter("playlistId", playlistId)
                 .setFirstResult((page - 1) * limit)
-                .setMaxResults(limit)
-                .getResultList();
-        long totalCount = countSongsByPlaylist(playlistId);
+                .setMaxResults(limit);
+
+        if (search != null && !search.isBlank()) {
+            songsQuery.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+
+        List<Song> songs = songsQuery.getResultList();
+        long totalCount = countSongsByPlaylist(playlistId, search);
         return new PaginatedPlaylistSongs(songs, totalCount);
     }
 
-    public long countSongsByPlaylist(Long playlistId) {
-        return em.createQuery("SELECT COUNT(s) FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId", Long.class)
-                .setParameter("playlistId", playlistId)
-                .getSingleResult();
+    public long countSongsByPlaylist(Long playlistId, String search) {
+        StringBuilder countQuery = new StringBuilder("SELECT COUNT(s) FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
+
+        if (search != null && !search.isBlank()) {
+            countQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search)");
+        }
+
+        jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery.toString(), Long.class)
+                .setParameter("playlistId", playlistId);
+
+        if (search != null && !search.isBlank()) {
+            query.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+        return query.getSingleResult();
     }
 
     public Playlist findWithSongs(Long id) {

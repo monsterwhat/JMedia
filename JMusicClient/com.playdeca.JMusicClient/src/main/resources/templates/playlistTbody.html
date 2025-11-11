@@ -51,7 +51,7 @@
         <nav class="pagination is-centered py-4" role="navigation" aria-label="pagination">
             <a class="pagination-previous"
                {#if currentPage > 1}
-                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage - 1}&limit={limit}"
+                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage - 1}&limit={limit}{#if search}&search={search}{/if}"
                    hx-target="#songTableBody"
                    hx-swap="innerHTML"
                {#else}
@@ -61,7 +61,7 @@
             </a>
             <a class="pagination-next"
                {#if currentPage < totalPages}
-                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage + 1}&limit={limit}"
+                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage + 1}&limit={limit}{#if search}&search={search}{/if}"
                    hx-target="#songTableBody"
                    hx-swap="innerHTML"
                {#else}
@@ -79,7 +79,7 @@
                         <li>
                             <a class="pagination-link"
                                aria-label="Goto page {p}"
-                               hx-get="/api/music/ui/tbody/{playlistId}?page={p}&limit={limit}"
+                               hx-get="/api/music/ui/tbody/{playlistId}?page={p}&limit={limit}{#if search}&search={search}{/if}"
                                hx-target="#songTableBody"
                                hx-swap="innerHTML">
                                 {p}

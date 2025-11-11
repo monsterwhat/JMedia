@@ -9,7 +9,7 @@
 
         <!-- Bulma CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@6.0.1/primeicons.css">
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
         <link rel="stylesheet" href="/css/playback-bar.css"/>
 
@@ -36,13 +36,13 @@
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                background-color: #222; /* Dark background for player */
+                /* Removed explicit dark background to respect theme */
             }
 
             /* Styles for the fullscreen player content */
             .fullscreen-player-content {
                 text-align: center;
-                color: white;
+                /* Removed explicit color: white; to respect theme */
                 padding: 20px;
                 display: flex; /* Make fullscreen-player-content a flex container */
                 flex-direction: column; /* Stack children vertically */
@@ -257,6 +257,9 @@
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
+                        <a role="button" class="navbar-item" id="playerToggle">
+                            <i class="pi pi-mobile" id="playerIcon"></i>
+                        </a>
                     </div>
                 </nav>
             </div>
@@ -285,7 +288,7 @@
                             <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
                             <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
                             <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
-                            <button id="nextBtn"   title="Next"><i class="pi pi-step-forward"></i></button>
+                            <button id="nextBtn"   title="Next"><i id="nextIcon" class="pi pi-step-forward"></i></button>
                             <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
                         </div>
 

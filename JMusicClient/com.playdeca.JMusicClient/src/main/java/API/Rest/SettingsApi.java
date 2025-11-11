@@ -3,17 +3,13 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.SettingsController;
 import Models.Settings;
-import Models.Song;
 import Services.PlaybackHistoryService;
-
+import Services.SongService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-
-import java.util.List;
-
 import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import java.io.File;
@@ -30,8 +26,12 @@ public class SettingsApi {
 
     @Inject
     private PlaybackHistoryService playbackHistoryService;
-    
-    @Inject ManagedExecutor executor;
+
+    @Inject
+    private SongService songService;
+
+    @Inject
+    ManagedExecutor executor;
 
     // -----------------------------
     // BROWSE FOLDER
@@ -120,19 +120,26 @@ public class SettingsApi {
     // -----------------------------
     @POST
     @Path("/music-library-path")
-    @Transactional
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response setMusicLibraryPath(@FormParam("musicLibraryPathInput") String path) {
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Music library path cannot be empty")).build();
         }
+
+        // Step 1: Update the path. This is transactional within the service.
         settingsController.setMusicLibraryPath(path);
-        settingsController.addLog("Music library path updated to: " + path);
-        // Trigger a library scan after the path is updated
+
+        // Step 2: Clear history and songs. These are transactional within their services.
+        playbackHistoryService.clearHistory();
+        songService.clearAllSongs();
+        settingsController.addLog("Cleared existing songs and history.");
+
+        // Step 3: Trigger the scan asynchronously.
         executor.submit(() -> {
             settingsController.scanLibrary();
-        }, "LibraryScanThread");
-        return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
+        });
+
+        return Response.ok(ApiResponse.success("Music library path updated and scan started.")).build();
     }
 
     // -----------------------------
@@ -200,10 +207,7 @@ public class SettingsApi {
     @Transactional
     public Response clearSongs() {
         try {
-            List<Song> allSongs = Song.listAll();
-            for (Song song : allSongs) {
-                song.delete();
-            }
+            songService.clearAllSongs();
             settingsController.addLog("All songs cleared from database.");
             return Response.ok(ApiResponse.success("All songs deleted")).build();
         } catch (Exception e) {

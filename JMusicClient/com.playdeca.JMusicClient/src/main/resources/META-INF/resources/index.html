@@ -9,7 +9,7 @@
 
         <!-- Bulma CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@6.0.1/primeicons.css">
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
         <link rel="stylesheet" href="/css/playback-bar.css"/>
 
@@ -61,6 +61,9 @@
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
+                        <a role="button" class="navbar-item" id="playerToggle">
+                            <i class="pi pi-mobile" id="playerIcon"></i>
+                        </a>
                         <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
                             <span aria-hidden="true"></span>
                             <span aria-hidden="true"></span>
@@ -72,8 +75,7 @@
                     </div>
                     <div id="navMenu" class="navbar-menu">
                         <div class="navbar-end">
-                            <a class="navbar-item" href="/index.html">Home</a>
-                            <a class="navbar-item" href="/browse.html">Browse</a>
+                            <a class="navbar-item" href="/index.html">Home</a> 
                             <a class="navbar-item" href="/settings.html">Settings</a>
                             <a class="navbar-item" href="/import.html">Import</a>
                         </div>
@@ -89,14 +91,14 @@
                     <!-- Playlist Sidebar -->
                     <div class="column is-3 is-full-mobile" id="playlistSidebar">
                         <div class="card has-background-grey-darker has-text-white">
-                            <div class="card-header">
+                            <header class="card-header">
                                 <div class="tabs is-fullwidth">
                                     <ul>
                                         <li class="has-text-white is-active" id="playlistsTab"><a>Playlists</a></li>
                                         <li id="queueTab"><a class="has-text-white">Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span></a></li>
                                     </ul>
                                 </div>
-                            </div>
+                            </header>
                             <div class="card-content p-0 m-0" style="height: calc(100vh - 320px); overflow-y: scroll;">
                                 <div id="playlistsTabContent" >
                                     <button id="createPlaylistBtn" class="button is-primary is-fullwidth"  >
@@ -188,6 +190,27 @@
                                     </span>
                                 </button>
                             </header>
+                            <div class="card-header">
+                                <div class="field has-addons" style="width:100%">
+                                    <div class="control is-expanded">
+                                        <input class="input is-rounded" type="text" placeholder="Search songs..." name="search"
+                                               hx-get="/api/music/ui/tbody/0"
+                                               hx-trigger="keyup changed delay:500ms, search"
+                                               hx-target="#songTableBody"
+                                               hx-swap="innerHTML"
+                                               hx-indicator="#loadingRow">
+                                    </div>
+                                    <div class="control">
+                                        <button class="button is-info is-rounded"
+                                                hx-get="/api/music/ui/tbody/0"
+                                                hx-target="#songTableBody"
+                                                hx-swap="innerHTML"
+                                                hx-indicator="#loadingRow">
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="card-content m-0 p-0" style="max-height: calc(100vh - 320px); overflow-y: auto;" id="allSongsContent">
                                 <div id="allSongsForPlaylistContainer" style="display: none;">
                                     <div id="allSongsForPlaylist">
@@ -208,6 +231,7 @@
                                         <tbody hx-get="/api/music/ui/tbody/0?page=1&limit=50"
                                                hx-trigger="load"
                                                hx-swap="innerHTML"
+                                               hx-include="[name='search']"
                                                id="songTableBody">
                                             <!-- Songs populated via HTMX -->
                                         </tbody>
@@ -295,6 +319,7 @@
         <!-- Custom Context Menu -->
         <div id="customContextMenu" class="context-menu" style="display: none;">
             <div class="context-menu-item" id="editSongMenuItem" data-action="edit-song" data-disabled="true">Edit Song</div>
+            <div class="context-menu-item" id="queueSongMenuItem" data-action="queue-song">Queue Song</div>
             <div class="context-menu-item has-submenu" id="addToPlaylistMenuItem" data-action="add-to-playlist">
                 Add to Playlist
                 <div class="submenu" id="playlistSubMenu" style="display: none;">

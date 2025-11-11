@@ -156,6 +156,17 @@ body {
     color: var(--text-color);
 }
 
+/* Style input elements to respect theme */
+.input, .textarea {
+    background-color: var(--card-background) !important;
+    color: var(--text-color) !important;
+}
+
+.input::placeholder, .textarea::placeholder {
+    color: var(--text-color) !important;
+    opacity: 0.7; /* Make placeholder slightly lighter than regular text */
+}
+
 input[type="range"] {
     accent-color: #48c78e; /* Bulma's 'success' green */
 }

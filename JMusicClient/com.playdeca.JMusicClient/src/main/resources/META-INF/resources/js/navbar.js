@@ -1,5 +1,28 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    function setupPlayerToggle() {
+        const playerToggle = document.getElementById('playerToggle');
+        const playerIcon = document.getElementById('playerIcon');
+
+        if (playerToggle && playerIcon) {
+            const currentPage = window.location.pathname;
+
+            if (currentPage.includes('/player.html')) {
+                playerIcon.classList.remove('pi-mobile');
+                playerIcon.classList.add('pi-desktop');
+                playerToggle.href = '/index.html';
+                playerToggle.title = 'Switch to Desktop View';
+            } else {
+                playerIcon.classList.remove('pi-desktop');
+                playerIcon.classList.add('pi-mobile');
+                playerToggle.href = '/player.html';
+                playerToggle.title = 'Switch to Player View';
+            }
+        }
+    }
+
+    setupPlayerToggle();
+
     // Get all "navbar-burger" elements
     const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
 

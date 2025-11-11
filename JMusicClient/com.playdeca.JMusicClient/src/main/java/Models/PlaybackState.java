@@ -27,7 +27,8 @@ public class PlaybackState {
     private double currentTime;
     private double duration; // Added duration field
     private float volume;
-    private boolean shuffleEnabled;
+    @Enumerated(EnumType.STRING)
+    private ShuffleMode shuffleMode = ShuffleMode.OFF;
     private long lastUpdateTime; // Timestamp of the last state update on the server
 
 
@@ -44,6 +45,12 @@ public class PlaybackState {
 
     @Enumerated(EnumType.STRING)
     private RepeatMode repeatMode = RepeatMode.OFF;
+
+    public enum ShuffleMode {
+        OFF,
+        SHUFFLE,
+        SMART_SHUFFLE
+    }
 
     public enum RepeatMode {
         OFF, // no repeat

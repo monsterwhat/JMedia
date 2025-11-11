@@ -58,6 +58,17 @@ public class QueueAPI {
     }
 
     @POST
+    @Path("/queue/add/{songId}")
+    @Consumes(MediaType.WILDCARD)
+    public Response addSongToQueue(@PathParam("songId") Long songId) {
+        if (songId == null) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Song ID cannot be null")).build();
+        }
+        playbackController.addToQueue(List.of(songId), false); // Add to end of queue
+        return Response.ok(ApiResponse.success("Song added to queue")).build();
+    }
+
+    @POST
     @Path("/queue/skip-to/{index}")
     @Consumes(MediaType.WILDCARD)
     public Response skipToQueueIndex(@PathParam("index") int index) {

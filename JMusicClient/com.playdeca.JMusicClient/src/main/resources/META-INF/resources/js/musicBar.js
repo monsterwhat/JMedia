@@ -9,9 +9,9 @@ const musicState = {
     currentTime: 0,
     duration: 0,
     volume: 0.8,
-    shuffleEnabled: false,
+    shuffleMode: "OFF", // Changed from shuffleEnabled
     repeatMode: "OFF",
-    isMaster: false // New property to track master status
+    cue: [] // New property to track the current queue for change detection
 };
 
 let draggingSeconds = false;
@@ -120,18 +120,31 @@ function updateMusicBar() {
         volumeSlider.style.setProperty('--progress-value', `${progress}%`);
     }
 
-    document.getElementById('shuffleIcon').className = shuffleEnabled
-            ? "pi pi-sort-alt-slash has-text-success"
-            : "pi pi-sort-alt";
+    const shuffleIcon = document.getElementById('shuffleIcon');
+    if (shuffleIcon) {
+        shuffleIcon.className = "pi"; // Base class
+        switch (musicState.shuffleMode) {
+            case "SHUFFLE":
+                shuffleIcon.classList.add("pi-sort-alt-slash", "has-text-success");
+                break;
+            case "SMART_SHUFFLE":
+                shuffleIcon.classList.add("pi-sparkles", "has-text-info"); // Using pi-sitemap for smart shuffle, has-text-info for blue
+                break;
+            case "OFF":
+            default:
+                shuffleIcon.classList.add("pi-sort-alt");
+                break;
+        }
+    }
 
     const repeatIcon = document.getElementById('repeatIcon');
     if (repeatIcon) {
         repeatIcon.className = "pi pi-refresh"; // Base class
         if (musicState.repeatMode === "ONE") {
-            repeatIcon.classList.add("has-text-info"); // Example: blue for repeat one
+            repeatIcon.classList.add("has-text-info");
         } else if (musicState.repeatMode === "ALL") {
-            repeatIcon.classList.add("has-text-success"); // Example: green for repeat all
-            repeatIcon.classList.add("pi-spin"); // Add spin for repeat all
+            repeatIcon.classList.add("has-text-success");
+            repeatIcon.classList.add("pi-spin");
         }
     }
 
@@ -172,7 +185,10 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     const sameSong = String(musicState.currentSongId) === String(currentSong.id);
     musicState.currentSongId = currentSong.id;
     musicState.songName = currentSong.title ?? "Unknown Title";
-    musicState.artist = currentSong.artist ?? "Unknown Artist";
+    // Only update artist if it's provided by the currentSong object, otherwise retain current value
+    if (currentSong.artist !== null && currentSong.artist !== undefined) {
+        musicState.artist = currentSong.artist;
+    }
     musicState.currentTime = (sameSong || backendTime !== 0) ? (backendTime ?? 0) : 0;
     musicState.duration = currentSong.durationSeconds ?? 0; // Prioritize duration from backend
 
@@ -265,17 +281,28 @@ function handleWSMessage(msg) {
         const playChanged = state.playing !== musicState.playing;
 
         musicState.currentSongId = state.currentSongId;
-        musicState.artist = state.artist ?? "Unknown Artist";
+        if (state.artist !== null && state.artist !== undefined) {
+            musicState.artist = state.artist;
+        }
         musicState.playing = state.playing;
         musicState.currentTime = state.currentTime;
         musicState.duration = state.duration;
         musicState.volume = state.volume;
         audio.volume = state.volume; // Synchronize actual audio volume
-        musicState.shuffleEnabled = state.shuffleEnabled;
+        musicState.shuffleMode = state.shuffleMode;
         musicState.repeatMode = state.repeatMode;
 
-        if (songChanged) {
-            console.log("[WS] handleWSMessage: Song changed, fetching current, previous, and next song details.");
+        // Check if the queue itself has changed (e.g., due to shuffle, or songs added/removed)
+        // Check if the queue has been re-ordered or its length has changed.
+        const queueChanged = (state.cue && musicState.cue && JSON.stringify(state.cue) !== JSON.stringify(musicState.cue)) ||
+                             (state.cue && !musicState.cue) || (!state.cue && musicState.cue);
+
+        // Update musicState.cue for future comparisons
+        musicState.cue = state.cue;
+
+
+        if (songChanged || playChanged || queueChanged) { // Trigger update if song, play state, or queue changed
+            console.log("[WS] handleWSMessage: Song, play state, or queue changed, fetching current, previous, and next song details.");
             Promise.all([
                 fetch(`/api/music/playback/current`).then(r => r.json()),
                 fetch(`/api/music/playback/previousSong`).then(r => r.json()),
@@ -295,16 +322,13 @@ function handleWSMessage(msg) {
                     }
                     }).catch(error => console.error("Error fetching song context:", error));
 
-        } else if (playChanged) { // If only play state changed, re-initialize audio source to ensure duration is correct
-
-            console.log("[WS] handleWSMessage: Play state changed, fetching current song details.");
-            fetch(`/api/music/playback/current`)
-                    .then(r => r.json())
-                    .then(json => {
-                        if (json.data) {
-                            UpdateAudioSource(json.data, null, null, state.playing, state.currentTime ?? 0);
-                        }
-                    });
+        } else if (playChanged) { // This block is now redundant if playChanged is already in the main if
+            // This else if block is now redundant because playChanged is included in the main if condition.
+            // However, to maintain the original logic flow for playChanged when songChanged and queueChanged are false,
+            // we can keep it, but it will only execute if songChanged and queueChanged are both false.
+            // For simplicity and to avoid redundant fetches, the above 'if (songChanged || playChanged || queueChanged)'
+            // should cover all necessary updates.
+            // I will remove this redundant block.
         }
 
         // If neither song nor play state changed, but time might have drifted, synchronize currentTime
@@ -447,6 +471,27 @@ function bindPlaybackButtons() {
     }
     document.getElementById('shuffleBtn').onclick = () => {
         console.log("[musicBar.js] shuffleBtn clicked");
+
+        // Optimistic UI update
+        let currentMode = musicState.shuffleMode;
+        let newMode;
+
+        switch (currentMode) {
+            case "OFF":
+                newMode = "SHUFFLE";
+                break;
+            case "SHUFFLE":
+                newMode = "SMART_SHUFFLE";
+                break;
+            case "SMART_SHUFFLE":
+            default:
+                newMode = "OFF";
+                break;
+        }
+        musicState.shuffleMode = newMode;
+        updateMusicBar(); // Update UI immediately
+
+        // Send request to backend for persistence and synchronization
         apiPost('shuffle');
     };
     document.getElementById('repeatBtn').onclick = () => {
@@ -708,6 +753,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         await addSongToPlaylist(playlistId, currentRightClickedSongId);
                     }
                     hideContextMenu(); // Hide all menus after adding
+                } else if (action === 'queue-song') {
+                    if (currentRightClickedSongId) {
+                        htmx.ajax('POST', `/api/music/queue/add/${currentRightClickedSongId}`, {
+                            handler: function() {
+                                console.log(`Song ${currentRightClickedSongId} added to queue.`);
+                                // Refresh the queue display
+                                htmx.ajax('GET', '/api/music/ui/queue-fragment', {
+                                    target: '#songQueueTable tbody',
+                                    swap: 'innerHTML'
+                                });
+                            }
+                        });
+                    }
+                    hideContextMenu(); // Hide all menus after queuing
                 } else if (action === 'edit-song') {
                     console.log('Edit Song clicked for song ID:', currentRightClickedSongId);
                     // TODO: Implement "Edit Song" logic

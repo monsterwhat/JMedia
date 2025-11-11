@@ -11,21 +11,30 @@ public class Song extends PanacheEntity {
     private String title;
     private String artist;
     private String album;
-    private int durationSeconds; // store as integer seconds
-    private String path; // local file path or URL
-    private String coverImagePath;
+    private String albumArtist;
+    private int trackNumber;
+    private int discNumber;
+    private String date;
+    private String releaseDate;
     private String genre;
-    @Column(length = Integer.MAX_VALUE) // Set to max value to hint for CLOB/TEXT type
+    @Column(length = Integer.MAX_VALUE)
+    private String lyrics;
+    private boolean explicit;
+    private int bpm;
+    private int durationSeconds;
+    private String path;
+    @Column(length = Integer.MAX_VALUE)
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;
-
-    @Transient
-    private byte[] artwork;
-
+ 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         Song song = (Song) o;
         return id != null && id.equals(song.id);
     }

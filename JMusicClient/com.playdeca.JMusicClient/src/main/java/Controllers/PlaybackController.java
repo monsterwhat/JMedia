@@ -6,6 +6,7 @@ import Models.PlaybackState;
 import Models.Playlist;
 import Models.Settings;
 import Models.Song;
+import Services.PlaybackHistoryService;
 import Services.PlaylistService;
 import Services.SongService;
 import jakarta.annotation.PostConstruct;
@@ -31,6 +32,7 @@ public class PlaybackController {
     @Inject SettingsController currentSettings;
     @Inject SongService songService;
     @Inject PlaylistService playlistService;
+    @Inject PlaybackHistoryService playbackHistoryService;
     @Inject MusicSocket ws;
 
     private ScheduledExecutorService scheduler;
@@ -305,12 +307,12 @@ public class PlaybackController {
         return songService.findAll();
     }
 
-    public SongService.PaginatedSongs getSongs(int page, int limit) {
-        return songService.findAll(page, limit);
+    public SongService.PaginatedSongs getSongs(int page, int limit, String search) {
+        return songService.findAll(page, limit, search);
     }
 
-    public PlaylistService.PaginatedPlaylistSongs getSongsByPlaylist(Long playlistId, int page, int limit) {
-        return playlistService.findSongsByPlaylist(playlistId, page, limit);
+    public PlaylistService.PaginatedPlaylistSongs getSongsByPlaylist(Long playlistId, int page, int limit, String search) {
+        return playlistService.findSongsByPlaylist(playlistId, page, limit, search);
     }
 
     public Song findSong(Long id) {
@@ -356,10 +358,7 @@ public class PlaybackController {
         if (st.getCurrentSongId() != null) {
             Song finishedSong = findSong(st.getCurrentSongId());
             if (finishedSong != null) {
-                PlaybackHistory historyEntry = new PlaybackHistory();
-                historyEntry.song = finishedSong;
-                historyEntry.playedAt = LocalDateTime.now();
-                historyEntry.persist(); // Persist the history entry
+                playbackHistoryService.add(finishedSong);
             }
         }
 
@@ -391,7 +390,70 @@ public class PlaybackController {
     public synchronized void previous() {
         currentSettings.addLog("Skipped to previous song.");
         System.out.println("Previous");
-        advanceSong(false, false); // Explicit user action
+        PlaybackState st = getState();
+
+        // If song has been playing for more than 3 seconds, just restart it.
+        if (st.getCurrentTime() > 3) {
+            st.setCurrentTime(0);
+            updateState(st, true);
+            return;
+        }
+
+        // Try to go to previous in queue first
+        if (st.getCueIndex() > 0) {
+            advanceSong(false, false);
+            return;
+        }
+
+        // We are at the beginning of the queue, try history.
+        List<Long> historyIds = playbackHistoryService.getRecentlyPlayedSongIds(2);
+
+        Long songIdToPlay = null;
+        if (!historyIds.isEmpty()) {
+            if (historyIds.get(0).equals(st.getCurrentSongId()) && historyIds.size() > 1) {
+                songIdToPlay = historyIds.get(1);
+            } else if (!historyIds.get(0).equals(st.getCurrentSongId())) {
+                songIdToPlay = historyIds.get(0);
+            }
+        }
+
+        if (songIdToPlay != null) {
+            Song songFromHistory = findSong(songIdToPlay);
+            if (songFromHistory != null) {
+                // We found a song in history. Let's play it.
+                // We should also probably put it at the beginning of the cue.
+                List<Long> cue = st.getCue();
+                if (cue == null) {
+                    cue = new ArrayList<>();
+                    st.setCue(cue);
+                }
+
+                Long songId = songFromHistory.id;
+
+                // remove from cue if it exists
+                cue.remove(songId);
+                // add to beginning
+                cue.add(0, songId);
+                st.setCueIndex(0);
+
+                st.setCurrentSongId(songId);
+                st.setCurrentTime(0);
+                st.setPlaying(true);
+
+                // Need to update song details in state
+                st.setArtistName(songFromHistory.getArtist());
+                st.setSongName(songFromHistory.getTitle());
+                st.setDuration(songFromHistory.getDurationSeconds());
+
+                updateState(st, true);
+                startPlaybackTimer();
+                return; // We are done
+            }
+        }
+
+        // No previous song in queue and no suitable history, just restart current song.
+        st.setCurrentTime(0);
+        updateState(st, true);
     }
 
     public synchronized void handleSongEnded() {
@@ -414,20 +476,34 @@ public class PlaybackController {
     }
 
     /**
-     * Toggles shuffle mode on/off and persists state
+     * Cycles through shuffle modes: OFF, SHUFFLE, SMART_SHUFFLE
      */
     public synchronized void toggleShuffle() {
         PlaybackState state = getState();
-        boolean newShuffleState = !state.isShuffleEnabled();
-        state.setShuffleEnabled(newShuffleState);
+        PlaybackState.ShuffleMode currentMode = state.getShuffleMode();
+        if (currentMode == null) {
+            currentMode = PlaybackState.ShuffleMode.OFF;
+        }
+        PlaybackState.ShuffleMode newMode;
 
-        if (newShuffleState) {
-            playbackQueueController.initShuffle(state);
-        } else {
-            playbackQueueController.clearShuffle(state);
+        switch (currentMode) {
+            case OFF:
+                newMode = PlaybackState.ShuffleMode.SHUFFLE;
+                playbackQueueController.initShuffle(state);
+                break;
+            case SHUFFLE:
+                newMode = PlaybackState.ShuffleMode.SMART_SHUFFLE;
+                playbackQueueController.initSmartShuffle(state); // New method call
+                break;
+            case SMART_SHUFFLE:
+            default:
+                newMode = PlaybackState.ShuffleMode.OFF;
+                playbackQueueController.clearShuffle(state);
+                break;
         }
 
-        currentSettings.addLog("Shuffle toggled to: " + state.isShuffleEnabled());
+        state.setShuffleMode(newMode);
+        currentSettings.addLog("Shuffle mode set to: " + newMode);
         updateState(state, true);
     }
 

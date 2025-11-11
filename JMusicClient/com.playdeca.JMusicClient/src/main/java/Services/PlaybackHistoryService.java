@@ -43,11 +43,12 @@ public class PlaybackHistoryService {
 
     public List<Long> getRecentlyPlayedSongIds(int limit) {
         EntityManager em = emProvider.get();
-        return em.createQuery("SELECT ph FROM PlaybackHistory ph JOIN FETCH ph.song ORDER BY ph.playedAt DESC", PlaybackHistory.class)
-                .setMaxResults(limit)
-                .getResultStream()
-                .filter(history -> history.song != null)
-                .map(history -> history.song.id)
+        List<Long> allPlayedIds = em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph ORDER BY ph.playedAt DESC", Long.class)
+                .getResultList();
+
+        return allPlayedIds.stream()
+                .distinct()
+                .limit(limit)
                 .collect(Collectors.toList());
     }
 }

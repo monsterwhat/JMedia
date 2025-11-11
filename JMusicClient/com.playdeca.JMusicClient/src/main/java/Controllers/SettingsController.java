@@ -13,11 +13,13 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,9 +27,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.jaudiotagger.audio.AudioFileIO;
+import org.jaudiotagger.audio.exceptions.CannotReadException;
+import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.audio.mp3.MP3File;
 import org.jaudiotagger.tag.FieldKey;
+import org.jaudiotagger.tag.KeyNotFoundException;
 import org.jaudiotagger.tag.Tag;
+import org.jaudiotagger.tag.TagException;
 import org.jaudiotagger.tag.datatype.Artwork;
 
 @ApplicationScoped
@@ -146,6 +152,37 @@ public class SettingsController implements Serializable {
         }
     }
 
+    private String safeGet(Tag tag, FieldKey key) {
+        if (tag == null) {
+            return "";
+        }
+        try {
+            return tag.getFirst(key);
+        } catch (NullPointerException e) {
+            // This is a workaround for a bug in jaudiotagger where getFirst() can throw an NPE
+            // if the frame exists but is empty. Logging this to confirm the catch block is hit.
+            addLog("Caught NPE in safeGet for key " + key.name() + ". This is a known issue with the tagging library.");
+            return "";
+        } catch (Exception e) {
+            addLog("Caught unexpected exception in safeGet for key " + key.name() + ": " + e.getMessage());
+            return "";
+        }
+    }
+
+    private int parseInt(String s) {
+        if (s == null || s.trim().isEmpty() || "null".equalsIgnoreCase(s.trim())) {
+            return 0;
+        }
+        try {
+            // Some tags might have "1/12" format, so we take the first part
+            String numberPart = s.split("/")[0].trim();
+            return Integer.parseInt(numberPart);
+        } catch (NumberFormatException e) {
+            addLog("Could not parse number: " + s);
+            return 0;
+        }
+    }
+
     /**
      * Process a single MP3 file. Returns 1 if a song was added/updated, 0
      * otherwise.
@@ -174,16 +211,23 @@ public class SettingsController implements Serializable {
             }
 
             if (tag != null) {
-                song.setTitle(tag.getFirst(FieldKey.TITLE));
-                song.setArtist(tag.getFirst(FieldKey.ARTIST));
-                song.setAlbum(tag.getFirst(FieldKey.ALBUM));
+                song.setTitle(safeGet(tag, FieldKey.TITLE));
+                song.setArtist(safeGet(tag, FieldKey.ARTIST));
+                song.setAlbum(safeGet(tag, FieldKey.ALBUM));
+                song.setAlbumArtist(safeGet(tag, FieldKey.ALBUM_ARTIST));
+                song.setTrackNumber(parseInt(safeGet(tag, FieldKey.TRACK)));
+                song.setDiscNumber(parseInt(safeGet(tag, FieldKey.DISC_NO)));
+                song.setReleaseDate(safeGet(tag, FieldKey.YEAR));
+                song.setGenre(safeGet(tag, FieldKey.GENRE));
+                song.setLyrics(safeGet(tag, FieldKey.LYRICS));
+                song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
 
                 try {
                     Artwork artwork = tag.getFirstArtwork();
                     if (artwork != null) {
                         byte[] imageData = artwork.getBinaryData();
                         song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(imageData));
-                     } else {
+                    } else {
                         song.setArtworkBase64(null);
                     }
                 } catch (Exception artworkException) {
@@ -202,7 +246,7 @@ public class SettingsController implements Serializable {
                 if (mp3File != null && mp3File.getAudioHeader() != null) {
                     int trackLength = mp3File.getAudioHeader().getTrackLength();
                     song.setDurationSeconds(trackLength);
-                 } else {
+                } else {
                     song.setDurationSeconds(0);
                     addLog("[org.jau.tag.id3] WARNING: Could not read duration for " + file.getName() + ".");
                 }
@@ -219,11 +263,11 @@ public class SettingsController implements Serializable {
 
             // Persist using REQUIRES_NEW transaction per-file
             songService.persistSongInNewTx(song);
-              return 1;
+            return 1;
         } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
             addLog("[org.jau.tag.id3] WARNING: Skipping song " + file.getName() + " due to invalid audio frame: " + e.getMessage());
             return 0;
-        } catch (Exception e) {
+        } catch (IOException | ReadOnlyFileException | TagException e) {
             addLog("[org.jau.tag.id3] ERROR: Failed to add/update song " + file.getName() + ": " + e.getMessage(), e);
             return 0;
         }
@@ -255,7 +299,7 @@ public class SettingsController implements Serializable {
                 if (f.get()) {
                     updatedCount++;
                 }
-            } catch (Exception e) {
+            } catch (InterruptedException | ExecutionException e) {
                 addLog("[org.jau.tag.id3] ERROR: reload task failed: " + e.getMessage(), e);
             }
         }
@@ -277,17 +321,16 @@ public class SettingsController implements Serializable {
             Tag tag = mp3File.getTag();
 
             if (tag != null) {
-                String title = tag.getFirst(FieldKey.TITLE);
-                String artist = tag.getFirst(FieldKey.ARTIST);
-                String album = tag.getFirst(FieldKey.ALBUM);
-
-                addLog(String.format("[org.jau.tag.id3] Frame TIT2 (Title): %s", title != null ? title : "(none)"));
-                addLog(String.format("[org.jau.tag.id3] Frame TPE1 (Artist): %s", artist != null ? artist : "(none)"));
-                addLog(String.format("[org.jau.tag.id3] Frame TALB (Album): %s", album != null ? album : "(none)"));
-
-                song.setTitle(title);
-                song.setArtist(artist);
-                song.setAlbum(album);
+                song.setTitle(safeGet(tag, FieldKey.TITLE));
+                song.setArtist(safeGet(tag, FieldKey.ARTIST));
+                song.setAlbum(safeGet(tag, FieldKey.ALBUM));
+                song.setAlbumArtist(safeGet(tag, FieldKey.ALBUM_ARTIST));
+                song.setTrackNumber(parseInt(safeGet(tag, FieldKey.TRACK)));
+                song.setDiscNumber(parseInt(safeGet(tag, FieldKey.DISC_NO)));
+                song.setReleaseDate(safeGet(tag, FieldKey.YEAR));
+                song.setGenre(safeGet(tag, FieldKey.GENRE));
+                song.setLyrics(safeGet(tag, FieldKey.LYRICS));
+                song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
 
                 try {
                     Artwork artwork = tag.getFirstArtwork();
@@ -330,7 +373,7 @@ public class SettingsController implements Serializable {
         } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
             addLog("[org.jau.tag.id3] WARNING: Skipping " + song.getPath() + " — invalid audio frame: " + e.getMessage());
             return false;
-        } catch (Exception e) {
+        } catch (IOException | CannotReadException | ReadOnlyFileException | TagException e) {
             addLog("[org.jau.tag.id3] ERROR: Failed to reload metadata for " + song.getPath() + ": " + e.getMessage(), e);
             return false;
         }
@@ -472,12 +515,7 @@ public class SettingsController implements Serializable {
         Settings currentSettings = settingsService.getOrCreateSettings();
         settingsService.setLibraryPath(currentSettings, path);
         this.musicLibraryPath = currentSettings.getLibraryPath(); // Update from persisted value
-
-        // After setting a new path, clear old songs and scan the new library
-        addLog("Clearing existing songs and scanning new library path: " + path);
-        playbackHistoryService.clearHistory(); // Clear history first
-        songService.clearAllSongs();
-        scanLibrary();
+        addLog("Music library path updated to: " + path);
     }
 
     public Settings getOrCreateSettings() {

@@ -250,7 +250,8 @@ public class MusicUiApi {
         public String getPlaylistTbody(
                 @PathParam("id") Long id,
                 @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-                @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+                @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+                @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
     
             try {
                 long playlistId = (id == null) ? 0L : id;
@@ -259,11 +260,11 @@ public class MusicUiApi {
                 long totalSongs;
     
                 if (playlistId == 0) {
-                    SongService.PaginatedSongs result = playbackController.getSongs(page, limit);
+                    SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search);
                     paginatedSongs = result.songs();
                     totalSongs = result.totalCount();
                 } else {
-                    PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit);
+                    PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search);
                     paginatedSongs = result.songs();
                     totalSongs = result.totalCount();
                 }
@@ -291,6 +292,7 @@ public class MusicUiApi {
                         .data("currentPage", currentPage)
                         .data("totalPages", totalPages)
                         .data("pageNumbers", pageNumbers)
+                        .data("search", search) // Pass search term back to template for pagination links
                         .render();
             } catch (Exception e) {
                 System.out.println("Error: " + e.getLocalizedMessage());
