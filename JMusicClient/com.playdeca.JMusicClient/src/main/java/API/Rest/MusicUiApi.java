@@ -125,6 +125,10 @@ public class MusicUiApi {
             queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
         }
 
+        int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
+        int currentPage = 1; // After queueing all, we assume we are on the first page
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
@@ -132,6 +136,9 @@ public class MusicUiApi {
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
                 .render();
 
         return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
@@ -152,6 +159,10 @@ public class MusicUiApi {
             queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
         }
 
+        int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
+        int currentPage = (index / 50) + 1; // Calculate current page based on skipped index
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
@@ -159,6 +170,9 @@ public class MusicUiApi {
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
                 .render();
 
         return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
@@ -179,6 +193,15 @@ public class MusicUiApi {
             queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
         }
 
+        int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
+        int currentPage = (index / 50) + 1; // Calculate current page based on removed index (approximate)
+        if (currentPage > totalPages && totalPages > 0) {
+            currentPage = totalPages; // Adjust if removed from last page
+        } else if (totalPages == 0) {
+            currentPage = 1;
+        }
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
@@ -186,6 +209,9 @@ public class MusicUiApi {
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
                 .render();
 
         return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
@@ -206,6 +232,10 @@ public class MusicUiApi {
             queueWithIndex.add(new SongWithIndex(updatedQueue.get(i), i));
         }
 
+        int totalPages = (int) Math.ceil((double) updatedQueue.size() / 50); // Assuming limit is 50 for this context
+        int currentPage = 1; // After clearing, we are on the first page
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong())
@@ -213,6 +243,9 @@ public class MusicUiApi {
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
                 .render();
 
         return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO

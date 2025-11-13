@@ -83,6 +83,11 @@ public class PlaybackQueueController {
             }
             // The new index is the one we just removed from.
             state.setCueIndex(playedIndex);
+            // Ensure playedIndex is valid before accessing cue
+            if (playedIndex < 0 && !cue.isEmpty()) {
+                state.setCueIndex(0); // Reset to first song if index is invalid but queue is not empty
+                return cue.get(0);
+            }
             return cue.get(playedIndex);
         }
 

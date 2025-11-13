@@ -8,10 +8,8 @@ import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
-
 import jakarta.inject.Provider;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 
 @ApplicationScoped
 public class PlaybackHistoryService {
@@ -31,24 +29,29 @@ public class PlaybackHistoryService {
         history.song = managedSong;
         history.playedAt = LocalDateTime.now();
         history.persist();
-    }
+    } 
 
     @Transactional
     public void clearHistory() {
-        // PlaybackHistory.deleteAll(); // Panache method, doesn't need EntityManager directly
-        // However, if deleteAll() is causing issues, we can use EntityManager
         EntityManager em = emProvider.get();
         em.createQuery("DELETE FROM PlaybackHistory").executeUpdate();
     }
 
-    public List<Long> getRecentlyPlayedSongIds(int limit) {
+    @Transactional
+    public void deleteBySongId(Long songId) {
+        if (songId == null) {
+            return;
+        }
         EntityManager em = emProvider.get();
-        List<Long> allPlayedIds = em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph ORDER BY ph.playedAt DESC", Long.class)
-                .getResultList();
+        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId")
+                .setParameter("songId", songId)
+                .executeUpdate();
+    }
 
-        return allPlayedIds.stream()
-                .distinct()
-                .limit(limit)
-                .collect(Collectors.toList());
+    public List<Long> getRecentlyPlayedSongIds(int count) {
+        EntityManager em = emProvider.get();
+        return em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph ORDER BY ph.playedAt DESC", Long.class)
+                .setMaxResults(count)
+                .getResultList();
     }
 }

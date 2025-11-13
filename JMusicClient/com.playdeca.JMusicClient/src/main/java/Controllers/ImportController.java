@@ -11,10 +11,33 @@ public class ImportController {
     @Inject
     ImportService importService;
 
-    public void download(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String sessionId) throws Exception {
-        importService.download(url, format, downloadThreads, searchThreads, downloadPath, sessionId);
+    /**
+     * Starts the singleton background import process.
+     */
+    public void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload) {
+        importService.startDownload(url, format, downloadThreads, searchThreads, downloadPath, playlistName, queueAfterDownload);
     }
 
+    /**
+     * Checks if an import process is currently active.
+     * @return true if an import is running, false otherwise.
+     */
+    public boolean isImporting() {
+        return importService.isImporting();
+    }
+
+    /**
+     * Gets the cached output of the current or last import process.
+     * @return The entire output log as a single string.
+     */
+    public String getOutputCache() {
+        return importService.getOutputCache();
+    }
+
+    /**
+     * Gets the installation status of required external tools (Python, SpotDL, FFmpeg).
+     * @return An object containing the installation status details.
+     */
     public ImportInstallationStatus getInstallationStatus() {
         return importService.getInstallationStatus();
     }

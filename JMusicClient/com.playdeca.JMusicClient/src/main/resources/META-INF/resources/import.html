@@ -34,6 +34,7 @@
                             <a class="navbar-item" href="/index.html">Home</a> 
                             <a class="navbar-item" href="/settings.html">Settings</a>
                             <a class="navbar-item" href="/import.html">Import</a>
+                            <a class="navbar-item" href="/play.html">Play</a>
                         </div>
                     </div>
                 </nav>
@@ -53,48 +54,11 @@
                     </div>
                     <div class="box has-background-grey-darker">                        
                         <div class="columns">
-                            <div class="column is-two-thirds">
-                                <div class="field">
-                                    <label class="label has-text-white" for="spotdlUrl">Spotify/YouTube URL</label>
-                                    <div class="control">
-                                        <input class="input" type="text" id="spotdlUrl" placeholder="Enter Spotify or YouTube URL">
-                                    </div>
-                                </div>
-                            </div>
                             <div class="column">
                                 <div class="field">
-                                    <label class="label has-text-white" for="outputFormat">Output Format</label>
+                                    <label class="label has-text-white" for="spotdlUrl">Song:</label>
                                     <div class="control">
-                                        <div class="select is-fullwidth">
-                                            <select id="outputFormat">
-                                                <option value="mp3">MP3</option>
-                                                <option value="flac">FLAC</option>
-                                                <option value="ogg">OGG</option>
-                                                <option value="opus">OPUS</option>
-                                                <option value="m4a">M4A</option>
-                                                <option value="wav">WAV</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="columns">
-
-                            <div class="column is-half">
-                                <div class="field">
-                                    <label class="label has-text-white" for="downloadThreads">Download Threads</label>
-                                    <div class="control">
-                                        <input class="input" type="number" id="downloadThreads" value="4" min="1">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="column is-half">
-                                <div class="field">
-                                    <label class="label has-text-white" for="searchThreads">Search Threads</label>
-                                    <div class="control">
-                                        <input class="input" type="number" id="searchThreads" value="4" min="1">
+                                        <input class="input" type="text" id="spotdlUrl" placeholder="Enter a song name or a Spotify or YouTube URL (playlists work)">
                                     </div>
                                 </div>
                             </div>
@@ -108,8 +72,28 @@
                         </div>
 
                         <div class="field">
+                            <label class="label has-text-white">Playlist Selection (Optional)</label>
+                            <div class="columns is-mobile">
+                                <div class="column is-half">
+                                    <div class="control">
+                                        <div class="select is-fullwidth">
+                                            <select id="playlistSelect">
+                                                <option value="">-- Select existing playlist --</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="column is-half">
+                                    <div class="control">
+                                        <input class="input" type="text" id="newPlaylistName" placeholder="Or create new playlist">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="field">
                             <div class="control">
-                                <button class="button is-primary" id="downloadBtn">Download</button>
+                                <button class="button is-warning is-fullwidth" id="downloadBtn">Find And Download</button>
                             </div>
                         </div>
                         <div class="field mt-4">

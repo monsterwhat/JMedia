@@ -15,6 +15,8 @@ import javax.swing.SwingUtilities;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
 import org.eclipse.microprofile.context.ManagedExecutor;
+import Models.DTOs.ImportSettingsDTO;
+import Services.SettingsService;
 
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
@@ -29,6 +31,9 @@ public class SettingsApi {
 
     @Inject
     private SongService songService;
+    
+    @Inject
+    private SettingsService settingsService;
 
     @Inject
     ManagedExecutor executor;
@@ -101,6 +106,27 @@ public class SettingsApi {
         } else {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Music library path not configured")).build();
         }
+    }
+    
+    @POST
+    @Path("/import")
+    @Transactional
+    public Response updateImportSettings(ImportSettingsDTO importSettings) {
+        if (importSettings == null) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid import settings data.")).build();
+        }
+        
+        Settings settings = settingsController.getOrCreateSettings();
+        
+        settings.setOutputFormat(importSettings.getOutputFormat());
+        settings.setDownloadThreads(importSettings.getDownloadThreads());
+        settings.setSearchThreads(importSettings.getSearchThreads());
+        
+        settingsService.save(settings);
+        
+        settingsController.addLog("Import settings updated.");
+        
+        return Response.ok(ApiResponse.success(settings)).build();
     }
 
     // -----------------------------
@@ -242,37 +268,5 @@ public class SettingsApi {
 
         return Response.ok(ApiResponse.success("Duplicate deletion started")).build();
     }
-
-    // -----------------------------
-    // TOGGLE TORRENT BROWSING
-    // -----------------------------
-    @POST
-    @Path("/toggleTorrentBrowsing")
-    @Transactional
-    public Response toggleTorrentBrowsing(@QueryParam("enabled") boolean enabled) {
-        settingsController.toggleTorrentBrowsing(enabled);
-        return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
-    }
-
-    // -----------------------------
-    // TOGGLE TORRENT PEER DISCOVERY
-    // -----------------------------
-    @POST
-    @Path("/toggleTorrentPeerDiscovery")
-    @Transactional
-    public Response toggleTorrentPeerDiscovery(@QueryParam("enabled") boolean enabled) {
-        settingsController.toggleTorrentPeerDiscovery(enabled);
-        return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
-    }
-
-    // -----------------------------
-    // TOGGLE TORRENT DISCOVERY
-    // -----------------------------
-    @POST
-    @Path("/toggleTorrentDiscovery")
-    @Transactional
-    public Response toggleTorrentDiscovery(@QueryParam("enabled") boolean enabled) {
-        settingsController.toggleTorrentDiscovery(enabled);
-        return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
-    }
+  
 }

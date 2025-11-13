@@ -1,10 +1,14 @@
 package API.WS;
 
 import Controllers.ImportController;
+import Models.DTOs.ImportInstallationStatus;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
+
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -12,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @ApplicationScoped
 public class ImportStatusSocket {
 
-    Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Inject
     ImportController importController;
@@ -20,92 +25,83 @@ public class ImportStatusSocket {
     @OnOpen
     public void onOpen(Session session) {
         sessions.put(session.getId(), session);
-        System.out.println("[INFO] ImportStatusSocket: Session opened: " + session.getId());
+        System.out.println("[INFO] ImportStatusSocket: New session opened: " + session.getId());
+
+        // 1. Send current installation status
+        try {
+            ImportInstallationStatus status = importController.getInstallationStatus();
+            session.getAsyncRemote().sendText(objectMapper.writeValueAsString(status));
+        } catch (IOException e) {
+            System.err.println("[ERROR] ImportStatusSocket: Error sending installation status to session " + session.getId() + ": " + e.getMessage());
+        }
+
+        // 2. Send the cached output log to the newly connected client
+        String outputHistory = importController.getOutputCache();
+        if (outputHistory != null && !outputHistory.isEmpty()) {
+            session.getAsyncRemote().sendText(outputHistory);
+        }
+
+        // 3. If an import is running, send a status message so the UI can disable controls
+        if (importController.isImporting()) {
+            session.getAsyncRemote().sendText("[IMPORT_IN_PROGRESS]");
+        }
     }
 
     @OnClose
-    public void onClose(Session session) {
+    public void onClose(Session session, CloseReason closeReason) {
         sessions.remove(session.getId());
-        System.out.println("[INFO] ImportStatusSocket: Session closed: " + session.getId());
+        System.out.println("[INFO] ImportStatusSocket: Session " + session.getId() + " closed. Reason: " + closeReason.getReasonPhrase());
     }
 
     @OnError
     public void onError(Session session, Throwable throwable) {
         sessions.remove(session.getId());
-        System.err.println("[ERROR] ImportStatusSocket: Error on session " + session.getId() + ": " + throwable.getMessage());
+        System.err.println("[ERROR] ImportStatusSocket: Error in session " + session.getId() + ": " + throwable.getMessage());
     }
 
     @OnMessage
     public void onMessage(String message, Session session) {
         System.out.println("[INFO] ImportStatusSocket: Received message from session " + session.getId() + ": " + message);
         try {
-            if (message.contains("\"type\":\"start-import\"")) {
-                String url = extractJsonValue(message, "url");
-                String format = extractJsonValue(message, "format");
-                Integer downloadThreads = Integer.parseInt(extractJsonValue(message, "downloadThreads"));
-                Integer searchThreads = Integer.parseInt(extractJsonValue(message, "searchThreads"));
-                String downloadPath = extractJsonValue(message, "downloadPath");
-
-                new Thread(() -> {
-                    try {
-                        importController.download(url, format, downloadThreads, searchThreads, downloadPath, session.getId());
-                    } catch (Exception e) {
-                        System.err.println("[ERROR] Error during import process for session " + session.getId() + ": " + e.getMessage());
-                        sendToSession(session.getId(), "ERROR: " + e.getMessage());
-                    }
-                }).start();
+            ImportRequest request = objectMapper.readValue(message, ImportRequest.class);
+            if ("start-import".equals(request.type)) {
+                importController.startDownload(
+                    request.url,
+                    request.format,
+                    request.downloadThreads,
+                    request.searchThreads,
+                    request.downloadPath,
+                    request.playlistName,
+                    request.queueAfterDownload
+                );
             }
-        } catch (Exception e) {
-            System.err.println("[ERROR] Error parsing message or triggering import for session " + session.getId() + ": " + e.getMessage());
-            sendToSession(session.getId(), "ERROR: Failed to process request: " + e.getMessage());
+        } catch (IOException e) {
+            System.err.println("[ERROR] ImportStatusSocket: Failed to parse import request message from session " + session.getId() + ": " + e.getMessage());
+            session.getAsyncRemote().sendText("ERROR: Invalid request format.");
         }
     }
 
     public void broadcast(String message) {
         sessions.values().forEach(session -> {
-            session.getAsyncRemote().sendText(message, result -> {
-                if (result.getException() != null) {
-                    System.err.println("[ERROR] ImportStatusSocket: Unable to send message to session " + session.getId() + ": " + result.getException().getMessage());
-                }
-            });
+            if (session.isOpen()) {
+                session.getAsyncRemote().sendText(message, result -> {
+                    if (result.getException() != null) {
+                        System.err.println("[WARN] ImportStatusSocket: Unable to send message to session " + session.getId() + ": " + result.getException().getMessage());
+                    }
+                });
+            }
         });
     }
 
-    public void sendToSession(String sessionId, String message) {
-        Session session = sessions.get(sessionId);
-        if (session != null && session.isOpen()) {
-            session.getAsyncRemote().sendText(message, result -> {
-                if (result.getException() != null) {
-                    System.err.println("[ERROR] ImportStatusSocket: Unable to send message to session " + sessionId + ": " + result.getException().getMessage());
-                }
-            });
-        } else {
-            System.err.println("[ERROR] ImportStatusSocket: Session " + sessionId + " not found or not open. Cannot send message.");
-        }
-    }
-
-    private String extractJsonValue(String json, String key) {
-        String searchKey = "\"" + key + "\":\"";
-        int startIndex = json.indexOf(searchKey);
-        if (startIndex != -1) {
-            startIndex += searchKey.length();
-            int endIndex = json.indexOf("\"", startIndex);
-            if (endIndex != -1) {
-                return json.substring(startIndex, endIndex);
-            }
-        }
-        searchKey = "\"" + key + "\":"; // For numbers
-        startIndex = json.indexOf(searchKey);
-        if (startIndex != -1) {
-            startIndex += searchKey.length();
-            int endIndex = json.indexOf(",", startIndex);
-            if (endIndex == -1) { // Last element
-                endIndex = json.indexOf("}", startIndex);
-            }
-            if (endIndex != -1) {
-                return json.substring(startIndex, endIndex);
-            }
-        }
-        return null;
+    // DTO for incoming start-import messages
+    private static class ImportRequest {
+        public String type;
+        public String url;
+        public String format;
+        public Integer downloadThreads;
+        public Integer searchThreads;
+        public String downloadPath;
+        public String playlistName;
+        public boolean queueAfterDownload = false; // Default to false
     }
 }

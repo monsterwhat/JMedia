@@ -74,6 +74,7 @@
                             <a class="navbar-item" href="/index.html">Home</a> 
                             <a class="navbar-item" href="/settings.html">Settings</a>
                             <a class="navbar-item" href="/import.html">Import</a>
+                            <a class="navbar-item" href="/play.html">Play</a>
                         </div>
                     </div>
                 </nav>
@@ -136,31 +137,61 @@
                                         </div>
                                     </div>
 
-                                                                         <!-- Data Management Card -->
-                                                                        <div class="column is-one-third">
-                                                                            <div class="card has-background-grey-darker has-text-white">
-                                                                                <header class="card-header">
-                                                                                    <p class="card-header-title has-text-white">
-                                                                                        Data Management
-                                                                                    </p>
-                                                                                    <button class="card-header-icon" aria-label="more options" id="toggleDataManagementBtn">
-                                                                                        <span class="icon">
-                                                                                            <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                                                                        </span>
-                                                                                    </button>
-                                                                                </header>
-                                                                                <div class="card-content" id="dataManagementContent">
-                                                                                    <p class="subtitle has-text-white">Manage application data.</p>
-                                                                                    <div class="buttons">
-                                                                                        <button id="clearSongs" class="button is-warning">Clear Songs DB</button>
-                                                                                        <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger">Clear Playback History</button>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
+                                    <!-- Import Settings Card -->
+                                    <div class="column is-one-third">
+                                        <div class="card has-background-grey-darker has-text-white">
+                                            <header class="card-header">
+                                                <p class="card-header-title has-text-white">
+                                                    Import Settings
+                                                </p>
+                                                <button class="card-header-icon" aria-label="more options" id="toggleImportSettingsBtn">
+                                                    <span class="icon">
+                                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                                    </span>
+                                                </button>
+                                            </header>
+                                            <div class="card-content" id="importSettingsContent">
+                                                <div class="field">
+                                                    <label class="label has-text-white" for="outputFormat">Output Format</label>
+                                                    <div class="control">
+                                                        <div class="select is-fullwidth">
+                                                            <select id="outputFormat">
+                                                                <option value="mp3">MP3</option>
+                                                                <option value="flac">FLAC</option>
+                                                                <option value="ogg">OGG</option>
+                                                                <option value="opus">OPUS</option>
+                                                                <option value="m4a">M4A</option>
+                                                                <option value="wav">WAV</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="columns">
+                                                    <div class="column">
+                                                        <div class="field">
+                                                            <label class="label has-text-white" for="downloadThreads">Download Threads</label>
+                                                            <div class="control">
+                                                                <input class="input" type="number" id="downloadThreads" value="4" min="1">
+                                                            </div>
+                                                        </div> 
+                                                    </div>
+                                                    <div class="column">
+                                                        <div class="field">
+                                                            <label class="label has-text-white" for="searchThreads">Search Threads</label>
+                                                            <div class="control">
+                                                                <input class="input" type="number" id="searchThreads" value="4" min="1">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
 
+                                                <div class="buttons mt-3">
+                                                    <button id="saveImportSettingsBtn" class="button is-success is-fullwidth">Save</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                    
                                     <!-- Logs Card -->
                                     <div class="column is-one-third">
                                         <div class="card has-background-grey-darker has-text-white">
@@ -183,51 +214,31 @@
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
+                                    </div> 
 
-                                    <!-- Browse Management Card -->
+                                    <!-- Data Management Card -->
                                     <div class="column is-one-third">
                                         <div class="card has-background-grey-darker has-text-white">
                                             <header class="card-header">
                                                 <p class="card-header-title has-text-white">
-                                                    Torrent Management                                                                                    </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleTorrentManagementBtn">
+                                                    Data Management
+                                                </p>
+                                                <button class="card-header-icon" aria-label="more options" id="toggleDataManagementBtn">
                                                     <span class="icon">
                                                         <i class="pi pi-angle-down" aria-hidden="true"></i>
                                                     </span>
                                                 </button>
-                                                <div class="card-header-icon">
-                                                    <label class="switch is-info">
-                                                        <input id="torrentBrowsingToggle" type="checkbox" name="torrentBrowsingToggle">
-                                                        <span class="check"></span>
-                                                    </label>
-                                                </div>
                                             </header>
-                                            <div class="card-content" id="browseManagementContent">
-                                                <p class="subtitle has-text-white">Manage browse content.</p>
-                                                <div class="field">
-                                                    <label class="switch is-info">
-                                                        <input id="torrentPeerDiscoveryToggle" type="checkbox" name="torrentPeerDiscoveryToggle">
-                                                        <span class="check"></span>
-                                                        <span class="control-label has-text-white" onmouseover="this.title='Automatically share torrents with peers.'">Toggle Auto Peer Sharing</span>
-                                                    </label>
-                                                </div>
-                                                <div class="field">
-                                                    <label class="switch is-info">
-                                                        <input id="torrentDiscoveryToggle" type="checkbox" name="torrentDiscoveryToggle">
-                                                        <span class="check"></span>
-                                                        <span class="control-label has-text-white" onmouseover="this.title='Automatically discover and share torrents.'">Toggle Auto Torrent Sharing</span>
-                                                    </label>
-                                                </div>
-                                                <div class="buttons mt-3">
-                                                    <button id="createUserKey" class="button is-link">Create/Update User Key</button>
-                                                    <button id="shareCodeQrCode" class="button is-info">Share Code/QR Code</button>
-                                                    <button id="addCodeQrCode" class="button is-success">Add Code/QR Code</button>
-                                                    <button id="rescanNetwork" class="button is-warning">Re-scan Network</button>
+                                            <div class="card-content" id="dataManagementContent">
+                                                <p class="subtitle has-text-white">Manage application data.</p>
+                                                <div class="buttons">
+                                                    <button id="clearSongs" class="button is-warning">Clear Songs DB</button>
+                                                    <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger">Clear Playback History</button>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+
 
                                 </div>
                             </div>

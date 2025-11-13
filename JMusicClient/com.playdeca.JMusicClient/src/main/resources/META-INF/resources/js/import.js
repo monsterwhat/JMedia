@@ -1,13 +1,31 @@
 document.addEventListener('DOMContentLoaded', () => {
     const spotdlUrlInput = document.getElementById('spotdlUrl');
-    const outputFormatSelect = document.getElementById('outputFormat');
-    const downloadThreadsInput = document.getElementById('downloadThreads');
-    const searchThreadsInput = document.getElementById('searchThreads');
     const downloadFolderInput = document.getElementById('downloadFolder');
-    console.log('downloadFolderInput:', downloadFolderInput); // Diagnostic log
+    const playlistSelect = document.getElementById('playlistSelect');
+    const newPlaylistNameInput = document.getElementById('newPlaylistName');
     const downloadBtn = document.getElementById('downloadBtn');
     const spotdlOutputTextarea = document.getElementById('spotdlOutput');
     const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
+
+    let importSettings = {};
+
+    const fetchImportSettings = async () => {
+        try {
+            const response = await fetch('/api/settings');
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data) {
+                    importSettings = apiResponse.data;
+                }
+            } else {
+                console.error('Failed to fetch settings');
+                displayWarning('Failed to load import settings.');
+            }
+        } catch (error) {
+            console.error('Error fetching settings:', error);
+            displayWarning('Error fetching import settings.');
+        }
+    };
 
     // Helper function to display warning messages
     const displayWarning = (message) => {
@@ -20,6 +38,36 @@ document.addEventListener('DOMContentLoaded', () => {
         spotdlWarningMessage.textContent = '';
         spotdlWarningMessage.classList.add('is-hidden');
     };
+
+    // Function to fetch and populate playlists
+    const fetchAndPopulatePlaylists = async () => {
+        try {
+            const response = await fetch('/api/music/playlists');
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data) {
+                    // Clear existing options except the default one
+                    playlistSelect.innerHTML = '<option value="">-- Select existing playlist --</option>';
+                    apiResponse.data.forEach(playlist => {
+                        const option = document.createElement('option');
+                        option.value = playlist.name; // Use playlist name as value
+                        option.textContent = playlist.name;
+                        playlistSelect.appendChild(option);
+                    });
+                }
+            } else {
+                console.error('Failed to fetch playlists:', response.status, response.statusText);
+                displayWarning('Failed to load playlists. Please try again later.');
+            }
+        } catch (error) {
+            console.error('Network error fetching playlists:', error);
+            displayWarning('Network error fetching playlists.');
+        }
+    };
+
+    // Fetch playlists on page load
+    fetchAndPopulatePlaylists();
+    fetchImportSettings();
 
     // Fetch default music library path and set default download folder
     const setDefaultDownloadFolder = async () => {
@@ -69,22 +117,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
         importWebSocket.onopen = () => {
             console.log('WebSocket connected for import status');
-            spotdlOutputTextarea.value = 'WebSocket connected. Ready to start import...\n';
+            // Initial messages (installation status, cached output, import in progress) will be sent by the server
+            // No need to set initial text here.
         };
 
         importWebSocket.onmessage = (event) => {
-            spotdlOutputTextarea.value += event.data + '\n';
-            spotdlOutputTextarea.scrollTop = spotdlOutputTextarea.scrollHeight; // Auto-scroll to bottom
-
-            // Check for completion messages
-            if (event.data.includes("download completed successfully")) {
-                alert("Import completed successfully!");
+            // Check if the message is a JSON string (likely installation status)
+            if (event.data.startsWith('{') && event.data.endsWith('}')) {
+                try {
+                    const status = JSON.parse(event.data);
+                    if (!status.allInstalled) {
+                        let warningText = "External tools not fully installed: ";
+                        if (!status.pythonInstalled) warningText += "Python (" + status.pythonMessage + ") ";
+                        if (!status.spotdlInstalled) warningText += "SpotDL (" + status.spotdlMessage + ") ";
+                        if (!status.ffmpegInstalled) warningText += "FFmpeg (" + status.ffmpegMessage + ") ";
+                        displayWarning(warningText);
+                    } else {
+                        clearWarning();
+                    }
+                } catch (e) {
+                    console.error("Failed to parse WebSocket message as JSON:", e);
+                    spotdlOutputTextarea.value += event.data + '\n'; // Append as regular text if not JSON
+                }
+            } else if (event.data === "[IMPORT_IN_PROGRESS]") {
+                downloadBtn.disabled = true;
+                spotdlOutputTextarea.value += 'An import is already in progress. Displaying current output...\n';
+            } else if (event.data === "[IMPORT_FINISHED]") {
+                downloadBtn.disabled = false;
+                spotdlOutputTextarea.value += 'Import process finished.\n';
+                // Optionally, show a success/failure message based on the last few lines of output
+            } else {
+                spotdlOutputTextarea.value += event.data; // Append raw data, server sends newlines
             }
+            spotdlOutputTextarea.scrollTop = spotdlOutputTextarea.scrollHeight; // Auto-scroll to bottom
         };
 
         importWebSocket.onclose = (event) => {
             console.log('WebSocket disconnected for import status', event);
-            spotdlOutputTextarea.value += '\nImport process finished or WebSocket disconnected.\n';
+            spotdlOutputTextarea.value += '\nWebSocket disconnected.\n';
             downloadBtn.disabled = false; // Re-enable button on close
             if (!event.wasClean) {
                 displayWarning('WebSocket connection closed unexpectedly. Please check server logs.');
@@ -105,10 +175,12 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadBtn.addEventListener('click', () => {
             clearWarning();
             const url = spotdlUrlInput.value;
-            const format = outputFormatSelect.value;
-            const downloadThreads = parseInt(downloadThreadsInput.value);
-            const searchThreads = parseInt(searchThreadsInput.value);
+            const format = importSettings.outputFormat || 'mp3';
+            const downloadThreads = importSettings.downloadThreads || 4;
+            const searchThreads = importSettings.searchThreads || 4;
             const downloadPath = downloadFolderInput.value;
+            const selectedPlaylist = playlistSelect.value;
+            const newPlaylistName = newPlaylistNameInput.value.trim();
 
             if (!url) {
                 displayWarning('Please enter a Spotify or YouTube URL.');
@@ -119,7 +191,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            spotdlOutputTextarea.value = 'Starting download via WebSocket...\n';
+            let playlistNameToSend = null;
+            if (selectedPlaylist && newPlaylistName) {
+                displayWarning('Please select an existing playlist OR enter a new playlist name, not both.');
+                return;
+            } else if (selectedPlaylist) {
+                playlistNameToSend = selectedPlaylist;
+            } else if (newPlaylistName) {
+                playlistNameToSend = newPlaylistName;
+            }
+
+            // Clear output and disable button immediately
+            spotdlOutputTextarea.value = '';
             downloadBtn.disabled = true;
 
             if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
@@ -129,7 +212,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     format,
                     downloadThreads,
                     searchThreads,
-                    downloadPath
+                    downloadPath,
+                    playlistName: playlistNameToSend
                 };
                 importWebSocket.send(JSON.stringify(message));
             } else {

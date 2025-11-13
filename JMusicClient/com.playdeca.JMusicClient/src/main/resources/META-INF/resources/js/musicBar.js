@@ -496,6 +496,27 @@ function bindPlaybackButtons() {
     };
     document.getElementById('repeatBtn').onclick = () => {
         console.log("[musicBar.js] repeatBtn clicked");
+
+        // Optimistic UI update
+        let currentMode = musicState.repeatMode;
+        let newMode;
+
+        switch (currentMode) {
+            case "OFF":
+                newMode = "ONE";
+                break;
+            case "ONE":
+                newMode = "ALL";
+                break;
+            case "ALL":
+            default:
+                newMode = "OFF";
+                break;
+        }
+        musicState.repeatMode = newMode;
+        updateMusicBar(); // Update UI immediately
+
+        // Send request to backend for persistence and synchronization
         apiPost('repeat');
     };
 }

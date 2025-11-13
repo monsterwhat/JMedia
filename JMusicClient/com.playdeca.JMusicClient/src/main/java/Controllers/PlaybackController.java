@@ -120,7 +120,7 @@ public class PlaybackController {
 
     private synchronized void stopPlaybackTimer() {
         if (playbackTask != null && !playbackTask.isDone()) {
-            playbackTask.cancel(true); // Interrupt if running
+            playbackTask.cancel(false); // Allow current task to complete if running
             LOGGER.info("Playback timer stopped.");
         }
     }

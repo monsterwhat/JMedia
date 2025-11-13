@@ -10,7 +10,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WebSocketManager {
 
     private final Set<Session> musicSessions = ConcurrentHashMap.newKeySet();
-    private final Set<Session> torrentSessions = ConcurrentHashMap.newKeySet();
     private final Set<Session> logSessions = ConcurrentHashMap.newKeySet();
 
     public void addMusicSession(Session session) {
@@ -20,15 +19,7 @@ public class WebSocketManager {
     public void removeMusicSession(Session session) {
         musicSessions.remove(session);
     }
-
-    public void addTorrentSession(Session session) {
-        torrentSessions.add(session);
-    }
-
-    public void removeTorrentSession(Session session) {
-        torrentSessions.remove(session);
-    }
-
+  
     public void addLogSession(Session session) {
         logSessions.add(session);
     }
@@ -40,11 +31,7 @@ public class WebSocketManager {
     public void broadcastToMusic(String message) {
         broadcast(musicSessions, message);
     }
-
-    public void broadcastToTorrents(String message) {
-        broadcast(torrentSessions, message);
-    }
-
+ 
     public void broadcastToLogs(String message) {
         broadcast(logSessions, message);
     }

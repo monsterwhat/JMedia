@@ -169,24 +169,6 @@ public class SettingsService {
         }
         return List.of();
     }
-
-    @Transactional
-    public void toggleTorrentBrowsing(Settings settings, boolean enabled) {
-        settings.setTorrentBrowsingEnabled(enabled);
-        save(settings);
-    }
-
-    @Transactional
-    public void toggleTorrentPeerDiscovery(Settings settings, boolean enabled) {
-        settings.setTorrentPeerDiscoveryEnabled(enabled);
-        save(settings);
-    }
-
-    @Transactional
-    public void toggleTorrentDiscovery(Settings settings, boolean enabled) {
-        settings.setTorrentDiscoveryEnabled(enabled);
-        save(settings);
-    }
-
+  
 }
 

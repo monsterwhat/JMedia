@@ -23,12 +23,17 @@ public class PlaylistAPI {
 
     @GET
     @Path("/")
-    public Response listPlaylists() {
-        List<Playlist> playlists = playbackController.getPlaylists();
-        if (playlists == null) {
-            playlists = new ArrayList<>();
+    public Response listPlaylists() { 
+        try {
+            List<Playlist> playlists = playbackController.getPlaylists();
+            if (playlists == null) {
+                playlists = new ArrayList<>();
+            }
+            return Response.ok(ApiResponse.success(playlists)).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error fetching playlists: " + e.getMessage()); 
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error fetching playlists: " + e.getMessage())).build();
         }
-        return Response.ok(ApiResponse.success(playlists)).build();
     }
 
     @GET
@@ -67,7 +72,9 @@ public class PlaylistAPI {
     public Response deletePlaylist(@PathParam("id") Long id) {
         Playlist p = requirePlaylist(id);
         playbackController.deletePlaylist(p);
-        return Response.ok(ApiResponse.success("deleted")).build();
+        return Response.ok(ApiResponse.success("deleted"))
+                .header("HX-Trigger", "delete-playlist")
+                .build();
     }
 
     @POST

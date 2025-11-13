@@ -78,6 +78,7 @@
                             <a class="navbar-item" href="/index.html">Home</a> 
                             <a class="navbar-item" href="/settings.html">Settings</a>
                             <a class="navbar-item" href="/import.html">Import</a>
+                            <a class="navbar-item" href="/play.html">Play</a>
                         </div>
                     </div>
                 </nav>
@@ -106,7 +107,7 @@
                                     </button> 
                                     <div id="sidebarPlaylistList"
                                          hx-get="/api/music/ui/playlists-fragment"
-                                         hx-trigger="load"
+                                         hx-trigger="load, delete-playlist from:body"
                                          hx-swap="innerHTML">
                                         <!-- dynamically populated -->
                                     </div>

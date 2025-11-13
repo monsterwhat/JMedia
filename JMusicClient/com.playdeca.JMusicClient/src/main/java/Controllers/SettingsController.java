@@ -30,14 +30,23 @@ import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;
 import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.audio.mp3.MP3File;
-import org.jaudiotagger.tag.FieldKey;
-import org.jaudiotagger.tag.KeyNotFoundException;
+import org.jaudiotagger.tag.FieldKey; 
 import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.TagException;
 import org.jaudiotagger.tag.datatype.Artwork;
 
 @ApplicationScoped
 public class SettingsController implements Serializable {
+
+    private static class ScanResult {
+        String filePath;
+        String rejectedReason; // null if successful
+
+        ScanResult(String filePath, String rejectedReason) {
+            this.filePath = filePath;
+            this.rejectedReason = rejectedReason;
+        }
+    }
 
     @Inject
     private SongService songService;
@@ -47,10 +56,7 @@ public class SettingsController implements Serializable {
 
     @Inject
     private MusicSocket musicSocket;
-
-    @Inject
-    private PlaybackHistoryService playbackHistoryService;
-
+  
     @Inject
     private LogSocket logSocket;
 
@@ -102,40 +108,58 @@ public class SettingsController implements Serializable {
         performScan(folder, "full library");
     }
 
-    public void scanImportFolder() {
+    public List<Song> scanImportFolder() {
         addLog("Scanning import folder for new songs...");
         File importFolder = new File(getMusicFolder(), "import");
 
         if (!importFolder.exists() || !importFolder.isDirectory()) {
             addLog("Import folder does not exist: " + importFolder.getAbsolutePath());
-            return;
+            return new ArrayList<>();
         }
 
-        performScan(importFolder, "import folder");
+        return performScan(importFolder, "import folder");
     }
 
-    private void performScan(File folderToScan, String scanType) {
+    private List<Song> performScan(File folderToScan, String scanType) {
         List<File> mp3Files = new ArrayList<>();
         collectMp3Files(folderToScan, mp3Files);
         addLog("Found " + mp3Files.size() + " MP3 files in " + scanType + ". Starting parallel metadata reading...");
 
-        ExecutorCompletionService<Integer> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
         mp3Files.forEach(f -> completion.submit(() -> processFile(f)));
 
         int totalAdded = 0;
+        List<String> rejectedFiles = new ArrayList<>();
+        List<Song> processedSongs = new ArrayList<>();
+
         for (int i = 0; i < mp3Files.size(); i++) {
             try {
-                totalAdded += completion.take().get();
+                Future<Song> future = completion.take();
+                Song result = future.get();
+                if (result != null) {
+                    totalAdded++;
+                    processedSongs.add(result);
+                } else {
+                    // This case is tricky as we don't have the file path if processFile fails early.
+                    // For now, we rely on logging within processFile for failures.
+                }
+
                 if ((i + 1) % 50 == 0) {
                     addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files from " + scanType + "...");
                 }
             } catch (Exception e) {
                 addLog("Error while processing file in parallel from " + scanType + ": " + e.getMessage(), e);
+                rejectedFiles.add("An unknown file failed to process due to an unexpected error.");
             }
         }
 
-        addLog("Scan of " + scanType + " completed. Total MP3 files added: " + totalAdded);
+        addLog("Scan of " + scanType + " completed. Total MP3 files processed successfully: " + totalAdded);
+        if (!rejectedFiles.isEmpty()) {
+            addLog("The following " + rejectedFiles.size() + " songs were rejected or failed to process:");
+            rejectedFiles.forEach(rejected -> addLog("- " + rejected));
+        }
         musicSocket.broadcastLibraryUpdate();
+        return processedSongs;
     }
 
     private void collectMp3Files(File folder, List<File> mp3Files) {
@@ -161,7 +185,6 @@ public class SettingsController implements Serializable {
         } catch (NullPointerException e) {
             // This is a workaround for a bug in jaudiotagger where getFirst() can throw an NPE
             // if the frame exists but is empty. Logging this to confirm the catch block is hit.
-            addLog("Caught NPE in safeGet for key " + key.name() + ". This is a known issue with the tagging library.");
             return "";
         } catch (Exception e) {
             addLog("Caught unexpected exception in safeGet for key " + key.name() + ": " + e.getMessage());
@@ -184,16 +207,18 @@ public class SettingsController implements Serializable {
     }
 
     /**
-     * Process a single MP3 file. Returns 1 if a song was added/updated, 0
-     * otherwise.
+     * Process a single MP3 file. Returns the persisted Song object or null on failure.
      */
-    private int processFile(File file) {
+    private Song processFile(File file) {
+        String relativePath = file.getName(); // Default to file name in case of early error
+        boolean isNewSong = false;
         try {
             File baseFolder = getMusicFolder();
-            String relativePath = baseFolder.toURI().relativize(file.toURI()).getPath();
+            relativePath = baseFolder.toURI().relativize(file.toURI()).getPath();
 
             Song song = songService.findByPathInNewTx(relativePath);
             if (song == null) {
+                isNewSong = true;
                 song = new Song();
                 song.setPath(relativePath);
                 song.setDateAdded(java.time.LocalDateTime.now());
@@ -222,6 +247,11 @@ public class SettingsController implements Serializable {
                 song.setLyrics(safeGet(tag, FieldKey.LYRICS));
                 song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
 
+                // Placeholder for BPM verification. If BPM is 0, a re-read could be attempted.
+                if (song.getBpm() == 0) {
+                    // TODO: Implement BPM re-check if necessary, similar to duration check.
+                }
+
                 try {
                     Artwork artwork = tag.getFirstArtwork();
                     if (artwork != null) {
@@ -242,35 +272,78 @@ public class SettingsController implements Serializable {
                 song.setArtworkBase64(null);
             }
 
-            try {
-                if (mp3File != null && mp3File.getAudioHeader() != null) {
-                    int trackLength = mp3File.getAudioHeader().getTrackLength();
-                    song.setDurationSeconds(trackLength);
-                } else {
-                    song.setDurationSeconds(0);
-                    addLog("[org.jau.tag.id3] WARNING: Could not read duration for " + file.getName() + ".");
+            // If not found by path, try to find by title, artist, and duration (after tags are read)
+            if (isNewSong && song.getTitle() != null && !song.getTitle().isBlank() && song.getArtist() != null && !song.getArtist().isBlank()) {
+                // Ensure duration is also available before attempting to find by title/artist/duration
+                int currentDuration = getVerifiedTrackLength(file, mp3File);
+                if (currentDuration > 0) {
+                    Song existingSongByTitleArtistDuration = songService.findByTitleArtistAndDuration(song.getArtist(), song.getTitle(), currentDuration);
+                    if (existingSongByTitleArtistDuration != null) {
+                        addLog("Found existing song by title/artist/duration: " + song.getTitle() + " by " + song.getArtist() + ". Updating path from " + existingSongByTitleArtistDuration.getPath() + " to " + relativePath);
+                        song = existingSongByTitleArtistDuration; // Use the existing song object
+                        song.setPath(relativePath); // Update its path
+                        isNewSong = false; // It's not a new song, it's an update
+                    }
                 }
-            } catch (Exception e) {
-                addLog("[org.jau.tag.id3] WARNING: Error reading duration for " + file.getName() + ": " + e.getMessage());
-                song.setDurationSeconds(0);
             }
+
+            int trackLength = getVerifiedTrackLength(file, mp3File);
+            song.setDurationSeconds(trackLength);
 
             if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
                     && song.getDurationSeconds() == 0) {
-                addLog("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist and 0:00): " + file.getName());
-                return 0;
+                addLog("Rejected song: " + relativePath + " (Reason: Potentially corrupt - Unknown Artist and 0:00)");
+                return null;
             }
 
-            // Persist using REQUIRES_NEW transaction per-file
-            songService.persistSongInNewTx(song);
-            return 1;
+            Song persistedSong = songService.persistSongInNewTx(song);
+            // Only return the song if it was newly created in this run
+            return isNewSong ? persistedSong : null;
+            
         } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
-            addLog("[org.jau.tag.id3] WARNING: Skipping song " + file.getName() + " due to invalid audio frame: " + e.getMessage());
-            return 0;
+            addLog("Rejected song: " + relativePath + " (Reason: Invalid audio frame)");
+            return null;
         } catch (IOException | ReadOnlyFileException | TagException e) {
-            addLog("[org.jau.tag.id3] ERROR: Failed to add/update song " + file.getName() + ": " + e.getMessage(), e);
-            return 0;
+            addLog("Rejected song: " + relativePath + " (Reason: Read/Tag error)");
+            return null;
         }
+    }
+
+    private int getVerifiedTrackLength(File file, MP3File initialMp3File) {
+        int duration = 0;
+        try {
+            if (initialMp3File != null && initialMp3File.getAudioHeader() != null) {
+                duration = initialMp3File.getAudioHeader().getTrackLength();
+            } else {
+                addLog("[org.jau.tag.id3] WARNING: Could not read initial duration for " + file.getName() + ".");
+            }
+        } catch (Exception e) {
+            addLog("[org.jau.tag.id3] WARNING: Error reading initial duration for " + file.getName() + ": " + e.getMessage(), e);
+        }
+
+        // Suspicious duration check (e.g., <= 1 second, or > 2 hours)
+        final int MAX_REASONABLE_DURATION_SECONDS = 7200;
+        if (duration <= 1 || duration > MAX_REASONABLE_DURATION_SECONDS) {
+            addLog("[org.jau.tag.id3] INFO: Suspicious duration (" + duration + "s) for " + file.getName() + ". Re-checking.");
+            try {
+                // Re-read the file to get a fresh take on the metadata
+                MP3File mp3FileSecondRead = (MP3File) AudioFileIO.read(file);
+                int secondDuration = 0;
+                if (mp3FileSecondRead != null && mp3FileSecondRead.getAudioHeader() != null) {
+                    secondDuration = mp3FileSecondRead.getAudioHeader().getTrackLength();
+                }
+
+                if (duration != secondDuration) {
+                    addLog("[org.jau.tag.id3] INFO: Duration changed on second read. Old: " + duration + "s, New: " + secondDuration + "s for " + file.getName());
+                    return secondDuration; // Use the new value
+                } else {
+                    addLog("[org.jau.tag.id3] INFO: Duration (" + duration + "s) remained the same on second read for " + file.getName());
+                }
+            } catch (Exception e) {
+                addLog("[org.jau.tag.id3] WARNING: Error during second duration read for " + file.getName() + ": " + e.getMessage(), e);
+            }
+        }
+        return duration;
     }
 
     // -------------------------------
@@ -278,7 +351,6 @@ public class SettingsController implements Serializable {
     // -------------------------------
     public void reloadAllSongsMetadata() {
         addLog("[org.jau.tag.id3] Reloading metadata for all songs...");
-        // Grab list of songs up-front
         List<Song> allSongs = songService.findAll();
         addLog("[org.jau.tag.id3] Found " + (allSongs == null ? 0 : allSongs.size()) + " songs to reload.");
 
@@ -287,36 +359,42 @@ public class SettingsController implements Serializable {
             return;
         }
 
-        List<Future<Boolean>> futures = new ArrayList<>(allSongs.size());
-        for (Song song : allSongs) {
-            // Submit a task per-song
-            futures.add(executor.submit(() -> reloadMetadataForSong(song)));
-        }
+        ExecutorCompletionService<List<String>> completion = new ExecutorCompletionService<>(executor);
+        allSongs.forEach(song -> completion.submit(() -> reloadMetadataForSong(song)));
 
         int updatedCount = 0;
-        for (Future<Boolean> f : futures) {
+        List<String> batchLogs = new ArrayList<>();
+        for (int i = 0; i < allSongs.size(); i++) {
             try {
-                if (f.get()) {
+                Future<List<String>> future = completion.take();
+                List<String> logs = future.get();
+                if (logs != null && !logs.isEmpty()) {
+                    batchLogs.addAll(logs);
+                    // A non-empty log list from this method implies success.
                     updatedCount++;
                 }
             } catch (InterruptedException | ExecutionException e) {
-                addLog("[org.jau.tag.id3] ERROR: reload task failed: " + e.getMessage(), e);
+                batchLogs.add("[org.jau.tag.id3] ERROR: reload task failed: " + e.getMessage());
             }
         }
+
+        // Add all collected logs in a single batch
+        addLogs(batchLogs);
 
         addLog(String.format("[org.jau.tag.id3] Metadata reload completed. %d songs updated.", updatedCount));
         musicSocket.broadcastLibraryUpdate();
     }
 
-    private Boolean reloadMetadataForSong(Song song) {
+    private List<String> reloadMetadataForSong(Song song) {
+        List<String> localLogs = new ArrayList<>();
         try {
             File songFile = new File(getMusicFolder(), song.getPath());
             if (!(songFile.exists() && songFile.isFile())) {
-                addLog("[org.jau.tag.id3] Skipping metadata reload for missing file: " + song.getPath());
-                return false;
+                localLogs.add("[org.jau.tag.id3] Skipping metadata reload for missing file: " + song.getPath());
+                return localLogs;
             }
 
-            addLog("[org.jau.tag.id3] Reading MP3 file: " + songFile.getName());
+            localLogs.add("[org.jau.tag.id3] Reading MP3 file: " + songFile.getName());
             MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
             Tag tag = mp3File.getTag();
 
@@ -336,19 +414,16 @@ public class SettingsController implements Serializable {
                     Artwork artwork = tag.getFirstArtwork();
                     if (artwork != null) {
                         byte[] data = artwork.getBinaryData();
-                        String mime = artwork.getMimeType();
-                        addLog(String.format("[org.jau.tag.id3] Found APIC (Artwork): %d bytes (%s) for %s", data.length, mime, song.getPath()));
                         song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
                     } else {
-                        addLog("[org.jau.tag.id3] No APIC frame found (no artwork) for " + song.getPath());
                         song.setArtworkBase64(null);
                     }
                 } catch (Exception artEx) {
-                    addLog("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
+                    localLogs.add("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
                     song.setArtworkBase64(null);
                 }
             } else {
-                addLog("[org.jau.tag.id3] No tag found — using filename as title for " + songFile.getName());
+                localLogs.add("[org.jau.tag.id3] No tag found — using filename as title for " + songFile.getName());
                 String baseName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
                 song.setTitle(baseName);
                 song.setArtist("Unknown Artist");
@@ -356,26 +431,26 @@ public class SettingsController implements Serializable {
                 song.setArtworkBase64(null);
             }
 
-            int duration = mp3File.getAudioHeader().getTrackLength();
-            addLog(String.format("[org.jau.tag.id3] AudioHeader: Duration = %d seconds for %s", duration, song.getPath()));
+            int duration = getVerifiedTrackLength(songFile, mp3File);
+            localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
             song.setDurationSeconds(duration);
 
             if ((song.getArtist() == null || song.getArtist().isBlank() || "Unknown Artist".equals(song.getArtist()))
                     && song.getDurationSeconds() == 0) {
-                addLog("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist + 0:00): " + song.getPath());
-                return false;
+                localLogs.add("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist + 0:00): " + song.getPath());
+                return localLogs;
             }
 
             // Persist changes per-song
             songService.persistSongInNewTx(song);
-            addLog("[org.jau.tag.id3] Successfully reloaded metadata for: " + song.getPath());
-            return true;
+            localLogs.add("[org.jau.tag.id3] Successfully reloaded metadata for: " + song.getPath());
+            return localLogs;
         } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
-            addLog("[org.jau.tag.id3] WARNING: Skipping " + song.getPath() + " — invalid audio frame: " + e.getMessage());
-            return false;
+            localLogs.add("[org.jau.tag.id3] WARNING: Skipping " + song.getPath() + " — invalid audio frame: " + e.getMessage());
+            return localLogs;
         } catch (IOException | CannotReadException | ReadOnlyFileException | TagException e) {
-            addLog("[org.jau.tag.id3] ERROR: Failed to reload metadata for " + song.getPath() + ": " + e.getMessage(), e);
-            return false;
+            localLogs.add("[org.jau.tag.id3] ERROR: Failed to reload metadata for " + song.getPath() + ": " + e.getMessage());
+            return localLogs;
         }
     }
 
@@ -408,32 +483,33 @@ public class SettingsController implements Serializable {
 
         addLog("Found " + songsToDelete.size() + " duplicates to delete. Deleting in parallel...");
 
-        List<Future<Boolean>> futures = new ArrayList<>(songsToDelete.size());
-        for (Song s : songsToDelete) {
-            futures.add(executor.submit(() -> {
-                try {
-                    songService.delete(s);
-                    addLog("Deleted duplicate song: " + s.getTitle() + " by " + s.getArtist());
-                    return true;
-                } catch (Exception e) {
-                    addLog("Failed to delete duplicate song " + s.getTitle() + ": " + e.getMessage(), e);
-                    return false;
-                }
-            }));
-        }
-
-        int deleted = 0;
-        for (Future<Boolean> f : futures) {
+        ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(executor);
+        songsToDelete.forEach(song -> completion.submit(() -> {
             try {
-                if (f.get()) {
-                    deleted++;
+                songService.delete(song);
+                return "Deleted duplicate song: " + song.getTitle() + " by " + song.getArtist();
+            } catch (Exception e) {
+                return "Failed to delete duplicate song " + song.getTitle() + ": " + e.getMessage();
+            }
+        }));
+
+        List<String> batchLogs = new ArrayList<>();
+        int deletedCount = 0;
+        for (int i = 0; i < songsToDelete.size(); i++) {
+            try {
+                Future<String> future = completion.take();
+                String logMessage = future.get();
+                batchLogs.add(logMessage);
+                if (logMessage.startsWith("Deleted")) {
+                    deletedCount++;
                 }
             } catch (Exception e) {
-                addLog("Error in duplicate deletion task: " + e.getMessage(), e);
+                batchLogs.add("Error in duplicate deletion task: " + e.getMessage());
             }
         }
 
-        addLog("Duplicate deletion completed. " + deleted + " songs deleted.");
+        addLogs(batchLogs);
+        addLog("Duplicate deletion completed. " + deletedCount + " songs deleted.");
         musicSocket.broadcastLibraryUpdate();
     }
 
@@ -487,6 +563,20 @@ public class SettingsController implements Serializable {
                 .collect(Collectors.toList());
     }
 
+    public synchronized void addLogs(List<String> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        Settings settings = settingsService.getOrCreateSettings();
+        for (String message : messages) {
+            SettingsLog log = new SettingsLog();
+            log.setMessage(message);
+            settings.getLogs().add(log);
+            logSocket.broadcast(log.getMessage());
+        }
+        settingsService.save(settings);
+    }
+
     public synchronized void addLog(String message, Throwable t) {
         Settings settings = settingsService.getOrCreateSettings();
         SettingsLog log = new SettingsLog();
@@ -521,23 +611,5 @@ public class SettingsController implements Serializable {
     public Settings getOrCreateSettings() {
         return settingsService.getOrCreateSettings();
     }
-
-    public void toggleTorrentBrowsing(boolean enabled) {
-        Settings currentSettings = settingsService.getOrCreateSettings();
-        settingsService.toggleTorrentBrowsing(currentSettings, enabled);
-        addLog("Torrent browsing feature toggled to: " + enabled);
-    }
-
-    public void toggleTorrentPeerDiscovery(boolean enabled) {
-        Settings currentSettings = settingsService.getOrCreateSettings();
-        settingsService.toggleTorrentPeerDiscovery(currentSettings, enabled);
-        addLog("Torrent peer discovery/sharing toggled to: " + enabled);
-    }
-
-    public void toggleTorrentDiscovery(boolean enabled) {
-        Settings currentSettings = settingsService.getOrCreateSettings();
-        settingsService.toggleTorrentDiscovery(currentSettings, enabled);
-        addLog("Torrent/Peer discovery toggled to: " + enabled);
-    }
-
+ 
 }

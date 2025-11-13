@@ -1,5 +1,6 @@
 package Models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -7,6 +8,7 @@ import lombok.Data;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.EqualsAndHashCode;
+import lombok.ToString;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -17,6 +19,9 @@ public class Playlist extends PanacheEntity {
     private String name;
     private String description;
 
+    @JsonIgnore
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "playlist_song",
