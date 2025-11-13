@@ -16,10 +16,8 @@
 - [Library & Metadata](#library--metadata)
   - [Library Configuration](#library-configuration)
   - [Library Maintenance](#library-maintenance)
+  - [Music Import](#music-import)
 - [Data & Diagnostics](#data--diagnostics)
-- [Discover](#discover)
-  - [Torrent Management](#torrent-management)
-  - [Networking](#networking-inside-discover)
 - [App Behavior & Customization](#app-behavior--customization)
 - [Summary](#summary)
 
@@ -80,6 +78,13 @@
 | Backup Library | Export music library database and settings. | Desktop / Mobile | Before Beta | 🧩 |
 | Restore Library | Import a previously exported library backup. | Desktop / Mobile | Before Beta | 🧩 |
 
+### Music Import
+
+| Feature | Description | Platform | Version / Planned Phase | Status |
+|----------|--------------|-----------|------------------------|---------|
+| Spot-dl Integration | Import music directly from Spotify using Spot-dl. | Desktop / Mobile | Before Beta | ⚙️ |
+| yt-dlp Integration | Import music from YouTube and other video platforms using yt-dlp. | Desktop / Mobile | Before Beta | ⚙️ |
+
 ---
 
 ## 🧠 Data & Diagnostics
@@ -91,36 +96,7 @@
 | View Logs | View system and playback logs. | Desktop / Mobile | Alpha 5 | ✅ |
 | Clear Logs | Remove all application logs. | Desktop / Mobile | Alpha 5 | ✅ |
 
----
 
-## 🌐 Discover
-
-### Torrent Management
-
-| Feature | Description | Platform | Version / Planned Phase | Status |
-|----------|--------------|-----------|------------------------|---------|
-| Torrent Browsing Toggle | Enables torrent mode with legal/safety warning. | Desktop / Mobile | Alpha 5 | ✅ |
-| Create / Update User Key | Generate local private/public key pair for authentication. | Desktop / Mobile | Alpha 5 | 🚧 |
-| Share Code / QR Code | Send your public key to peers. | Desktop / Mobile | Alpha 5 | 🚧 |
-| Add Code / QR Code | Add peer via public key / QR code. | Desktop / Mobile | Alpha 5 | 🚧 |
-| Rescan Network | Refresh peer/torrent network. | Desktop / Mobile | Alpha 5 | 🚧 |
-| Auto Peer Sharing | Toggle to auto-share known peers. | Desktop / Mobile | Alpha 5 | ⚙️ |
-| Auto Torrent Sharing | Toggle to auto-share torrents with peers. | Desktop / Mobile | Alpha 5 | ⚙️ |
-| Scan Torrents | Collect and verify torrents from connected peers. | Desktop / Mobile | Before Beta | 🧩 |
-| Torrent Metadata Verification | Check embedded metadata to verify torrents created within network. | Desktop / Mobile | Before Beta | 🧩 |
-| Flags System | Users can flag torrents or peers; flags propagate across peers. | Desktop / Mobile | Before Beta | 🧩 |
-| Ban Notices | Users can ban peers locally; ban notice propagates across peers. | Desktop / Mobile | Before Beta | 🧩 |
-| Likes / Dislikes | Peer-to-peer voting system for torrents. | Desktop / Mobile | Before Beta | 🧩 |
-| Automatic Verification of Torrents | Validate torrents against metadata and hash. | Desktop / Mobile | Before Beta | 🧩 |
-
-### Networking (inside Discover)
-
-| Feature | Description | Platform | Planned Phase | Status |
-|----------|--------------|-----------|----------------|---------|
-| Scan Peers | Actively scan for new peers. | Desktop / Mobile | Before Beta | 🧩 |
-| Peer List Visualization | Shows connected peers and status. | Desktop / Mobile | Before Beta | 🧩 |
-| Peer Health / Status | Show last online, availability, shared torrent count. | Desktop / Mobile | Before Beta | 🧩 |
-| Search Across Peers | Search for songs/torrents across connected peers. | Desktop / Mobile | Before Beta | 🧩 |
 
 ---
 

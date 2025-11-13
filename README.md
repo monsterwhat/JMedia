@@ -21,9 +21,7 @@ Unlike traditional streaming services, JMusic ensures that your data — from yo
 
 ### 🛡️ **Decentralized Architecture & Privacy First**
 - No central servers or cloud dependencies.  
-- No telemetry, analytics, or background data collection.  
-- Optional P2P sharing only between explicitly approved peers.  
-- Shared data (if enabled) is strictly limited to torrent metadata and peer information.
+- No telemetry, analytics, or background data collection.
 
 ### 💾 **Local Data Management**
 - Your entire music library and metadata are stored locally.  
@@ -38,13 +36,14 @@ Unlike traditional streaming services, JMusic ensures that your data — from yo
 - Efficiently handles large music collections.  
 - Uses [`jaudiotagger`](https://bitbucket.org/ijabz/jaudiotagger) for advanced audio metadata support.
 
+### 📥 **Flexible Music Import**
+- Seamlessly import music from various online sources.
+- Integrates with `Spot-dl` for Spotify downloads and `yt-dlp` for YouTube and other video platforms.
+
 ### ⚡ **Real-Time Interactivity**
 - Powered by **WebSockets** for instant updates on playback, playlists, and peer connections.
 
-### 🔗 **Peer-to-Peer Music Sharing**
-- Built around the [`bt-core`](https://github.com/atomashpolskiy/bt) BitTorrent engine.  
-- Enables decentralized music discovery and distribution between users.  
-- No intermediary servers or cloud platforms involved.
+
 
 ### 🔧 **REST API for Integrations**
 - Based on **Quarkus REST** and **Jackson**.  
@@ -74,7 +73,7 @@ This means:
 | **Backend** | Java, Quarkus |
 | **Frontend** | HTML, CSS, JavaScript |
 | **Database** | H2 |
-| **P2P Engine** | bt-core |
+
 | **Real-Time Communication** | WebSockets |
 | **ORM** | Hibernate with Panache |
 
@@ -151,7 +150,7 @@ From here, you can:
 - Import and manage your local music library  
 - Create and manage playlists  
 - Stream and control playback  
-- Optionally share music with approved peers  
+  
 
 ---
 
@@ -166,7 +165,6 @@ src/main/java/API/Rest
 These endpoints support operations for:
 - Playback control  
 - Library management  
-- Peer discovery and sharing  
 - Metadata operations  
 
 ---
@@ -199,6 +197,6 @@ This license ensures:
 ## ❤️ Acknowledgments
 
 - [Quarkus](https://quarkus.io) — Supersonic Subatomic Java  
-- [bt-core](https://github.com/atomashpolskiy/bt) — Modern BitTorrent engine  
+
 - [jaudiotagger](https://bitbucket.org/ijabz/jaudiotagger) — Audio metadata tagging  
 - The open-source community and all contributors  

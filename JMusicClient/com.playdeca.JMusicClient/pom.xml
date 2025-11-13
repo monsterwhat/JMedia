@@ -76,11 +76,7 @@
             <artifactId>json</artifactId>
             <version>20250517</version>  
         </dependency>
-        <dependency>
-            <groupId>com.github.atomashpolskiy</groupId>
-            <artifactId>bt-core</artifactId>
-            <version>1.10</version>  
-        </dependency>
+
         <dependency>
             <groupId>net.jthink</groupId>
             <artifactId>jaudiotagger</artifactId>
