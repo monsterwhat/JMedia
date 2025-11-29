@@ -1,0 +1,20 @@
+{
+    "elements": {},
+    "attributes": {
+        "hx-get": {},
+        ":class": {
+            "context": "li"
+        },
+        "hx-post": {
+            "context": "div"
+        },
+        "x-data": {
+            "context": "div"
+        },
+        "@click": {
+            "context": "th"
+        },
+        "x-show": {},
+        "x-model": {}
+    }
+}

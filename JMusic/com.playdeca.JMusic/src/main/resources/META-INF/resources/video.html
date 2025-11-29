@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title id="pageTitle">JMusic Videos</title>
+
+        <script src="/js/theme-initializer.js"></script>
+
+        <!-- Bulma CSS -->
+        <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/css/custom.css"/>
+
+        <!-- HTMX -->
+        <script src="/js/htmx.min.js"></script>
+        <!-- Alpine.js -->
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+
+        <style>
+            .video-entry {
+                padding: 10px;
+                border-bottom: 1px solid #444;
+                cursor: pointer;
+            }
+            .video-entry:hover {
+                background-color: #555;
+            }
+            .video-title {
+                font-weight: bold;
+                color: #fff;
+            }
+            .video-info {
+                font-size: 0.8em;
+                color: #ccc;
+            }
+            .nested-list {
+                margin-left: 15px;
+                border-left: 1px solid #666;
+            }
+            .selected-video-entry {
+                background-color: #00d1b2 !important; /* Bulma's success color */
+                color: #fff !important;
+            }
+             .selected-video-entry .video-title, .selected-video-entry .video-info {
+                color: #fff !important;
+            }
+        </style>
+
+    </head>
+    <body>
+
+        <!-- Hero layout -->
+        <section class="hero is-fullheight">
+
+            <!-- Hero Head (Navbar) -->
+            <div class="hero-head">
+                <nav class="navbar" role="navigation">
+                    <div class="navbar-brand">
+                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMusic</strong></a>
+                        <a role="button" class="navbar-item" id="themeToggle">
+                            <i class="pi pi-sun" id="themeIcon"></i>
+                        </a>
+                    </div>
+                    <div id="navMenu" class="navbar-menu">
+                        <div class="navbar-end">
+                            <a class="navbar-item" id="openProfileModalBtn">
+                                <span class="icon"><i class="pi pi-user"></i></span>
+                                <span id="currentProfileName">Loading...</span>
+                            </a>
+                            <a class="navbar-item" href="/settings.html">
+                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                <span>Settings</span>
+                            </a>
+                            <a class="navbar-item" href="/import.html">
+                                <span class="icon"><i class="pi pi-download"></i></span>
+                                <span>Import</span>
+                            </a>
+                             <a class="navbar-item" href="/video.html">
+                                <span class="icon"><i class="pi pi-video"></i></span>
+                                <span>Videos</span>
+                            </a>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+
+            <!-- Hero Body (Main content area) -->
+            <div class="hero-body m-0 p-0">
+
+                <div class="columns p-0 m-0" style="width:100%;">
+
+                    <!-- Video List Sidebar -->
+                    <div class="column is-4 is-full-mobile" id="videoListSidebar"
+                         x-data="{ activeVideoTab: 'shows' }">
+                        <div class="card has-background-grey-darker has-text-white">
+                            <header class="card-header">
+                                <div class="tabs is-fullwidth">
+                                    <ul>
+                                        <li :class="{ 'is-active': activeVideoTab === 'shows' }">
+                                            <a @click="activeVideoTab = 'shows'" class="has-text-white">Shows</a>
+                                        </li>
+                                        <li :class="{ 'is-active': activeVideoTab === 'movies' }">
+                                            <a @click="activeVideoTab = 'movies'" class="has-text-white">Movies</a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </header>
+                            <div class="card-content p-0 m-0" style="height: calc(100vh - 120px); overflow-y: scroll;">
+                                <div x-show="activeVideoTab === 'shows'" id="showsTabContent">
+                                    <div id="seriesList">
+                                        <!-- Series will be dynamically populated here -->
+                                        <div class="has-text-centered py-4">
+                                            <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                            <p>Loading shows...</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div x-show="activeVideoTab === 'movies'" id="moviesTabContent">
+                                    <div id="movieList">
+                                        <!-- Movies will be dynamically populated here -->
+                                        <div class="has-text-centered py-4">
+                                            <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                            <p>Loading movies...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Video Player -->
+                    <div class="column is-8 is-full-mobile" id="videoPlayerContainer">
+                        <div id="mainVideoCard" class="card has-background-black has-text-white">
+                            <div class="card-content m-0 p-0">
+                                <video id="videoPlayer" width="100%" controls autoplay>
+                                    <source src="" type="video/mp4">
+                                    Your browser does not support the video tag.
+                                </video>
+                            </div>
+                             <header class="card-header">
+                                <p id="videoTitle" class="card-header-title has-text-white is-4">Select a video to play</p>
+                            </header>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <script src="/js/navbar.js"></script>
+        <script src="/js/profileManager.js"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Initial load based on default tab
+                // Check activeVideoTab from Alpine.js data
+                let activeVideoTab = document.getElementById('videoListSidebar')._x_dataStack[0].activeVideoTab;
+                if (activeVideoTab === 'shows') {
+                    loadSeries();
+                } else if (activeVideoTab === 'movies') {
+                    loadMovies();
+                }
+
+                // Handle tab switching for video content
+                document.querySelector('#videoListSidebar .tabs').addEventListener('click', function(event) {
+                    if (event.target.tagName === 'A') {
+                        const tab = event.target.textContent.trim();
+                        if (tab === 'Shows') {
+                            loadSeries();
+                        } else if (tab === 'Movies') {
+                            loadMovies();
+                        }
+                    }
+                });
+            });
+
+            // Function to load series titles and populate #seriesList
+            function loadSeries() {
+                const seriesListDiv = document.getElementById('seriesList');
+                seriesListDiv.innerHTML = `<div class="has-text-centered py-4"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i><p>Loading shows...</p></div>`;
+
+                htmx.ajax('GET', '/api/video/shows', {
+                    handler: function(response) {
+                        try {
+                            let data;
+                            if (typeof response.responseText !== 'string' || response.responseText.trim() === "" || response.responseText === "undefined") {
+                                data = []; // Treat as empty array if response is truly undefined, or the string "undefined", or an empty string
+                            } else {
+                                data = JSON.parse(response.responseText);
+                            }
+                            const seriesTitles = data;
+                            seriesListDiv.innerHTML = ''; // Clear loading indicator
+
+                            seriesTitles.forEach(seriesTitle => {
+                                const seriesDiv = document.createElement('div');
+                                seriesDiv.className = 'video-entry';
+                                seriesDiv.innerHTML = `
+                                    <span class="icon is-small"><i class="pi pi-angle-right"></i></span>
+                                    <span class="video-title">${seriesTitle}</span>
+                                `;
+                                seriesListDiv.appendChild(seriesDiv);
+
+                                const seasonsContainer = document.createElement('div');
+                                seasonsContainer.className = 'nested-list';
+                                seasonsContainer.style.display = 'none'; // Hidden by default
+                                seriesListDiv.appendChild(seasonsContainer);
+
+                                seriesDiv.addEventListener('click', function(e) {
+                                    e.stopPropagation(); 
+                                    const icon = this.querySelector('.icon i');
+                                    if (seasonsContainer.style.display === 'none') {
+                                        seasonsContainer.style.display = 'block';
+                                        icon.className = 'pi pi-angle-down';
+                                        loadSeasonsForSeries(seriesTitle, seasonsContainer);
+                                    } else {
+                                        seasonsContainer.style.display = 'none';
+                                        icon.className = 'pi pi-angle-right';
+                                    }
+                                });
+                            });
+                        } catch (e) {
+                            console.error("Error parsing series titles JSON:", e, "Response Text:", response.responseText);
+                            seriesListDiv.innerHTML = `<div class="notification is-danger">Error loading shows.</div>`;
+                        }
+                    }
+                });
+            }
+
+            // Function to load seasons for a given series
+            function loadSeasonsForSeries(seriesTitle, seasonsContainer) {
+                 seasonsContainer.innerHTML = `
+                    <div class="has-text-centered py-2">
+                        <i class="pi pi-spin pi-spinner" style="font-size: 1.2rem;"></i>
+                        <p>Loading seasons...</p>
+                    </div>`;
+
+                htmx.ajax('GET', `/api/video/shows/${encodeURIComponent(seriesTitle)}/seasons`, {
+                    handler: function(response) {
+                        try {
+                            let data;
+                            if (typeof response.responseText !== 'string' || response.responseText.trim() === "" || response.responseText === "undefined") {
+                                data = []; // Treat as empty array if response is truly undefined, or the string "undefined", or an empty string
+                            } else {
+                                data = JSON.parse(response.responseText);
+                            }
+                            const seasonNumbers = data;
+                            seasonsContainer.innerHTML = '';
+                            seasonNumbers.forEach(seasonNumber => {
+                                const seasonDiv = document.createElement('div');
+                                seasonDiv.className = 'video-entry';
+                                seasonDiv.innerHTML = `
+                                    <span class="icon is-small"><i class="pi pi-angle-right"></i></span>
+                                    <span class="video-title">Season ${seasonNumber}</span>
+                                `;
+                                seasonsContainer.appendChild(seasonDiv);
+
+                                const episodesContainer = document.createElement('div');
+                                episodesContainer.className = 'nested-list';
+                                episodesContainer.style.display = 'none';
+                                seasonsContainer.appendChild(episodesContainer);
+
+                                seasonDiv.addEventListener('click', function(e) {
+                                    e.stopPropagation(); 
+                                    const seasonIcon = this.querySelector('.icon i');
+                                    if (episodesContainer.style.display === 'none') {
+                                        episodesContainer.style.display = 'block';
+                                        seasonIcon.className = 'pi pi-angle-down';
+                                        loadEpisodesForSeason(seriesTitle, seasonNumber, episodesContainer);
+                                    } else {
+                                        episodesContainer.style.display = 'none';
+                                        seasonIcon.className = 'pi pi-angle-right';
+                                    }
+                                });
+                            });
+                        } catch (e) {
+                            console.error("Error parsing season numbers JSON:", e, "Response Text:", response.responseText);
+                            seasonsContainer.innerHTML = `<div class="notification is-danger">Error loading seasons.</div>`;
+                        }
+                    }
+                });
+            }
+
+            // Function to load episodes for a given season
+            function loadEpisodesForSeason(seriesTitle, seasonNumber, episodesContainer) {
+                episodesContainer.innerHTML = `
+                    <div class="has-text-centered py-2">
+                        <i class="pi pi-spin pi-spinner" style="font-size: 1.2rem;"></i>
+                        <p>Loading episodes...</p>
+                    </div>`;
+
+                htmx.ajax('GET', `/api/video/shows/${encodeURIComponent(seriesTitle)}/seasons/${seasonNumber}/episodes`, {
+                    handler: function(response) {
+                        try {
+                            let data;
+                            if (typeof response.responseText !== 'string' || response.responseText.trim() === "" || response.responseText === "undefined") {
+                                data = []; // Treat as empty array if response is truly undefined, or the string "undefined", or an empty string
+                            } else {
+                                data = JSON.parse(response.responseText);
+                            }
+                            const episodes = data;
+                            episodesContainer.innerHTML = '';
+                            episodes.forEach(episode => {
+                                const episodeEntry = document.createElement('div');
+                                episodeEntry.className = 'video-entry';
+                                episodeEntry.innerHTML = `
+                                    <div class="video-title">${episode.episodeNumber ? 'E' + episode.episodeNumber + ' - ' : ''}${episode.episodeTitle || episode.title}</div>
+                                    <div class="video-info">${formatDuration(episode.durationSeconds)}</div>
+                                `;
+                                episodeEntry.onclick = (e) => playVideo(e.currentTarget, episode);
+                                episodesContainer.appendChild(episodeEntry);
+                            });
+                        } catch (e) {
+                            console.error("Error parsing episodes JSON:", e, "Response Text:", response.responseText);
+                            episodesContainer.innerHTML = `<div class="notification is-danger">Error loading episodes.</div>`;
+                        }
+                    }
+                });
+            }
+
+            // Function to load movies and populate #movieList
+            function loadMovies() {
+                const movieListDiv = document.getElementById('movieList');
+                movieListDiv.innerHTML = `<div class="has-text-centered py-4"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i><p>Loading movies...</p></div>`;
+
+                htmx.ajax('GET', '/api/video/movies', {
+                    handler: function(response) {
+                        try {
+                            let data;
+                            if (typeof response.responseText !== 'string' || response.responseText.trim() === "" || response.responseText === "undefined") {
+                                data = []; // Treat as empty array if response is truly undefined, or the string "undefined", or an empty string
+                            } else {
+                                data = JSON.parse(response.responseText);
+                            }
+                            const movies = data;
+                            movieListDiv.innerHTML = ''; // Clear loading indicator
+
+                            movies.forEach(movie => {
+                                const movieEntry = document.createElement('div');
+                                movieEntry.className = 'video-entry';
+                                movieEntry.innerHTML = `
+                                    <div class="video-title">${movie.title} ${movie.releaseYear ? '(' + movie.releaseYear + ')' : ''}</div>
+                                    <div class="video-info">${formatDuration(movie.durationSeconds)}</div>
+                                `;
+                                movieEntry.onclick = (e) => playVideo(e.currentTarget, movie);
+                                movieListDiv.appendChild(movieEntry);
+                            });
+                        } catch (e) {
+                            console.error("Error parsing movies JSON:", e, "Response Text:", response.responseText);
+                            movieListDiv.innerHTML = `<div class="notification is-danger">Error loading movies.</div>`;
+                        }
+                    }
+                });
+            }
+
+
+            function playVideo(clickedElement, video) {
+                const videoPlayer = document.getElementById('videoPlayer');
+                const videoTitle = document.getElementById('videoTitle');
+                videoPlayer.src = `/api/video/stream/${video.id}`;
+                videoTitle.textContent = video.title;
+                videoPlayer.play();
+
+                // Highlight the selected video entry
+                document.querySelectorAll('.video-entry').forEach(entry => {
+                    entry.classList.remove('selected-video-entry');
+                });
+                if (clickedElement) {
+                    clickedElement.classList.add('selected-video-entry');
+                }
+            }
+
+            function formatDuration(totalSeconds) {
+                if (isNaN(totalSeconds) || totalSeconds < 0) {
+                    return "0:00";
+                }
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            }
+        </script>
+    
+    <!-- Profile Management Modal -->
+    <div id="profileModal" class="modal">
+      <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
+      <div class="modal-card">
+        <header class="modal-card-head">
+          <p class="modal-card-title">Manage Profiles</p>
+          <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
+        </header>
+        <section class="modal-card-body">
+          <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
+          <h6 class="title is-6 mt-4">All Profiles:</h6>
+          <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
+            <!-- Profiles will be dynamically loaded here as circular buttons -->
+          </div>
+          <hr>
+          <div class="field has-addons">
+              <div class="control is-expanded">
+                  <input class="input" type="text" id="newProfileNameInput" placeholder="New Profile Name">
+              </div>
+              <div class="control">
+                  <button class="button is-info" id="createProfileBtn">Create</button>
+              </div>
+          </div>
+          <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
+        </section>
+        <footer class="modal-card-foot">
+          <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
+        </footer>
+      </div>
+    </div>
+<script src="/js/profileManager.js"></script>
+</body>
+</html>

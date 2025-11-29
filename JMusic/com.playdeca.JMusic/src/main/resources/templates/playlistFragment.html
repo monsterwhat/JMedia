@@ -1,0 +1,37 @@
+<div id="sidebarPlaylistListContainer">
+    <table class="table is-fullwidth is-hoverable is-striped">
+        <tbody>
+            <tr>
+                <td>
+                    <button
+                        class="button is-ghost is-fullwidth has-text-left has-text-primary"
+                        hx-get="/api/music/ui/playlist-view/0"
+                        hx-target="#playlistView"
+                        hx-swap="outerHTML">
+                        All Songs
+                    </button>
+                </td>
+            </tr>
+            {#for p in playlists}
+            <tr>
+                <td class="is-flex is-justify-content-space-between is-align-items-center">
+                    <button
+                        class="button is-ghost is-fullwidth has-text-left has-text-primary"
+                        hx-get="/api/music/ui/playlist-view/{p.id}"
+                        hx-target="#playlistView"
+                        hx-swap="outerHTML"
+                        style="flex-grow: 1;">
+                        {p.name ?: 'Unnamed Playlist'}
+                    </button>
+                    <a
+                        class="has-text-danger is-clickable ml-2"
+                        hx-delete="/api/music/playlists/{p.id}"
+                        hx-confirm="Are you sure you want to delete playlist '{p.name ?: 'Unnamed Playlist'}'?">
+                        <i class="pi pi-trash"></i>
+                    </a>
+                </td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+</div>

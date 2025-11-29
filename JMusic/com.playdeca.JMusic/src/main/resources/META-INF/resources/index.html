@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title id="pageTitle">JMusic Home</title>
+
+        <script src="/js/theme-initializer.js"></script>
+
+        <!-- Bulma CSS -->
+        <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/css/custom.css"/>
+        <link rel="stylesheet" href="/css/playback-bar.css"/>
+
+        <!-- HTMX -->
+        <script src="/js/htmx.min.js"></script>
+        <!-- Alpine.js -->
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('profile', {
+                    currentProfile: null,
+                });
+            });
+        </script>
+
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+
+        <style>
+            html, body {
+                height: 100%;
+            }
+
+            .hero {
+                height: 100vh; /* full height layout */
+                display: flex;
+                flex-direction: column;
+            }
+
+            .hero-body { 
+                overflow: auto;
+            }
+
+            #songListContainer::-webkit-scrollbar {
+                width: 6px;
+            }
+            #songListContainer::-webkit-scrollbar-thumb {
+                background: #888;
+                border-radius: 3px;
+            }
+            #songListContainer::-webkit-scrollbar-thumb:hover {
+                background: #aaa;
+            }
+        </style>
+    </head>
+    <body x-data>
+
+        <audio id="audioPlayer" preload="metadata"></audio>
+
+        <!-- Hero layout -->
+        <section class="hero is-fullheight">
+
+            <!-- Hero Head (Navbar) -->
+            <div class="hero-head">
+                <nav class="navbar" role="navigation">
+                    <div class="navbar-brand">
+                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMusic</strong></a>
+                        <a role="button" class="navbar-item" id="themeToggle">
+                            <i class="pi pi-sun" id="themeIcon"></i>
+                        </a>
+                        <a role="button" class="navbar-item" id="playerToggle">
+                            <i class="pi pi-expand" id="playerIcon"></i>
+                        </a>
+                        <a role="button" class="navbar-item" href="/video.html">
+                            <i class="pi pi-video"></i>
+                        </a>
+                        <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                        </a>
+                        <a role="button" class="navbar-item is-hidden-desktop is-hidden-mobile" id="sidebarToggle">
+                            <i class="pi pi-bars"></i>
+                        </a>
+                    </div>
+                    <div id="navMenu" class="navbar-menu">
+                        <div class="navbar-start">
+                        </div>
+                        <div class="navbar-item is-expanded" style="justify-content: center;">
+                            <div class="navbar-search-container">
+                                <div class="control has-icons-right" style="flex-grow: 1;">
+                                    <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput"
+                                           hx-get="/api/music/ui/tbody/0"
+                                           hx-trigger="search, keyup changed delay:500ms from:this"
+                                           hx-target="#songTableBody"
+                                           hx-swap="innerHTML"
+                                           hx-include="[name='search']"
+                                           hx-indicator="#loadingRow">
+                                    <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
+                                        <i class="pi pi-times"></i>
+                                    </span>
+                                </div>
+                                <div id="globalSearchDropdown" class="dropdown-menu" role="menu" style="display: none;">
+                                    <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
+                                        <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+                                    </div>
+                                    <div class="dropdown-content"
+                                         hx-post="/api/music/ui/search-suggestions"
+                                         hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                                         hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                                         hx-target="this"
+                                         hx-swap="innerHTML"
+                                         hx-indicator="#globalSearchDropdownLoadingIndicator">
+                                        <!-- Suggestions will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="navbar-end">
+                            <a class="navbar-item" id="openProfileModalBtn">
+                                <span class="icon"><i class="pi pi-user"></i></span>
+                                <span id="currentProfileName">Loading...</span>
+                            </a>
+                            <a class="navbar-item" href="/settings.html">
+                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                <span>Settings</span>
+                            </a>
+                            <a class="navbar-item" href="/import.html">
+                                <span class="icon"><i class="pi pi-download"></i></span>
+                                <span>Import</span>
+                            </a>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+
+            <!-- Hero Body (Main content area) -->
+            <div class="hero-body m-0 p-0">
+
+                <div class="columns p-0 m-0" style="width:100%;">
+
+                    <!-- Playlist Sidebar -->
+                    <div class="column is-3 is-full-mobile" id="playlistSidebar" 
+                         x-data="{ 
+                             activeTab: 'playlists', 
+                             isCreatePlaylistModalOpen: false,
+                             newPlaylist: { name: '', description: '' },
+                             async savePlaylist() {
+                                 if (!this.newPlaylist.name) return alert('Please enter a name');
+                                 const response = await fetch('/api/music/playlists', {
+                                     method: 'POST',
+                                     headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify(this.newPlaylist)
+                                 });
+                                 const json = await response.json();
+                                 if (response.ok && json.data) {
+                                     this.isCreatePlaylistModalOpen = false;
+                                     this.newPlaylist.name = '';
+                                     this.newPlaylist.description = '';
+                                     htmx.trigger('#sidebarPlaylistList', 'load'); // Use HTMX trigger to refresh list
+                                 } else {
+                                     alert('Failed to create playlist: ' + (json.error || 'Unknown error'));
+                                 }
+                             }
+                         }">
+                        <div class="card has-background-grey-darker has-text-white">
+                            <header class="card-header">
+                                <div class="tabs is-fullwidth">
+                                    <ul>
+                                        <li class="has-text-white" :class="{ 'is-active': activeTab === 'playlists' }">
+                                            <a @click="activeTab = 'playlists'">Playlists</a>
+                                        </li>
+                                        <li :class="{ 'is-active': activeTab === 'queue' }">
+                                            <a class="has-text-white" @click="activeTab = 'queue'">Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span></a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </header>
+                            <div class="card-content p-0 m-0" style="height: calc(100vh - 320px); overflow-y: scroll;">
+                                <div id="playlistsTabContent" x-show="activeTab === 'playlists'" >
+                                    <button id="createPlaylistBtn" class="button is-primary is-fullwidth" @click="isCreatePlaylistModalOpen = true">
+                                        <i class="pi pi-plus"></i> Create Playlist
+                                    </button> 
+                                    <div id="sidebarPlaylistList"
+                                         hx-get="/api/music/ui/playlists-fragment"
+                                         hx-trigger="load, delete-playlist from:body"
+                                         hx-swap="innerHTML">
+                                        <!-- dynamically populated -->
+                                    </div>
+                                </div>
+
+                                <div id="queueTabContent" x-show="activeTab === 'queue'" >
+                                    <div id="songQueueContainer">
+                                        <table id="songQueueTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                                            <thead>
+                                                <tr>
+                                                    <th></th>
+                                                    <th class="has-text-white has-text-weight-semibold">Title / Artist</th>
+                                                    <th class="has-text-white has-text-weight-semibold" style="width:20%;">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="songQueueTableBody">
+                                                <tr id="queueLoadingIndicator" class="htmx-indicator">
+                                                    <td colspan="3" class="has-text-centered py-4">
+                                                        <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                                        <p>Loading queue...</p>
+                                                    </td>
+                                                </tr>
+                                                <!-- Queue populated via JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <button id="clearQueueBtn" class="button is-danger is-fullwidth mt-2">Clear Queue</button>
+                                </div>
+                            </div>
+
+                            <!-- Create Playlist Modal -->
+                            <div id="createPlaylistModal" class="modal" :class="{'is-active': isCreatePlaylistModalOpen}">
+                                <div class="modal-background" @click="isCreatePlaylistModalOpen = false"></div>
+                                <div class="modal-card">
+                                    <header class="modal-card-head">
+                                        <p class="modal-card-title">Create Playlist</p>
+                                        <button class="delete" aria-label="close" @click="isCreatePlaylistModalOpen = false"></button>
+                                    </header>
+                                    <section class="modal-card-body">
+                                        <div class="field">
+                                            <label class="label">Playlist Name</label>
+                                            <div class="control">
+                                                <input class="input" type="text" id="newPlaylistName" placeholder="Enter playlist name" x-model="newPlaylist.name">
+                                            </div>
+                                        </div>
+                                        <div class="field">
+                                            <label class="label">Description</label>
+                                            <div class="control">
+                                                <textarea class="textarea" id="newPlaylistDescription" placeholder="Enter description (optional)" x-model="newPlaylist.description"></textarea>
+                                            </div>
+                                        </div>
+                                    </section>
+                                    <footer class="modal-card-foot">
+                                        <button class="button is-success" id="savePlaylistBtn" @click="savePlaylist()">Save</button>
+                                        <button class="button" id="cancelPlaylistBtn" @click="isCreatePlaylistModalOpen = false">Cancel</button>
+                                    </footer>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Add to Playlist Modal -->
+                        <div id="addToPlaylistModal" class="modal">
+                            <div class="modal-background" onclick="document.getElementById('addToPlaylistModal').classList.remove('is-active')"></div>
+                            <div id="addToPlaylistModalContent">
+                                <!-- Content will be loaded here via HTMX -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Playlist View -->
+                    <div class="column is-9 is-full-mobile" id="playlistView" x-data="playlistViewController()">
+                        <div id="mainPlaylistCard" class="card has-background-grey-darker has-text-white" data-playlist-id="0">
+                            <header class="card-header">
+                                <p id="playlistTitle" class="card-header-title has-text-white is-4">All Songs</p>
+                                <button class="has-text-success ml-2" hx-post="/api/music/playback/queue-all/0" hx-trigger="click" hx-swap="none" hx-on::after-request="htmx.ajax('GET','/api/music/ui/queue-fragment',{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/songs-fragment',{target:'#songTable tbody', swap:'innerHTML'});">
+                                    <i class="pi pi-play"></i>
+                                </button>
+                                <button class="card-header-icon" aria-label="more options" id="toggleAllSongsBtn">
+                                    <span class="icon">
+                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                    </span>
+                                </button>
+                            </header>
+                            <div class="card-header">
+                                <div class="field has-addons" style="width:100%">
+                                    <div class="control is-expanded">
+                                        <input class="input is-rounded" type="text" placeholder="Search songs..." name="search"
+                                               x-model="playlistSearchQuery"
+                                               :hx-get="`/api/music/ui/tbody/${playlistId}`"
+                                               hx-trigger="keyup changed delay:500ms, search"
+                                               hx-target="#songTableBody"
+                                               hx-swap="innerHTML"
+                                               hx-include="[name='search']"
+                                               hx-indicator="#loadingRow"
+                                               :hx-vals="JSON.stringify({sortBy: sortField, sortDirection: sortDirection})">
+                                    </div>
+                                    <div class="control">
+                                        <button class="button is-info is-rounded"
+                                                @click="playlistSearchQuery = ''; htmx.trigger($el.parentElement.previousElementSibling.querySelector('input'), 'search')">
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-content m-0 p-0" style="max-height: calc(100vh - 320px); overflow-y: auto;" id="allSongsContent">
+                                <div id="allSongsForPlaylistContainer" style="display: none;">
+                                    <div id="allSongsForPlaylist">
+                                        <!-- Content for all songs in a specific playlist will be loaded here -->
+                                    </div>
+                                </div>
+                                <div id="songListContainer" >
+                                    <table id="songTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                                        <thead>
+                                            <tr>
+                                                <th></th>
+                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
+                                                    Title <i class="pi pi-sort"></i>
+                                                </th>
+                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
+                                                    Artist <i class="pi pi-sort"></i>
+                                                </th>
+                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
+                                                    Date Added <i class="pi pi-sort"></i>
+                                                </th>
+                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
+                                                    Duration <i class="pi pi-sort"></i>
+                                                </th>
+                                                <th class="has-text-white has-text-weight-semibold">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tr id="loadingRow" class="htmx-indicator is-hidden">
+                                            <td colspan="6" class="has-text-centered py-4">
+                                                <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                                <p>Loading songs...</p>
+                                            </td>
+                                        </tr>
+                                        <tbody hx-get="/api/music/ui/tbody/0?page=1&limit=50&sortBy=title&sortDirection=asc"
+                                               hx-trigger="load"
+                                               hx-swap="innerHTML"
+                                               hx-include="[name='search']"
+                                               id="songTableBody">
+                                            <!-- Songs populated via HTMX -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>  
+                    <div id="autoFetchContainer" class="has-text-centered py-4 is-hidden">
+                        <p class="has-text-white mb-3">No songs found. Would you like to auto fetch?</p>
+                        <button class="button is-primary" id="autoFetchBtn">Auto Fetch</button>
+                        <div id="spotdlWarningMessage" class="notification is-warning is-hidden mt-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hero Foot (Music Bar) -->
+            <div class="hero-foot card has-background-grey-darker has-text-white m-3 p-3">
+                <nav class="level is-mobile">
+
+                    <!-- LEFT: Song Info -->
+                    <div class="level-left is-hidden-mobile">
+                        <div class="level-item is-flex is-align-items-center">
+                            <div class="image-container mr-3">
+                                <figure class="image is-96x96">
+                                    <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                                </figure>
+                                <button id="expandImageBtn">
+                                    <span class="icon is-small"><i class="pi pi-expand"></i></span>
+                                </button>
+                            </div>
+                            <div>
+                                <p id="songTitle" class="has-text-white has-text-weight-semibold is-size-6">Loading...</p>
+                                <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CENTER: Controls + Progress -->
+                    <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
+                        <!-- Playback buttons -->
+                        <div class="buttons are-small mb-2">
+                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                            <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
+                            <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="nextBtn"   title="Next"><i class="pi pi-step-forward"></i></button>
+                            <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                            <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-6 mr-2">0:00</span>
+                            <input type="range" min="0" max="100" value="0"
+                                   style="width:100%"
+                                   name="seconds" id="playbackProgressBar"/>
+                            <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-6 ml-2">0:00</span>
+                        </div>
+
+                        <!-- Song Info for mobile -->
+                        <div class="is-hidden-desktop mt-2" style="width: 100%;">
+                            <div style="overflow: hidden;">
+                                <p id="songTitleMobile" class="has-text-white has-text-weight-semibold is-size-6 marquee">Loading...</p>
+                            </div>
+                            <div style="overflow: hidden;">
+                                <p id="songArtistMobile" class="has-text-success is-size-7 marquee">Unknown Artist</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT: Volume -->
+                    <div class="level-right is-hidden-mobile">
+                        <div class="level-item">
+                            <div class="is-flex is-align-items-center">
+                                <i class="pi pi-volume-up has-text-white mr-2"></i>
+                                <input type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                            </div>
+                        </div>
+                    </div> 
+                </nav>
+            </div>
+
+        </section>
+
+        <script src="/js/musicBar.js"></script>
+        <script src="/js/mediaSession.js"></script>
+        <script src="/js/playlistBar.js"></script>
+        <script src="/js/navbar.js"></script>
+        <script src="/js/songQueue.js"></script>
+        <script src="/js/import.js"></script>
+        <script src="/js/profileManager.js"></script>
+
+
+
+        <!-- Custom Context Menu -->
+        <div id="customContextMenu" class="context-menu" style="display: none;">
+            <div class="context-menu-item" id="editSongMenuItem" data-action="edit-song" data-disabled="true">Edit Song</div>
+            <div class="context-menu-item" id="queueSongMenuItem" data-action="queue-song">Queue Song</div>
+            <div class="context-menu-item has-submenu" id="addToPlaylistMenuItem" data-action="add-to-playlist">
+                Add to Playlist
+                <div class="submenu" id="playlistSubMenu" style="display: none;">
+                    <!-- Playlists will be dynamically loaded here -->
+                    <div class="context-menu-item">Loading Playlists...</div>
+                </div>
+            </div>
+            <div class="context-menu-item" id="rescanSongMenuItem" data-action="rescan-song">
+                <span class="icon is-small"><i class="pi pi-sync"></i></span>
+                <span>Re-Scan</span>
+            </div>
+            <div class="context-menu-item has-text-danger" id="deleteSongMenuItem" data-action="delete-song">
+                <span class="icon is-small"><i class="pi pi-trash"></i></span>
+                <span>Delete</span>
+            </div>
+            <div class="context-menu-item" id="shareMenuItem" data-action="share-song" data-disabled="true">Share</div>
+                        </div>
+        
+                <!-- Profile Management Modal -->
+            <div id="profileModal" class="modal">
+              <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
+              <div class="modal-card">
+                <header class="modal-card-head">
+                  <p class="modal-card-title">Manage Profiles</p>
+                  <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
+                </header>
+                <section class="modal-card-body">
+                  <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
+                  <h6 class="title is-6 mt-4">All Profiles:</h6>
+                  <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
+                    <!-- Profiles will be dynamically loaded here as circular buttons -->
+                  </div>
+                  <hr>
+                  <div class="field has-addons">
+                      <div class="control is-expanded">
+                          <input class="input" type="text" id="newProfileNameInput" placeholder="New Profile Name">
+                      </div>
+                      <div class="control">
+                          <button class="button is-info" id="createProfileBtn">Create</button>
+                      </div>
+                  </div>
+                  <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
+                </section>
+                <footer class="modal-card-foot">
+                  <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
+                </footer>
+              </div>
+            </div>
+                        <!-- Lyrics Modal -->
+        
+                        <div id="lyricsModal" class="modal">
+        
+                            <div class="modal-background" onclick="document.getElementById('lyricsModal').classList.remove('is-active')"></div>
+        
+                            <div class="modal-card">
+        
+                                <header class="modal-card-head">
+        
+                                    <p class="modal-card-title">Lyrics</p>
+        
+                                    <button class="delete" aria-label="close" onclick="document.getElementById('lyricsModal').classList.remove('is-active')"></button>
+        
+                                </header>
+        
+                                <section class="modal-card-body">
+        
+                                    <pre id="lyricsModalBody" style="white-write-file;"></pre>
+        
+                                </section>
+        
+                                <footer class="modal-card-foot">
+        
+                                    <button class="button" onclick="document.getElementById('lyricsModal').classList.remove('is-active')">Close</button>
+        
+                                </footer>
+        
+                            </div>
+        
+                        </div>
+        
+                
+
+        
+
+
+
+            </body>
+
+        </html>
+
+        <script>
+                        function playlistViewController() {
+                            return {
+                                sortField: 'title',
+                                sortDirection: 'asc',
+                                playlistId: '0',
+                                playlistSearchQuery: '',
+                                init() {
+                                    this.playlistId = this.$el.querySelector('#mainPlaylistCard').dataset.playlistId || '0';
+                                    console.log(`[Alpine] playlistViewController initialized for playlist ID: ${this.playlistId}`);
+                                    
+                                    this.updateSortIcons();
+
+                                    // Re-apply icons after HTMX swaps the table body
+                                    htmx.on(this.$el, 'htmx:afterSwap', (evt) => {
+                                        if (evt.detail.target.id === 'songTableBody') {
+                                            this.updateSortIcons();
+                                        }
+                                    });
+                                },
+                                toggleSortAndFetch(field) {
+                                    if (this.sortField === field) {
+                                        this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                                    } else {
+                                        this.sortField = field;
+                                        this.sortDirection = 'asc';
+                                    }
+                                    this.updateSortIcons(); // Give immediate feedback
+
+                                    // Manually trigger the HTMX request with the new sort parameters
+                                    htmx.ajax('GET', `/api/music/ui/tbody/${this.playlistId}`, {
+                                        target: '#songTableBody',
+                                        swap: 'innerHTML',
+                                        values: {
+                                            sortBy: this.sortField,
+                                            sortDirection: this.sortDirection,
+                                            search: this.getCurrentSearchTerm()
+                                        },
+                                        indicator: '#loadingRow'
+                                    });
+                                },
+                                updateSortIcons() {
+                                    this.$el.querySelectorAll('.sortable-header').forEach(header => {
+                                        const icon = header.querySelector('i');
+                                        const field = header.dataset.sortByTemp;
+                                        
+                                        if (icon && field) {
+                                            icon.className = 'pi '; // Reset classes
+                                            if (field === this.sortField) {
+                                                icon.classList.add(this.sortDirection === 'asc' ? 'pi-sort-up' : 'pi-sort-down');
+                                            } else {
+                                                icon.classList.add('pi-sort');
+                                            }
+                                        }
+                                    });
+                                },
+                                getCurrentSearchTerm() {
+                                    const searchInput = this.$el.querySelector('input[name="search"]');
+                                    return searchInput ? searchInput.value : '';
+                                }
+                            };
+                        }
+
+                        document.addEventListener('DOMContentLoaded', function () {
+                            function setupGlobalSearchListeners() {
+                                const autoFetchBtn = document.getElementById('autoFetchBtn');
+                                if (autoFetchBtn) {
+                                    autoFetchBtn.removeEventListener('click', handleAutoFetch); // Prevent duplicate listeners
+                                    autoFetchBtn.addEventListener('click', handleAutoFetch);
+                                }
+                            }
+
+                            function handleClearGlobalSearch() {
+                                const globalSearchInput = document.getElementById('globalSearchInput');
+                                if (globalSearchInput) {
+                                    globalSearchInput.value = '';
+                                    // Manually trigger the htmx request for the main table
+                                    htmx.ajax('GET', '/api/music/ui/tbody/0', {
+                                        target: '#songTableBody',
+                                        swap: 'innerHTML',
+                                        values: { search: '' } // Ensure search term is empty
+                                    });
+                                    // Hide the dropdown
+                                    const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+                                    if (globalSearchDropdown) {
+                                        globalSearchDropdown.style.display = 'none';
+                                    }
+                                }
+                            }
+
+                            function handleAutoFetch() {
+                                const globalSearchInput = document.getElementById('globalSearchInput');
+                                if (globalSearchInput && window.startImportFromSearch) {
+                                    window.startImportFromSearch(globalSearchInput.value);
+                                } else {
+                                    console.error("Global search input or startImportFromSearch function not found.");
+                                }
+                            }
+
+                            setupGlobalSearchListeners();
+
+                            document.body.addEventListener('click', function (event) {
+                                if (event.target.closest('#clearSearchIcon')) {
+                                    handleClearGlobalSearch();
+                                }
+                            });
+
+                            const globalSearchInput = document.getElementById('globalSearchInput');
+                            const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+
+                            function showDropdown() {
+                                const query = globalSearchInput.value.trim();
+                                console.log(`[Debug] showDropdown called. Query: "${query}"`);
+                                if (query !== '') {
+                                    // Let htmx handle the request, just make sure dropdown is visible to show results
+                                    globalSearchDropdown.style.display = 'block';
+                                } else {
+                                    globalSearchDropdown.style.display = 'none';
+                                }
+                            }
+
+                            function hideDropdown() {
+                                setTimeout(() => {
+                                    if (!globalSearchInput.matches(':focus')) {
+                                        globalSearchDropdown.style.display = 'none';
+                                    }
+                                }, 150);
+                            }
+
+                            if (globalSearchInput && globalSearchDropdown) {
+                                globalSearchInput.addEventListener('keyup', showDropdown);
+                                globalSearchInput.addEventListener('blur', hideDropdown);
+                                globalSearchInput.addEventListener('focus', showDropdown);
+                                globalSearchDropdown.addEventListener('mousedown', (event) => event.preventDefault());
+                            }
+
+                            document.body.addEventListener('htmx:afterSwap', function (event) {
+                                if (event.detail.target.id === 'songTableBody') {
+                                    console.log("[index.html] htmx:afterSwap detected for songTableBody.");
+                                    const songTableBody = document.getElementById('songTableBody');
+                                    const autoFetchContainer = document.getElementById('autoFetchContainer');
+                                    const currentGlobalSearchInput = document.querySelector('input[name="globalSearch"]');
+                                    const songRows = Array.from(songTableBody.children).filter(child => child.tagName === 'TR' && !child.classList.contains('htmx-indicator'));
+                                    if (songRows.length === 0 && currentGlobalSearchInput && currentGlobalSearchInput.value.trim() !== '') {
+                                        if (autoFetchContainer) autoFetchContainer.classList.remove('is-hidden');
+                                    } else {
+                                        if (autoFetchContainer) autoFetchContainer.classList.add('is-hidden');
+                                    }
+                                } else if (event.detail.target.classList.contains('dropdown-content')) {
+                                    console.log("[Debug] Dropdown content swapped. Re-evaluating visibility.");
+                                    showDropdown();
+                                }
+                            });
+
+                            // Handle incoming search query from other pages
+                            const urlParams = new URLSearchParams(window.location.search);
+                            const searchQuery = urlParams.get('q');
+                            if (searchQuery && globalSearchInput) {
+                                globalSearchInput.value = decodeURIComponent(searchQuery);
+                                htmx.trigger(globalSearchInput, 'search'); // Trigger the HTMX search
+                                // Optionally, remove the query parameter from the URL to clean it up
+                                history.replaceState(null, '', window.location.pathname);
+                            }
+                        });
+</script>

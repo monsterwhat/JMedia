@@ -1,0 +1,38 @@
+<div id="searchResultsContainer" class="column is-full-mobile">
+    <div class="card has-background-grey-darker has-text-white">
+        <header class="card-header">
+            <p class="card-header-title has-text-white is-4">Search Results</p>
+            <button class="card-header-icon" aria-label="close">
+                <span class="icon">
+                    <i class="pi pi-times"></i>
+                </span>
+            </button>
+        </header>
+        <div class="card-content m-0 p-0">
+            <div id="songListContainer" style="max-height: calc(100vh - 320px); overflow-y: auto;">
+                <table id="songTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th class="has-text-white has-text-weight-semibold">Title / Artist</th>
+                            <th class="has-text-white has-text-weight-semibold">Date Added</th>
+                            <th class="has-text-white has-text-weight-semibold">Duration</th>
+                            <th class="has-text-white has-text-weight-semibold">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody hx-get="/api/music/ui/tbody/0?search={searchQuery}"
+                           hx-trigger="load"
+                           hx-swap="innerHTML"
+                           hx-indicator="#loadingRow">
+                        <tr id="loadingRow" class="htmx-indicator">
+                            <td colspan="5" class="has-text-centered py-4">
+                                <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                <p>Loading songs...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

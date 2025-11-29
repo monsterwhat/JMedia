@@ -1,0 +1,357 @@
+/* Theme Variables */
+:root {
+    --background-color: #f5f5f5; /* Light mode background */
+    --text-color: #363636; /* Light mode text */
+    --card-background: #ffffff; /* Light mode card background */
+    --card-header-background: #f5f5f5; /* Light mode card header */
+    --navbar-background: #ffffff; /* Light mode navbar */
+    --navbar-text: #363636; /* Light mode navbar text */
+    --table-striped-background-odd: #ffffff; /* Light mode odd row background */
+    --table-striped-background-even: #f9f9f9; /* Light mode even row background */
+    --table-hover-background-odd: #f5f5f5; /* Lighter odd row hover for light mode */
+    --table-hover-background-even: #b8b4b4; /* Even lighter even row hover for light mode */
+    --table-hover-background-color: #d4edda; /* Light green hover for light mode */
+}
+
+html[data-theme="dark"] {
+    --background-color: #222222; /* Dark mode background */
+    --text-color: #f5f5f5; /* Dark mode text */
+    --card-background: #363636; /* Dark mode card background */
+    --card-header-background: #2f2f2f; /* Dark mode card header */
+    --navbar-background: #222222; /* Dark mode navbar */
+    --navbar-text: #f5f5f5; /* Dark mode navbar text */
+    --table-striped-background-odd: #363636; /* Dark mode odd row background */
+    --table-striped-background-even: #3a3a3a; /* Dark mode even row background */
+    --table-hover-background-odd: #4a4a4a; /* Dark mode odd row hover background */
+    --table-hover-background-even: #5a5a5a; /* Dark mode even row hover background */
+    --table-hover-background-color: #28a745; /* Light green hover for dark mode (adjust as needed for visibility) */
+}
+
+/* Apply Theme Variables */
+html,
+body {
+    background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+.navbar.is-dark {
+    background-color: var(--navbar-background) !important;
+}
+
+.navbar-item, .navbar-link {
+    color: var(--navbar-text) !important;
+}
+
+/* Override Bulma's specific color classes */
+.has-background-dark {
+    background-color: var(--background-color) !important;
+}
+
+.has-background-grey-darker {
+    background-color: var(--card-background) !important;
+}
+
+.has-text-white {
+    color: var(--text-color) !important;
+}
+
+.title.has-text-white, .subtitle.has-text-white, .label.has-text-white {
+    color: var(--text-color) !important;
+}
+
+.card {
+    background-color: var(--card-background) !important;
+}
+
+.card-header-title {
+    background-color: var(--card-header-background) !important;
+    color: var(--text-color) !important;
+}
+
+/* Theme Toggle Button Styling */
+#themeToggle {
+    background: none;
+    border: none;
+    color: var(--navbar-text); /* Use navbar text color */
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 0.5rem;
+    margin-left: 0.5rem;
+}
+
+#themeToggle:hover {
+    color: #00d1b2; /* Bulma primary color for hover */
+}
+
+#themeIcon {
+    vertical-align: middle;
+}
+
+/* Mobile-specific styles for music bar */
+@media (max-width: 768px) {
+    .box.has-background-black {
+        height: 30vh; /* Make music bar 30% of viewport height */
+        overflow-y: auto; /* Add scroll if content overflows */
+    }
+    .content-wrapper {
+        padding-bottom: 30vh; /* Adjust content wrapper padding to prevent overlap */
+    }
+
+    /* Mobile Sidebar Styling */
+    .is-mobile-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 80%; /* Adjust as needed */
+        z-index: 1000;
+        background-color: var(--background-color); /* Use theme background */
+        transform: translateX(-100%); /* Hidden by default */
+        transition: transform 0.3s ease-in-out;
+        padding: 1rem; /* Add some padding */
+        box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+    }
+
+    .is-mobile-sidebar.is-active {
+        transform: translateX(0%); /* Show when active */
+    }
+
+    /* Overlay for when sidebar is active */
+    .sidebar-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0,0,0,0.5);
+        z-index: 999;
+        display: none;
+    }
+
+    .sidebar-overlay.is-active {
+        display: block;
+    }
+}
+
+/* Table Theme Styling */
+.table {
+    background-color: transparent; /* Ensure table background is transparent to show card background */
+    color: var(--text-color); /* Inherit text color */
+}
+
+.table.is-striped tbody tr:not(.is-selected):nth-child(odd) {
+    background-color: var(--table-striped-background-odd); /* Use custom theme variable for odd striped background */
+}
+
+.table.is-striped tbody tr:not(.is-selected):nth-child(even) {
+    background-color: var(--table-striped-background-even); /* Use custom theme variable for even striped background */
+}
+
+.table.is-hoverable tbody tr:not(.is-selected):hover {
+    background-color: var(--table-hover-background-color); /* Use consistent light green hover background */
+}
+
+/* Ensure text in table headers and cells also respects theme */
+.table th, .table td {
+    color: var(--text-color);
+}
+
+/* Style input elements to respect theme */
+.input, .textarea {
+    background-color: var(--card-background) !important;
+    color: var(--text-color) !important;
+}
+
+.input::placeholder, .textarea::placeholder {
+    color: var(--text-color) !important;
+    opacity: 0.7; /* Make placeholder slightly lighter than regular text */
+}
+
+input[type="range"] {
+    accent-color: #48c78e; /* Bulma's 'success' green */
+}
+
+.marquee {
+    white-space: nowrap;
+    /* animation will be applied by JS */
+}
+
+.no-scroll {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@keyframes marquee {
+    0% {
+        transform: translateX(0);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+.is-clickable {
+    cursor: pointer;
+}
+
+#songQueueTable td {
+    padding: 0.25em 0.5em; /* Smaller padding for queue table cells */
+}
+
+/* Class for visually and functionally disabling content */
+.is-disabled-overlay {
+    opacity: 0.5; /* Dim the content */
+    pointer-events: none; /* Prevent all mouse events */
+}
+.image-container {
+    position: relative;
+    display: inline-block; /* To make it wrap content */
+}
+
+.image-container #expandImageBtn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10; /* Ensure it's above the image */
+    opacity: 0; /* Hidden by default */
+    transition: opacity 0.2s ease-in-out;
+    pointer-events: none; /* Allow clicks to pass through when hidden */
+
+    /* Custom styling for transparent icon button */
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 0;
+    line-height: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 32px;
+    height: 32px;
+}
+
+.image-container:hover #expandImageBtn {
+    opacity: 1; /* Show on hover */
+    pointer-events: auto; /* Enable clicks when visible */
+}
+
+.image-container figure.image {
+    transition: width 0.2s ease-in-out, height 0.2s ease-in-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Style for enlarged image */
+.image-container.is-expanded figure.image {
+    width: 128px !important; /* 32px * 4 */
+    height: 128px !important; /* 32px * 4 */
+}
+.context-menu {
+    position: absolute;
+    background-color: var(--card-background); /* Use theme card background */
+    border: 1px solid var(--text-color); /* Use theme text color for border */
+    border-radius: 4px;
+    padding: 5px 0;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+    z-index: 1000; /* Ensure it's on top */
+    min-width: 150px;
+}
+
+.context-menu-item {
+    padding: 8px 15px;
+    cursor: pointer;
+    color: var(--text-color); /* Use theme text color */
+}
+
+.context-menu-item:hover {
+    background-color: var(--table-hover-background-color); /* Use theme hover background */
+}
+.context-menu-item[data-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.has-submenu {
+    position: relative;
+}
+
+.submenu {
+    position: absolute;
+    left: 100%; /* Position to the right of the parent menu item */
+    top: 0;
+    background-color: var(--card-background);
+    border: 1px solid var(--text-color);
+    border-radius: 4px;
+    padding: 5px 0;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
+    z-index: 1001; /* Ensure it's above the main context menu */
+    min-width: 150px;
+}
+
+/* Custom styling for active tab text */
+.tabs li.is-active a {
+    color: #48c78e !important; /* Bulma's success green */
+    font-weight: bold !important;
+}
+
+/* Ensure inactive tabs retain their default text color */
+.tabs li:not(.is-active) a {
+    color: var(--text-color) !important; /* Use theme text color for inactive tabs */
+}
+
+/* Navbar Search Dropdown Styling */
+.navbar-search-container {
+    position: relative; /* Make this the positioning context for the dropdown */
+    width: 400px; /* Match the width from HTML */
+    display: flex; /* Match the display from HTML */
+}
+
+.navbar-search-container .control {
+    margin-bottom: 0; /* Remove any default bottom margin */
+}
+
+.navbar-search-container .dropdown-menu {
+    position: absolute;
+    left: 0;
+    top: calc(100% - 2.5rem); /* Adjust to bring it closer */
+    width: 100%;
+    /* Removed padding-top: 0.5rem; from here */
+    z-index: 20;
+}
+
+.navbar-search-container .dropdown-content {
+    background-color: var(--card-background); /* Use theme card background */
+    border-radius: 4px;
+    box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1), 0 0 0 1px rgba(10, 10, 10, 0.1);
+    padding-bottom: 0.5rem;
+    padding-top: 0.5rem; /* Added padding-top here */
+}
+
+.navbar-search-container .dropdown-item {
+    color: var(--text-color); /* Use theme text color */
+    padding-right: 3rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.navbar-search-container .control .icon {
+    z-index: 21; /* Ensure the icon is above the input and dropdown */
+}
+
+.navbar-search-container .dropdown-item:hover {
+    background-color: var(--table-hover-background-color); /* Use theme hover background */
+    color: var(--text-color); /* Ensure text color remains readable on hover */
+}
+
+.sortable-header {
+    cursor: pointer;
+}
+
+
+
+

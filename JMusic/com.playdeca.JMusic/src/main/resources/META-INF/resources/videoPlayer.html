@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>JMusic Player</title>
+
+        <script src="/js/theme-initializer.js"></script>
+
+        <!-- Bulma CSS -->
+        <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/css/custom.css"/>
+        <link rel="stylesheet" href="/css/playback-bar.css"/>
+        <link rel="stylesheet" href="/css/player.css"/>
+
+        <!-- HTMX -->
+        <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+    </head>
+<body>
+    <audio id="audioPlayer" preload="metadata"></audio>
+
+    <section class="hero is-fullheight">
+        <!-- Hero Head (Navbar) -->
+        <div class="hero-head">
+            <nav class="navbar" role="navigation">
+                <div class="navbar-brand">
+                    <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMusic</strong></a>
+                    <a role="button" class="navbar-item" id="themeToggle">
+                        <i class="pi pi-sun" id="themeIcon"></i>
+                    </a>
+                    <a role="button" class="navbar-item" id="playerToggle">
+                        <i class="pi pi-mobile" id="playerIcon"></i>
+                    </a>
+                    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
+                        <span aria-hidden="true"></span>
+                        <span aria-hidden="true"></span>
+                        <span aria-hidden="true"></span>
+                    </a>
+                    <a role="button" class="navbar-item is-hidden-desktop is-hidden-mobile" id="sidebarToggle">
+                        <i class="pi pi-bars"></i>
+                    </a>
+                </div>
+                <div id="navMenu" class="navbar-menu">
+                    <div class="navbar-start">
+                    </div>
+                    <div class="navbar-item is-expanded" style="justify-content: center;">
+                        <div class="control has-icons-right" style="flex-grow: 1;">
+                            <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput"
+                                   hx-get="/api/music/ui/tbody/0"
+                                   hx-trigger="search, keyup changed delay:500ms from:this"
+                                   hx-target="#songTableBody"
+                                   hx-swap="innerHTML"
+                                   hx-include="[name='search']"
+                                   hx-indicator="#loadingRow">
+                            <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
+                                <i class="pi pi-times"></i>
+                            </span>
+                        </div>
+                        <div id="globalSearchDropdown" class="dropdown-menu" role="menu" style="display: none;">
+                            <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
+                                <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+                            </div>
+                            <div class="dropdown-content"
+                                 hx-post="/api/music/ui/search-suggestions"
+                                 hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                                 hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                                 hx-target="this"
+                                 hx-swap="innerHTML"
+                                 hx-indicator="#globalSearchDropdownLoadingIndicator">
+                                <!-- Suggestions will be loaded here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="navbar-end">
+                        <a class="navbar-item" id="openProfileModalBtn">
+                            <span class="icon"><i class="pi pi-user"></i></span>
+                            <span id="currentProfileName">Loading...</span>
+                        </a>
+                        <a class="navbar-item" href="/settings.html">
+                            <span class="icon"><i class="pi pi-cog"></i></span>
+                            <span>Settings</span>
+                        </a>
+                        <a class="navbar-item" href="/import.html">
+                            <span class="icon"><i class="pi pi-download"></i></span>
+                            <span>Import</span>
+                        </a>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <!-- Empty Full-width Column -->
+        <div class="hero-body is-flex is-justify-content-center is-align-items-center" style="min-height: 100px;">
+            <!-- This space is left intentionally blank -->
+        </div>
+
+        <!-- Hero Body (Main content area) -->
+        <div class="hero-body m-0 p-0 is-flex-grow-1">
+            <div id="main-content" class="columns is-gapless is-flex-grow-1">
+                <div id="video-container" class="column is-two-thirds">
+                    <video id="videoPlayer" controls autoplay>
+                        <!-- Video source will be set dynamically or via a REST endpoint -->
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+
+                <div id="sidebar" class="column is-one-third">
+                    <h2 class="title is-4">Playlist / Up Next</h2>
+                    
+                    <hr style="background-color: #444;">
+
+                    <div id="playlist-items" hx-get="/api/video/playlist" hx-trigger="load" hx-swap="innerHTML">
+                        <!-- Playlist items will be loaded here via HTMX -->
+                        <div class="htmx-indicator has-text-centered py-4">
+                            <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hero Foot (Music Bar) -->
+        <div class="hero-foot card has-background-grey-darker has-text-white m-3 p-3">
+            <nav class="level is-mobile">
+                <!-- LEFT: Song Info -->
+                <div class="level-left is-hidden-mobile">
+                    <div class="level-item">
+                        <div class="image-container mr-3">
+                            <figure class="image is-96x96">
+                                <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                            </figure>
+                            <button id="expandImageBtn">
+                                <span class="icon is-small"><i class="pi pi-expand"></i></span>
+                            </button>
+                        </div>
+                        <div>
+                            <p id="songTitle" class="has-text-white has-text-weight-semibold is-size-6">Loading...</p>
+                            <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CENTER: Controls + Progress -->
+                <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
+                    <!-- Playback buttons -->
+                    <div class="buttons are-large mb-2">
+                        <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                        <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
+                        <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                        <button id="nextBtn"   title="Next"><i id="nextIcon" class="pi pi-step-forward"></i></button>
+                        <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                    </div>
+
+                    <!-- Progress bar and Volume Control -->
+                    <div class="is-flex is-align-items-center is-justify-content-center playback-progress-volume-container" style="width: 100%;">
+                        <!-- Progress bar -->
+                        <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                            <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-4 mr-2">0:00</span>
+                            <input type="range" min="0" max="100" value="0"
+                                   style="width:100%"
+                                   name="seconds" id="playbackProgressBar"/>
+                            <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-4 ml-2">0:00</span>
+                        </div>
+
+                        <!-- Volume Control (hidden on mobile) -->
+                        <div id="toggledVBar">
+                            <div class="is-flex is-align-items-center is-hidden-mobile ml-4 is-vertical-volume">
+                                <i class="pi pi-volume-up has-text-white"></i>
+                                <input type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </div>
+    </section>
+
+    <script>
+        // Basic script to handle potential query parameters or dynamic loading
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoPlayer = document.getElementById('videoPlayer');
+            const urlParams = new URLSearchParams(window.location.search);
+            const videoId = urlParams.get('videoId');
+
+            if (videoId) {
+                videoPlayer.src = `/api/video/stream/${videoId}`;
+                videoPlayer.load(); // Load the new source
+            } else {
+                console.log("No videoId provided in URL. Please provide one (e.g., ?videoId=sample)");
+                // Optional: set a default video source for demonstration
+                // videoPlayer.src = "/api/video/stream/default";
+                // videoPlayer.load();
+            }
+        });
+    </script>
+    
+    <!-- JavaScript imports -->
+    <script src="/js/musicBar.js"></script>
+    <script src="/js/mediaSession.js"></script>
+    <script src="/js/navbar.js"></script>
+    <script src="/js/songQueue.js"></script>
+    <script src="/js/playlistBar.js"></script>
+    <script src="/js/profileManager.js"></script>
+
+    <!-- Profile Management Modal -->
+    <div id="profileModal" class="modal">
+      <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
+      <div class="modal-card">
+        <header class="modal-card-head">
+          <p class="modal-card-title">Manage Profiles</p>
+          <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
+        </header>
+        <section class="modal-card-body">
+          <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
+          <h6 class="title is-6 mt-4">All Profiles:</h6>
+          <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
+            <!-- Profiles will be dynamically loaded here as circular buttons -->
+          </div>
+          <hr>
+          <div class="field has-addons">
+              <div class="control is-expanded">
+                  <input class="input" type="text" id="newProfileNameInput" placeholder="New Profile Name">
+              </div>
+              <div class="control">
+                  <button class="button is-info" id="createProfileBtn">Create</button>
+              </div>
+          </div>
+          <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
+        </section>
+        <footer class="modal-card-foot">
+          <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
+        </footer>
+      </div>
+    </div>
+</body>
+</html>
