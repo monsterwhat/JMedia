@@ -118,16 +118,16 @@ public class MusicUiApi {
     }
 
     @POST
-    @Path("/playback/queue-all/{id}")
+    @Path("/playback/queue-all/{profileId}/{id}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
-    public QueueFragmentResponse queueAllSongsUi(@PathParam("id") Long id) { // Change return type
+    @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
+    public QueueFragmentResponse queueAllSongsUi(@PathParam("profileId") Long profileId, @PathParam("id") Long id) { // Reverted return type
         // Call the JSON API to do the actual queuing
-        Response apiResponse = queueAPI.queueAllSongs(id);
+        Response apiResponse = queueAPI.queueAllSongs(profileId, id);
 
         // Then return the updated queue fragment for HTMX
-        List<Song> updatedQueue = playbackController.getQueue();
+        List<Song> updatedQueue = playbackController.getQueue(profileId);
 
         // Create a list of SongWithIndex objects
         List<SongWithIndex> queueWithIndex = new ArrayList<>();
@@ -141,7 +141,7 @@ public class MusicUiApi {
 
         String html = queueFragment
                 .data("queue", queueWithIndex)
-                .data("currentSong", playbackController.getCurrentSong())
+                .data("currentSong", playbackController.getCurrentSong(profileId))
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -151,18 +151,18 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
     }
 
     @POST
-    @Path("/queue/skip-to/{index}")
+    @Path("/queue/skip-to/{profileId}/{index}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
-    public QueueFragmentResponse skipToQueueIndexUi(@PathParam("index") int index) { // Change return type
-        queueAPI.skipToQueueIndex(index);
+    @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
+    public QueueFragmentResponse skipToQueueIndexUi(@PathParam("profileId") Long profileId, @PathParam("index") int index) { // Reverted return type
+        queueAPI.skipToQueueIndex(profileId, index);
 
-        List<Song> updatedQueue = playbackController.getQueue();
+        List<Song> updatedQueue = playbackController.getQueue(profileId);
         // Create a list of SongWithIndex objects
         List<SongWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
@@ -175,7 +175,7 @@ public class MusicUiApi {
 
         String html = queueFragment
                 .data("queue", queueWithIndex)
-                .data("currentSong", playbackController.getCurrentSong())
+                .data("currentSong", playbackController.getCurrentSong(profileId))
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -185,18 +185,18 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
     }
 
     @POST
-    @Path("/queue/remove/{index}")
+    @Path("/queue/remove/{profileId}/{index}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
-    public QueueFragmentResponse removeFromQueueUi(@PathParam("index") int index) { // Change return type
-        queueAPI.removeFromQueue(index);
+    @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
+    public QueueFragmentResponse removeFromQueueUi(@PathParam("profileId") Long profileId, @PathParam("index") int index) { // Reverted return type
+        queueAPI.removeFromQueue(profileId, index);
 
-        List<Song> updatedQueue = playbackController.getQueue();
+        List<Song> updatedQueue = playbackController.getQueue(profileId);
         // Create a list of SongWithIndex objects
         List<SongWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
@@ -214,7 +214,7 @@ public class MusicUiApi {
 
         String html = queueFragment
                 .data("queue", queueWithIndex)
-                .data("currentSong", playbackController.getCurrentSong())
+                .data("currentSong", playbackController.getCurrentSong(profileId))
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -224,18 +224,18 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
     }
 
     @POST
-    @Path("/queue/clear")
+    @Path("/queue/clear/{profileId}")
     @Consumes(MediaType.WILDCARD)
     @Blocking
-    @Produces(MediaType.APPLICATION_JSON) // Change to JSON
-    public QueueFragmentResponse clearQueueUi() { // Change return type
-        queueAPI.clearQueue();
+    @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
+    public QueueFragmentResponse clearQueueUi(@PathParam("profileId") Long profileId) { // Reverted return type
+        queueAPI.clearQueue(profileId);
 
-        List<Song> updatedQueue = playbackController.getQueue();
+        List<Song> updatedQueue = playbackController.getQueue(profileId);
         // Create a list of SongWithIndex objects
         List<SongWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < updatedQueue.size(); i++) {
@@ -248,7 +248,7 @@ public class MusicUiApi {
 
         String html = queueFragment
                 .data("queue", queueWithIndex)
-                .data("currentSong", playbackController.getCurrentSong())
+                .data("currentSong", playbackController.getCurrentSong(profileId))
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -258,25 +258,27 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Return DTO
+        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
     }
 
     // -------------------------
     // Playlist / TBODY fragments
     // -------------------------
     @GET
-    @Path("/playlists-fragment")
+    @Path("/playlists-fragment/{profileId}")
     @Blocking
-    public String playlistsFragment() {
+    public String playlistsFragment(@PathParam("profileId") Long profileId) {
         return playlistFragment
-                .data("playlists", playbackController.getPlaylists())
+                .data("playlists", playbackController.getPlaylists()) // Playlists are global
+                .data("profileId", profileId)
                 .render();
     }
 
     @GET
-    @Path("/playlist-view/{id}")
+    @Path("/playlist-view/{profileId}/{id}")
     @Blocking
     public String getPlaylistView(
+            @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
@@ -304,8 +306,8 @@ public class MusicUiApi {
         int totalPages = (int) Math.ceil((double) totalSongs / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages));
 
-        Song currentSong = playbackController.getCurrentSong();
-        boolean isPlaying = playbackController.getState() != null && playbackController.getState().isPlaying();
+        Song currentSong = playbackController.getCurrentSong(profileId);
+        boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
 
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
@@ -325,13 +327,15 @@ public class MusicUiApi {
                 .data("search", search)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
+                .data("profileId", profileId)
                 .render();
     }
 
     @GET
-    @Path("/tbody/{id}")
+    @Path("/tbody/{profileId}/{id}")
     @Blocking
     public String getPlaylistTbody(
+            @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
@@ -361,8 +365,8 @@ public class MusicUiApi {
             int totalPages = (int) Math.ceil((double) totalSongs / limit);
             int currentPage = Math.max(1, Math.min(page, totalPages));
 
-            Song currentSong = playbackController.getCurrentSong();
-            boolean isPlaying = playbackController.getState() != null && playbackController.getState().isPlaying();
+            Song currentSong = playbackController.getCurrentSong(profileId);
+            boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
 
             List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
@@ -381,6 +385,7 @@ public class MusicUiApi {
                     .data("search", search) // Pass search term back to template for pagination links
                     .data("sortBy", sortBy) // Pass sortBy back to template for pagination links
                     .data("sortDirection", sortDirection) // Pass sortDirection back to template for pagination links
+                    .data("profileId", profileId)
                     .render();
         } catch (Exception e) {
             System.out.println("Error: " + e.getLocalizedMessage());
@@ -394,14 +399,15 @@ public class MusicUiApi {
     }
 
     @GET
-    @Path("/queue-fragment")
+    @Path("/queue-fragment/{profileId}")
     @Blocking
-    @Produces(MediaType.APPLICATION_JSON)
-    public QueueFragmentResponse getQueueFragment(
+    @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
+    public QueueFragmentResponse getQueueFragment( // Reverted return type
+            @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
-        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit);
+        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId);
         List<Song> queuePage = paginatedQueue.songs();
         int totalQueueSize = paginatedQueue.totalSize();
 
@@ -418,35 +424,37 @@ public class MusicUiApi {
 
         String html = queueFragment
                 .data("queue", queueWithIndex)
-                .data("currentSong", playbackController.getCurrentSong())
+                .data("currentSong", playbackController.getCurrentSong(profileId))
                 .data("totalQueueSize", totalQueueSize)
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
                 .data("limit", limit)
+                .data("profileId", profileId)
                 .render();
 
-        return new QueueFragmentResponse(html, totalQueueSize);
+        return new QueueFragmentResponse(html, totalQueueSize); // Reverted to return DTO
     }
 
     @GET
-    @Path("/add-to-playlist-dialog/{songId}")
+    @Path("/add-to-playlist-dialog/{profileId}/{songId}")
     @Blocking
     @Produces(MediaType.TEXT_HTML)
-    public String getAddToPlaylistDialog(@PathParam("songId") Long songId) {
-        List<Playlist> playlists = playbackController.getPlaylistsWithSongStatus(songId);
+    public String getAddToPlaylistDialog(@PathParam("profileId") Long profileId, @PathParam("songId") Long songId) {
+        List<Playlist> playlists = playbackController.getPlaylistsWithSongStatus(songId); // Playlists are global
         return addToPlaylistDialog
                 .data("playlists", playlists)
                 .data("songId", songId)
+                .data("profileId", profileId)
                 .render();
     }
 
     @POST
-    @Path("/search-suggestions")
+    @Path("/search-suggestions/{profileId}")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Blocking
-    public String getSearchSuggestions(@FormParam("searchQuery") String searchQuery) {
+    public String getSearchSuggestions(@PathParam("profileId") Long profileId, @FormParam("searchQuery") String searchQuery) {
         try {
             if (searchQuery == null || searchQuery.isBlank()) {
                 return ""; // Return empty if no search query
@@ -459,6 +467,7 @@ public class MusicUiApi {
             return searchSuggestionsFragment
                     .data("suggestions", suggestions)
                     .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                    .data("profileId", profileId)
                     .render();
         } catch (Exception e) {
             System.err.println("[ERROR] Error fetching search suggestions for query: '" + searchQuery + "' - " + e.getMessage());
@@ -469,11 +478,14 @@ public class MusicUiApi {
     }
 
     @GET
-    @Path("/search-results")
+    @Path("/search-results/{profileId}")
     @Blocking
-    public String getSearchResults(@jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+    public String getSearchResults(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
         return searchResultsView
                 .data("searchQuery", search)
+                .data("profileId", profileId)
                 .render();
     }
 }

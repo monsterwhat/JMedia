@@ -1,0 +1,43 @@
+<div id="movieList">
+    {#if movies.empty}
+        <div class="has-text-centered py-4">
+            <p>No movies found.</p>
+        </div>
+    {#else}
+        {#for movie in movies}
+            {#include videoEntryFragment.html video=movie /}
+        {/for}
+
+        {#if totalPages > 1}
+        <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+            <a class="pagination-previous"
+               hx-get="/api/video/ui/movies-fragment?page={currentPage - 1}&limit={limit}"
+               hx-target="#movieList"
+               hx-swap="outerHTML"
+               {#if currentPage == 1}disabled{/if}>Previous</a>
+            <a class="pagination-next"
+               hx-get="/api/video/ui/movies-fragment?page={currentPage + 1}&limit={limit}"
+               hx-target="#movieList"
+               hx-swap="outerHTML"
+               {#if currentPage == totalPages}disabled{/if}>Next page</a>
+            <ul class="pagination-list">
+                {#for pageNum in pageNumbers}
+                    {#if pageNum == -1}
+                        <li><span class="pagination-ellipsis">&hellip;</span></li>
+                    {#else}
+                        <li>
+                            <a class="pagination-link {#if pageNum == currentPage}is-current{/if}"
+                               hx-get="/api/video/ui/movies-fragment?page={pageNum}&limit={limit}"
+                               hx-target="#movieList"
+                               hx-swap="outerHTML"
+                               aria-label="Page {pageNum}"
+                               aria-current="{#if pageNum == currentPage}page{/if}">{pageNum}</a>
+                        </li>
+                    {/if}
+
+                {/for}
+            </ul>
+        </nav>
+        {/if}
+    {/if}
+</div>

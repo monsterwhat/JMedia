@@ -19,22 +19,22 @@ public class PlaybackStateService {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    ProfileService profileService;
+
     @Transactional
-    public synchronized PlaybackState getOrCreateState() {
-        Profile activeProfile = settingsService.getActiveProfile();
-        if (activeProfile == null) {
-            // This case should ideally not happen if ProfileService is correctly initializing the main profile
-            // But if it does, return a transient default state, or throw an exception.
-            // For now, let's return a default, unpersisted state.
-            return createDefaultState(null);
+    public synchronized PlaybackState getOrCreateState(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
 
         // Try to find the state first
-        PlaybackState state = PlaybackState.find("profile", activeProfile).firstResult();
+        PlaybackState state = PlaybackState.find("profile", profile).firstResult();
 
         if (state == null) {
             // If not found, create a new one
-            state = createDefaultState(activeProfile);
+            state = createDefaultState(profile);
             try {
                 // Persist the new state. This might throw an exception if another thread
                 // has already created it for the same profile (race condition).
@@ -43,10 +43,10 @@ public class PlaybackStateService {
                 // If it failed due to a unique constraint violation, it means another thread
                 // created it. Fetch the existing one.
                 if (e.getCause() instanceof org.hibernate.exception.ConstraintViolationException) {
-                    state = PlaybackState.find("profile", activeProfile).firstResult();
+                    state = PlaybackState.find("profile", profile).firstResult();
                     if (state == null) {
                         // This should not happen, but as a fallback, throw an error.
-                        throw new IllegalStateException("Failed to create or retrieve PlaybackState for profile: " + activeProfile.name, e);
+                        throw new IllegalStateException("Failed to create or retrieve PlaybackState for profile: " + profile.name, e);
                     }
                 } else {
                     throw e; // Re-throw other persistence exceptions
@@ -67,17 +67,12 @@ public class PlaybackStateService {
     }
 
     @Transactional
-    public synchronized void saveState(PlaybackState newState) {
+    public synchronized void saveState(Long profileId, PlaybackState newState) {
         if (newState == null) {
             return;
         }
         
-        Profile activeProfile = settingsService.getActiveProfile();
-        if (activeProfile == null) {
-            return; // Cannot save state without an active profile
-        }
-        
-        PlaybackState existingState = getOrCreateState();
+        PlaybackState existingState = getOrCreateState(profileId);
         
         // Update existing state with new values from newState
         existingState.setPlaying(newState.isPlaying());
@@ -102,8 +97,8 @@ public class PlaybackStateService {
     }
 
     @Transactional
-    public synchronized void resetState() {
-        PlaybackState state = getOrCreateState();
+    public synchronized void resetState(Long profileId) {
+        PlaybackState state = getOrCreateState(profileId);
         Profile profile = state.getProfile(); // preserve the profile
         PlaybackState defaultState = createDefaultState(profile);
         

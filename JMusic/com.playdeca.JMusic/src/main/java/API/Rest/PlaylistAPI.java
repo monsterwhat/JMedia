@@ -22,8 +22,8 @@ public class PlaylistAPI {
     private PlaybackController playbackController;
 
     @GET
-    @Path("/")
-    public Response listPlaylists() { 
+    @Path("/{profileId}")
+    public Response listPlaylists(@PathParam("profileId") Long profileId) { 
         try {
             List<Playlist> playlists = playbackController.getPlaylists();
             if (playlists == null) {
@@ -78,8 +78,8 @@ public class PlaylistAPI {
     }
 
     @POST
-    @Path("/{playlistId}/songs/{songId}")
-    public Response addSongToPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid) {
+    @Path("/{playlistId}/songs/{songId}/{profileId}")
+    public Response addSongToPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid, @PathParam("profileId") Long profileId) {
         Playlist p = requirePlaylist(pid);
         Song s = requireSong(sid);
         if (p.getSongs().stream().noneMatch(song -> song.id.equals(sid))) {
@@ -100,9 +100,9 @@ public class PlaylistAPI {
     }
 
     @POST
-    @Path("/{playlistId}/songs/{songId}/toggle")
+    @Path("/{playlistId}/songs/{songId}/toggle/{profileId}")
     @Consumes(MediaType.WILDCARD)
-    public Response toggleSongInPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid) {
+    public Response toggleSongInPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid, @PathParam("profileId") Long profileId) {
         Playlist p = requirePlaylist(pid);
         Song s = requireSong(sid);
 
@@ -113,7 +113,8 @@ public class PlaylistAPI {
         } else {
             p.getSongs().add(s);
         }
-        playbackController.updatePlaylist(p);
+        playbackController.updatePlaylist(p); // Assuming updatePlaylist is still global for the Playlist object
+        // The PlaybackController.toggleSongInPlaylist(pid, sid, profileId) was for a TODO, so this logic stays here for now.
         return Response.ok().build();
     }
 

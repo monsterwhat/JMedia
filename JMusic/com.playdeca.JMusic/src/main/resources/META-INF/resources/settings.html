@@ -15,6 +15,15 @@
 
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
+        
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('profile', {
+                    currentProfile: null,
+                });
+            });
+        </script>
 
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
@@ -407,11 +416,113 @@
         <script src="/js/profileManager.js"></script>
 
         <script>
+            let globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
+
+            // Listen for profile switches from profileManager.js
+            document.body.addEventListener('profileSwitched', (event) => {
+                globalActiveProfileId = localStorage.getItem('activeProfileId');
+                console.log('Profile switched event received. New globalActiveProfileId:', globalActiveProfileId);
+                // Trigger a full page reload or update all relevant HTMX components
+                // For simplicity and full refresh of profile-specific data, a reload is best here.
+                location.reload();
+            });
+
+            // HTMX request interception to inject profileId into URLs
+            document.body.addEventListener('htmx:beforeRequest', function (event) {
+                let targetUrl = event.detail.path;
+
+                // ADD THIS CHECK: Ensure targetUrl is a string before proceeding
+                if (typeof targetUrl !== 'string' || !targetUrl) {
+                    return; // Exit the function if targetUrl is invalid
+                }
+
+                let newUrl = targetUrl; // Initialize newUrl with targetUrl
+                const currentProfileId = globalActiveProfileId; // Get the currently active profile ID
+
+                // Skip profile-related API calls that handle profile creation/deletion/switching directly
+                // These already include the necessary profile IDs or operate globally.
+                if (targetUrl.startsWith('/api/profiles')) {
+                    // For example, /api/profiles (GET all), /api/profiles/{id} (DELETE), /api/profiles (POST create)
+                    // /api/profiles/current, /api/profiles/switch/{id} are handled by profileManager.js or don't need globalActiveProfileId injected here.
+                    return;
+                }
+
+                // All other API calls related to music or settings that need profileId
+                if (targetUrl.startsWith('/api/music/') || targetUrl.startsWith('/api/settings/')) {
+                    const parts = targetUrl.split('/');
+                    const module = parts[2]; // 'music' or 'settings'
+
+                    if (module === 'music') {
+                        const subModule = parts[3]; // e.g., 'ui', 'playback', 'queue', 'playlists'
+
+                        if (subModule === 'ui') {
+                            // Pattern: /api/music/ui/{profileId}/...
+                            // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/0, /api/music/ui/search-suggestions
+                            // Ensure profileId is inserted right after 'ui'
+                            if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
+                                newUrl = `/api/music/ui/${currentProfileId}` + targetUrl.substring('/api/music/ui'.length);
+                            }
+                        } else if (subModule === 'playback') {
+                            // Pattern: /api/music/playback/{action}/{profileId}/{id?}
+                            // Examples: /api/music/playback/queue-all/0, /api/music/playback/select/123, /api/music/playback/toggle
+                            const action = parts[4];
+                            if (action === 'queue-all' || action === 'select') {
+                                // For /api/music/playback/queue-all/{playlistId}, /api/music/playback/select/{songId}
+                                // Needs to become /api/music/playback/{action}/{profileId}/{id}
+                                newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[5]}`;
+                            } else if (action === 'volume' || action === 'position') {
+                                // For /api/music/playback/volume/{level}, /api/music/playback/position/{seconds}
+                                // Needs to become /api/music/playback/{action}/{profileId}/{value}
+                                newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[5]}`;
+                            } else {
+                                // For actions like /api/music/playback/toggle, /api/music/playback/play, /api/music/playback/next, etc.
+                                // Needs to become /api/music/playback/{action}/{profileId}
+                                if (parts.length < 5 || parts[5] !== currentProfileId) { // If profileId is not appended
+                                    newUrl = `${targetUrl}/${currentProfileId}`;
+                                }
+                            }
+                        } else if (subModule === 'queue') {
+                            // Pattern: /api/music/queue/{profileId}/{action}/{id?}
+                            // Examples: /api/music/queue/add/{songId}, /api/music/queue/skip-to/{index}, /api/music/queue/clear
+                            const action = parts[4];
+                            if (action === 'add' || action === 'skip-to' || action === 'remove') {
+                                // /api/music/queue/{action}/{songId/index} -> /api/music/queue/{action}/{profileId}/{songId/index}
+                                newUrl = `/api/music/queue/${action}/${currentProfileId}/${parts[5]}`;
+                            } else if (action === 'clear') {
+                                // /api/music/queue/clear -> /api/music/queue/clear/{profileId}
+                                newUrl = `/api/music/queue/clear/${currentProfileId}`;
+                            } else if (parts.length === 4) { // This is likely /api/music/queue (GET current queue for profile)
+                                newUrl = `/api/music/queue/${currentProfileId}`;
+                            }
+                        } else if (subModule === 'playlists') {
+                            // Pattern: /api/music/playlists/{playlistId}/songs/{songId}/toggle/{profileId}
+                            // Only handles the specific toggle case where profileId is at the end.
+                            // Other playlist APIs (create, delete, get playlists themselves) might be global or handled differently.
+                            if (parts.length >= 7 && parts[6] === 'toggle') { // Check if it's the toggle action
+                                if (parts.length < 8 || parts[7] !== currentProfileId) { // Check if profileId is not appended
+                                    newUrl = `${targetUrl}/${currentProfileId}`;
+                                }
+                            }
+                        }
+                    } else if (module === 'settings' && parts[3] === 'clearPlaybackHistory') {
+                        // Pattern: /api/settings/clearPlaybackHistory/{profileId}
+                        if (parts.length < 5 || parts[4] !== currentProfileId) { // If profileId is not appended
+                            newUrl = `${targetUrl}/${currentProfileId}`;
+                        }
+                    }
+                }
+
+                if (newUrl !== targetUrl) {
+                    event.detail.path = newUrl;
+                    console.log('HTMX Request URL modified to:', event.detail.path);
+                }
+            });
+ 
             document.addEventListener('DOMContentLoaded', async () => {
                 const importSettingsCardColumn = document.getElementById('importSettingsCardColumn');
                 if (importSettingsCardColumn) {
                     try {
-                        const response = await fetch('/api/settings/import-capability');
+                        const response = await fetch(`/api/settings/${globalActiveProfileId}/import-capability`);
                         const data = await response.json();
                         if (response.ok && data.data === true) {
                             importSettingsCardColumn.classList.remove('is-hidden');

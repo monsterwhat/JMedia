@@ -14,95 +14,91 @@ import jakarta.persistence.EntityManager;
 public class PlaybackHistoryService {
 
     @Inject
-    EntityManager em;
+    EntityManager em; 
     
     @Inject
-    SettingsService settingsService;
+    ProfileService profileService;
 
-    private boolean isMainProfileActive() {
-        Profile activeProfile = settingsService.getActiveProfile();
-        return activeProfile != null && activeProfile.isMainProfile;
-    }
 
     @Transactional
-    public void add(Song song) {
+    public void add(Song song, Long profileId) {
         if (song == null) {
             return;
         }
-        Profile activeProfile = settingsService.getActiveProfile();
-        if (activeProfile == null) {
-            return;
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
         
         Song managedSong = em.merge(song);
         PlaybackHistory history = new PlaybackHistory();
         history.song = managedSong;
         history.playedAt = LocalDateTime.now();
-        history.profile = activeProfile;
+        history.profile = profile;
         history.persist();
     }
 
     @Transactional
-    public void clearHistory() {
-        if (isMainProfileActive()) {
-            em.createQuery("DELETE FROM PlaybackHistory").executeUpdate();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return;
-            em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.profile = :profile")
-                    .setParameter("profile", activeProfile)
-                    .executeUpdate();
+    public void clearHistory(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
+        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.profile = :profile")
+                .setParameter("profile", profile)
+                .executeUpdate();
     }
 
     @Transactional
-    public void deleteBySongId(Long songId) {
+    public void clearHistoryForAllProfiles() {
+        em.createQuery("DELETE FROM PlaybackHistory").executeUpdate();
+    }
+
+    @Transactional
+    public void deleteBySongId(Long songId, Long profileId) {
         if (songId == null) {
             return;
         }
-        if (isMainProfileActive()) {
-            em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId")
-                    .setParameter("songId", songId)
-                    .executeUpdate();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return;
-            em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId AND ph.profile = :profile")
-                    .setParameter("songId", songId)
-                    .setParameter("profile", activeProfile)
-                    .executeUpdate();
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
+        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId AND ph.profile = :profile")
+                .setParameter("songId", songId)
+                .setParameter("profile", profile)
+                .executeUpdate();
     }
 
-    public List<PlaybackHistory> getHistory(int page, int pageSize) {
-        if (isMainProfileActive()) {
-            return em.createQuery("SELECT ph FROM PlaybackHistory ph ORDER BY ph.playedAt DESC", PlaybackHistory.class)
-                    .setFirstResult((page - 1) * pageSize)
-                    .setMaxResults(pageSize)
-                    .getResultList();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return List.of();
-            return em.createQuery("SELECT ph FROM PlaybackHistory ph WHERE ph.profile = :profile ORDER BY ph.playedAt DESC", PlaybackHistory.class)
-                    .setParameter("profile", activeProfile)
-                    .setFirstResult((page - 1) * pageSize)
-                    .setMaxResults(pageSize)
-                    .getResultList();
+    @Transactional
+    public void deleteBySongIdForAllProfiles(Long songId) {
+        if (songId == null) {
+            return;
         }
+        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId")
+                .setParameter("songId", songId)
+                .executeUpdate();
     }
 
-    public List<Long> getRecentlyPlayedSongIds(int count) {
-        if (isMainProfileActive()) {
-            return em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph ORDER BY ph.playedAt DESC", Long.class)
+    public List<PlaybackHistory> getHistory(int page, int pageSize, Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return List.of();
+        }
+        return em.createQuery("SELECT ph FROM PlaybackHistory ph WHERE ph.profile = :profile ORDER BY ph.playedAt DESC", PlaybackHistory.class)
+                .setParameter("profile", profile)
+                .setFirstResult((page - 1) * pageSize)
+                .setMaxResults(pageSize)
+                .getResultList();
+    }
+
+    public List<Long> getRecentlyPlayedSongIds(int count, Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return List.of();
+        }
+        return em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph WHERE ph.profile = :profile ORDER BY ph.playedAt DESC", Long.class)
+                .setParameter("profile", profile)
                 .setMaxResults(count)
                 .getResultList();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return List.of();
-            return em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph WHERE ph.profile = :profile ORDER BY ph.playedAt DESC", Long.class)
-                    .setParameter("profile", activeProfile)
-                    .setMaxResults(count)
-                    .getResultList();
-        }
     }
 }

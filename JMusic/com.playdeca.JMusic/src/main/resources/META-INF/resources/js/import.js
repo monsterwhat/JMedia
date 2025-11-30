@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Determine WebSocket URL dynamically
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/ws/import-status`;
+        const wsUrl = `${protocol}//${host}/ws/import-status/${globalActiveProfileId}`;
 
         importWebSocket = new WebSocket(wsUrl);
 
@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (spotdlUrlInput && downloadFolderInput && playlistSelect && newPlaylistNameInput && downloadBtn && spotdlOutputTextarea && spotdlWarningMessage) {
         const fetchImportSettings = async () => {
             try {
-                const response = await fetch('/api/settings');
+                const response = await fetch(`/api/settings/${globalActiveProfileId}`);
                 if (response.ok) {
                     const apiResponse = await response.json();
                     if (apiResponse.data) {
@@ -171,7 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Function to fetch and populate playlists
         const fetchAndPopulatePlaylists = async () => {
             try {
-                const response = await fetch('/api/music/playlists');
+                const response = await fetch(`/api/music/playlists/${globalActiveProfileId}`);
                 if (response.ok) {
                     const apiResponse = await response.json();
                     if (apiResponse.data) {
@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const setDefaultDownloadFolder = async () => {
             try {
                 // Change to the new endpoint
-                const response = await fetch('/api/import/default-download-path');
+                const response = await fetch(`/api/import/${globalActiveProfileId}/default-download-path`);
                 if (response.ok) {
                     const apiResponse = await response.json();
                     if (apiResponse.data) {

@@ -13,7 +13,7 @@ import java.io.IOException;
 import java.util.List;
 import io.vertx.core.Vertx;
 
-@ServerEndpoint("/api/logs/ws")
+@ServerEndpoint("/api/logs/ws/{profileId}")
 @ApplicationScoped
 public class LogSocket {
 
@@ -29,7 +29,7 @@ public class LogSocket {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @OnOpen
-    public void onOpen(Session session) {
+    public void onOpen(Session session, @jakarta.websocket.server.PathParam("profileId") Long profileId) {
         webSocketManager.addLogSession(session);
         // On connection, send all existing logs
         vertx.executeBlocking(() -> {

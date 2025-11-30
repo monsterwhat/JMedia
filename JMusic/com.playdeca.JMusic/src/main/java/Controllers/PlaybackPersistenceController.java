@@ -23,22 +23,22 @@ public class PlaybackPersistenceController {
         System.out.println("[PlaybackPersistenceManager] Shutdown: forcing final persist...");
     }
 
-    public PlaybackState loadState() {
-        return stateService.getOrCreateState();
+    public PlaybackState loadState(Long profileId) {
+        return stateService.getOrCreateState(profileId);
     }
 
-    public synchronized void persist(PlaybackState state, boolean force) {
+    public synchronized void persist(Long profileId, PlaybackState state, boolean force) {
         long now = System.currentTimeMillis();
 
         // If not forced, apply throttling
         if (!force && now - lastSaveTime < MIN_SAVE_INTERVAL_MS) {
             return;
         }
-        stateService.saveState(state);
+        stateService.saveState(profileId, state);
         lastSaveTime = now;
     }
 
-    public void maybePersist(PlaybackState state) {
-        persist(state, false);
+    public void maybePersist(Long profileId, PlaybackState state) {
+        persist(profileId, state, false);
     }
 }

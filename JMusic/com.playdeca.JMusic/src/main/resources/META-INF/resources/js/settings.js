@@ -1,5 +1,5 @@
 window.resetLibrary = async function () {
-    const res = await fetch(`/api/settings/resetLibrary`, {method: "POST"});
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/resetLibrary`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Library reset to:", json.data.libraryPath);
@@ -12,7 +12,7 @@ window.resetLibrary = async function () {
 };
 
 window.scanLibrary = async function () {
-    const res = await fetch(`/api/settings/scanLibrary`, {method: "POST"});
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/scanLibrary`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Scan started");
@@ -22,7 +22,7 @@ window.scanLibrary = async function () {
 };
 
 window.clearLogs = async function () {
-    const res = await fetch(`/api/settings/clearLogs`, {method: "POST"});
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/clearLogs`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         const logsPanel = document.getElementById("logsPanel");
@@ -35,7 +35,7 @@ window.clearLogs = async function () {
 };
 
 window.clearSongsDB = async function () {
-    const res = await fetch(`/api/settings/clearSongs`, {method: "POST"});
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/clearSongs`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] All songs deleted");
@@ -49,7 +49,7 @@ window.setupLogWebSocket = function () {
     if (!logsPanel)
         return;
 
-    const socket = new WebSocket(`ws://${window.location.host}/api/logs/ws`);
+    const socket = new WebSocket(`ws://${window.location.host}/api/logs/ws/${globalActiveProfileId}`);
 
     socket.onmessage = function (event) {
         const message = JSON.parse(event.data);
@@ -76,7 +76,7 @@ window.setupLogWebSocket = function () {
 }
 
 window.refreshSettingsUI = async function () {
-    const res = await fetch(`/api/settings`);
+    const res = await fetch(`/api/settings/${globalActiveProfileId}`);
     const json = await res.json();
     if (res.ok && json.data) {
         const pathElem = document.getElementById("musicLibraryPath");
@@ -88,7 +88,7 @@ window.refreshSettingsUI = async function () {
 };
 
 window.reloadMetadata = async function () {
-    const res = await fetch(`/api/settings/reloadMetadata`, {method: "POST"});
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/reloadMetadata`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Metadata reload started");
@@ -98,7 +98,7 @@ window.reloadMetadata = async function () {
 };
 
 window.deleteDuplicates = async function () {
-    const res = await fetch(`/api/settings/deleteDuplicates`, {method: "POST"});
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/deleteDuplicates`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Duplicate deletion started");
@@ -118,7 +118,7 @@ window.saveImportSettings = async function () {
         searchThreads
     };
 
-    const res = await fetch('/api/settings/import', {
+    const res = await fetch(`/api/settings/${globalActiveProfileId}/import`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -137,7 +137,7 @@ window.saveImportSettings = async function () {
 
 window.refreshSettingsUI = async function () {
     console.log("[Settings] refreshSettingsUI called.");
-    const res = await fetch(`/api/settings`);
+    const res = await fetch(`/api/settings/${globalActiveProfileId}`);
     const json = await res.json();
     if (res.ok && json.data) {
         const pathInputElem = document.getElementById("musicLibraryPathInput");
@@ -212,7 +212,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("scanLibrary").onclick = () => window.scanLibrary();
     document.getElementById("clearLogs").onclick = () => showConfirmationDialog("Are you sure you want to clear all logs?", window.clearLogs);
     document.getElementById("clearSongs").onclick = () => showConfirmationDialog("Are you sure you want to clear all songs from the database? This action cannot be undone.", window.clearSongsDB);
-    document.getElementById("clearPlaybackHistory").onclick = () => showConfirmationDialog("Are you sure you want to clear the playback history? This action cannot be undone.", () => fetch('/api/settings/clearPlaybackHistory', {method: 'POST'}));
+    document.getElementById("clearPlaybackHistory").onclick = () => showConfirmationDialog("Are you sure you want to clear the playback history? This action cannot be undone.", () => fetch(`/api/settings/clearPlaybackHistory/${globalActiveProfileId}`, {method: 'POST'}));
     document.getElementById("reloadMetadata").onclick = () => showConfirmationDialog("Are you sure you want to reload all song metadata? This might take a while.", window.reloadMetadata);
     document.getElementById("deleteDuplicates").onclick = () => showConfirmationDialog("Are you sure you want to delete duplicate songs? This action cannot be undone.", window.deleteDuplicates);
     document.getElementById("saveImportSettingsBtn").onclick = window.saveImportSettings;
@@ -220,7 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const browseMusicFolderBtn = document.getElementById("browseMusicFolderBtn");
     if (browseMusicFolderBtn) {
         browseMusicFolderBtn.onclick = async () => {
-            const res = await fetch(`/api/settings/browse-folder`);
+            const res = await fetch(`/api/settings/${globalActiveProfileId}/browse-folder`);
             const json = await res.json();
             if (res.ok && json.data) {
                 const pathInputElem = document.getElementById("musicLibraryPathInput");

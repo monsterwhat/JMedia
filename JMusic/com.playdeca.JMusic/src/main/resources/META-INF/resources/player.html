@@ -114,7 +114,9 @@
                         <div class="navbar-item is-expanded" style="justify-content: center;">
                             <div class="navbar-search-container">
                                 <div class="control has-icons-right" style="flex-grow: 1;">
-                                    <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput" onkeydown="if (event.key === 'Enter') { window.location.href = '/index.html?q=' + encodeURIComponent(this.value); }">
+                                    <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput" onkeydown="if (event.key === 'Enter') {
+                                                window.location.href = '/index.html?q=' + encodeURIComponent(this.value);
+                                            }">
                                     <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
                                         <i class="pi pi-times"></i>
                                     </span>
@@ -207,232 +209,333 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/songQueue.js"></script>
         <script>
-            function getLyricsAction() {
-                console.log('getLyricsAction called.');
-                console.log('  musicState.hasLyrics:', window.musicState.hasLyrics);
-                console.log('  musicState.currentSongId:', window.musicState.currentSongId);
-                if (window.musicState && window.musicState.hasLyrics && window.musicState.currentSongId) {
-                    return `/api/song/${window.musicState.currentSongId}/lyrics`;
-                }
-                return '#no-lyrics'; // Special string to indicate no lyrics
-            }
+                                        let globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
 
-            function getAddToPlaylistDialogAction() {
-                if (musicState.currentSongId) {
-                    return `/api/music/ui/add-to-playlist-dialog/${musicState.currentSongId}`;
-                }
-                return '#'; // No action if no song
-            }
+                                        // Listen for profile switches from profileManager.js
+                                        document.body.addEventListener('profileSwitched', (event) => {
+                                            globalActiveProfileId = localStorage.getItem('activeProfileId');
+                                            console.log('Profile switched event received. New globalActiveProfileId:', globalActiveProfileId);
+                                            // Trigger a full page reload or update all relevant HTMX components
+                                            // For simplicity and full refresh of profile-specific data, a reload is best here.
+                                            location.reload();
+                                        });
 
-            function generateLyricsAction(selectedModel) {
-                if (musicState.currentSongId) {
-                    return `/api/song/${musicState.currentSongId}/generate-lyrics?model=${selectedModel}`;
-                }
-                return '#';
-            }
+                                        // HTMX request interception to inject profileId into URLs
+                                        document.body.addEventListener('htmx:beforeRequest', function (event) {
+                                            let targetUrl = event.detail.path;
 
-            document.addEventListener('DOMContentLoaded', function() {
-                const songCoverImage = document.getElementById('songCoverImage');
-                const contextMenu = document.getElementById('contextMenu');
-                const contextAddToPlaylist = document.getElementById('contextAddToPlaylist');
-                const contextViewLyrics = document.getElementById('contextViewLyrics');
+                                            // ADD THIS CHECK: Ensure targetUrl is a string before proceeding
+                                            if (typeof targetUrl !== 'string' || !targetUrl) {
+                                                return; // Exit the function if targetUrl is invalid
+                                            }
 
-                const mainContent = document.getElementById('mainContent');
-                const lyricsContainer = document.getElementById('lyricsContainer');
-                const lyricsContent = document.getElementById('lyricsContent');
-                const closeLyricsBtn = document.getElementById('closeLyricsBtn');
-                const generateLyricsBtn = document.getElementById('generateLyricsBtn');
+                                            let newUrl = targetUrl; // Initialize newUrl with targetUrl
+                                            const currentProfileId = globalActiveProfileId; // Get the currently active profile ID
 
-                const whisperConfirmModal = document.getElementById('whisperConfirmModal');
-                const whisperConfirmOk = document.getElementById('whisperConfirmOk');
-                const whisperConfirmCancel = document.getElementById('whisperConfirmCancel');
+                                            // Skip profile-related API calls that handle profile creation/deletion/switching directly
+                                            // These already include the necessary profile IDs or operate globally.
+                                            if (targetUrl.startsWith('/api/profiles')) {
+                                                // For example, /api/profiles (GET all), /api/profiles/{id} (DELETE), /api/profiles (POST create)
+                                                // /api/profiles/current, /api/profiles/switch/{id} are handled by profileManager.js or don't need globalActiveProfileId injected here.
+                                                return;
+                                            }
 
-                songCoverImage.addEventListener('contextmenu', function(event) {
-                    event.preventDefault();
-                    contextMenu.style.display = 'block';
-                    contextMenu.style.left = event.pageX + 'px';
-                    contextMenu.style.top = event.pageY + 'px';
-                });
+                                            // All other API calls related to music or settings that need profileId
+                                            if (targetUrl.startsWith('/api/music/') || targetUrl.startsWith('/api/settings/')) {
+                                                const parts = targetUrl.split('/');
+                                                const module = parts[2]; // 'music' or 'settings'
 
-                document.addEventListener('click', function(event) {
-                    if (!contextMenu.contains(event.target)) {
-                        contextMenu.style.display = 'none';
-                    }
-                });
+                                                if (module === 'music') {
+                                                    const subModule = parts[3]; // e.g., 'ui', 'playback', 'queue', 'playlists'
 
-                contextAddToPlaylist.addEventListener('click', function() {
-                    const url = getAddToPlaylistDialogAction();
-                    if (url !== '#') {
-                        htmx.ajax('GET', url, {
-                            target: '#addToPlaylistModalContent',
-                            swap: 'innerHTML'
-                        }).then(() => {
-                            document.getElementById('addToPlaylistModal').classList.add('is-active');
-                        });
-                    }
-                    contextMenu.style.display = 'none';
-                });
+                                                    if (subModule === 'ui') {
+                                                        // Pattern: /api/music/ui/{profileId}/...
+                                                        // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/0, /api/music/ui/search-suggestions
+                                                        // Ensure profileId is inserted right after 'ui'
+                                                        if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
+                                                            newUrl = `/api/music/ui/${currentProfileId}` + targetUrl.substring('/api/music/ui'.length);
+                                                        }
+                                                    } else if (subModule === 'playback') {
+                                                        // Pattern: /api/music/playback/{action}/{profileId}/{id?}
+                                                        // Examples: /api/music/playback/queue-all/0, /api/music/playback/select/123, /api/music/playback/toggle
+                                                        const action = parts[4];
+                                                        if (action === 'queue-all' || action === 'select') {
+                                                            // For /api/music/playback/queue-all/{playlistId}, /api/music/playback/select/{songId}
+                                                            // Needs to become /api/music/playback/{action}/{profileId}/{id}
+                                                            newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[5]}`;
+                                                        } else if (action === 'volume' || action === 'position') {
+                                                            // For /api/music/playback/volume/{level}, /api/music/playback/position/{seconds}
+                                                            // Needs to become /api/music/playback/{action}/{profileId}/{value}
+                                                            newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[5]}`;
+                                                        } else {
+                                                            // For actions like /api/music/playback/toggle, /api/music/playback/play, /api/music/playback/next, etc.
+                                                            // Needs to become /api/music/playback/{action}/{profileId}
+                                                            if (parts.length < 5 || parts[5] !== currentProfileId) { // If profileId is not appended
+                                                                newUrl = `${targetUrl}/${currentProfileId}`;
+                                                            }
+                                                        }
+                                                    } else if (subModule === 'queue') {
+                                                        // Pattern: /api/music/queue/{profileId}/{action}/{id?}
+                                                        // Examples: /api/music/queue/add/{songId}, /api/music/queue/skip-to/{index}, /api/music/queue/clear
+                                                        const action = parts[4];
+                                                        if (action === 'add' || action === 'skip-to' || action === 'remove') {
+                                                            // /api/music/queue/{action}/{songId/index} -> /api/music/queue/{action}/{profileId}/{songId/index}
+                                                            newUrl = `/api/music/queue/${action}/${currentProfileId}/${parts[5]}`;
+                                                        } else if (action === 'clear') {
+                                                            // /api/music/queue/clear -> /api/music/queue/clear/{profileId}
+                                                            newUrl = `/api/music/queue/clear/${currentProfileId}`;
+                                                        } else if (parts.length === 4) { // This is likely /api/music/queue (GET current queue for profile)
+                                                            newUrl = `/api/music/queue/${currentProfileId}`;
+                                                        }
+                                                    } else if (subModule === 'playlists') {
+                                                        // Pattern: /api/music/playlists/{playlistId}/songs/{songId}/toggle/{profileId}
+                                                        // Only handles the specific toggle case where profileId is at the end.
+                                                        // Other playlist APIs (create, delete, get playlists themselves) might be global or handled differently.
+                                                        if (parts.length >= 7 && parts[6] === 'toggle') { // Check if it's the toggle action
+                                                            if (parts.length < 8 || parts[7] !== currentProfileId) { // Check if profileId is not appended
+                                                                newUrl = `${targetUrl}/${currentProfileId}`;
+                                                            }
+                                                        }
+                                                    }
+                                                } else if (module === 'settings' && parts[3] === 'clearPlaybackHistory') {
+                                                    // Pattern: /api/settings/clearPlaybackHistory/{profileId}
+                                                    if (parts.length < 5 || parts[4] !== currentProfileId) { // If profileId is not appended
+                                                        newUrl = `${targetUrl}/${currentProfileId}`;
+                                                    }
+                                                }
+                                            }
 
-                contextViewLyrics.addEventListener('click', function() {
-                    console.log('contextViewLyrics clicked. Current musicState:', window.musicState);
-                    const url = getLyricsAction();
-                    if (url === '#no-lyrics') {
-                        console.log('getLyricsAction returned #no-lyrics. Displaying "No lyrics found" message.');
-                        lyricsContent.innerText = 'No lyrics found for this song.';
-                        generateLyricsBtn.style.display = 'block';
-                        mainContent.classList.add('lyrics-view-active');
-                    } else if (url !== '#') {
-                        console.log('getLyricsAction returned URL:', url, '. Attempting to fetch lyrics using native fetch.');
-                        generateLyricsBtn.style.display = 'none'; // Hide generate button if lyrics are found
-                        
-                        // Use native fetch API instead of htmx.ajax for direct text response handling
-                        fetch(url)
-                            .then(response => {
-                                if (!response.ok) {
-                                    throw new Error(`HTTP error! status: ${response.status}`);
-                                }
-                                console.log('GET /api/song/{id}/lyrics raw fetch response:', response);
-                                return response.text();
-                            })
-                            .then(textData => {
-                                console.log('Lyrics fetched (GET) textData:', textData);
-                                console.log('Lyrics fetched (GET) textData type:', typeof textData);
-                                lyricsContent.innerText = textData;
-                                mainContent.classList.add('lyrics-view-active');
-                            })
-                            .catch(error => {
-                                console.error('Error fetching lyrics:', error);
-                                lyricsContent.innerText = 'Error loading lyrics.';
-                                mainContent.classList.add('lyrics-view-active'); // Still show container, but with error
-                            });
-                    }
-                    contextMenu.style.display = 'none';
-                });
-                
-                closeLyricsBtn.addEventListener('click', function() {
-                    mainContent.classList.remove('lyrics-view-active');
-                });
+                                            if (newUrl !== targetUrl) {
+                                                event.detail.path = newUrl;
+                                                console.log('HTMX Request URL modified to:', event.detail.path);
+                                            }
+                                        });
+                                        function getLyricsAction() {
+                                            console.log('getLyricsAction called.');
+                                            console.log('  musicState.hasLyrics:', window.musicState.hasLyrics);
+                                            console.log('  musicState.currentSongId:', window.musicState.currentSongId);
+                                            if (window.musicState && window.musicState.hasLyrics && window.musicState.currentSongId) {
+                                                return `/api/song/${window.musicState.currentSongId}/lyrics`;
+                                            }
+                                            return '#no-lyrics'; // Special string to indicate no lyrics
+                                        }
 
-                generateLyricsBtn.addEventListener('click', function() {
-                    const whisperWarning = document.getElementById('whisperWarning');
-                    if (window.whisperInstalled === false) {
-                        whisperWarning.classList.remove('is-hidden');
-                    } else {
-                        whisperWarning.classList.add('is-hidden');
-                    }
-                    whisperConfirmModal.classList.add('is-active');
-                });
+                                        function getAddToPlaylistDialogAction() {
+                                            if (musicState.currentSongId) {
+                                                return `/api/music/ui/add-to-playlist-dialog/${musicState.currentSongId}`;
+                                            }
+                                            return '#'; // No action if no song
+                                        }
 
-                whisperConfirmOk.addEventListener('click', function() {
-                    whisperConfirmModal.classList.remove('is-active');
+                                        function generateLyricsAction(selectedModel) {
+                                            if (musicState.currentSongId) {
+                                                return `/api/song/${musicState.currentSongId}/generate-lyrics?model=${selectedModel}`;
+                                            }
+                                            return '#';
+                                        }
 
-                    const selectedModel = document.querySelector('input[name="whisperModel"]:checked').value;
-                    const url = generateLyricsAction(selectedModel);
-                    if (url === '#')
-                        return;
+                                        document.addEventListener('DOMContentLoaded', function () {
+                                            const songCoverImage = document.getElementById('songCoverImage');
+                                            const contextMenu = document.getElementById('contextMenu');
+                                            const contextAddToPlaylist = document.getElementById('contextAddToPlaylist');
+                                            const contextViewLyrics = document.getElementById('contextViewLyrics');
 
-                    const originalButtonText = generateLyricsButtonText.innerText; // Store original text
-                    generateLyricsBtn.classList.add('is-loading');
-                    generateLyricsBtn.disabled = true;
-                    generateLyricsButtonText.innerText = 'Generating lyrics...'; // Update button text
-                    lyricsContent.innerText = 'Generating lyrics...'; // Update lyrics display area
+                                            const mainContent = document.getElementById('mainContent');
+                                            const lyricsContainer = document.getElementById('lyricsContainer');
+                                            const lyricsContent = document.getElementById('lyricsContent');
+                                            const closeLyricsBtn = document.getElementById('closeLyricsBtn');
+                                            const generateLyricsBtn = document.getElementById('generateLyricsBtn');
 
-                    htmx.ajax('POST', url, {
-                        swap: 'none'
-                    }).finally(() => {
-                        generateLyricsBtn.classList.remove('is-loading');
-                        generateLyricsBtn.disabled = false;
-                        generateLyricsButtonText.innerText = originalButtonText; // Restore original text
-                    });
-                });
+                                            const whisperConfirmModal = document.getElementById('whisperConfirmModal');
+                                            const whisperConfirmOk = document.getElementById('whisperConfirmOk');
+                                            const whisperConfirmCancel = document.getElementById('whisperConfirmCancel');
 
-                generateLyricsBtn.addEventListener('htmx:afterRequest', function(event) {
-                    if (event.detail.successful && event.detail.xhr.status === 200) {
-                        lyricsContent.innerText = event.detail.xhr.responseText;
-                        window.musicState.hasLyrics = true;
-                        generateLyricsBtn.style.display = 'none';
-                        mainContent.classList.add('lyrics-view-active'); // Show the lyrics container
-                    } else {
-                        lyricsContent.innerText = 'Failed to generate lyrics. Please try again.';
-                    }
-                });
+                                            songCoverImage.addEventListener('contextmenu', function (event) {
+                                                event.preventDefault();
+                                                contextMenu.style.display = 'block';
+                                                contextMenu.style.left = event.pageX + 'px';
+                                                contextMenu.style.top = event.pageY + 'px';
+                                            });
 
-                whisperConfirmCancel.addEventListener('click', function() {
-                    whisperConfirmModal.classList.remove('is-active');
-                });
+                                            document.addEventListener('click', function (event) {
+                                                if (!contextMenu.contains(event.target)) {
+                                                    contextMenu.style.display = 'none';
+                                                }
+                                            });
 
-                // Functions for global search dropdown
-                function setupGlobalSearchListeners() {
-                    // The clear button listener will now be delegated to document.body
-                    // No need to attach directly here anymore.
-                }
+                                            contextAddToPlaylist.addEventListener('click', function () {
+                                                const url = getAddToPlaylistDialogAction();
+                                                if (url !== '#') {
+                                                    htmx.ajax('GET', url, {
+                                                        target: '#addToPlaylistModalContent',
+                                                        swap: 'innerHTML'
+                                                    }).then(() => {
+                                                        document.getElementById('addToPlaylistModal').classList.add('is-active');
+                                                    });
+                                                }
+                                                contextMenu.style.display = 'none';
+                                            });
 
-                function handleClearGlobalSearch() {
-                    const globalSearchInput = document.getElementById('globalSearchInput');
-                    const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+                                            contextViewLyrics.addEventListener('click', function () {
+                                                console.log('contextViewLyrics clicked. Current musicState:', window.musicState);
+                                                const url = getLyricsAction();
+                                                if (url === '#no-lyrics') {
+                                                    console.log('getLyricsAction returned #no-lyrics. Displaying "No lyrics found" message.');
+                                                    lyricsContent.innerText = 'No lyrics found for this song.';
+                                                    generateLyricsBtn.style.display = 'block';
+                                                    mainContent.classList.add('lyrics-view-active');
+                                                } else if (url !== '#') {
+                                                    console.log('getLyricsAction returned URL:', url, '. Attempting to fetch lyrics using native fetch.');
+                                                    generateLyricsBtn.style.display = 'none'; // Hide generate button if lyrics are found
 
-                    if (globalSearchInput) {
-                        globalSearchInput.value = '';
-                        if (globalSearchDropdown) {
-                            globalSearchDropdown.style.display = 'none';
-                        }
-                    }
-                }
+                                                    // Use native fetch API instead of htmx.ajax for direct text response handling
+                                                    fetch(url)
+                                                            .then(response => {
+                                                                if (!response.ok) {
+                                                                    throw new Error(`HTTP error! status: ${response.status}`);
+                                                                }
+                                                                console.log('GET /api/song/{id}/lyrics raw fetch response:', response);
+                                                                return response.text();
+                                                            })
+                                                            .then(textData => {
+                                                                console.log('Lyrics fetched (GET) textData:', textData);
+                                                                console.log('Lyrics fetched (GET) textData type:', typeof textData);
+                                                                lyricsContent.innerText = textData;
+                                                                mainContent.classList.add('lyrics-view-active');
+                                                            })
+                                                            .catch(error => {
+                                                                console.error('Error fetching lyrics:', error);
+                                                                lyricsContent.innerText = 'Error loading lyrics.';
+                                                                mainContent.classList.add('lyrics-view-active'); // Still show container, but with error
+                                                            });
+                                                }
+                                                contextMenu.style.display = 'none';
+                                            });
 
-                // Define showDropdown and hideDropdown
-                function showDropdown() {
-                    const globalSearchInput = document.getElementById('globalSearchInput');
-                    const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+                                            closeLyricsBtn.addEventListener('click', function () {
+                                                mainContent.classList.remove('lyrics-view-active');
+                                            });
 
-                    if (globalSearchInput.value.trim() !== '' && globalSearchDropdown) {
-                        globalSearchDropdown.style.display = 'block';
-                        // Trigger HTMX for suggestions here
-                        htmx.trigger(globalSearchDropdown.querySelector('.dropdown-content'), 'keyup changed');
-                    } else if (globalSearchDropdown) {
-                        globalSearchDropdown.style.display = 'none';
-                    }
-                }
+                                            generateLyricsBtn.addEventListener('click', function () {
+                                                const whisperWarning = document.getElementById('whisperWarning');
+                                                if (window.whisperInstalled === false) {
+                                                    whisperWarning.classList.remove('is-hidden');
+                                                } else {
+                                                    whisperWarning.classList.add('is-hidden');
+                                                }
+                                                whisperConfirmModal.classList.add('is-active');
+                                            });
 
-                function hideDropdown() {
-                    const globalSearchInput = document.getElementById('globalSearchInput');
-                    const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+                                            whisperConfirmOk.addEventListener('click', function () {
+                                                whisperConfirmModal.classList.remove('is-active');
 
-                    setTimeout(() => {
-                        if (globalSearchDropdown && !globalSearchInput.matches(':focus')) {
-                            globalSearchDropdown.style.display = 'none';
-                        }
-                    }, 100);
-                }
+                                                const selectedModel = document.querySelector('input[name="whisperModel"]:checked').value;
+                                                const url = generateLyricsAction(selectedModel);
+                                                if (url === '#')
+                                                    return;
 
-                // Initial setup and event listeners for global search
-                const globalSearchInput = document.getElementById('globalSearchInput');
-                const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+                                                const originalButtonText = generateLyricsButtonText.innerText; // Store original text
+                                                generateLyricsBtn.classList.add('is-loading');
+                                                generateLyricsBtn.disabled = true;
+                                                generateLyricsButtonText.innerText = 'Generating lyrics...'; // Update button text
+                                                lyricsContent.innerText = 'Generating lyrics...'; // Update lyrics display area
 
-                if (globalSearchInput && globalSearchDropdown) {
-                    globalSearchInput.addEventListener('focus', showDropdown);
-                    globalSearchInput.addEventListener('keyup', showDropdown);
-                    globalSearchInput.addEventListener('blur', hideDropdown);
+                                                htmx.ajax('POST', url, {
+                                                    swap: 'none'
+                                                }).finally(() => {
+                                                    generateLyricsBtn.classList.remove('is-loading');
+                                                    generateLyricsBtn.disabled = false;
+                                                    generateLyricsButtonText.innerText = originalButtonText; // Restore original text
+                                                });
+                                            });
 
-                    globalSearchDropdown.addEventListener('mousedown', (event) => {
-                        event.preventDefault();
-                    });
-                }
+                                            generateLyricsBtn.addEventListener('htmx:afterRequest', function (event) {
+                                                if (event.detail.successful && event.detail.xhr.status === 200) {
+                                                    lyricsContent.innerText = event.detail.xhr.responseText;
+                                                    window.musicState.hasLyrics = true;
+                                                    generateLyricsBtn.style.display = 'none';
+                                                    mainContent.classList.add('lyrics-view-active'); // Show the lyrics container
+                                                } else {
+                                                    lyricsContent.innerText = 'Failed to generate lyrics. Please try again.';
+                                                }
+                                            });
 
-                // Delegated event listener for clearSearchIcon
-                document.body.addEventListener('click', function (event) {
-                    if (event.target.closest('#clearSearchIcon')) {
-                        handleClearGlobalSearch();
-                    }
-                });
+                                            whisperConfirmCancel.addEventListener('click', function () {
+                                                whisperConfirmModal.classList.remove('is-active');
+                                            });
 
-                // HTMX afterSwap listener for dropdown content
-                document.body.addEventListener('htmx:afterSwap', function (event) {
-                    if (event.detail.target.closest('#globalSearchDropdown .dropdown-content')) {
-                        // If the dropdown content was swapped, re-evaluate its visibility
-                        showDropdown();
-                    }
-                });
-            });
+                                            // Functions for global search dropdown
+                                            function setupGlobalSearchListeners() {
+                                                // The clear button listener will now be delegated to document.body
+                                                // No need to attach directly here anymore.
+                                            }
+
+                                            function handleClearGlobalSearch() {
+                                                const globalSearchInput = document.getElementById('globalSearchInput');
+                                                const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+
+                                                if (globalSearchInput) {
+                                                    globalSearchInput.value = '';
+                                                    if (globalSearchDropdown) {
+                                                        globalSearchDropdown.style.display = 'none';
+                                                    }
+                                                }
+                                            }
+
+                                            // Define showDropdown and hideDropdown
+                                            function showDropdown() {
+                                                const globalSearchInput = document.getElementById('globalSearchInput');
+                                                const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+
+                                                if (globalSearchInput.value.trim() !== '' && globalSearchDropdown) {
+                                                    globalSearchDropdown.style.display = 'block';
+                                                    // Trigger HTMX for suggestions here
+                                                    htmx.trigger(globalSearchDropdown.querySelector('.dropdown-content'), 'keyup changed');
+                                                } else if (globalSearchDropdown) {
+                                                    globalSearchDropdown.style.display = 'none';
+                                                }
+                                            }
+
+                                            function hideDropdown() {
+                                                const globalSearchInput = document.getElementById('globalSearchInput');
+                                                const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+
+                                                setTimeout(() => {
+                                                    if (globalSearchDropdown && !globalSearchInput.matches(':focus')) {
+                                                        globalSearchDropdown.style.display = 'none';
+                                                    }
+                                                }, 100);
+                                            }
+
+                                            // Initial setup and event listeners for global search
+                                            const globalSearchInput = document.getElementById('globalSearchInput');
+                                            const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+
+                                            if (globalSearchInput && globalSearchDropdown) {
+                                                globalSearchInput.addEventListener('focus', showDropdown);
+                                                globalSearchInput.addEventListener('keyup', showDropdown);
+                                                globalSearchInput.addEventListener('blur', hideDropdown);
+
+                                                globalSearchDropdown.addEventListener('mousedown', (event) => {
+                                                    event.preventDefault();
+                                                });
+                                            }
+
+                                            // Delegated event listener for clearSearchIcon
+                                            document.body.addEventListener('click', function (event) {
+                                                if (event.target.closest('#clearSearchIcon')) {
+                                                    handleClearGlobalSearch();
+                                                }
+                                            });
+
+                                            // HTMX afterSwap listener for dropdown content
+                                            document.body.addEventListener('htmx:afterSwap', function (event) {
+                                                if (event.detail.target.closest('#globalSearchDropdown .dropdown-content')) {
+                                                    // If the dropdown content was swapped, re-evaluate its visibility
+                                                    showDropdown();
+                                                }
+                                            });
+                                        });
         </script>
     </body>
 </html>

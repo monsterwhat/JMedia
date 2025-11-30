@@ -201,4 +201,3 @@ public class SettingsService {
         em.merge(settings);
     }
 }
-

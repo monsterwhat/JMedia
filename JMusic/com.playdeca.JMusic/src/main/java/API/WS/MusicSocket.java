@@ -12,11 +12,12 @@ import jakarta.websocket.OnClose;
 import jakarta.websocket.OnMessage;
 import jakarta.websocket.OnOpen;
 import jakarta.websocket.Session;
+import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
-@ServerEndpoint("/api/music/ws")
+@ServerEndpoint("/api/music/ws/{profileId}")
 @ApplicationScoped
 public class MusicSocket {
 
@@ -32,10 +33,10 @@ public class MusicSocket {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @OnOpen
-    public void onOpen(Session session) {
+    public void onOpen(Session session, @PathParam("profileId") Long profileId) {
         CompletableFuture.runAsync(() -> {
-            webSocketManager.addMusicSession(session);
-            sendCurrentState(session);
+            webSocketManager.addSession(session, profileId);
+            sendCurrentState(session, profileId);
             viewSession.clientConnected();
         });
 
@@ -44,7 +45,7 @@ public class MusicSocket {
     @OnClose
     public void onClose(Session session) {
         CompletableFuture.runAsync(() -> {
-            webSocketManager.removeMusicSession(session);
+            webSocketManager.removeSession(session);
             viewSession.clientDisconnected();
         });
     }
@@ -56,16 +57,28 @@ public class MusicSocket {
                 ObjectNode node = mapper.readValue(message, ObjectNode.class);
                 String type = node.get("type").asText();
                 JsonNode payload = node.get("payload");
+
+                Long profileId = webSocketManager.getProfileIdForSession(session.getId());
+                if (profileId == null) {
+                    System.err.println("Profile ID not found for session: " + session.getId());
+                    return; // Or handle error appropriately
+                }
+
                 switch (type) {
+                    case "setProfile":
+                        Long newProfileId = payload.get("profileId").asLong();
+                        webSocketManager.setSessionProfile(session, newProfileId);
+                        sendCurrentState(session, newProfileId); // Send updated state for new profile
+                        break;
                     case "seek":
                         double seekValue = payload.get("value").asDouble();
-                        playbackController.setSeconds(seekValue);
+                        playbackController.setSeconds(seekValue, profileId);
                         break;
                     case "volume":
-                        playbackController.changeVolume((float) payload.get("value").asDouble());
+                        playbackController.changeVolume((float) payload.get("value").asDouble(), profileId);
                         break;
                     case "next":
-                        playbackController.next();
+                        playbackController.next(profileId);
                         break;
                 }
             } catch (IOException e) {
@@ -74,8 +87,8 @@ public class MusicSocket {
         });
     }
 
-    private void sendCurrentState(Session session) {
-        PlaybackState state = playbackController.getState();
+    private void sendCurrentState(Session session, Long profileId) {
+        PlaybackState state = playbackController.getState(profileId);
         if (state != null && state.getCurrentSongId() != null) {
             try {
                 ObjectNode message = mapper.createObjectNode();
@@ -88,12 +101,18 @@ public class MusicSocket {
         }
     }
 
-    public void broadcastLibraryUpdate() {
-        PlaybackState state = playbackController.getState();
-        broadcastAll(state);
+    public void broadcastLibraryUpdate(Long profileId) {
+        PlaybackState state = playbackController.getState(profileId);
+        broadcastAll(state, profileId);
     }
 
-    public void broadcastAll(PlaybackState stateToBroadcast) {
+    public void broadcastLibraryUpdateToAllProfiles() {
+        webSocketManager.getAllActiveProfileIds().forEach(profileId -> {
+            broadcastLibraryUpdate(profileId);
+        });
+    }
+
+    public void broadcastAll(PlaybackState stateToBroadcast, Long profileId) {
         if (stateToBroadcast == null) {
             System.out.println("[MusicSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
             return;
@@ -103,7 +122,7 @@ public class MusicSocket {
             ObjectNode message = mapper.createObjectNode();
             message.put("type", "state");
             message.set("payload", mapper.valueToTree(stateToBroadcast));
-            webSocketManager.broadcastToMusic(mapper.writeValueAsString(message));
+            webSocketManager.broadcastToProfile(profileId, mapper.writeValueAsString(message));
         } catch (IOException e) {
             e.printStackTrace();
         }

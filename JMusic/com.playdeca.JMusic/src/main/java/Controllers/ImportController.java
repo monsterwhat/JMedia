@@ -14,8 +14,8 @@ public class ImportController {
     /**
      * Starts the singleton background import process.
      */
-    public void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload) {
-        importService.startDownload(url, format, downloadThreads, searchThreads, downloadPath, playlistName, queueAfterDownload);
+    public void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload, Long profileId) {
+        importService.startDownload(url, format, downloadThreads, searchThreads, downloadPath, playlistName, queueAfterDownload, profileId);
     }
 
     /**

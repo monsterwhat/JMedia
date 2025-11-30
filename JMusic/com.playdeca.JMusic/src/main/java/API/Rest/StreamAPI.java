@@ -28,9 +28,9 @@ public class StreamAPI {
     private static final Logger LOGGER = Logger.getLogger(StreamAPI.class.getName());
 
     @GET
-    @Path("/{id}")
+    @Path("/{profileId}/{id}")
     @Produces({"audio/mpeg", "application/octet-stream"})
-    public Response streamMusicById(@PathParam("id") Long id, @HeaderParam("Range") String rangeHeader) {
+    public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader) {
         try {
             Song song = playbackController.findSong(id);
             if (song == null) {

@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,6 +28,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;
@@ -33,6 +37,7 @@ import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.audio.mp3.MP3File;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jaudiotagger.tag.TagException;
 import org.jaudiotagger.tag.datatype.Artwork;
 
@@ -50,8 +55,48 @@ public class SettingsController implements Serializable {
 
     @Inject
     private MusicSocket musicSocket;
+    
+    @Inject
+    private ObjectMapper objectMapper;
 
     private final List<ScanResult> failedSongs = Collections.synchronizedList(new ArrayList<>());
+    
+    private record FFprobeMetadata(String title, String artist) {}
+
+    private FFprobeMetadata getMetadataWithFFprobe(File file) {
+        // Command: ffprobe -v error -show_entries format_tags=title,artist -of json "input.mp3"
+        try {
+            ProcessBuilder pb = new ProcessBuilder("ffprobe", "-v", "error", "-show_entries", "format_tags=title,artist", "-of", "json", file.getAbsolutePath());
+            Process process = pb.start();
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line);
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode == 0 && output.length() > 0) {
+                com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(output.toString());
+                com.fasterxml.jackson.databind.JsonNode tags = root.path("format").path("tags");
+                
+                String title = tags.has("title") ? tags.get("title").asText(null) : null;
+                String artist = tags.has("artist") ? tags.get("artist").asText(null) : null;
+
+                if (title != null || artist != null) {
+                    return new FFprobeMetadata(title, artist);
+                }
+            }
+            return null; // No tags found or ffprobe failed
+
+        } catch (IOException | InterruptedException e) {
+            addLog("[ffmpeg] ERROR: Exception with ffprobe for metadata tags on " + file.getName() + ": " + e.getMessage());
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
 
     @Inject
     private LogSocket logSocket;
@@ -154,13 +199,53 @@ public class SettingsController implements Serializable {
                     addLog("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName() + ": " + artworkException.getMessage());
                     song.setArtworkBase64(null);
                 }
-            } else {
-                String fileName = file.getName().replaceFirst("(?i)\\.mp3$", "");
-                song.setTitle(fileName);
-                song.setArtist("Unknown Artist");
-                song.setAlbum("Unknown Album");
-                song.setArtworkBase64(null);
             }
+            
+            // If jaudiotagger failed or gave empty tags, try ffprobe
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                addLog("[ffmpeg] INFO: jaudiotagger failed to provide title/artist for " + file.getName() + ". Trying ffprobe.");
+                FFprobeMetadata ffprobeData = getMetadataWithFFprobe(file);
+                if (ffprobeData != null) {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(ffprobeData.title());
+                    }
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                        song.setArtist(ffprobeData.artist());
+                    }
+                }
+            }
+
+            // If all taggers failed, fallback to filename parsing
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                addLog("INFO: All metadata taggers failed for " + file.getName() + ". Falling back to filename parsing.");
+                String fileName = file.getName().replaceFirst("(?i)\\.mp3$", "");
+                int separatorIndex = fileName.indexOf(" - ");
+                if (separatorIndex != -1) {
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                         song.setArtist(fileName.substring(0, separatorIndex).trim());
+                    }
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName.substring(separatorIndex + 3).trim());
+                    }
+                } else {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName);
+                    }
+                }
+            }
+
+            // Final fallback to ensure fields are not null
+            if (song.getTitle() == null || song.getTitle().isBlank()) {
+                song.setTitle("Unknown Title");
+            }
+            if (song.getArtist() == null || song.getArtist().isBlank()) {
+                song.setArtist("Unknown Artist");
+            }
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                song.setAlbum("Unknown Album");
+            }
+            song.setArtworkBase64(null); // Explicitly null if not found
+
 
             int trackLength = getVerifiedTrackLength(file, mp3File);
             song.setDurationSeconds(trackLength);
@@ -255,7 +340,7 @@ public class SettingsController implements Serializable {
             addLog("The following " + failedSongs.size() + " songs failed to process:");
             failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
         }
-        musicSocket.broadcastLibraryUpdate();
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
         return processedSongs;
     }
 
@@ -362,20 +447,63 @@ public class SettingsController implements Serializable {
                     addLog("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + file.getName() + ": " + artworkException.getMessage());
                     song.setArtworkBase64(null);
                 }
-            } else {
+            }
+
+            // If jaudiotagger failed or gave empty tags, try ffprobe
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                addLog("[ffmpeg] INFO: jaudiotagger failed to provide title/artist for " + file.getName() + ". Trying ffprobe.");
+                FFprobeMetadata ffprobeData = getMetadataWithFFprobe(file);
+                if (ffprobeData != null) {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(ffprobeData.title());
+                    }
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                        song.setArtist(ffprobeData.artist());
+                    }
+                }
+            }
+
+            // If all taggers failed, fallback to filename parsing
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                addLog("INFO: All metadata taggers failed for " + file.getName() + ". Falling back to filename parsing.");
                 String fileName = file.getName().replaceFirst("(?i)\\.mp3$", "");
-                song.setTitle(fileName);
+                int separatorIndex = fileName.indexOf(" - ");
+                if (separatorIndex != -1) {
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                         song.setArtist(fileName.substring(0, separatorIndex).trim());
+                    }
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName.substring(separatorIndex + 3).trim());
+                    }
+                } else {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName);
+                    }
+                }
+            }
+
+            // Final fallback to ensure fields are not null
+            if (song.getTitle() == null || song.getTitle().isBlank()) {
+                song.setTitle("Unknown Title");
+            }
+            if (song.getArtist() == null || song.getArtist().isBlank()) {
                 song.setArtist("Unknown Artist");
+            }
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
                 song.setAlbum("Unknown Album");
+            }
+            if (isNewSong) { // Only nullify artwork for new songs where it's not found
                 song.setArtworkBase64(null);
             }
 
+
             // If not found by path, try to find by title, artist, and duration (after tags are read)
+            int trackLength = getVerifiedTrackLength(file, mp3File); // Call once and store
+            
             if (isNewSong && song.getTitle() != null && !song.getTitle().isBlank() && song.getArtist() != null && !song.getArtist().isBlank()) {
                 // Ensure duration is also available before attempting to find by title/artist/duration
-                int currentDuration = getVerifiedTrackLength(file, mp3File);
-                if (currentDuration > 0) {
-                    Song existingSongByTitleArtistDuration = songService.findByTitleArtistAndDuration(song.getArtist(), song.getTitle(), currentDuration);
+                if (trackLength > 0) {
+                    Song existingSongByTitleArtistDuration = songService.findByTitleArtistAndDuration(song.getArtist(), song.getTitle(), trackLength);
                     if (existingSongByTitleArtistDuration != null) {
                         addLog("Found existing song by title/artist/duration: " + song.getTitle() + " by " + song.getArtist() + ". Updating path from " + existingSongByTitleArtistDuration.getPath() + " to " + relativePath);
                         song = existingSongByTitleArtistDuration; // Use the existing song object
@@ -385,7 +513,6 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            int trackLength = getVerifiedTrackLength(file, mp3File);
             song.setDurationSeconds(trackLength);
 
             if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
@@ -410,6 +537,87 @@ public class SettingsController implements Serializable {
         }
     }
 
+    private int getDurationWithFFprobe(File file) {
+        // ffprobe is generally more efficient and provides cleaner output for metadata.
+        // Command: ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "input.mp3"
+        try {
+            ProcessBuilder pb = new ProcessBuilder("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file.getAbsolutePath());
+            Process process = pb.start();
+            
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line = reader.readLine();
+                if (line != null) {
+                    output.append(line);
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode == 0 && output.length() > 0) {
+                try {
+                    double durationSeconds = Double.parseDouble(output.toString().trim());
+                    return (int) Math.round(durationSeconds);
+                } catch (NumberFormatException e) {
+                    addLog("[ffmpeg] WARNING: Failed to parse ffprobe duration for " + file.getName() + ": " + output.toString().trim());
+                    return getDurationWithFFmpegLegacy(file); // Fallback to legacy ffmpeg
+                }
+            } else {
+                 addLog("[ffmpeg] INFO: ffprobe failed for " + file.getName() + " (exit code: " + exitCode + "). Falling back to ffmpeg -i.");
+                 return getDurationWithFFmpegLegacy(file); // Fallback to legacy ffmpeg
+            }
+        } catch (IOException | InterruptedException e) {
+             addLog("[ffmpeg] ERROR: Exception with ffprobe for " + file.getName() + ": " + e.getMessage() + ". Falling back to ffmpeg -i.");
+             return getDurationWithFFmpegLegacy(file); // Fallback to legacy ffmpeg
+        }
+    }
+    
+    private int getDurationWithFFmpegLegacy(File file) {
+        // Fallback to parsing ffmpeg's more verbose output.
+        // Command: ffmpeg -i "input.mp3"
+        try {
+            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-i", file.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            // Use a pattern to find the duration line efficiently.
+            Pattern pattern = Pattern.compile("Duration: (\\d{2}):(\\d{2}):(\\d{2})\\.\\d+");
+            String durationLine = null;
+            
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains("Duration:")) {
+                        durationLine = line;
+                        break; 
+                    }
+                }
+            }
+            
+            // Wait for the process to avoid resource leaks, with a timeout.
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                process.destroy();
+            }
+
+            if (durationLine != null) {
+                Matcher matcher = pattern.matcher(durationLine);
+                if (matcher.find()) {
+                    int hours = Integer.parseInt(matcher.group(1));
+                    int minutes = Integer.parseInt(matcher.group(2));
+                    int seconds = Integer.parseInt(matcher.group(3));
+                    return hours * 3600 + minutes * 60 + seconds;
+                }
+            }
+            
+            addLog("[ffmpeg] WARNING: Could not find Duration in ffmpeg output for " + file.getName());
+            return -1;
+
+        } catch (IOException | InterruptedException e) {
+            addLog("[ffmpeg] ERROR: Exception with ffmpeg -i for " + file.getName() + ": " + e.getMessage());
+            Thread.currentThread().interrupt(); // Preserve interrupted status
+            return -1;
+        }
+    }
+
     private int getVerifiedTrackLength(File file, MP3File initialMp3File) {
         int duration = 0;
         try {
@@ -422,12 +630,14 @@ public class SettingsController implements Serializable {
             addLog("[org.jau.tag.id3] WARNING: Error reading initial duration for " + file.getName() + ": " + e.getMessage(), e);
         }
 
-        // Suspicious duration check (e.g., <= 1 second, or > 2 hours)
-        final int MAX_REASONABLE_DURATION_SECONDS = 7200;
-        if (duration <= 1 || duration > MAX_REASONABLE_DURATION_SECONDS) {
-            addLog("[org.jau.tag.id3] INFO: Suspicious duration (" + duration + "s) for " + file.getName() + ". Re-checking.");
+        // Suspicious duration check (e.g., < 60 seconds, or > 7 minutes)
+        final int MIN_REASONABLE_DURATION_SECONDS = 60;
+        final int MAX_REASONABLE_DURATION_SECONDS = 420; // 7 minutes
+        if (duration < MIN_REASONABLE_DURATION_SECONDS || duration > MAX_REASONABLE_DURATION_SECONDS) {
+            addLog("[org.jau.tag.id3] INFO: Suspicious duration (" + duration + "s) for " + file.getName() + ". Re-checking with jaudiotagger and ffmpeg.");
+            
+            // Second attempt with jaudiotagger
             try {
-                // Re-read the file to get a fresh take on the metadata
                 MP3File mp3FileSecondRead = (MP3File) AudioFileIO.read(file);
                 int secondDuration = 0;
                 if (mp3FileSecondRead != null && mp3FileSecondRead.getAudioHeader() != null) {
@@ -436,12 +646,24 @@ public class SettingsController implements Serializable {
 
                 if (duration != secondDuration) {
                     addLog("[org.jau.tag.id3] INFO: Duration changed on second read. Old: " + duration + "s, New: " + secondDuration + "s for " + file.getName());
-                    return secondDuration; // Use the new value
+                    duration = secondDuration; // Update duration with the new value
                 } else {
                     addLog("[org.jau.tag.id3] INFO: Duration (" + duration + "s) remained the same on second read for " + file.getName());
                 }
             } catch (Exception e) {
                 addLog("[org.jau.tag.id3] WARNING: Error during second duration read for " + file.getName() + ": " + e.getMessage(), e);
+            }
+
+            // If duration is still suspicious, try ffmpeg as a final fallback
+            if (duration < MIN_REASONABLE_DURATION_SECONDS || duration > MAX_REASONABLE_DURATION_SECONDS) {
+                addLog("[ffmpeg] INFO: jaudiotagger duration is still suspicious. Attempting fallback with ffmpeg for " + file.getName());
+                int ffmpegDuration = getDurationWithFFprobe(file);
+                if (ffmpegDuration != -1) {
+                    addLog("[ffmpeg] SUCCESS: ffmpeg successfully extracted duration: " + ffmpegDuration + "s for " + file.getName());
+                    return ffmpegDuration;
+                } else {
+                    addLog("[ffmpeg] FAILURE: All methods failed to get a valid duration for " + file.getName() + ". Returning last known value: " + duration + "s.");
+                }
             }
         }
         return duration;
@@ -483,7 +705,7 @@ public class SettingsController implements Serializable {
         addLogs(batchLogs);
 
         addLog(String.format("[org.jau.tag.id3] Metadata reload completed. %d songs updated.", updatedCount));
-        musicSocket.broadcastLibraryUpdate();
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
     private List<String> reloadMetadataForSong(Song song) {
@@ -499,6 +721,11 @@ public class SettingsController implements Serializable {
             MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
             Tag tag = mp3File.getTag();
 
+            // Reset fields before reloading to ensure fresh data
+            song.setTitle(null);
+            song.setArtist(null);
+            song.setAlbum(null);
+            
             if (tag != null) {
                 song.setTitle(safeGet(tag, FieldKey.TITLE));
                 song.setArtist(safeGet(tag, FieldKey.ARTIST));
@@ -523,20 +750,57 @@ public class SettingsController implements Serializable {
                     localLogs.add("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
                     song.setArtworkBase64(null);
                 }
-            } else {
-                localLogs.add("[org.jau.tag.id3] No tag found — using filename as title for " + songFile.getName());
-                String baseName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
-                song.setTitle(baseName);
+            }
+            
+            // If jaudiotagger failed or gave empty tags, try ffprobe
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                localLogs.add("[ffmpeg] INFO: jaudiotagger failed to provide title/artist for " + songFile.getName() + ". Trying ffprobe.");
+                FFprobeMetadata ffprobeData = getMetadataWithFFprobe(songFile);
+                if (ffprobeData != null) {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(ffprobeData.title());
+                    }
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                        song.setArtist(ffprobeData.artist());
+                    }
+                }
+            }
+
+            // If all taggers failed, fallback to filename parsing
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                localLogs.add("INFO: All metadata taggers failed for " + songFile.getName() + ". Falling back to filename parsing.");
+                String fileName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                int separatorIndex = fileName.indexOf(" - ");
+                if (separatorIndex != -1) {
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                         song.setArtist(fileName.substring(0, separatorIndex).trim());
+                    }
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName.substring(separatorIndex + 3).trim());
+                    }
+                } else {
+                     if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName);
+                    }
+                }
+            }
+
+            // Final fallback to ensure fields are not null
+            if (song.getTitle() == null || song.getTitle().isBlank()) {
+                song.setTitle("Unknown Title");
+            }
+            if (song.getArtist() == null || song.getArtist().isBlank()) {
                 song.setArtist("Unknown Artist");
-                song.setAlbum(null);
-                song.setArtworkBase64(null);
+            }
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                song.setAlbum("Unknown Album");
             }
 
             int duration = getVerifiedTrackLength(songFile, mp3File);
             localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
             song.setDurationSeconds(duration);
 
-            if ((song.getArtist() == null || song.getArtist().isBlank() || "Unknown Artist".equals(song.getArtist()))
+            if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
                     && song.getDurationSeconds() == 0) {
                 localLogs.add("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist + 0:00): " + song.getPath());
                 return localLogs;
@@ -563,6 +827,7 @@ public class SettingsController implements Serializable {
 
         // Step 1: Collect all MP3 files from both main and import folders
         List<FileDetails> allFileDetails = new ArrayList<>();
+        List<File> unidentifiableFilesToDelete = new ArrayList<>();
 
         // Main music folder
         File mainMusicFolder = getMusicFolder();
@@ -573,6 +838,8 @@ public class SettingsController implements Serializable {
                 Song metadata = extractMetadataFromFile(file);
                 if (metadata != null) {
                     allFileDetails.add(new FileDetails(file, "main", metadata));
+                } else {
+                    unidentifiableFilesToDelete.add(file);
                 }
             }
         } else {
@@ -588,14 +855,16 @@ public class SettingsController implements Serializable {
                 Song metadata = extractMetadataFromFile(file);
                 if (metadata != null) {
                     allFileDetails.add(new FileDetails(file, "import", metadata));
+                } else {
+                    unidentifiableFilesToDelete.add(file);
                 }
             }
         } else {
             addLog("Import folder does not exist: " + importFolder.getAbsolutePath());
         }
 
-        if (allFileDetails.isEmpty()) {
-            addLog("No songs found in main or import folders to check for duplicates.");
+        if (allFileDetails.isEmpty() && unidentifiableFilesToDelete.isEmpty()) {
+            addLog("No songs found in main or import folders to check for duplicates or unidentifiable files.");
             return;
         }
 
@@ -654,28 +923,49 @@ public class SettingsController implements Serializable {
                 return "Error deleting duplicate file " + fd.file.getAbsolutePath() + ": " + e.getMessage();
             }
         }));
+        
+        // Also add unidentifiable files to the deletion process
+        unidentifiableFilesToDelete.forEach(file -> completion.submit(() -> {
+            try {
+                if (file.delete()) {
+                    // For unidentifiable files, we don't have metadata to find a DB entry easily.
+                    // Log it as deleted.
+                    return "Deleted unidentifiable file (metadata extraction failed): " + file.getAbsolutePath();
+                } else {
+                    return "Failed to delete unidentifiable file: " + file.getAbsolutePath();
+                }
+            } catch (Exception e) {
+                return "Error deleting unidentifiable file " + file.getAbsolutePath() + ": " + e.getMessage();
+            }
+        }));
 
         List<String> batchLogs = new ArrayList<>();
         int deletedCount = 0;
-        for (int i = 0; i < filesToDelete.size(); i++) {
+        int unidentifiableDeletedCount = 0;
+        
+        int totalFilesToProcess = filesToDelete.size() + unidentifiableFilesToDelete.size();
+        for (int i = 0; i < totalFilesToProcess; i++) {
             try {
                 Future<String> future = completion.take();
                 String logMessage = future.get();
                 batchLogs.add(logMessage);
                 if (logMessage.startsWith("Deleted duplicate file")) {
                     deletedCount++;
+                } else if (logMessage.startsWith("Deleted unidentifiable file")) {
+                    unidentifiableDeletedCount++;
                 }
             } catch (Exception e) {
-                batchLogs.add("Error in duplicate deletion task: " + e.getMessage());
+                batchLogs.add("Error in deletion task: " + e.getMessage());
             }
         }
 
         addLogs(batchLogs);
         addLog("Duplicate file deletion completed. " + deletedCount + " files deleted.");
-        musicSocket.broadcastLibraryUpdate();
+        addLog("Unidentifiable file deletion completed. " + unidentifiableDeletedCount + " files deleted.");
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
-    public void clearLogs() {
+    public synchronized void clearLogs() {
         Settings settings = settingsService.getOrCreateSettings();
         settings.getLogs().clear();
         addLog("Logs cleared.");
@@ -719,7 +1009,7 @@ public class SettingsController implements Serializable {
         addLog("Music library reset to default: " + musicLibraryPath);
     }
 
-    public List<String> getLogs() {
+    public synchronized List<String> getLogs() {
         return settingsService.getOrCreateSettings().getLogs().stream()
                 .map(SettingsLog::getMessage)
                 .collect(Collectors.toList());

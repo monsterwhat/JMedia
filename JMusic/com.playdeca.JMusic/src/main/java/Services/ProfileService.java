@@ -36,6 +36,10 @@ public class ProfileService {
         return Profile.findByName(name);
     }
 
+    public Profile findById(Long id) {
+        return Profile.findById(id);
+    }
+
     public Profile getMainProfile() {
         return Profile.findMainProfile();
     }

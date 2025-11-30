@@ -32,6 +32,16 @@ public class ProfileAPI {
         return settingsService.getActiveProfile();
     }
 
+    @GET
+    @Path("/{id}")
+    public Response getProfile(@PathParam("id") Long id) {
+        Profile profile = Profile.findById(id);
+        if (profile == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
+        }
+        return Response.ok(profile).build();
+    }
+
     @POST
     @Transactional
     @Consumes(MediaType.TEXT_PLAIN) // Add this annotation

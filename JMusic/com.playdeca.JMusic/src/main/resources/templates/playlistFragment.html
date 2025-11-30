@@ -5,7 +5,7 @@
                 <td>
                     <button
                         class="button is-ghost is-fullwidth has-text-left has-text-primary"
-                        hx-get="/api/music/ui/playlist-view/0"
+                        hx-get="/api/music/ui/playlist-view/{profileId}/0"
                         hx-target="#playlistView"
                         hx-swap="outerHTML">
                         All Songs
@@ -17,7 +17,7 @@
                 <td class="is-flex is-justify-content-space-between is-align-items-center">
                     <button
                         class="button is-ghost is-fullwidth has-text-left has-text-primary"
-                        hx-get="/api/music/ui/playlist-view/{p.id}"
+                        hx-get="/api/music/ui/playlist-view/{profileId}/{p.id}"
                         hx-target="#playlistView"
                         hx-swap="outerHTML"
                         style="flex-grow: 1;">

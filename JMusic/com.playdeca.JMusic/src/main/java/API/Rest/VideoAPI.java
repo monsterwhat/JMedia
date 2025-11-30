@@ -2,6 +2,7 @@ package API.Rest;
 
 import API.ApiResponse;
 import Models.Video;
+import Models.DTOs.PaginatedMovieResponse; // Import the new DTO
 import Services.SettingsService;
 import Services.VideoImportService;
 import Services.VideoService;
@@ -21,7 +22,11 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Paths;
-import java.util.List; 
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +48,19 @@ public class VideoAPI {
     @Inject
     ManagedExecutor executor; // Inject ManagedExecutor
 
+    private ExecutorService reloadExecutor; // Dedicated executor for long-running reload tasks
+
+    @PostConstruct
+    void init() {
+        this.reloadExecutor = Executors.newSingleThreadExecutor(); // Single thread for orchestration
+        LOG.info("Initialized reloadExecutor with a single thread.");
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        LOG.info("Shutting down reloadExecutor.");
+        reloadExecutor.shutdownNow();
+    }
     @GET
     @Path("/stream/{videoId}")
     @Produces("video/mp4") // Assuming MP4 for simplicity, adjust if other formats are needed
@@ -98,7 +116,7 @@ public class VideoAPI {
     @POST
     @Path("/reload-metadata")
     public Response reloadVideoMetadata() {
-        executor.submit(() -> {
+        reloadExecutor.submit(() -> {
             videoImportService.reloadAllVideoMetadata();
         }, "VideoMetadataReloadThread"); // Provide a thread name for debugging
 
@@ -150,11 +168,18 @@ public class VideoAPI {
     @GET
     @Path("/movies")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getAllMovies() {
-        List<Video> movies = videoService.findByMediaType("Movie");
-        System.out.println("Returning all movies: " + movies);
-        return Response.ok(movies).build();
+    public Response getAllMovies(
+            @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+        
+        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
+        List<Video> movies = paginatedVideos.videos();
+        long totalItems = paginatedVideos.totalCount();
+        
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+
+        PaginatedMovieResponse response = new PaginatedMovieResponse(movies, page, limit, totalItems, totalPages);
+        return Response.ok(response).build();
     }
 }
-
 

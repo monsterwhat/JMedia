@@ -1,0 +1,21 @@
+<div id="seriesList">
+    {#if seriesTitles.empty}
+        <div class="has-text-centered py-4">
+            <p>No shows found.</p>
+        </div>
+    {#else}
+        {#for seriesTitle in seriesTitles}
+            <div class="video-entry" hx-get="/api/video/ui/shows/{seriesTitle}/seasons-fragment" hx-trigger="click" hx-target="next .nested-list" hx-swap="innerHTML">
+                <span class="icon is-small"><i class="pi pi-angle-right"></i></span>
+                <span class="video-title">{seriesTitle}</span>
+            </div>
+            <div class="nested-list" style="display:none;">
+                <!-- Seasons will be loaded here via HTMX -->
+                <div class="has-text-centered py-2">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 1.2rem;"></i>
+                    <p>Loading seasons...</p>
+                </div>
+            </div>
+        {/for}
+    {/if}
+</div>

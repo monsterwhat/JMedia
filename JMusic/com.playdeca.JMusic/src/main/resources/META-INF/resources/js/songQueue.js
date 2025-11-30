@@ -43,52 +43,52 @@ let isFetchingQueue = false;
 // -------------------------
 // Load a page of the queue
 // -------------------------
-function loadQueuePage(page = 1) { // Default to page 1
+function loadQueuePage(page = 1, profileIdParam) { // Added profileIdParam
     if (isFetchingQueue) {
-        console.log("[songQueue.js] loadQueuePage: Aborting due to fetching in progress.");
         return;
     }
     isFetchingQueue = true;
     currentPage = page; // Update current page
+    const currentProfileId = profileIdParam || window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
 
-    fetch(`/api/music/ui/queue-fragment?page=${currentPage}&limit=${queueLimit}`, {
+    fetch(`/api/music/ui/queue-fragment/${currentProfileId}?page=${currentPage}&limit=${queueLimit}`, {
         headers: {'Accept': 'application/json'} // Request JSON
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        const tbody = document.querySelector('#songQueueTable tbody');
-        if (!tbody) {
-            console.error("[songQueue.js] loadQueuePage: #songQueueTable tbody not found.");
-            isFetchingQueue = false;
-            return;
-        }
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                const tbody = document.querySelector('#songQueueTable tbody');
+                if (!tbody) {
+                    console.error("[songQueue.js] loadQueuePage: #songQueueTable tbody not found.");
+                    isFetchingQueue = false;
+                    return;
+                }
 
-        tbody.innerHTML = data.html; // Replace content with new HTML
-        
-        totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
-        isFetchingQueue = false;
+                tbody.innerHTML = data.html; // Replace content with new HTML
 
-        console.log("[songQueue.js] loadQueuePage: Request successful. CurrentPage:", currentPage, "totalQueueSize:", totalQueueSize);
+                totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
+                isFetchingQueue = false;
 
-        // Apply marquee effect to new rows
-        const rows = tbody.querySelectorAll('tr');
-        rows.forEach(row => {
-            const titleCell = row.querySelector('td:nth-child(2)');
-            if (titleCell)
-                applyMarqueeEffectToQueue(titleCell);
-        });
+                console.log("[songQueue.js] loadQueuePage: Request successful. CurrentPage:", currentPage, "totalQueueSize:", totalQueueSize);
 
-        updateQueueCount(totalQueueSize);
-    })
-    .catch(error => {
-        console.error("[songQueue.js] loadQueuePage: Request failed:", error);
-        isFetchingQueue = false;
-    });
+                // Apply marquee effect to new rows
+                const rows = tbody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const titleCell = row.querySelector('td:nth-child(2)');
+                    if (titleCell)
+                        applyMarqueeEffectToQueue(titleCell);
+                });
+
+                updateQueueCount(totalQueueSize);
+            })
+            .catch(error => {
+                console.error("[songQueue.js] loadQueuePage: Request failed:", error);
+                isFetchingQueue = false;
+            });
 }
 
 // -------------------------
@@ -102,26 +102,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // Clear queue
     if (clearQueueBtn) {
         clearQueueBtn.addEventListener('click', () => {
-            fetch('/api/music/queue/clear', {
+            const currentProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            fetch(`/api/music/queue/clear/${currentProfileId}`, {
                 method: 'POST',
                 headers: {'Accept': 'application/json'}
-            })
-            .then(response => {
+            }).then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 return response.json(); // Expecting JSON response from clearQueueUi
             })
-            .then(data => {
-                const tbody = document.querySelector('#songQueueTable tbody');
-                if (tbody) {
-                    tbody.innerHTML = data.html; // Use HTML from response
-                }
-                loadQueuePage(1); // Reload first page after clearing
-            })
-            .catch(error => {
-                console.error("[songQueue.js] clearQueueBtn click: Request failed:", error);
-            });
+                    .then(data => {
+                        const tbody = document.querySelector('#songQueueTable tbody');
+                        if (tbody) {
+                            tbody.innerHTML = data.html; // Use HTML from response
+                        }
+                        loadQueuePage(1); // Reload first page after clearing
+                    })
+                    .catch(error => {
+                        console.error("[songQueue.js] clearQueueBtn click: Request failed:", error);
+                    });
         });
     }
 
@@ -151,13 +151,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Global function to handle queue actions (skip/remove)
-window.handleQueueAction = (action, index) => {
+window.handleQueueAction = (action, index, profileIdParam) => { // Added profileIdParam
     console.log(`[songQueue.js] handleQueueAction: ${action} at index ${index}`);
+    const currentProfileId = profileIdParam || window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     let url = '';
     if (action === 'skip') {
-        url = `/api/music/ui/queue/skip-to/${index}`;
+        url = `/api/music/ui/queue/skip-to/${currentProfileId}/${index}`;
     } else if (action === 'remove') {
-        url = `/api/music/ui/queue/remove/${index}`;
+        url = `/api/music/ui/queue/remove/${currentProfileId}/${index}`;
     } else {
         console.error(`[songQueue.js] handleQueueAction: Unknown action type: ${action}`);
         return;
@@ -167,20 +168,20 @@ window.handleQueueAction = (action, index) => {
         method: 'POST',
         headers: {'Accept': 'application/json'}
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        const tbody = document.querySelector('#songQueueTable tbody');
-        if (tbody) {
-            tbody.innerHTML = data.html; // Update tbody with new HTML
-        }
-        loadQueuePage(1); // Reload first page after action
-    })
-    .catch(error => {
-        console.error(`[songQueue.js] handleQueueAction: Request failed for ${action} at index ${index}:`, error);
-    });
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                const tbody = document.querySelector('#songQueueTable tbody');
+                if (tbody) {
+                    tbody.innerHTML = data.html; // Update tbody with new HTML
+                }
+                loadQueuePage(1); // Reload first page after action
+            })
+            .catch(error => {
+                console.error(`[songQueue.js] handleQueueAction: Request failed for ${action} at index ${index}:`, error);
+            });
 };

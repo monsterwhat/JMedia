@@ -16,12 +16,17 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean; 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.eclipse.microprofile.context.ManagedExecutor; // Inject ManagedExecutor
+
 import java.util.ArrayList;
 import java.util.Collections;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,13 +72,25 @@ public class VideoImportService {
 
     @Inject
     ObjectMapper objectMapper;
-
-    @Inject
-    ManagedExecutor managedExecutor; // Inject ManagedExecutor
-
-
-
+ 
     private final AtomicBoolean isImporting = new AtomicBoolean(false);
+    
+    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+    private static final ExecutorService executor = Executors.newFixedThreadPool(THREADS); // Fixed-size pool for performScan and reloadAllVideoMetadata
+
+    @PreDestroy
+    public void shutdownExecutor() {
+        LOGGER.info("Shutting down executor.");
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 
     public void scanVideoLibrary() {
         if (isImporting.get()) {
@@ -139,19 +156,22 @@ public class VideoImportService {
             }
 
             List<Video> allVideos = videoService.findAll(); // Get all videos currently in DB
-            logSocket.broadcast("Found " + allVideos.size() + " videos to reload metadata for.");
+            logSocket.broadcast("Found " + allVideos.size() + " videos to reload metadata for. Starting parallel metadata processing...");
 
-            java.util.concurrent.ExecutorCompletionService<Void> completion = new java.util.concurrent.ExecutorCompletionService<>(managedExecutor);
-
+            java.util.concurrent.ExecutorCompletionService<Void> completion = new java.util.concurrent.ExecutorCompletionService<>(executor);
             for (Video video : allVideos) {
-                // Submit each video for processing in a separate task
                 completion.submit(() -> {
-                    reloadMetadataForVideo(video, videoLibraryPath);
-                    return null; // Return null as reloadMetadataForVideo handles its own persistence and logging
+                    try {
+                        reloadMetadataForVideo(video.id, videoLibraryPath);
+                    } catch (Exception e) {
+                        // Catch exceptions from individual tasks and add to failedVideos
+                        failedVideos.add(new ScanResult(video.getPath(), "Error: " + e.getMessage()));
+                        LOGGER.error("Error reloading metadata for {}: {}", video.getPath(), e.getMessage());
+                    }
+                    return null;
                 });
             }
 
-            // Wait for all tasks to complete and log progress
             int processedCount = 0;
             for (int i = 0; i < allVideos.size(); i++) {
                 try {
@@ -162,11 +182,10 @@ public class VideoImportService {
                         logSocket.broadcast("Processed " + processedCount + " / " + allVideos.size() + " video metadata reloads...");
                     }
                 } catch (Exception e) {
-                    // Error handling for reloadMetadataForVideo is within the method, this is for unexpected completion errors
-                    logSocket.broadcast("Error during future.get() for video metadata reload: " + e.getMessage());
-                    LOGGER.error("Error during future.get() for video metadata reload:", e);
-                    // Add a generic failure if the error cannot be attributed to a specific video
-                    failedVideos.add(new ScanResult("Unknown Video (Parallel Processing Error)", e.getMessage()));
+                    // This catch block is for unexpected errors during future.get()
+                    logSocket.broadcast("Error during future.get() for a video metadata reload task: " + e.getMessage());
+                    LOGGER.error("Error during future.get() for a video metadata reload task:", e);
+                    // The specific failed video would have already been added in the task's catch block
                 }
             }
 
@@ -194,7 +213,7 @@ public class VideoImportService {
         collectVideoFiles(folderToScan, videoFiles);
         logSocket.broadcast("Found " + videoFiles.size() + " video files. Starting parallel metadata processing...");
 
-        java.util.concurrent.ExecutorCompletionService<Void> completion = new java.util.concurrent.ExecutorCompletionService<>(managedExecutor);
+        java.util.concurrent.ExecutorCompletionService<Void> completion = new java.util.concurrent.ExecutorCompletionService<>(executor);
         for (File file : videoFiles) {
             completion.submit(() -> {
                 processFile(file, videoLibraryPath);
@@ -237,7 +256,14 @@ public class VideoImportService {
     }
 
     // New method to process a single video's metadata reload
-    private void reloadMetadataForVideo(Video video, String videoLibraryPath) {
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    protected void reloadMetadataForVideo(Long videoId, String videoLibraryPath) {
+        Video video = videoService.find(videoId);
+        if (video == null) {
+            LOGGER.warn("Video with ID {} not found for metadata reload. It might have been deleted.", videoId);
+            failedVideos.add(new ScanResult("Video ID: " + videoId, "Video not found"));
+            return;
+        }
         String videoPath = video.getPath(); // Use the existing path from the video object
         try {
             // Reconstruct file path
@@ -281,7 +307,7 @@ public class VideoImportService {
         }
     }
 
-    private VideoMetadata extractVideoMetadata(File videoFile) { // Removed throws Exception
+    private VideoMetadata extractVideoMetadata(File videoFile) {
         try {
             // Use ffprobe to extract core video metadata
             ProcessBuilder pb = new ProcessBuilder(
@@ -368,93 +394,94 @@ public class VideoImportService {
                 // Extract episode title if available (anything after SXXEXX pattern and before extension)
                 String remainingFileName = videoFile.getName().substring(matcher.end()).trim();
                 int dotIndex = remainingFileName.lastIndexOf('.');
-                if (dotIndex != -1) {
-                    remainingFileName = remainingFileName.substring(0, dotIndex).trim();
-                }
-                if (!remainingFileName.isEmpty() && !remainingFileName.matches("^[._-]*$")) { // ignore just separators
-                    episodeTitle = remainingFileName.replaceFirst("^[._-]*", "").replace('_', ' ').replace('.', ' ').trim();
-                }
-                
-                if (episodeTitle == null || episodeTitle.isEmpty()) {
-                    // Fallback: try to find a title before the SXXEXX pattern in the filename
-                    String prefix = videoFile.getName().substring(0, matcher.start()).trim();
-                    if (!prefix.isEmpty()) {
-                        episodeTitle = prefix.replace('_', ' ').replace('.', ' ').trim();
+                    if (dotIndex != -1) {
+                        remainingFileName = remainingFileName.substring(0, dotIndex).trim();
                     }
-                }
-                if (episodeTitle == null || episodeTitle.isEmpty()) {
-                     episodeTitle = "Episode " + episodeNumber; // Generic title if none found
-                }
-
-
-                // If seriesTitle is still null, try from grandparent directory (e.g. "TV Shows/Show Name/Season 1")
-                File grandParentDir = (parentDir != null) ? parentDir.getParentFile() : null;
-                if (seriesTitle == null && grandParentDir != null) {
-                    String grandParentName = grandParentDir.getName();
-                     Pattern grandParentSeriesPattern = Pattern.compile("^(.*?)(?:\\s*\\(P?C?\\d{4}\\))?(?:\\s*[Ss]eason[._-]?\\d+)?$");
-                     Matcher grandParentSeriesMatcher = grandParentSeriesPattern.matcher(grandParentName);
-                     if(grandParentSeriesMatcher.find()){
-                         seriesTitle = grandParentSeriesMatcher.group(1).trim();
-                     } else {
-                         seriesTitle = grandParentName.trim();
-                     }
-                }
-            }
-
-            // Try to get release year from filename or parent directory for movies or if not found for episodes
-            if (mediaType.equals("Movie") || (releaseYear == null && seriesTitle == null)) {
-                Matcher yearMatcher = yearPattern.matcher(videoFile.getName());
-                if (yearMatcher.find()) {
-                    releaseYear = Integer.parseInt(yearMatcher.group(1));
-                } else {
-                    File parentDir = videoFile.getParentFile();
-                    if (parentDir != null) {
-                        yearMatcher = yearPattern.matcher(parentDir.getName());
-                        if (yearMatcher.find()) {
-                            releaseYear = Integer.parseInt(yearMatcher.group(1));
+                    if (!remainingFileName.isEmpty() && !remainingFileName.matches("^[._-]*$")) { // ignore just separators
+                        episodeTitle = remainingFileName.replaceFirst("^[._-]*", "").replace('_', ' ').replace('.', ' ').trim();
+                    }
+                    
+                    if (episodeTitle == null || episodeTitle.isEmpty()) {
+                        // Fallback: try to find a title before the SXXEXX pattern in the filename
+                        String prefix = videoFile.getName().substring(0, matcher.start()).trim();
+                        if (!prefix.isEmpty()) {
+                            episodeTitle = prefix.replace('_', ' ').replace('.', ' ').trim();
                         }
                     }
+                    if (episodeTitle == null || episodeTitle.isEmpty()) {
+                         episodeTitle = "Episode " + episodeNumber; // Generic title if none found
+                    }
+
+
+                    // If seriesTitle is still null, try from grandparent directory (e.g. "TV Shows/Show Name/Season 1")
+                    File grandParentDir = (parentDir != null) ? parentDir.getParentFile() : null;
+                    if (seriesTitle == null && grandParentDir != null) {
+                        String grandParentName = grandParentDir.getName();
+                         Pattern grandParentSeriesPattern = Pattern.compile("^(.*?)(?:\\s*\\(P?C?\\d{4}\\))?(?:\\s*[Ss]eason[._-]?\\d+)?$");
+                         Matcher grandParentSeriesMatcher = grandParentSeriesPattern.matcher(grandParentName);
+                         if(grandParentSeriesMatcher.find()){
+                             seriesTitle = grandParentSeriesMatcher.group(1).trim();
+                         } else {
+                             seriesTitle = grandParentName.trim();
+                         }
+                    }
                 }
-                // If still a movie and release year is not found, use a default from path
-                 if(mediaType.equals("Movie") && releaseYear == null){
-                     // Try to find year in folder structure like "Movie Title (YYYY)"
-                     String parentName = videoFile.getParentFile() != null ? videoFile.getParentFile().getName() : videoFile.getName();
-                     Pattern movieFolderYearPattern = Pattern.compile(".*\\((\\d{4})\\)");
-                     Matcher movieFolderYearMatcher = movieFolderYearPattern.matcher(parentName);
-                     if(movieFolderYearMatcher.find()){
-                         releaseYear = Integer.parseInt(movieFolderYearMatcher.group(1));
+
+                // Try to get release year from filename or parent directory for movies or if not found for episodes
+                if (mediaType.equals("Movie") || (releaseYear == null && seriesTitle == null)) {
+                    Matcher yearMatcher = yearPattern.matcher(videoFile.getName());
+                    if (yearMatcher.find()) {
+                        releaseYear = Integer.parseInt(yearMatcher.group(1));
+                    } else {
+                        File parentDir = videoFile.getParentFile();
+                        if (parentDir != null) {
+                            yearMatcher = yearPattern.matcher(parentDir.getName());
+                            if (yearMatcher.find()) {
+                                releaseYear = Integer.parseInt(yearMatcher.group(1));
+                            }
+                        }
+                    }
+                    // If still a movie and release year is not found, use a default from path
+                     if(mediaType.equals("Movie") && releaseYear == null){
+                         // Try to find year in folder structure like "Movie Title (YYYY)"
+                         String parentName = videoFile.getParentFile() != null ? videoFile.getParentFile().getName() : videoFile.getName();
+                         Pattern movieFolderYearPattern = Pattern.compile(".*\\((\\d{4})\\)");
+                         Matcher movieFolderYearMatcher = movieFolderYearPattern.matcher(parentName);
+                         if(movieFolderYearMatcher.find()){
+                             releaseYear = Integer.parseInt(movieFolderYearMatcher.group(1));
+                         }
                      }
-                 }
-            }
-            
-            // Final fallback for title for movies
-            if (mediaType.equals("Movie") && (detectedTitle == null || detectedTitle.isEmpty())) {
-                detectedTitle = videoFile.getName().substring(0, videoFile.getName().lastIndexOf('.')).replace('_', ' ').replace('.', ' ').trim();
-            } else if (mediaType.equals("Episode") && (detectedTitle == null || detectedTitle.isEmpty() && episodeTitle != null)) {
-                detectedTitle = episodeTitle; // Use episode title as main title for episodes
-            }
+                }
+                
+                // Final fallback for title for movies
+                if (mediaType.equals("Movie") && (detectedTitle == null || detectedTitle.isEmpty())) {
+                    detectedTitle = videoFile.getName().substring(0, videoFile.getName().lastIndexOf('.')).replace('_', ' ').replace('.', ' ').trim();
+                } else if (mediaType.equals("Episode") && (detectedTitle == null || detectedTitle.isEmpty() && episodeTitle != null)) {
+                    detectedTitle = episodeTitle; // Use episode title as main title for episodes
+                }
 
 
-            return new VideoMetadata(
-                detectedTitle,
-                mediaType,
-                seriesTitle,
-                seasonNumber,
-                episodeNumber,
-                episodeTitle,
-                releaseYear,
-                durationSeconds,
-                width,
-                height
-            );
-        } catch (Exception e) {
-            logSocket.broadcast("Error extracting metadata from file " + videoFile.getName() + ": " + e.getMessage());
-            // It's good practice to also log the stack trace for debugging purposes
-            // LOGGER.error("Stack trace for metadata extraction error:", e);
-            return null; // Indicate that metadata extraction failed
+                return new VideoMetadata(
+                    detectedTitle,
+                    mediaType,
+                    seriesTitle,
+                    seasonNumber,
+                    episodeNumber,
+                    episodeTitle,
+                    releaseYear,
+                    durationSeconds,
+                    width,
+                    height
+                );
+            } catch (Exception e) {
+                logSocket.broadcast("Error extracting metadata from file " + videoFile.getName() + ": " + e.getMessage());
+                // It's good practice to also log the stack trace for debugging purposes
+                // LOGGER.error("Stack trace for metadata extraction error:", e);
+                return null; // Indicate that metadata extraction failed
+            }
         }
-    }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public void processFile(File file, String videoLibraryPath) {
         String fileName = file.getName().toLowerCase();
         if (fileName.endsWith(".mp4") || fileName.endsWith(".mkv") || fileName.endsWith(".avi") || fileName.endsWith(".webm")) {

@@ -15,8 +15,8 @@ import Models.PlaybackHistory;
 @ApplicationScoped
 public class PlaybackQueueController {
 
-    public List<PlaybackHistory> getHistory() {
-        return PlaybackHistory.listAll();
+    public List<PlaybackHistory> getHistory(int page, int pageSize, Long profileId) {
+        return playbackHistoryService.getHistory(page, pageSize, profileId);
     }
 
     @Inject
@@ -25,17 +25,17 @@ public class PlaybackQueueController {
     @Inject
     private SongService songService;
 
-    private void addSongToHistory(Long songId) {
+    private void addSongToHistory(Long songId, Long profileId) {
         if (songId == null) {
             return;
         }
         Song song = songService.find(songId);
         if (song != null) {
-            playbackHistoryService.add(song);
+            playbackHistoryService.add(song, profileId);
         }
     }
 
-    public void populateCue(PlaybackState state, List<Long> songIds) {
+    public void populateCue(PlaybackState state, List<Long> songIds, Long profileId) {
         state.setCue(new ArrayList<>(songIds));
         state.setOriginalCue(new ArrayList<>()); // Clear any previously saved original cue
         state.setCueIndex(songIds.isEmpty() ? -1 : 0);
@@ -44,7 +44,7 @@ public class PlaybackQueueController {
         state.setCurrentTime(0);
     }
 
-    public Long advance(PlaybackState state, boolean forward) {
+    public Long advance(PlaybackState state, boolean forward, Long profileId) {
         if (!forward) {
             // 'previous' logic can be simple
             List<Long> cue = state.getCue();
@@ -59,11 +59,11 @@ public class PlaybackQueueController {
         }
 
         // --- FORWARD ADVANCEMENT ---
-        addSongToHistory(state.getCurrentSongId());
+        addSongToHistory(state.getCurrentSongId(), profileId);
 
         // Smart shuffle: find a suitable next song and move it to the next position in the cue
         if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
-            findAndPrepareNextSmartSong(state);
+            findAndPrepareNextSmartSong(state, profileId);
         }
 
         List<Long> cue = state.getCue();
@@ -82,12 +82,11 @@ public class PlaybackQueueController {
                 return null;
             }
             // The new index is the one we just removed from.
-            state.setCueIndex(playedIndex);
-            // Ensure playedIndex is valid before accessing cue
             if (playedIndex < 0 && !cue.isEmpty()) {
                 state.setCueIndex(0); // Reset to first song if index is invalid but queue is not empty
                 return cue.get(0);
             }
+            state.setCueIndex(playedIndex); // Ensure cue index is valid after removal
             return cue.get(playedIndex);
         }
 
@@ -103,7 +102,7 @@ public class PlaybackQueueController {
         return cue.get(nextIndex);
     }
 
-    public void initShuffle(PlaybackState state) {
+    public void initShuffle(PlaybackState state, Long profileId) {
         // Save the original order before shuffling if it's not already saved
         if (state.getOriginalCue() == null || state.getOriginalCue().isEmpty()) {
             state.setOriginalCue(new ArrayList<>(state.getCue()));
@@ -129,7 +128,7 @@ public class PlaybackQueueController {
         }
     }
 
-    public void initSmartShuffle(PlaybackState state) {
+    public void initSmartShuffle(PlaybackState state, Long profileId) {
         // 1. Get the pool of songs
         List<Long> songPoolIds = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
                 ? new ArrayList<>(state.getOriginalCue())
@@ -177,7 +176,7 @@ public class PlaybackQueueController {
         }
     }
 
-    public void clearShuffle(PlaybackState state) {
+    public void clearShuffle(PlaybackState state, Long profileId) {
         List<Long> originalCue = state.getOriginalCue();
         // Check if there is an original cue to restore from
         if (originalCue != null && !originalCue.isEmpty()) {
@@ -194,7 +193,7 @@ public class PlaybackQueueController {
         }
     }
 
-    public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext) {
+    public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext, Long profileId) {
         if (songIds == null || songIds.isEmpty()) {
             return;
         }
@@ -216,7 +215,7 @@ public class PlaybackQueueController {
         }
     }
 
-    public void removeFromQueue(PlaybackState state, Long songId) {
+    public void removeFromQueue(PlaybackState state, Long songId, Long profileId) {
         List<Long> cue = state.getCue();
         if (cue == null || !cue.contains(songId)) {
             return;
@@ -241,7 +240,7 @@ public class PlaybackQueueController {
         }
     }
 
-    public void clear(PlaybackState state) {
+    public void clear(PlaybackState state, Long profileId) {
         state.setCue(new ArrayList<>());
         state.setOriginalCue(new ArrayList<>());
         state.setCueIndex(-1);
@@ -250,7 +249,7 @@ public class PlaybackQueueController {
         state.setCurrentTime(0);
     }
 
-    public void moveInQueue(PlaybackState state, int fromIndex, int toIndex) {
+    public void moveInQueue(PlaybackState state, int fromIndex, int toIndex, Long profileId) {
         List<Long> cue = state.getCue();
         if (cue == null || cue.isEmpty() || fromIndex < 0 || fromIndex >= cue.size() || toIndex < 0 || toIndex >= cue.size()) {
             return;
@@ -270,11 +269,11 @@ public class PlaybackQueueController {
         }
     }
 
-    public void togglePlay(PlaybackState state) {
+    public void togglePlay(PlaybackState state, Long profileId) {
         state.setPlaying(!state.isPlaying());
     }
 
-    public void toggleRepeat(PlaybackState state) {
+    public void toggleRepeat(PlaybackState state, Long profileId) {
         PlaybackState.RepeatMode currentMode = state.getRepeatMode();
         PlaybackState.RepeatMode nextMode;
 
@@ -295,24 +294,24 @@ public class PlaybackQueueController {
         state.setRepeatMode(nextMode);
     }
 
-    public void changeVolume(PlaybackState state, float level) {
+    public void changeVolume(PlaybackState state, float level, Long profileId) {
         state.setVolume(Math.max(0f, Math.min(1f, level)));
     }
 
-    public void setSeconds(PlaybackState state, double seconds) {
+    public void setSeconds(PlaybackState state, double seconds, Long profileId) {
         state.setCurrentTime(Math.max(0, seconds));
     }
 
-    public void songSelected(Long songId) {
-        addSongToHistory(songId);
+    public void songSelected(Long songId, Long profileId) {
+        addSongToHistory(songId, profileId);
     }
 
-    public void skipToQueueIndex(PlaybackState state, int index) {
+    public void skipToQueueIndex(PlaybackState state, int index, Long profileId) {
         List<Long> cue = state.getCue();
         if (cue == null || index < 0 || index >= cue.size()) {
             return;
         }
-        addSongToHistory(state.getCurrentSongId()); // Add the song we are skipping from
+        addSongToHistory(state.getCurrentSongId(), profileId); // Add the song we are skipping from
 
         // Create the new truncated cue
         List<Long> newCue = new ArrayList<>(cue.subList(index, cue.size()));
@@ -340,7 +339,7 @@ public class PlaybackQueueController {
         state.setPlaying(true);
     }
 
-    private void findAndPrepareNextSmartSong(PlaybackState state) {
+    private void findAndPrepareNextSmartSong(PlaybackState state, Long profileId) {
         Song currentSong = songService.find(state.getCurrentSongId());
         if (currentSong == null || currentSong.getGenre() == null || currentSong.getGenre().isBlank()) {
             return;

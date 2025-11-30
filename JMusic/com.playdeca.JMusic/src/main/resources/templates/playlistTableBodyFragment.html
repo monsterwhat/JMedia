@@ -28,7 +28,7 @@
         <div class="buttons is-small is-grouped is-centered is-vcentered">
             <button
                         class="has-text-success"
-                        hx-post="/api/music/playback/select/{s.id}"
+                        hx-post="/api/music/playback/select/{profileId}/{s.id}"
                         hx-trigger="click"
                         hx-swap="none"
                         data-playlist-id="{playlistId}">
@@ -37,7 +37,7 @@
             {#if playlistId == 0}
             <button
                         class="has-text-info"
-                        hx-get="/api/music/ui/add-to-playlist-dialog/{s.id}"
+                        hx-get="/api/music/ui/add-to-playlist-dialog/{profileId}/{s.id}"
                         hx-target="#addToPlaylistModalContent"
                         hx-swap="innerHTML"
                         hx-on::after-request="document.getElementById('addToPlaylistModal').classList.add('is-active')">
@@ -55,7 +55,7 @@
         <nav class="pagination is-centered py-4" role="navigation" aria-label="pagination">
             <a class="pagination-previous"
                {#if currentPage > 1}
-                                                 hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage - 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+                                                 hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page={currentPage - 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
                                                  hx-target="#songTableBody"
                                                  hx-swap="innerHTML"
                {#else}
@@ -65,7 +65,7 @@
             </a>
             <a class="pagination-next"
                {#if currentPage < totalPages}
-                   hx-get="/api/music/ui/tbody/{playlistId}?page={currentPage + 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+                   hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page={currentPage + 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
                    hx-target="#songTableBody"
                    hx-swap="innerHTML"
                {#else}
@@ -83,7 +83,7 @@
                         <li>
                             <a class="pagination-link"
                                aria-label="Goto page {p}"
-                               hx-get="/api/music/ui/tbody/{playlistId}?page={p}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+                               hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page={p}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
                                hx-target="#songTableBody"
                                hx-swap="innerHTML">
                                 {p}

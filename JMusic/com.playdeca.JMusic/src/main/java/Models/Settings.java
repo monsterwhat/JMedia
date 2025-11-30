@@ -16,6 +16,8 @@ public class Settings extends PanacheEntity {
     private String libraryPath;
     private String videoLibraryPath;
 
+
+    
     private Long activeProfileId;
     
     private Boolean runAsService = false;

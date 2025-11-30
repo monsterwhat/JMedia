@@ -9,7 +9,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteCurrentProfileBtn = document.getElementById('deleteCurrentProfileBtn');
 
     let allProfiles = [];
-    let currentProfile = null;
+    let currentProfile = null; // Represents the currently active profile object
+
+    // Function to get the current active profile ID from localStorage
+    function getActiveProfileId() {
+        return localStorage.getItem('activeProfileId') || null;
+    }
+
+    // Function to set the active profile ID in localStorage
+    function setActiveProfileId(profileId) {
+        localStorage.setItem('activeProfileId', profileId);
+    }
 
     function fetchProfiles() {
         fetch('/api/profiles')
@@ -22,19 +32,57 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function fetchCurrentProfile() {
-        fetch('/api/profiles/current')
-            .then(response => response.json())
-            .then(profileData => {
-                currentProfile = profileData;
-                if (currentProfileNameSpan) {
-                    currentProfileNameSpan.textContent = currentProfile ? currentProfile.name : 'Loading...';
-                }
-                if (modalCurrentProfileNameSpan) {
-                    modalCurrentProfileNameSpan.textContent = currentProfile ? currentProfile.name : 'Loading...';
-                }
-                renderProfileList(); // Re-render to show active status
-            })
-            .catch(error => console.error('Error fetching current profile:', error));
+        const storedProfileId = getActiveProfileId();
+
+        // If a profile ID is stored in localStorage, try to use it first
+        if (storedProfileId) {
+            fetch(`/api/profiles/${storedProfileId}`) // Fetch the specific profile
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    // If stored profile ID is invalid/not found, fetch the backend's current profile
+                    return fetch('/api/profiles/current').then(res => res.json());
+                })
+                .then(profileData => {
+                    currentProfile = profileData;
+                    // Ensure localStorage reflects the actual current profile from backend
+                    setActiveProfileId(currentProfile.id); 
+                    updateProfileDisplay();
+                    renderProfileList();
+                })
+                .catch(error => {
+                    console.error('Error fetching current profile (from stored ID or backend):', error);
+                    // Fallback if anything goes wrong
+                    currentProfile = null;
+                    updateProfileDisplay();
+                    renderProfileList();
+                });
+        } else {
+            // No profile ID in localStorage, fetch current from backend
+            fetch('/api/profiles/current')
+                .then(response => response.json())
+                .then(profileData => {
+                    currentProfile = profileData;
+                    setActiveProfileId(currentProfile.id); // Store it for next time
+                    updateProfileDisplay();
+                    renderProfileList();
+                })
+                .catch(error => console.error('Error fetching current profile:', error));
+        }
+    }
+
+    function updateProfileDisplay() {
+        if (currentProfileNameSpan) {
+            currentProfileNameSpan.textContent = currentProfile ? currentProfile.name : 'Loading...';
+        }
+        if (modalCurrentProfileNameSpan) {
+            modalCurrentProfileNameSpan.textContent = currentProfile ? currentProfile.name : 'Loading...';
+        }
+        // Also update the global Alpine store
+        if (Alpine.store('profile')) {
+            Alpine.store('profile').currentProfile = currentProfile;
+        }
     }
 
     function renderProfileList() {
@@ -92,6 +140,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function switchProfile(profileId) {
+        // Update localStorage immediately
+        setActiveProfileId(profileId);
+        // Then call the backend to actually switch the profile (important for server-side state consistency)
         fetch(`/api/profiles/switch/${profileId}`, { method: 'POST' })
             .then(() => {
                 // Dispatch custom event after successful profile switch
@@ -135,12 +186,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(response => {
                     if (response.ok) {
                         fetchProfiles();
-                        // After deleting, switch to main profile
-                        let mainProfile = allProfiles.find(p => p.isMainProfile);
-                        if (mainProfile) {
-                            switchProfile(mainProfile.id);
+                        // After deleting, ensure the active profile is still valid, or switch to main
+                        const storedProfileId = getActiveProfileId();
+                        if (!storedProfileId || storedProfileId === currentProfile.id.toString()) {
+                            // If the deleted profile was active, switch to main
+                            let mainProfile = allProfiles.find(p => p.isMainProfile);
+                            if (mainProfile) {
+                                switchProfile(mainProfile.id); // This will reload the page
+                            } else {
+                                // Should not happen, but as fallback, reload to clear state
+                                localStorage.removeItem('activeProfileId');
+                                location.reload();
+                            }
                         } else {
-                            fetchCurrentProfile(); // Fallback
+                            // Another profile was active, just refresh current profile data
+                            fetchCurrentProfile();
+                            location.reload(); // Reload to reflect changes in other parts of UI
                         }
                     } else {
                         response.text().then(text => alert(`Error: ${text}`));
@@ -155,7 +216,8 @@ document.addEventListener('DOMContentLoaded', () => {
         openProfileModalBtn.onclick = () => {
             profileModal.classList.add('is-active');
             fetchProfiles(); // Refresh list every time modal opens
-            fetchCurrentProfile(); // Ensure current profile is up-to-date
+            // fetchCurrentProfile(); // This is called on DOMContentLoaded, just update display
+            updateProfileDisplay(); // Ensure modal display is current
         };
     }
     if (createProfileBtn) {
@@ -181,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 
-    // Initial fetches
-    fetchCurrentProfile();
+    // Initial fetches (modified to respect localStorage)
     fetchProfiles();
+    fetchCurrentProfile();
 });

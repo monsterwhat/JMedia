@@ -1,0 +1,13 @@
+{#if episodes.empty}
+        <div>
+            <div class="has-text-centered py-2">
+                <p>No episodes found.</p>
+            </div>
+        </div>
+    {#else}
+        <div>
+            {#for episode in episodes}
+               {#include videoEntryFragment.html video=episode /}
+            {/for}
+        </div>
+    {/if}

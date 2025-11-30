@@ -11,15 +11,17 @@ import jakarta.inject.Inject;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
 
+import jakarta.websocket.server.PathParam; // Added import
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-@ServerEndpoint("/ws/import-status")
+@ServerEndpoint("/ws/import-status/{profileId}")
 @ApplicationScoped
 public class ImportStatusSocket {
 
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Long> sessionProfileMap = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Inject
@@ -36,8 +38,9 @@ public class ImportStatusSocket {
     }
   
     @OnOpen
-    public void onOpen(Session session) {
+    public void onOpen(Session session, @PathParam("profileId") Long profileId) { // Modified signature
         sessions.put(session.getId(), session);
+        sessionProfileMap.put(session.getId(), profileId); // Store profile association
 
         // ✔ Modern executeBlocking using Callable (no deprecation)
         executor
@@ -69,6 +72,7 @@ public class ImportStatusSocket {
     @OnClose
     public void onClose(Session session, CloseReason closeReason) {
         sessions.remove(session.getId());
+        sessionProfileMap.remove(session.getId());
         System.out.println("[INFO] ImportStatusSocket: Session " + session.getId() + " closed. Reason: " + closeReason.getReasonPhrase());
     }
 
@@ -84,6 +88,12 @@ public class ImportStatusSocket {
         try {
             ImportRequest request = objectMapper.readValue(message, ImportRequest.class);
             if ("start-import".equals(request.type)) {
+                Long profileId = sessionProfileMap.get(session.getId());
+                if (profileId == null) {
+                    System.err.println("[ERROR] ImportStatusSocket: Profile ID not found for session: " + session.getId());
+                    session.getAsyncRemote().sendText("ERROR: Profile ID not found for your session. Cannot start import.");
+                    return;
+                }
                 importController.startDownload(
                         request.url,
                         request.format,
@@ -91,7 +101,8 @@ public class ImportStatusSocket {
                         request.searchThreads,
                         request.downloadPath,
                         request.playlistName,
-                        request.queueAfterDownload
+                        request.queueAfterDownload,
+                        profileId
                 );
             }
         } catch (IOException e) {
@@ -100,13 +111,14 @@ public class ImportStatusSocket {
         }
     }
 
-    public void broadcast(String message) {
+    public void broadcast(String message, Long profileId) {
         sessions.values().forEach(session -> {
-            if (session.isOpen()) {
+            Long sessionProfileId = sessionProfileMap.get(session.getId());
+            if (session.isOpen() && sessionProfileId != null && sessionProfileId.equals(profileId)) {
                 session.getAsyncRemote().sendText(message, result -> {
                     if (result.getException() != null) {
                         System.err.println("[WARN] ImportStatusSocket: Unable to send message to session "
-                                + session.getId() + ": " + result.getException().getMessage());
+                                + session.getId() + " for profile " + profileId + ": " + result.getException().getMessage());
                     }
                 });
             }

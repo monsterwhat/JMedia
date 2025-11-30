@@ -8,7 +8,7 @@
 
         <ul id="sidebarPlaylistList" class="menu-list">
             <!-- This will be populated via HTMX fragment -->
-            <li hx-get="/api/music/ui/playlists-fragment" hx-trigger="load" hx-target="#sidebarPlaylistList" hx-swap="innerHTML"></li>
+            <li :hx-get="'/api/music/ui/playlists-fragment/' + globalActiveProfileId" hx-trigger="load" hx-target="#sidebarPlaylistList" hx-swap="innerHTML"></li>
         </ul> 
 
         <!-- Create Playlist Modal (keep here, controlled by JS) -->

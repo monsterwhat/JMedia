@@ -70,13 +70,15 @@ public class ImportService {
     private final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Pattern to extract song title and artist from "Skipping" messages (Format 1: "Title - Artist")
-    private static final Pattern SKIPPED_SONG_PATTERN_FORMAT1 = Pattern.compile("Skipping \"([^\"]+)\" as it's already downloaded");
+    // Pattern to extract song title and artist from "Skipping" messages (Format 1: "Skipping <Song Name> (file already exists) (duplicate)")
+    private static final Pattern SKIPPED_SONG_PATTERN_FORMAT1 = Pattern.compile("Skipping (.+) \\(file already exists\\) \\(duplicate\\)");
     // Pattern to extract song title and artist from "Skipping" messages (Format 2: 'Title' by 'Artist')
     private static final Pattern SKIPPED_SONG_PATTERN_FORMAT2 = Pattern.compile("Skipping '([^']+)' by '([^']+)' as it's already downloaded");
 
     // Pattern to extract filename from spotdl successful download message
-    private static final Pattern SPOTDL_DOWNLOAD_SUCCESS_PATTERN = Pattern.compile("Downloaded \"([^\"]+)\"");
+    // Pattern to extract filename from spotdl successful download message
+    // This new pattern handles titles with quotes and matches the colon at the end of the line.
+    private static final Pattern SPOTDL_DOWNLOAD_SUCCESS_PATTERN = Pattern.compile("Downloaded \"(.+?)\":");
 
     // Pattern to extract filename from yt-dlp merging message (final file name)
     private static final Pattern YTDLP_MERGING_PATTERN = Pattern.compile("\\[ffmpeg\\] Merging formats into \"([^\"]+)\"");
@@ -88,10 +90,17 @@ public class ImportService {
     // List to store the filenames of downloaded songs that were not found in the database
     private List<String> unprocessedSongs;
 
-    public synchronized void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload) {
+    // Temporarily stores artist/title for skipped songs, for post-scan DB lookup
+    private List<String[]> tempSkippedSongInfo;
+
+    // Combine newly added songs with existing ones identified as skipped
+    List<Song> finalSongsForPlaylist = new ArrayList<>();
+    Set<Long> songIdsInFinalList = new HashSet<>();
+
+    public synchronized void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload, Long profileId) {
         if (isImporting.get()) {
             LOGGER.warn("An import is already in progress. Ignoring new request.");
-            importStatusSocket.broadcast("An import is already in progress. Please wait for it to complete.\n");
+            importStatusSocket.broadcast("An import is already in progress. Please wait for it to complete.\n", profileId);
             return;
         }
 
@@ -104,7 +113,8 @@ public class ImportService {
             skippedButExistingSongs = Collections.synchronizedList(new ArrayList<>()); // Initialize for each new import
             downloadedFileNames = Collections.synchronizedList(new ArrayList<>()); // Initialize for each new import
             unprocessedSongs = Collections.synchronizedList(new ArrayList<>()); // Initialize for each new import
-            broadcast("Starting new import process...\n");
+            tempSkippedSongInfo = Collections.synchronizedList(new ArrayList<>()); // Initialize for each new import
+            broadcast("Starting new import process...\n", profileId);
 
             try {
                 checkImportInstallation();
@@ -120,10 +130,11 @@ public class ImportService {
                 }
 
                 List<String> command = buildCommand(url, format, downloadThreads, searchThreads, normalizedDownloadPath);
-                broadcast("Executing command: " + String.join(" ", command) + "\n");
+                broadcast("Executing command: " + String.join(" ", command) + "\n", profileId);
 
                 ProcessBuilder processBuilder = new ProcessBuilder(command);
                 processBuilder.environment().put("PYTHONUNBUFFERED", "1");
+                processBuilder.environment().put("PYTHONIOENCODING", "utf-8");
                 processBuilder.redirectErrorStream(true);
 
                 Process process = processBuilder.start();
@@ -131,32 +142,41 @@ public class ImportService {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        broadcast(line + "\n"); // This will now parse skipped songs
+                        broadcast(line + "\n", profileId); // This will now parse skipped songs
                     }
                 }
 
                 int exitCode = process.waitFor();
-                broadcast("Process finished with exit code: " + exitCode + "\n");
+                broadcast("Process finished with exit code: " + exitCode + "\n", profileId);
 
                 if (exitCode != 0) {
-                    throw new Exception("Import process exited with error code " + exitCode);
+                    throw new Exception("Import process exited with error code " + exitCode + ".\nExternal tool output:\n" + outputCache.toString());
                 }
 
-                broadcast("Download completed successfully. Identifying newly added songs...\n");
+                broadcast("Download completed successfully. Triggering import folder scan to discover new files...\n", profileId);
+                try {
+                    settings.scanImportFolder();
+                    broadcast("Import folder scan completed. Identifying newly added songs...\n", profileId);
+                } catch (Exception e) {
+                    LOGGER.error("An error occurred during the automatic import folder scan.", e);
+                    broadcast("WARNING: The automatic import folder scan failed. Newly downloaded songs may not be available immediately. Error: " + e.getMessage() + "\n", profileId);
+                }
 
                 // Construct relative paths for downloaded files
                 Path baseMusicFolder = settings.getMusicFolder().toPath();
                 Set<String> relativeDownloadedPaths = new HashSet<>();
+                String fileExtension = "." + (format != null && !format.isEmpty() ? format : "mp3");
                 for (String filename : downloadedFileNames) {
-                    Path fullPath = normalizedDownloadPath.resolve(filename);
-                    String relativePath = baseMusicFolder.relativize(fullPath).toString();
+                    Path fullPath = normalizedDownloadPath.resolve(filename + fileExtension);
+                    // Use forward slashes for cross-platform compatibility in the database.
+                    String relativePath = baseMusicFolder.relativize(fullPath).toString().replace('\\', '/');
                     relativeDownloadedPaths.add(relativePath);
                 }
 
                 // Find these songs in the database
                 List<Song> newlyAddedSongs = songService.findByRelativePaths(relativeDownloadedPaths);
 
-                // Determine which downloaded files were not found in the database
+                // Determine which downloaded files were not found in the database after the scan
                 Set<String> foundSongPaths = newlyAddedSongs.stream()
                         .map(Song::getPath)
                         .collect(Collectors.toSet());
@@ -165,13 +185,42 @@ public class ImportService {
                     if (!foundSongPaths.contains(downloadedPath)) {
                         // Extract just the filename for display
                         Path path = Paths.get(downloadedPath);
-                        unprocessedSongs.add("Downloaded but not found in DB: " + path.getFileName().toString());
+                        unprocessedSongs.add("Downloaded but not found in DB after scan: " + path.getFileName().toString());
                     }
                 }
 
-                // Combine newly added songs with existing ones identified as skipped
-                List<Song> finalSongsForPlaylist = new ArrayList<>();
-                Set<Long> songIdsInFinalList = new HashSet<>();
+                // Now, process the deferred skipped songs from tempSkippedSongInfo with flexible artist matching
+                if (tempSkippedSongInfo != null && !tempSkippedSongInfo.isEmpty()) {
+                    // Fetch all songs into a map for efficient lookup
+                    List<Song> allSongs = songService.findAll();
+                    java.util.Map<String, List<Song>> songsByTitle = allSongs.stream()
+                            .filter(s -> s.getTitle() != null)
+                            .collect(Collectors.groupingBy(Song::getTitle));
+
+                    for (String[] artistTitle : tempSkippedSongInfo) {
+                        String parsedArtist = artistTitle[0];
+                        String parsedTitle = artistTitle[1];
+
+                        List<Song> titleMatches = songsByTitle.get(parsedTitle);
+                        Song bestMatch = null;
+
+                        if (titleMatches != null) {
+                            // Find the best match: one where the DB artist contains the parsed artist
+                            for (Song candidate : titleMatches) {
+                                if (candidate.getArtist() != null && candidate.getArtist().toLowerCase().contains(parsedArtist.toLowerCase())) {
+                                    bestMatch = candidate;
+                                    break; // Found a good match
+                                }
+                            }
+                        }
+
+                        if (bestMatch != null) {
+                            skippedButExistingSongs.add(bestMatch);
+                        } else {
+                            unprocessedSongs.add("Skipped and not found in DB post-scan (flexible match): " + parsedTitle + " by " + parsedArtist);
+                        }
+                    }
+                }
 
                 // Add newly added songs first
                 for (Song song : newlyAddedSongs) {
@@ -180,54 +229,61 @@ public class ImportService {
                     }
                 }
 
-                // Add skipped but existing songs, if not already in the list
+                // Add deferred skipped songs that were found in DB
                 for (Song song : skippedButExistingSongs) {
                     if (songIdsInFinalList.add(song.id)) {
                         finalSongsForPlaylist.add(song);
                     }
                 }
 
-                // Add skipped but not existing songs to unprocessedSongs
-                Set<Long> finalSongIds = finalSongsForPlaylist.stream().map(s -> s.id).collect(Collectors.toSet());
-                for (Song skippedSong : skippedButExistingSongs) {
-                    if (!finalSongIds.contains(skippedSong.id)) {
-                        unprocessedSongs.add("Skipped by external tool and not found in DB: " + skippedSong.getTitle() + " by " + skippedSong.getArtist());
+                // Add newly added songs first                                                                           
+                for (Song song : newlyAddedSongs) {
+                    if (songIdsInFinalList.add(song.id)) {
+                        finalSongsForPlaylist.add(song);
+                    }
+                }
+
+                // Add deferred skipped songs that were found in DB                                                       
+                for (Song song : skippedButExistingSongs) {
+                    if (songIdsInFinalList.add(song.id)) {
+                        finalSongsForPlaylist.add(song);
                     }
                 }
 
                 if (playlistName != null && !playlistName.trim().isEmpty()) {
-                    addSongsToPlaylist(playlistName, finalSongsForPlaylist);
+                    addSongsToPlaylist(playlistName, finalSongsForPlaylist, profileId);
                 }
 
                 if (queueAfterDownload) {
-                    addSongToQueue(finalSongsForPlaylist);
+                    addSongToQueue(finalSongsForPlaylist, profileId);
                 }
 
                 if (!unprocessedSongs.isEmpty()) {
-                    broadcast("WARNING: The following songs were not fully processed during import:\n");
+                    broadcast("WARNING: The following songs were not fully processed during import:\n", profileId);
                     for (String unprocessed : unprocessedSongs) {
-                        broadcast("- " + unprocessed + "\n");
+                        broadcast("- " + unprocessed + "\n", profileId);
                     }
                 }
 
-                broadcast("Import process fully completed.\n");
+                broadcast("Import process fully completed.\n", profileId);
 
             } catch (Exception e) {
                 LOGGER.error("An error occurred during the import process.", e);
-                broadcast("ERROR: " + e.getMessage() + "\n");
+                broadcast("ERROR: " + e.getMessage() + "\n", profileId);
             } finally {
                 isImporting.set(false);
                 skippedButExistingSongs = null; // Clear for next import
                 downloadedFileNames = null; // Clear for next import
                 unprocessedSongs = null; // Clear for next import
-                broadcast("[IMPORT_FINISHED]");
+                tempSkippedSongInfo = null; // Clear for next import
+                broadcast("[IMPORT_FINISHED]", profileId);
             }
         });
     }
 
-    private void addSongToQueue(List<Song> songsToQueue) {
+    private void addSongToQueue(List<Song> songsToQueue, Long profileId) {
         if (songsToQueue == null || songsToQueue.isEmpty()) {
-            broadcast("No songs found to queue.\n");
+            broadcast("No songs found to queue.\n", profileId);
             return;
         }
         // For "Find and Play", we assume only one song is downloaded/identified.
@@ -235,19 +291,19 @@ public class ImportService {
         Song songToQueue = songsToQueue.get(0);
         try {
             // Get the singleton playback state
-            PlaybackState currentState = playbackStateService.getOrCreateState();
+            PlaybackState currentState = playbackStateService.getOrCreateState(profileId);
 
             // Add the new song to the queue
             List<Long> songIds = Collections.singletonList(songToQueue.id);
-            playbackQueueController.addToQueue(currentState, songIds, false); // false = add to end
+            playbackQueueController.addToQueue(currentState, songIds, false, profileId); // false = add to end
 
             // Save the modified state
-            playbackStateService.saveState(currentState);
+            playbackStateService.saveState(profileId, currentState);
 
-            broadcast("{\"type\": \"song-queued\", \"songTitle\": \"" + songToQueue.getTitle() + "\"}\n");
+            broadcast("{\"type\": \"song-queued\", \"songTitle\": \"" + songToQueue.getTitle() + "\"}\n", profileId);
         } catch (Exception e) {
             LOGGER.error("Failed to queue song: {}", songToQueue.getTitle(), e);
-            broadcast("ERROR: Failed to queue song '" + songToQueue.getTitle() + "': " + e.getMessage() + "\n");
+            broadcast("ERROR: Failed to queue song '" + songToQueue.getTitle() + "': " + e.getMessage() + "\n", profileId);
         }
     }
 
@@ -290,48 +346,57 @@ public class ImportService {
         return command;
     }
 
-    private void addSongsToPlaylist(String playlistName, List<Song> songsToAdd) {
+    private void addSongsToPlaylist(String playlistName, List<Song> songsToAdd, Long profileId) {
         if (songsToAdd == null || songsToAdd.isEmpty()) {
-            broadcast("No songs found to add to playlist '" + playlistName + "'.\n");
+            broadcast("No songs found to add to playlist '" + playlistName + "'.\n", profileId);
             return;
         }
         try {
             String trimmedPlaylistName = playlistName.trim();
             Playlist targetPlaylist = playlistService.findOrCreatePlaylistInNewTx(trimmedPlaylistName);
             if (targetPlaylist == null) {
-                broadcast("Could not find or create playlist '" + trimmedPlaylistName + "'. Skipping.\n");
+                broadcast("Could not find or create playlist '" + trimmedPlaylistName + "'. Skipping.\n", profileId);
                 return;
             }
-            playlistService.addSongsToPlaylist(targetPlaylist, songsToAdd);
-            broadcast("Added " + songsToAdd.size() + " songs to playlist '" + trimmedPlaylistName + "'.\n");
+            playlistService.addSongsToPlaylist(targetPlaylist, finalSongsForPlaylist);
+            broadcast("Added " + finalSongsForPlaylist.size() + " songs to playlist '" + trimmedPlaylistName + "'.\n", profileId);
         } catch (Exception e) {
             LOGGER.error("Failed to add songs to playlist: {}", playlistName, e);
-            broadcast("ERROR: Failed to add songs to playlist '" + playlistName + "': " + e.getMessage() + "\n");
+            broadcast("ERROR: Failed to add songs to playlist '" + playlistName + "': " + e.getMessage() + "\n", profileId);
         }
     }
 
-    private void broadcast(String message) {
+    private String sanitizeFilename(String filename) {
+        // Remove characters that are illegal in Windows filenames
+        // < > : " / \ | ? *
+        // Also remove leading/trailing spaces and dots
+        String sanitized = filename.replaceAll("[<>:\"/\\\\|?*]", "");
+        sanitized = sanitized.replaceAll("^\\.+|\\s+\\.|\\s+$", ""); // Remove leading dots, trailing dots and spaces
+        return sanitized;
+    }
+
+    private void broadcast(String message, Long profileId) {
         outputCache.append(message);
-        importStatusSocket.broadcast(message);
+        importStatusSocket.broadcast(message, profileId);
 
         LOGGER.debug("Processing message: {}", message.trim());
 
         String title = null;
         String artist = null;
 
-        // Try format 1: Skipping "Title - Artist"
+        // Try format 1: Skipping "Artist - Title"
         Matcher matcher1 = SKIPPED_SONG_PATTERN_FORMAT1.matcher(message);
         if (matcher1.find()) {
             String fullTitleAndArtist = matcher1.group(1).trim();
-            int separatorIndex = fullTitleAndArtist.lastIndexOf(" - ");
+            int separatorIndex = fullTitleAndArtist.indexOf(" - ");
             if (separatorIndex != -1) {
-                title = fullTitleAndArtist.substring(0, separatorIndex).trim();
-                artist = fullTitleAndArtist.substring(separatorIndex + 3).trim();
+                artist = fullTitleAndArtist.substring(0, separatorIndex).trim();
+                title = fullTitleAndArtist.substring(separatorIndex + 3).trim();
             } else {
                 title = fullTitleAndArtist; // Fallback if no " - "
                 artist = ""; // No artist found in this format
             }
-            LOGGER.debug("Matched Format 1. Extracted Title: '{}', Artist: '{}'", title, artist);
+            LOGGER.debug("Matched Format 1. Extracted Artist: '{}', Title: '{}'", artist, title);
         } else {
             // Try format 2: Skipping 'Title' by 'Artist'
             Matcher matcher2 = SKIPPED_SONG_PATTERN_FORMAT2.matcher(message);
@@ -378,31 +443,21 @@ public class ImportService {
         }
 
         if (title != null) {
-            LOGGER.debug("Attempting to find skipped song in DB - Title: '{}', Artist: '{}'", title, artist);
-            try {
-                Song existingSong = songService.findByTitleAndArtist(artist, title); // Reverted to original argument order
-                if (existingSong != null) {
-                    skippedButExistingSongs.add(existingSong);
-                    LOGGER.debug("Identified skipped song '{}' by '{}' with path '{}'", title, artist, existingSong.getPath());
-                } else {
-                    LOGGER.warn("Skipped song '{}' by '{}' not found in database.", title, artist);
-                }
-            } catch (Exception e) {
-                LOGGER.warn("Error finding skipped song by title/artist: '{}' by '{}'", title, artist, e);
-            }
+            tempSkippedSongInfo.add(new String[]{artist, title});
+            LOGGER.debug("Queued skipped song for post-scan check - Artist: '{}', Title: '{}'", artist, title);
         } else {
             // Check for successful spotdl download
             Matcher spotdlMatcher = SPOTDL_DOWNLOAD_SUCCESS_PATTERN.matcher(message);
             if (spotdlMatcher.find()) {
                 String filename = spotdlMatcher.group(1);
-                downloadedFileNames.add(filename);
+                downloadedFileNames.add(sanitizeFilename(filename));
                 LOGGER.debug("Identified spotdl downloaded file: '{}'", filename);
             } else {
                 // Check for successful yt-dlp merge (final file)
                 Matcher ytdlpMatcher = YTDLP_MERGING_PATTERN.matcher(message);
                 if (ytdlpMatcher.find()) {
                     String filename = ytdlpMatcher.group(1);
-                    downloadedFileNames.add(filename);
+                    downloadedFileNames.add(sanitizeFilename(filename));
                     LOGGER.debug("Identified yt-dlp merged file: '{}'", filename);
                 } else {
                     LOGGER.debug("No title/artist or downloaded file extracted from message: {}", message.trim());

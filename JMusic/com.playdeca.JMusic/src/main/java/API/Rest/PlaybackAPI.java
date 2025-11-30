@@ -18,67 +18,67 @@ public class PlaybackAPI {
     private PlaybackController playbackController;
 
     @GET
-    @Path("/current")
-    public Response getCurrentSong() {
-        var current = playbackController.getCurrentSong();
+    @Path("/current/{profileId}")
+    public Response getCurrentSong(@PathParam("profileId") Long profileId) {
+        var current = playbackController.getCurrentSong(profileId);
         return Response.ok(ApiResponse.success(current)).build();
     }
 
     @GET
-    @Path("/previousSong")
-    public Response getPreviousSong() {
-        var previous = playbackController.getPreviousSong();
+    @Path("/previousSong/{profileId}")
+    public Response getPreviousSong(@PathParam("profileId") Long profileId) {
+        var previous = playbackController.getPreviousSong(profileId);
         return Response.ok(ApiResponse.success(previous)).build();
     }
 
     @GET
-    @Path("/nextSong")
-    public Response getNextSong() {
-        var next = playbackController.getNextSong();
+    @Path("/nextSong/{profileId}")
+    public Response getNextSong(@PathParam("profileId") Long profileId) {
+        var next = playbackController.getNextSong(profileId);
         return Response.ok(ApiResponse.success(next)).build();
     }
 
     @POST
-    @Path("/toggle")
-    public Response togglePlay() {
-        playbackController.togglePlay();
+    @Path("/toggle/{profileId}")
+    public Response togglePlay(@PathParam("profileId") Long profileId) {
+        playbackController.togglePlay(profileId);
         return Response.ok(ApiResponse.success("Playback toggled")).build();
     }
 
     @POST
-    @Path("/play")
-    public Response play() {
-        playbackController.togglePlay(); // Assuming togglePlay handles both play and pause
+    @Path("/play/{profileId}")
+    public Response play(@PathParam("profileId") Long profileId) {
+        playbackController.togglePlay(profileId); // Assuming togglePlay handles both play and pause
         return Response.ok(ApiResponse.success("Playback started")).build();
     }
 
     @POST
-    @Path("/pause")
-    public Response pause() {
-        playbackController.togglePlay(); // Assuming togglePlay handles both play and pause
+    @Path("/pause/{profileId}")
+    public Response pause(@PathParam("profileId") Long profileId) {
+        playbackController.togglePlay(profileId); // Assuming togglePlay handles both play and pause
         return Response.ok(ApiResponse.success("Playback paused")).build();
     }
 
     @POST
-    @Path("/next")
-    public Response next() {
-        playbackController.next();
+    @Path("/next/{profileId}")
+    public Response next(@PathParam("profileId") Long profileId) {
+        playbackController.next(profileId);
         return Response.ok(ApiResponse.success("Skipped to next song")).build();
     }
 
     @POST
-    @Path("/previous")
-    public Response previous() {
-        playbackController.previous();
+    @Path("/previous/{profileId}")
+    public Response previous(@PathParam("profileId") Long profileId) {
+        playbackController.previous(profileId);
         return Response.ok(ApiResponse.success("Skipped to previous song")).build();
     }
 
     @POST
-    @Path("/select/{id}")
+    @Path("/select/{profileId}/{id}")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response selectSong(@PathParam("id") Long id) {
+    public Response selectSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
         try {
-            playbackController.selectSong(id);
+            playbackController.selectSong(id, profileId);
             return Response.ok(ApiResponse.success("Song selected")).build();
         } catch (IllegalArgumentException e) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -88,30 +88,30 @@ public class PlaybackAPI {
     }
 
     @POST
-    @Path("/shuffle")
-    public Response toggleShuffle() {
-        playbackController.toggleShuffle();
+    @Path("/shuffle/{profileId}")
+    public Response toggleShuffle(@PathParam("profileId") Long profileId) {
+        playbackController.toggleShuffle(profileId);
         return Response.ok(ApiResponse.success("Shuffle toggled")).build();
     }
 
     @POST
-    @Path("/repeat")
-    public Response toggleRepeat() {
-        playbackController.toggleRepeat();
+    @Path("/repeat/{profileId}")
+    public Response toggleRepeat(@PathParam("profileId") Long profileId) {
+        playbackController.toggleRepeat(profileId);
         return Response.ok(ApiResponse.success("Repeat toggled")).build();
     }
 
     @POST
-    @Path("/volume/{level}")
-    public Response setVolume(@PathParam("level") float level) {
-        playbackController.changeVolume(level);
+    @Path("/volume/{profileId}/{level}")
+    public Response setVolume(@PathParam("profileId") Long profileId, @PathParam("level") float level) {
+        playbackController.changeVolume(level, profileId);
         return Response.ok(ApiResponse.success("Volume changed")).build();
     }
 
     @POST
-    @Path("/position/{seconds}")
-    public Response setPosition(@PathParam("seconds") double seconds) {
-        playbackController.setSeconds(seconds);
+    @Path("/position/{profileId}/{seconds}")
+    public Response setPosition(@PathParam("profileId") Long profileId, @PathParam("seconds") double seconds) {
+        playbackController.setSeconds(seconds, profileId);
         return Response.ok(ApiResponse.success("Position changed")).build();
     }
 }

@@ -7,6 +7,7 @@ import Models.DTOs.ImportInstallationStatus;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -39,9 +40,9 @@ public class ImportApi {
 
     // New endpoint to get the default Import download path
     @GET
-    @Path("/default-download-path")
+    @Path("/{profileId}/default-download-path")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getDefaultDownloadPath() {
+    public Response getDefaultDownloadPath(@PathParam("profileId") Long profileId) {
         try {
             String musicLibraryPath = settingsController.getMusicLibraryPath();
             if (musicLibraryPath == null || musicLibraryPath.isBlank()) {

@@ -21,80 +21,82 @@ public class QueueAPI {
     private PlaybackController playbackController;
 
     @GET
-    @Path("/queue")
-    public Response getQueue() {
-        return Response.ok(ApiResponse.success(playbackController.getQueue())).build();
+    @Path("/queue/{profileId}")
+    public Response getQueue(@PathParam("profileId") Long profileId) {
+        return Response.ok(ApiResponse.success(playbackController.getQueue(profileId))).build();
     }
 
-    @POST
-    @Path("/playback/queue-all/{id}") 
-    @Consumes(MediaType.WILDCARD)
-    public Response queueAllSongs(@PathParam("id") Long id) {
-        List<Song> songsToQueue;
-        if (id == null || id == 0) {
-            // Queue all songs
-            songsToQueue = playbackController.getSongs();
-        } else {
-            // Queue songs from a specific playlist
-            Playlist playlist = playbackController.findPlaylistWithSongs(id);
-            if (playlist == null) {
-                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
+        @POST
+        @Path("/playback/queue-all/{profileId}/{id}")
+        @Consumes(MediaType.WILDCARD)
+        public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
+            List<Song> songsToQueue;
+            if (id == null || id == 0) {
+                // Queue all songs
+                songsToQueue = playbackController.getSongs();
+            } else {
+                // Queue songs from a specific playlist
+                Playlist playlist = playbackController.findPlaylistWithSongs(id);
+                if (playlist == null) {
+                    return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
+                }
+                songsToQueue = playlist.getSongs();
             }
-            songsToQueue = playlist.getSongs();
+    
+            if (songsToQueue == null || songsToQueue.isEmpty()) {
+                return Response.ok(ApiResponse.success("No songs to queue")).build();
+            }
+    
+            playbackController.clearQueue(profileId);
+            List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
+            playbackController.addToQueue(songIds, false, profileId);
+    
+            // Start playback with the first song
+            playbackController.selectSong(songIds.get(0), profileId);
+    
+            return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
         }
-
-        if (songsToQueue == null || songsToQueue.isEmpty()) {
-            return Response.ok(ApiResponse.success("No songs to queue")).build();
-        }
-
-        playbackController.clearQueue();
-        List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
-        playbackController.addToQueue(songIds, false);
-
-        // Start playback with the first song
-        playbackController.selectSong(songIds.get(0));
-
-        return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
-    }
-
     @POST
-    @Path("/queue/add/{songId}")
+    @Path("/queue/add/{profileId}/{songId}")
     @Consumes(MediaType.WILDCARD)
-    public Response addSongToQueue(@PathParam("songId") Long songId) {
+    public Response addSongToQueue(@PathParam("profileId") Long profileId, @PathParam("songId") Long songId) {
         if (songId == null) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Song ID cannot be null")).build();
         }
-        playbackController.addToQueue(List.of(songId), false); // Add to end of queue
+        playbackController.addToQueue(List.of(songId), false, profileId); // Add to end of queue
         return Response.ok(ApiResponse.success("Song added to queue")).build();
     }
 
     @POST
-    @Path("/queue/skip-to/{index}")
+    @Path("/queue/skip-to/{profileId}/{index}")
     @Consumes(MediaType.WILDCARD)
-    public Response skipToQueueIndex(@PathParam("index") int index) {
-        playbackController.skipToQueueIndex(index);
+    public Response skipToQueueIndex(@PathParam("profileId") Long profileId, @PathParam("index") int index) {
+        playbackController.skipToQueueIndex(index, profileId);
         return Response.ok(ApiResponse.success("Skipped to song in queue")).build();
     }
 
     @POST
-    @Path("/queue/remove/{index}")
+    @Path("/queue/remove/{profileId}/{index}")
     @Consumes(MediaType.WILDCARD)
-    public Response removeFromQueue(@PathParam("index") int index) {
-        playbackController.removeFromQueue(index);
+    public Response removeFromQueue(@PathParam("profileId") Long profileId, @PathParam("index") int index) {
+        playbackController.removeFromQueue(index, profileId);
         return Response.ok(ApiResponse.success("Removed song from queue")).build();
     }
 
     @POST
-    @Path("/queue/clear")
+    @Path("/queue/clear/{profileId}")
     @Consumes(MediaType.WILDCARD)
-    public Response clearQueue() {
-        playbackController.clearQueue();
+    public Response clearQueue(@PathParam("profileId") Long profileId) {
+        playbackController.clearQueue(profileId);
         return Response.ok(ApiResponse.success("Queue cleared")).build();
     }
 
     @GET
-    @Path("/history")
-    public Response getHistory() {
-        return Response.ok(ApiResponse.success(playbackController.getHistory())).build();
+    @Path("/history/{profileId}")
+    public Response getHistory(
+            @PathParam("profileId") Long profileId,
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("50") int limit) {
+        return Response.ok(ApiResponse.success(playbackController.getHistory(page, limit, profileId))).build();
     }
 }

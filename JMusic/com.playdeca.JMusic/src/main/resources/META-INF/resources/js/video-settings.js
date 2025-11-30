@@ -2,7 +2,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const browseVideoFolderBtn = document.getElementById("browseVideoFolderBtn");
     if (browseVideoFolderBtn) {
         browseVideoFolderBtn.onclick = async () => {
-            const res = await fetch(`/api/settings/browse-video-folder`);
+            const res = await fetch(`/api/settings/${globalActiveProfileId}/browse-video-folder`);
             const json = await res.json();
             if (res.ok && json.data) {
                 const pathInputElem = document.getElementById("videoLibraryPathInput");
@@ -39,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function refreshVideoSettingsUI() {
-        const res = await fetch(`/api/settings`);
+        const res = await fetch(`/api/settings/${globalActiveProfileId}`);
         const json = await res.json();
         if (res.ok && json.data) {
             const pathInputElem = document.getElementById("videoLibraryPathInput");

@@ -31,7 +31,10 @@ const calculateLinearSliderValue = (exponentialVol) => { // Moved to global scop
 };
 audio.volume = musicState.volume;
 // Global API Post function
-const apiPost = (path) => fetch(`/api/music/playback/${path}`, {method: 'POST'});
+const apiPost = (path, profileId) => {
+    const profileIdValue = profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    return fetch(`/api/music/playback/${path}/${profileIdValue}`, {method: 'POST'});
+};
 // ---------------- Helpers ----------------
 const formatTime = s => {
     if (s === null || s === undefined || isNaN(s)) {
@@ -77,6 +80,16 @@ function updateMusicBar() {
     // Apply marquee effect to main song title and artist
     applyMarqueeEffect('songTitle', songName ?? "Unknown Title");
     applyMarqueeEffect('songArtist', artist ?? "Unknown Artist");
+
+    // Update mobile song info
+    const titleMobileEl = document.getElementById('songTitleMobile');
+    const artistMobileEl = document.getElementById('songArtistMobile');
+    if (titleMobileEl)
+        titleMobileEl.innerText = songName ?? "Unknown Title";
+    if (artistMobileEl)
+        artistMobileEl.innerText = artist ?? "Unknown Artist";
+    applyMarqueeEffect('songTitleMobile', songName ?? "Unknown Title");
+    applyMarqueeEffect('songArtistMobile', artist ?? "Unknown Artist");
     document.getElementById('playPauseIcon').className = playing
             ? "pi pi-pause button is-warning is-rounded is-large"
             : "pi pi-play button is-success is-rounded is-large";
@@ -160,7 +173,7 @@ audio.ontimeupdate = () => {
 };
 audio.onended = () => {
     console.log("[musicBar.js] audio.onended: Song ended, calling /api/music/playback/next.");
-    fetch('/api/music/playback/next', {method: 'POST'});
+    fetch(`/api/music/playback/next/${globalActiveProfileId}`, {method: 'POST'});
 };
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
@@ -220,7 +233,7 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     musicState.hasLyrics = currentSong.lyrics !== null && currentSong.lyrics !== undefined && currentSong.lyrics !== '';
 
     updatePageTitle({name: musicState.songName, artist: musicState.artist});
-    audio.src = `/api/music/stream/${currentSong.id}`;
+    audio.src = `/api/music/stream/${globalActiveProfileId}/${currentSong.id}`;
     audio.load();
     audio.volume = musicState.volume;
     audio.onloadedmetadata = () => {
@@ -244,7 +257,7 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
 // ---------------- WebSocket ----------------
 let ws;
 function connectWS() {
-    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/music/ws');
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${globalActiveProfileId}`);
     ws.onopen = () => console.log('[WS] Connected');
     ws.onclose = () => {
         console.log('[WS] Disconnected. Attempting to reconnect...');
@@ -288,9 +301,9 @@ function handleWSMessage(msg) {
         if (songChanged || playChanged || queueChanged) { // Trigger update if song, play state, or queue changed
             console.log("[WS] handleWSMessage: Song, play state, or queue changed, fetching current, previous, and next song details.");
             Promise.all([
-                fetch(`/api/music/playback/current`).then(r => r.json()),
-                fetch(`/api/music/playback/previousSong`).then(r => r.json()),
-                fetch(`/api/music/playback/nextSong`).then(r => r.json())
+                fetch(`/api/music/playback/current/${globalActiveProfileId}`).then(r => r.json()),
+                fetch(`/api/music/playback/previousSong/${globalActiveProfileId}`).then(r => r.json()),
+                fetch(`/api/music/playback/nextSong/${globalActiveProfileId}`).then(r => r.json())
             ])
                     .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
                         const currentSong = currentSongResponse.data;
@@ -414,22 +427,22 @@ function bindVolumeSlider() {
 function bindPlaybackButtons() {
     document.getElementById('playPauseBtn').onclick = () => {
         console.log("[musicBar.js] playPauseBtn clicked");
-        apiPost('toggle');
+        apiPost('toggle', globalActiveProfileId);
     };
     document.getElementById('prevBtn').onclick = () => {
         console.log("[musicBar.js] prevBtn clicked");
-        apiPost('previous');
+        apiPost('previous', globalActiveProfileId);
     };
     document.getElementById('nextBtn').onclick = () => {
         console.log("[musicBar.js] nextBtn clicked");
-        apiPost('next');
+        apiPost('next', globalActiveProfileId);
     };
     // Add click listeners for previous and next song cover images
     const prevSongCoverImage = document.getElementById('prevSongCoverImage');
     if (prevSongCoverImage) {
         prevSongCoverImage.onclick = () => {
             console.log("[musicBar.js] prevSongCoverImage clicked");
-            apiPost('previous');
+            apiPost('previous', globalActiveProfileId);
         };
     }
 
@@ -437,7 +450,7 @@ function bindPlaybackButtons() {
     if (nextSongCoverImage) {
         nextSongCoverImage.onclick = () => {
             console.log("[musicBar.js] nextSongCoverImage clicked");
-            apiPost('next');
+            apiPost('next', globalActiveProfileId);
         };
     }
     document.getElementById('shuffleBtn').onclick = () => {
@@ -461,7 +474,7 @@ function bindPlaybackButtons() {
         updateMusicBar(); // Update UI immediately
 
         // Send request to backend for persistence and synchronization
-        apiPost('shuffle');
+        apiPost('shuffle', globalActiveProfileId);
     };
     document.getElementById('repeatBtn').onclick = () => {
         console.log("[musicBar.js] repeatBtn clicked");
@@ -484,14 +497,13 @@ function bindPlaybackButtons() {
         updateMusicBar(); // Update UI immediately
 
         // Send request to backend for persistence and synchronization
-        apiPost('repeat');
+        apiPost('repeat', globalActiveProfileId);
     };
 }
 
 
 // ---------------- UI ----------------
-async function refreshSongTable() { // Make it async
-    console.log("[musicBar.js] refreshSongTable called");
+async function refreshSongTable() {  
     const songTableBody = document.querySelector('#songTable tbody');
     if (!songTableBody) {
         console.log("[musicBar.js] refreshSongTable: #songTable tbody not found.");
@@ -499,7 +511,7 @@ async function refreshSongTable() { // Make it async
     }
 
     try {
-        const response = await fetch('/api/music/playback/current');
+        const response = await fetch(`/api/music/playback/current/${globalActiveProfileId}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -607,7 +619,7 @@ async function populatePlaylistSubMenu() {
     playlistSubMenu.innerHTML = '<div class="context-menu-item">Loading Playlists...</div>'; // Show loading state
 
     try {
-        const response = await fetch('/api/music/playlists'); // Assuming this endpoint returns JSON
+        const response = await fetch(`/api/music/playlists/${globalActiveProfileId}`); // Assuming this endpoint returns JSON
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -638,7 +650,7 @@ async function populatePlaylistSubMenu() {
 // Function to add song to a specific playlist
 async function addSongToPlaylist(playlistId, songId) {
     try {
-        const response = await fetch(`/api/music/playlists/${playlistId}/songs/${songId}`, {
+        const response = await fetch(`/api/music/playlists/${playlistId}/songs/${songId}/${globalActiveProfileId}`, {
             method: 'POST'
         });
         if (!response.ok) {
@@ -655,7 +667,7 @@ async function addSongToPlaylist(playlistId, songId) {
 // Function to rescan a song
 async function rescanSong(songId) {
     try {
-        const response = await fetch(`/api/settings/rescan-song/${songId}`, {
+        const response = await fetch(`/api/settings/rescan-song/${songId}/${globalActiveProfileId}`, {
             method: 'POST'
         });
         if (!response.ok) {
@@ -672,7 +684,7 @@ async function rescanSong(songId) {
 async function deleteSong(songId) {
     if (confirm('Are you sure you want to delete this song? This action cannot be undone.')) {
         try {
-            const response = await fetch(`/api/settings/songs/${songId}`, {
+            const response = await fetch(`/api/settings/songs/${songId}/${globalActiveProfileId}`, {
                 method: 'DELETE'
             });
             if (!response.ok) {
@@ -700,7 +712,7 @@ function reloadSongTableBody() {
         const sortDir = window.currentSortDirection || 'asc';
         
         // When reloading, we can go back to the first page.
-        let url = `/api/music/ui/tbody/${playlistId}?page=1&sortBy=${sortBy}&sortDirection=${sortDir}`;
+        let url = `/api/music/ui/${globalActiveProfileId}/tbody/${playlistId}?page=1&sortBy=${sortBy}&sortDirection=${sortDir}`;
         if (searchTerm) {
             url += `&search=${encodeURIComponent(searchTerm)}`;
         }

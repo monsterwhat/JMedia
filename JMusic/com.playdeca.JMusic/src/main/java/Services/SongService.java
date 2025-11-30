@@ -53,8 +53,8 @@ public class SongService {
     @Transactional
     public void delete(Song song) {
         if (song != null) {
-            // First, delete all associated playback history entries
-            playbackHistoryService.deleteBySongId(song.id);
+            // First, delete all associated playback history entries across all profiles
+            playbackHistoryService.deleteBySongIdForAllProfiles(song.id);
             // Then, remove the song from all playlists
             playlistService.removeSongFromAllPlaylists(song.id);
             
@@ -260,6 +260,7 @@ public class SongService {
         }
     }
 
+    @Transactional
     public List<Song> findByRelativePaths(java.util.Set<String> relativePaths) {
         if (relativePaths == null || relativePaths.isEmpty()) {
             return new java.util.ArrayList<>();

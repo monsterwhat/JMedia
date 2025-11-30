@@ -42,8 +42,8 @@ public class SettingsApi {
     // BROWSE FOLDER
     // -----------------------------
     @GET
-    @Path("/browse-folder")
-    public Response browseFolder() {
+    @Path("/{profileId}/browse-folder")
+    public Response browseFolder(@PathParam("profileId") Long profileId) {
         CompletableFuture<String> selectedPathFuture = new CompletableFuture<>();
 
         SwingUtilities.invokeLater(() -> {
@@ -85,8 +85,8 @@ public class SettingsApi {
     }
 
     @GET
-    @Path("/browse-video-folder")
-    public Response browseVideoFolder() {
+    @Path("/{profileId}/browse-video-folder")
+    public Response browseVideoFolder(@PathParam("profileId") Long profileId) {
         CompletableFuture<String> selectedPathFuture = new CompletableFuture<>();
 
         SwingUtilities.invokeLater(() -> {
@@ -128,9 +128,9 @@ public class SettingsApi {
     }
     
     @POST
-    @Path("/video-library-path")
+    @Path("/{profileId}/video-library-path")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response setVideoLibraryPath(@FormParam("videoLibraryPathInput") String path) {
+    public Response setVideoLibraryPath(@PathParam("profileId") Long profileId, @FormParam("videoLibraryPathInput") String path) {
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Video library path cannot be empty")).build();
         }
@@ -147,8 +147,9 @@ public class SettingsApi {
     // GET CURRENT SETTINGS
     // -----------------------------
     @GET
+    @Path("/{profileId}")
     @Transactional
-    public Response getSettings() {
+    public Response getSettings(@PathParam("profileId") Long profileId) {
         Settings settings = settingsController.getOrCreateSettings();
         return Response.ok(ApiResponse.success(settings)).build();
     }
@@ -157,8 +158,8 @@ public class SettingsApi {
     // GET MUSIC LIBRARY PATH
     // -----------------------------
     @GET
-    @Path("/music-library-path")
-    public Response getMusicLibraryPath() {
+    @Path("/{profileId}/music-library-path")
+    public Response getMusicLibraryPath(@PathParam("profileId") Long profileId) {
         String path = settingsController.getMusicLibraryPath();
         if (path != null && !path.isBlank()) {
             return Response.ok(ApiResponse.success(path)).build();
@@ -168,9 +169,9 @@ public class SettingsApi {
     }
     
     @POST
-    @Path("/import")
+    @Path("/{profileId}/import")
     @Transactional
-    public Response updateImportSettings(ImportSettingsDTO importSettings) {
+    public Response updateImportSettings(@PathParam("profileId") Long profileId, ImportSettingsDTO importSettings) {
         if (importSettings == null) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid import settings data.")).build();
         }
@@ -192,10 +193,10 @@ public class SettingsApi {
     // TOGGLE RUN AS SERVICE
     // -----------------------------
     @POST
-    @Path("/toggle-run-as-service")
+    @Path("/{profileId}/toggle-run-as-service")
     @Transactional
     @Consumes(MediaType.WILDCARD)
-    public Response toggleRunAsService() {
+    public Response toggleRunAsService(@PathParam("profileId") Long profileId) {
         settingsController.toggleAsService();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -204,9 +205,9 @@ public class SettingsApi {
     // SET MUSIC LIBRARY PATH
     // -----------------------------
     @POST
-    @Path("/music-library-path")
+    @Path("/{profileId}/music-library-path")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response setMusicLibraryPath(@FormParam("musicLibraryPathInput") String path) {
+    public Response setMusicLibraryPath(@PathParam("profileId") Long profileId, @FormParam("musicLibraryPathInput") String path) {
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Music library path cannot be empty")).build();
         }
@@ -215,7 +216,7 @@ public class SettingsApi {
         settingsController.setMusicLibraryPath(path);
 
         // Step 2: Clear history and songs. These are transactional within their services.
-        playbackHistoryService.clearHistory();
+        playbackHistoryService.clearHistoryForAllProfiles();
         songService.clearAllSongs();
         settingsController.addLog("Cleared existing songs and history.");
 
@@ -231,9 +232,9 @@ public class SettingsApi {
     // RESET LIBRARY PATH
     // -----------------------------
     @POST
-    @Path("/resetLibrary")
+    @Path("/{profileId}/resetLibrary")
     @Transactional
-    public Response resetLibrary() {
+    public Response resetLibrary(@PathParam("profileId") Long profileId) {
         settingsController.resetMusicLibrary();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -242,8 +243,8 @@ public class SettingsApi {
     // SCAN LIBRARY
     // -----------------------------
     @POST
-    @Path("/scanLibrary")
-    public Response scanLibrary() {
+    @Path("/{profileId}/scanLibrary")
+    public Response scanLibrary(@PathParam("profileId") Long profileId) {
         executor.submit(() -> {
             settingsController.scanLibrary();
         }, "LibraryScanThread");
@@ -255,9 +256,9 @@ public class SettingsApi {
     // CLEAR LOGS
     // -----------------------------
     @POST
-    @Path("/clearLogs")
+    @Path("/{profileId}/clearLogs")
     @Transactional
-    public Response clearLogs() {
+    public Response clearLogs(@PathParam("profileId") Long profileId) {
         settingsController.clearLogs();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -266,9 +267,9 @@ public class SettingsApi {
     // GET LOGS
     // -----------------------------
     @GET
-    @Path("/logs")
+    @Path("/{profileId}/logs")
     @Transactional
-    public Response getLogs() {
+    public Response getLogs(@PathParam("profileId") Long profileId) {
         return Response.ok(ApiResponse.success(settingsController.getLogs())).build();
     }
 
@@ -277,10 +278,10 @@ public class SettingsApi {
     // -----------------------------
     @POST
     @Consumes(MediaType.WILDCARD)
-    @Path("/clearPlaybackHistory")
+    @Path("/clearPlaybackHistory/{profileId}")
     @Transactional
-    public Response clearPlaybackHistory() {
-        playbackHistoryService.clearHistory();
+    public Response clearPlaybackHistory(@PathParam("profileId") Long profileId) {
+        playbackHistoryService.clearHistory(profileId);
         return Response.ok(ApiResponse.success("Playback history cleared")).build();
     }
 
@@ -288,9 +289,9 @@ public class SettingsApi {
     // CLEAR SONGS DATABASE
     // -----------------------------
     @POST
-    @Path("/clearSongs")
+    @Path("/{profileId}/clearSongs")
     @Transactional
-    public Response clearSongs() {
+    public Response clearSongs(@PathParam("profileId") Long profileId) {
         try {
             songService.clearAllSongs();
             settingsController.addLog("All songs cleared from database.");
@@ -306,8 +307,8 @@ public class SettingsApi {
     // RELOAD METADATA
     // -----------------------------
     @POST
-    @Path("/reloadMetadata")
-    public Response reloadMetadata() {
+    @Path("/{profileId}/reloadMetadata")
+    public Response reloadMetadata(@PathParam("profileId") Long profileId) {
         executor.submit(() -> {
             settingsController.reloadAllSongsMetadata();
         }, "MetadataReloadThread");
@@ -319,8 +320,8 @@ public class SettingsApi {
     // RESCAN SINGLE SONG METADATA
     // -----------------------------
     @POST
-    @Path("/rescan-song/{id}")
-    public Response rescanSong(@PathParam("id") Long id) {
+    @Path("/{profileId}/rescan-song/{id}")
+    public Response rescanSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
         try {
             songService.rescanSong(id);
             return Response.ok(ApiResponse.success("Song re-scan initiated for ID: " + id)).build();
@@ -339,8 +340,8 @@ public class SettingsApi {
     // DELETE SINGLE SONG
     // -----------------------------
     @DELETE
-    @Path("/songs/{id}")
-    public Response deleteSong(@PathParam("id") Long id) {
+    @Path("/{profileId}/songs/{id}")
+    public Response deleteSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
         try {
             songService.deleteSong(id);
             return Response.ok(ApiResponse.success("Song deleted with ID: " + id)).build();
@@ -359,8 +360,8 @@ public class SettingsApi {
     // DELETE DUPLICATES
     // -----------------------------
     @POST
-    @Path("/deleteDuplicates")
-    public Response deleteDuplicates() {
+    @Path("/{profileId}/deleteDuplicates")
+    public Response deleteDuplicates(@PathParam("profileId") Long profileId) {
         executor.submit(() -> {
             settingsController.deleteDuplicateSongs();
         }, "DeleteDuplicatesThread");
@@ -371,8 +372,8 @@ public class SettingsApi {
     // CHECK IMPORT CAPABILITY
     // -----------------------------
     @GET
-    @Path("/import-capability")
-    public Response getImportCapabilityStatus() {
+    @Path("/{profileId}/import-capability")
+    public Response getImportCapabilityStatus(@PathParam("profileId") Long profileId) {
         boolean isInstalled = settingsController.getImportService().getInstallationStatus().isAllInstalled();
         return Response.ok(ApiResponse.success(isInstalled)).build();
     }
