@@ -11,7 +11,7 @@
 ## 🌐 Overview
 
 **JMusic** is a decentralized, privacy-focused music streaming application built with **Java** and **Quarkus**.  
-It provides a **serverless**, **peer-to-peer**, and **user-controlled** experience for managing and streaming your music.  
+It provides a **serverless**, and **user-controlled** experience for managing and streaming your music.  
 
 Unlike traditional streaming services, JMusic ensures that your data — from your music files to your listening preferences — **remains fully local and private**. It offers a responsive web interface combined with a high-performance backend for seamless playback, music organization, and peer-based sharing.
 
@@ -47,7 +47,7 @@ Unlike traditional streaming services, JMusic ensures that your data — from yo
 
 ### 🔧 **REST API for Integrations**
 - Based on **Quarkus REST** and **Jackson**.  
-- Full programmatic control of your music library, playback, and peers.  
+- Full programmatic control of your music library, playback.  
 - Endpoints can be found under `src/main/java/API/Rest`.
 
 ### 🧠 **Efficient Data Management**

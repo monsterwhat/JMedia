@@ -28,7 +28,7 @@
 | Feature | Description | Platform | Version / Planned Phase | Status |
 |----------|--------------|-----------|------------------------|---------|
 | Home View | Displays playlists, song queue, and songs based on selection. | Desktop / Mobile | Alpha 5 | ✅ |
-| Discover | Main hub for finding content and managing P2P features (formerly “Browse”). | Desktop / Mobile | Alpha 5 | ✅ |
+| Discover | Main hub for finding content. | Desktop / Mobile | Alpha 5 | ✅ |
 | Settings Tab | Central hub for configuration, library, and app behavior. | Desktop / Mobile | Alpha 5 | ✅ |
 | Responsive Layout | Fully responsive design supporting desktop and mobile UI. | Desktop / Mobile | Alpha 5 | ✅ |
 | Light & Dark Mode | Toggle between light and dark themes. | Desktop / Mobile | Alpha 5 | ✅ |
