@@ -49,7 +49,7 @@
                     <div class="navbar-item is-expanded" style="justify-content: center;">
                         <div class="control has-icons-right" style="flex-grow: 1;">
                             <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput"
-                                   hx-get="/api/music/ui/tbody/0"
+                                   hx-get="/api/music/ui/tbody/{profileId}/0"
                                    hx-trigger="search, keyup changed delay:500ms from:this"
                                    hx-target="#songTableBody"
                                    hx-swap="innerHTML"
@@ -64,7 +64,7 @@
                                 <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
                             </div>
                             <div class="dropdown-content"
-                                 hx-post="/api/music/ui/search-suggestions"
+                                 hx-post="/api/music/ui/search-suggestions/{profileId}"
                                  hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
                                  hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
                                  hx-target="this"

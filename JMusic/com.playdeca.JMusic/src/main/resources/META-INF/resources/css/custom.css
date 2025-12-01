@@ -173,7 +173,12 @@ input[type="range"] {
 
 .marquee {
     white-space: nowrap;
-    /* animation will be applied by JS */
+    /* Removed overflow: hidden and max-width: 100% from here */
+    display: inline-block;
+}
+
+.is-marquee-animating {
+    animation: marquee-animation var(--marquee-duration) linear infinite; /* Dynamic duration */
 }
 
 .no-scroll {
@@ -181,13 +186,9 @@ input[type="range"] {
     text-overflow: ellipsis;
 }
 
-@keyframes marquee {
-    0% {
-        transform: translateX(0);
-    }
-    100% {
-        transform: translateX(-100%);
-    }
+@keyframes marquee-animation { /* Renamed keyframes */
+    0% { transform: translateX(0); }
+    100% { transform: translateX(var(--marquee-distance)); }
 }
 
 .is-clickable {

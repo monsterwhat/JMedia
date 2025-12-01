@@ -11,6 +11,7 @@
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
+        <link rel="stylesheet" href="/css/playback-bar.css"/>
 
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
@@ -47,6 +48,35 @@
              .selected-video-entry .video-title, .selected-video-entry .video-info {
                 color: #fff !important;
             }
+            #mainVideoCard {
+                position: relative; /* Essential for positioning children absolutely */
+                overflow: hidden; /* Ensures absolutely positioned children don't overflow */
+            }
+            #videoPlaybackBarOverlay {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                z-index: 10;
+                background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%); /* Fading background */
+                transform: translateY(100%); /* Initially hide the bar below the video */
+                transition: transform 0.3s ease-in-out; /* Smooth transition for showing/hiding */
+            }
+            #mainVideoCard:hover #videoPlaybackBarOverlay {
+                transform: translateY(0); /* Show the bar on hover */
+            }
+            /* Make sure video itself doesn't have controls visible if we're making custom ones */
+            #videoPlayer::-webkit-media-controls {
+                display: none !important;
+            } 
+            #videoPlayer {
+                width: 100%;
+                height: auto; /* Maintain aspect ratio */
+                display: block; /* Remove extra space below video */
+                position: relative; /* For z-index in case of other overlays */
+                z-index: 1; /* Ensure video is below the overlay when shown */
+            }
         </style>
 
     </head>
@@ -63,8 +93,54 @@
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
+                        <a role="button" class="navbar-item" id="playerToggle">
+                            <i class="pi pi-expand" id="playerIcon"></i>
+                        </a>
+                        <a role="button" class="navbar-item" href="/video.html">
+                            <i class="pi pi-video"></i>
+                        </a>
+                        <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                        </a>
+                        <a role="button" class="navbar-item is-hidden-desktop is-hidden-mobile" id="sidebarToggle">
+                            <i class="pi pi-bars"></i>
+                        </a>
                     </div>
                     <div id="navMenu" class="navbar-menu">
+                        <div class="navbar-start">
+                        </div>
+                        <div class="navbar-item is-expanded" style="justify-content: center;">
+                            <div class="navbar-search-container">
+                                <div class="control has-icons-right" style="flex-grow: 1;">
+                                    <input class="input is-rounded" type="text" placeholder="Search all videos..." name="search" id="globalSearchInput"
+                                           hx-get="/api/video/ui/tbody/0"
+                                           hx-trigger="search, keyup changed delay:500ms from:this"
+                                           hx-target="#videoTableBody"
+                                           hx-swap="innerHTML"
+                                           hx-include="[name='search']"
+                                           hx-indicator="#loadingRow">
+                                    <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
+                                        <i class="pi pi-times"></i>
+                                    </span>
+                                </div>
+                                <div id="globalSearchDropdown" class="dropdown-menu" role="menu" style="display: none;">
+                                    <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
+                                        <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+                                    </div>
+                                    <div class="dropdown-content"
+                                         hx-post="/api/video/ui/search-suggestions"
+                                         hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                                         hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                                         hx-target="this"
+                                         hx-swap="innerHTML"
+                                         hx-indicator="#globalSearchDropdownLoadingIndicator">
+                                        <!-- Suggestions will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <div class="navbar-end">
                             <a class="navbar-item" id="openProfileModalBtn">
                                 <span class="icon"><i class="pi pi-user"></i></span>
@@ -94,31 +170,80 @@
 
                     <!-- Video List Sidebar -->
                     <div class="column is-4 is-full-mobile" id="videoListSidebar"
-                         x-data="{ activeVideoTab: 'shows' }">
+                         x-data="{ 
+                             activeVideoTab: localStorage.getItem('jmusic_videoTab') || 'shows',
+                             showsPage: parseInt(localStorage.getItem('jmusic_showsPage') || '1'),
+                             moviesPage: parseInt(localStorage.getItem('jmusic_moviesPage') || '1'),
+                             init() {
+                                 // Load initial tab state
+                                 this.activeVideoTab = localStorage.getItem('jmusic_videoTab') || 'shows';
+                                 // Load initial page states
+                                 this.showsPage = parseInt(localStorage.getItem('jmusic_showsPage') || '1');
+                                 this.moviesPage = parseInt(localStorage.getItem('jmusic_moviesPage') || '1');
+
+                                 // Watch for tab changes and save
+                                 this.$watch('activeVideoTab', value => {
+                                     localStorage.setItem('jmusic_videoTab', value);
+                                     // When tab changes, trigger HTMX load for that tab's content
+                                     this.$nextTick(() => {
+                                         if (value === 'shows') {
+                                             htmx.trigger(this.$refs.showsTabLink, 'click');
+                                         } else if (value === 'movies') {
+                                             htmx.trigger(this.$refs.moviesTabLink, 'click');
+                                         }
+                                     });
+                                 });
+                             },
+                             getShowsUrl() {
+                                 return `/api/video/ui/shows-fragment?page=${this.showsPage}&limit=50`;
+                             },
+                             getMoviesUrl() {
+                                 return `/api/video/ui/movies-fragment?page=${this.moviesPage}&limit=50`;
+                             },
+                             setPage(tab, page) {
+                                 if (tab === 'shows') {
+                                     this.showsPage = page;
+                                     localStorage.setItem('jmusic_showsPage', page);
+                                 } else if (tab === 'movies') {
+                                     this.moviesPage = page;
+                                     localStorage.setItem('jmusic_moviesPage', page);
+                                 }
+                                 // Re-trigger HTMX to load the new page
+                                 this.$nextTick(() => {
+                                     if (tab === 'shows') {
+                                         htmx.trigger(this.$refs.showsTabLink, 'click'); // Re-click the tab to load new page
+                                     } else if (tab === 'movies') {
+                                         htmx.trigger(this.$refs.moviesTabLink, 'click'); // Re-click the tab to load new page
+                                     }
+                                 });
+                             }
+                         }">
                         <div class="card has-background-grey-darker has-text-white">
                             <header class="card-header">
                                 <div class="tabs is-fullwidth">
                                     <ul>
                                         <li :class="{ 'is-active': activeVideoTab === 'shows' }">
                                             <a @click="activeVideoTab = 'shows'" 
-                                               class="has-text-white"
-                                               hx-get="/api/video/ui/shows-fragment"
+                                               :hx-get="getShowsUrl()"
                                                hx-target="#showsTabContent"
-                                               hx-swap="innerHTML">Shows</a>
+                                               hx-swap="innerHTML"
+                                               class="has-text-white"
+                                               x-ref="showsTabLink">Shows</a>
                                         </li>
                                         <li :class="{ 'is-active': activeVideoTab === 'movies' }">
                                             <a @click="activeVideoTab = 'movies'" 
-                                               class="has-text-white"
-                                               hx-get="/api/video/ui/movies-fragment?page=1&limit=50"
+                                               :hx-get="getMoviesUrl()"
                                                hx-target="#moviesTabContent"
-                                               hx-swap="innerHTML">Movies</a>
+                                               hx-swap="innerHTML"
+                                               class="has-text-white"
+                                               x-ref="moviesTabLink">Movies</a>
                                         </li>
                                     </ul>
                                 </div>
                             </header>
                             <div class="card-content p-0 m-0" style="height: calc(100vh - 120px); overflow-y: scroll;">
                                 <div x-show="activeVideoTab === 'shows'" id="showsTabContent"
-                                     hx-get="/api/video/ui/shows-fragment" hx-trigger="load" hx-swap="innerHTML">
+                                     :hx-get="getShowsUrl()" hx-swap="innerHTML">
                                     <!-- Series will be dynamically populated here by HTMX -->
                                     <div class="has-text-centered py-4">
                                         <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
@@ -127,7 +252,7 @@
                                 </div>
 
                                 <div x-show="activeVideoTab === 'movies'" id="moviesTabContent"
-                                     hx-get="/api/video/ui/movies-fragment?page=1&limit=50" hx-trigger="load" hx-swap="innerHTML">
+                                     :hx-get="getMoviesUrl()" hx-swap="innerHTML">
                                     <!-- Movies will be dynamically populated here by HTMX -->
                                     <div class="has-text-centered py-4">
                                         <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
@@ -141,40 +266,130 @@
                     <!-- Video Player -->
                     <div class="column is-8 is-full-mobile" id="videoPlayerContainer">
                         <div id="mainVideoCard" class="card has-background-black has-text-white">
+                            <div id="videoTitleArtistDisplay" class="p-3 has-background-black has-text-white">
+                                <h4 id="videoCurrentTitle" class="title is-4 has-text-white">Select a video to play</h4>
+                                <p id="videoCurrentArtist" class="subtitle is-6 has-text-success"></p>
+                            </div>
                             <div class="card-content m-0 p-0">
-                                <video id="videoPlayer" width="100%" controls autoplay>
+                                <video id="videoPlayer" width="100%" autoplay>
                                     <source src="" type="video/mp4">
                                     Your browser does not support the video tag.
                                 </video>
-                            </div>
-                             <header class="card-header">
-                                <p id="videoTitle" class="card-header-title has-text-white is-4">Select a video to play</p>
-                            </header>
-                        </div>
-                    </div>
-                </div>
+                                <!-- New playback bar structure -->
+                                <div id="videoPlaybackBarOverlay" class="p-3 has-background-grey-darker has-text-white">
+                                    <nav class="level is-mobile">
+                                        <!-- LEFT: Song Info (removed) -->
+
+                                        <!-- CENTER: Controls + Progress -->
+                                        <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
+                                            <!-- Playback buttons -->
+                                            <div class="buttons are-small mb-2">
+                                                <button id="skipBack10Btn" title="Skip Back 10 Seconds"><i class="pi pi-backward"></i></button>
+                                                <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
+                                                <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                                                <button id="nextBtn"   title="Next"><i class="pi pi-step-forward"></i></button>
+                                                <button id="skipForward10Btn"   title="Skip Forward 10 Seconds"><i class="pi pi-forward"></i></button>
+                                            </div>
+
+                                            <!-- Progress bar -->
+                                            <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                                                <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-6 mr-2">0:00</span>
+                                                <input type="range" min="0" max="100" value="0"
+                                                       style="width:100%"
+                                                       name="seconds" id="playbackProgressBar"/>
+                                                <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-6 ml-2">0:00</span>
+                                            </div>
+
+                                                                                    <!-- Song Info for mobile (removed) -->                                        </div>
+
+                                        <!-- RIGHT: Controls + Volume -->
+                                        <div class="level-right">
+                                            <div class="level-item">
+                                                <div class="is-flex is-align-items-center mr-3">
+                                                    <!-- Playback Speed Dropdown -->
+                                                    <div class="dropdown is-hoverable is-up">
+                                                        <div class="dropdown-trigger">
+                                                            <button class="button is-small is-ghost has-text-white" aria-haspopup="true" aria-controls="dropdown-menu-speed" id="playbackSpeedBtn" title="Playback Speed">
+                                                                <span class="icon is-small"><i class="pi pi-gauge"></i></span>
+                                                            </button>
+                                                        </div>
+                                                        <div class="dropdown-menu" id="dropdown-menu-speed" role="menu">
+                                                            <div class="dropdown-content">
+                                                                <a href="#" class="dropdown-item" data-speed="0.5">0.5x</a>
+                                                                <a href="#" class="dropdown-item" data-speed="0.75">0.75x</a>
+                                                                <a href="#" class="dropdown-item is-active" data-speed="1.0">1.0x (Normal)</a>
+                                                                <a href="#" class="dropdown-item" data-speed="1.25">1.25x</a>
+                                                                <a href="#" class="dropdown-item" data-speed="1.5">1.5x</a>
+                                                                <a href="#" class="dropdown-item" data-speed="2.0">2.0x</a>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <!-- Subtitles Button -->
+                                                    <button class="button is-small is-ghost has-text-white ml-2" id="subtitlesBtn" title="Subtitles">
+                                                        <span class="icon is-small"><i class="pi pi-comments"></i></span>
+                                                    </button>
+                                                    <!-- Fullscreen Button -->
+                                                    <button class="button is-small is-ghost has-text-white ml-2" id="fullscreenBtn" title="Fullscreen">
+                                                        <span class="icon is-small"><i class="pi pi-window-maximize"></i></span>
+                                                    </button>
+                                                </div>
+                                                <div class="is-flex is-align-items-center">
+                                                    <i class="pi pi-volume-up has-text-white mr-2"></i>
+                                                    <input type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </nav>
+                                </div>
+                                                    </div>
+                                                </div>                </div>
             </div>
         </section>
 
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
+        <script src="/js/videoBar.js"></script>
+        <script>
+            document.body.addEventListener('htmx:beforeRequest', function (event) {
+                // Check if the request is for shows-fragment or movies-fragment pagination
+                const url = new URL(event.detail.path, window.location.origin);
+                const pageParam = url.searchParams.get('page');
+                
+                if (pageParam) {
+                    const pageNumber = parseInt(pageParam);
+                    if (url.pathname.includes('/shows-fragment')) {
+                        localStorage.setItem('jmusic_showsPage', pageNumber);
+                    } else if (url.pathname.includes('/movies-fragment')) {
+                        localStorage.setItem('jmusic_moviesPage', pageNumber);
+                    }
+                }
+            });
+
+            // After HTMX swaps content, if a remembered video exists, try to play it.
+            // This is a fallback/retry mechanism in case the video list wasn't loaded yet.
+            document.body.addEventListener('htmx:afterSwap', function(event) {
+                if (window.rememberedVideoId && (event.target.id === 'showsTabContent' || event.target.id === 'moviesTabContent')) {
+                    // Give a small delay to ensure the DOM is fully rendered after swap
+                    setTimeout(() => {
+                        const videoEntry = document.querySelector(`[data-video-id="${window.rememberedVideoId}"]`);
+                        if (videoEntry) {
+                            // Simulate a click on the video entry to trigger playVideo
+                            videoEntry.click(); 
+                        }
+                    }, 100); // 100ms delay
+                }
+            });
+        </script>
         <script>
             // Function to play video and highlight selection
             function playVideo(clickedElement, video) {
                 const videoPlayer = document.getElementById('videoPlayer');
-                const videoTitle = document.getElementById('videoTitle');
                 videoPlayer.src = `/api/video/stream/${video.id}`;
                 
-                // Construct display title based on video type
-                let displayTitle = video.title;
-                if (video.episodeNumber && video.episodeTitle) {
-                    displayTitle = `E${video.episodeNumber} - ${video.episodeTitle}`;
-                } else if (video.episodeNumber) {
-                     displayTitle = `E${video.episodeNumber} - ${video.title}`;
-                } else if (video.releaseYear) {
-                    displayTitle = `${video.title} (${video.releaseYear})`;
+                // Update the playback bar info
+                if (window.updateVideoInfo) {
+                    window.updateVideoInfo(video);
                 }
-                videoTitle.textContent = displayTitle;
                 
                 videoPlayer.play();
 
@@ -220,6 +435,5 @@
         </footer>
       </div>
     </div>
-<script src="/js/profileManager.js"></script>
 </body>
 </html>

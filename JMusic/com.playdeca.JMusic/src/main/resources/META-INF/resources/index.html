@@ -91,7 +91,7 @@
                             <div class="navbar-search-container">
                                 <div class="control has-icons-right" style="flex-grow: 1;">
                                     <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput"
-                                           hx-get="/api/music/ui/tbody/0"
+                                           hx-get="/api/music/ui/tbody/{profileId}/0"
                                            hx-trigger="search, keyup changed delay:500ms from:this"
                                            hx-target="#songTableBody"
                                            hx-swap="innerHTML"
@@ -106,7 +106,7 @@
                                         <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
                                     </div>
                                     <div class="dropdown-content"
-                                         hx-post="/api/music/ui/search-suggestions"
+                                         hx-post="/api/music/ui/search-suggestions/{profileId}"
                                          hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
                                          hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
                                          hx-target="this"
@@ -271,7 +271,7 @@
                                     <div class="control is-expanded">
                                         <input class="input is-rounded" type="text" placeholder="Search songs..." name="search"
                                                x-model="playlistSearchQuery"
-                                               :hx-get="`/api/music/ui/tbody/${playlistId}`"
+                                               :hx-get="`/api/music/ui/tbody/{profileId}/${playlistId}`"
                                                hx-trigger="keyup changed delay:500ms, search"
                                                hx-target="#songTableBody"
                                                hx-swap="innerHTML"
@@ -455,7 +455,7 @@
 
                                             if (subModule === 'ui') {
                                                 // Pattern: /api/music/ui/{profileId}/...
-                                                // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/0, /api/music/ui/search-suggestions
+                                                // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/{profileId}/0, /api/music/ui/search-suggestions/{profileId}
                                                 // Ensure profileId is inserted right after 'ui'
                                                 if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
                                                     newUrl = `/api/music/ui/${currentProfileId}` + targetUrl.substring('/api/music/ui'.length);
@@ -641,7 +641,7 @@
                 this.updateSortIcons(); // Give immediate feedback
 
                 // Manually trigger the HTMX request with the new sort parameters
-                htmx.ajax('GET', `/api/music/ui/tbody/${this.playlistId}`, {
+                htmx.ajax('GET', `/api/music/ui/tbody/{profileId}/${this.playlistId}`, {
                     target: '#songTableBody',
                     swap: 'innerHTML',
                     values: {
@@ -688,7 +688,7 @@
             if (globalSearchInput) {
                 globalSearchInput.value = '';
                 // Manually trigger the htmx request for the main table
-                htmx.ajax('GET', '/api/music/ui/tbody/0', {
+                htmx.ajax('GET', '/api/music/ui/tbody/{profileId}/0', {
                     target: '#songTableBody',
                     swap: 'innerHTML',
                     values: {search: ''} // Ensure search term is empty

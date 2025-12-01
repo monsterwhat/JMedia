@@ -4,7 +4,7 @@
         <p id='playlistTitle' class='card-header-title has-text-white is-4'>{playlistName}</p>
         <button
             class='is-small is-rounded has-text-success ml-2'
-            hx-post='/api/music/ui/playback/queue-all/{playlistId}'
+            hx-post='/api/music/ui/playback/queue-all/{profileId}/{playlistId}'
             hx-trigger='click'
             hx-swap='none'
             data-playlist-id='{playlistId}'>
@@ -19,7 +19,7 @@
         <div class="field has-addons "  style="width:100%">
             <div class="control is-expanded">
                 <input class="input is-rounded" type="text" placeholder="Search songs..." name="search"
-                       hx-get="/api/music/ui/tbody/{playlistId}"
+                       hx-get="/api/music/ui/tbody/{profileId}/{playlistId}"
                        hx-trigger="keyup changed delay:500ms, search"
                        hx-target="#songTableBody"
                        hx-swap="innerHTML"
@@ -27,7 +27,7 @@
             </div>
             <div class="control">
                 <button class="button is-info is-rounded"
-                        hx-get="/api/music/ui/tbody/{playlistId}"
+                        hx-get="/api/music/ui/tbody/{profileId}/{playlistId}"
                         onclick="document.querySelector('input[name=\'search\']').value = ''"
                         hx-target="#songTableBody"
                         hx-swap="innerHTML"

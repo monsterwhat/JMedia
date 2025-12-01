@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import jakarta.ws.rs.HeaderParam;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,10 +62,11 @@ public class VideoAPI {
         LOG.info("Shutting down reloadExecutor.");
         reloadExecutor.shutdownNow();
     }
+
     @GET
     @Path("/stream/{videoId}")
-    @Produces("video/mp4") // Assuming MP4 for simplicity, adjust if other formats are needed
-    public Response streamVideo(@PathParam("videoId") Long videoId) {
+    @Produces("video/mp4")
+    public Response streamVideo(@PathParam("videoId") Long videoId, @HeaderParam("Range") String rangeHeader) {
         Video video = videoService.find(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
@@ -73,7 +75,9 @@ public class VideoAPI {
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
         if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
             LOG.error("Video library path is not configured.");
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Video library path not configured.").build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("Video library path not configured.")
+                    .build();
         }
 
         java.nio.file.Path filePath = Paths.get(videoLibraryPath, video.getPath());
@@ -84,25 +88,75 @@ public class VideoAPI {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
-        StreamingOutput streamingOutput = outputStream -> {
-            try (InputStream fileInputStream = new FileInputStream(videoFile)) {
-                byte[] buffer = new byte[4096];
-                int bytesRead;
-                while ((bytesRead = fileInputStream.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, bytesRead);
+        long fileLength = videoFile.length();
+        long start = 0;
+        long end = fileLength - 1;
+
+        // ---- RANGE PARSING ----
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            try {
+                String[] parts = rangeHeader.replace("bytes=", "").split("-");
+                start = Long.parseLong(parts[0]);
+
+                if (parts.length > 1 && !parts[1].isEmpty()) {
+                    end = Long.parseLong(parts[1]);
                 }
+            } catch (Exception e) {
+                LOG.warn("Invalid Range header '{}': {}", rangeHeader, e.getMessage());
+            }
+        }
+
+        long contentLength = end - start + 1;
+        final long rangeStart = start;
+        final long rangeEnd = end;
+
+        // ---- STREAMING OUTPUT ----
+        StreamingOutput stream = outputStream -> {
+            try (InputStream fis = new FileInputStream(videoFile)) {
+                fis.skip(rangeStart);
+
+                byte[] buffer = new byte[8192];
+                long bytesRemaining = contentLength;
+
+                while (bytesRemaining > 0) {
+                    int bytesToRead = (int) Math.min(buffer.length, bytesRemaining);
+                    int bytesRead = fis.read(buffer, 0, bytesToRead);
+
+                    if (bytesRead == -1) {
+                        break;
+                    }
+
+                    outputStream.write(buffer, 0, bytesRead);
+                    bytesRemaining -= bytesRead;
+                }
+
             } catch (IOException e) {
-                LOG.error("Error streaming video file: {}", filePath, e);
-                throw e; // Re-throw to indicate an an error during streaming
+                if (isClientDisconnect(e)) {
+                } else {
+                    LOG.error("Streaming error for {}: {}", filePath, e.getMessage(), e);
+                }
             }
         };
 
-        return Response.ok(streamingOutput)
-                .header(HttpHeaders.CONTENT_TYPE, "video/mp4")
-                .header(HttpHeaders.CONTENT_LENGTH, videoFile.length())
+        // ---- RANGE RESPONSE ----
+        if (rangeHeader != null) {
+            return Response.status(Response.Status.PARTIAL_CONTENT)
+                    .entity(stream)
+                    .header("Accept-Ranges", "bytes")
+                    .header("Content-Type", "video/mp4")
+                    .header("Content-Length", contentLength)
+                    .header("Content-Range", "bytes " + rangeStart + "-" + rangeEnd + "/" + fileLength)
+                    .build();
+        }
+
+        // ---- FULL FILE RESPONSE ----
+        return Response.ok(stream)
+                .header("Accept-Ranges", "bytes")
+                .header("Content-Type", "video/mp4")
+                .header("Content-Length", fileLength)
                 .build();
     }
-  
+
     @POST
     @Path("/scan")
     public Response scanVideoLibrary() {
@@ -171,15 +225,37 @@ public class VideoAPI {
     public Response getAllMovies(
             @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
-        
+
         VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
         List<Video> movies = paginatedVideos.videos();
         long totalItems = paginatedVideos.totalCount();
-        
+
         int totalPages = (int) Math.ceil((double) totalItems / limit);
 
         PaginatedMovieResponse response = new PaginatedMovieResponse(movies, page, limit, totalItems, totalPages);
         return Response.ok(response).build();
     }
-}
 
+    private boolean isClientDisconnect(Throwable e) {
+        if (e == null) {
+            return false;
+        }
+        String msg = e.getMessage();
+        if (msg == null) {
+            return false;
+        }
+
+        msg = msg.toLowerCase();
+
+        return msg.contains("broken pipe")
+                || msg.contains("connection reset")
+                || msg.contains("connection aborted")
+                || msg.contains("connection has been closed") 
+                || msg.contains("stream closed")
+                || msg.contains("remote host closed")
+                || msg.contains("closed channel")
+                || msg.contains("socket closed")
+                || msg.contains("failed to write");   
+    }
+
+}

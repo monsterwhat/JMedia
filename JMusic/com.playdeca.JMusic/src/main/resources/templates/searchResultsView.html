@@ -20,7 +20,7 @@
                             <th class="has-text-white has-text-weight-semibold">Action</th>
                         </tr>
                     </thead>
-                    <tbody hx-get="/api/music/ui/tbody/0?search={searchQuery}"
+                    <tbody hx-get="/api/music/ui/tbody/{profileId}/0?search={searchQuery}"
                            hx-trigger="load"
                            hx-swap="innerHTML"
                            hx-indicator="#loadingRow">

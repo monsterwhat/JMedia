@@ -26,36 +26,37 @@ public class QueueAPI {
         return Response.ok(ApiResponse.success(playbackController.getQueue(profileId))).build();
     }
 
-        @POST
-        @Path("/playback/queue-all/{profileId}/{id}")
-        @Consumes(MediaType.WILDCARD)
-        public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
-            List<Song> songsToQueue;
-            if (id == null || id == 0) {
-                // Queue all songs
-                songsToQueue = playbackController.getSongs();
-            } else {
-                // Queue songs from a specific playlist
-                Playlist playlist = playbackController.findPlaylistWithSongs(id);
-                if (playlist == null) {
-                    return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
-                }
-                songsToQueue = playlist.getSongs();
+    @POST
+    @Path("/playback/queue-all/{profileId}/{id}")
+    @Consumes(MediaType.WILDCARD)
+    public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
+        List<Song> songsToQueue;
+        if (id == null || id == 0) {
+            // Queue all songs
+            songsToQueue = playbackController.getSongs();
+        } else {
+            // Queue songs from a specific playlist
+            Playlist playlist = playbackController.findPlaylistWithSongs(id);
+            if (playlist == null) {
+                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
             }
-    
-            if (songsToQueue == null || songsToQueue.isEmpty()) {
-                return Response.ok(ApiResponse.success("No songs to queue")).build();
-            }
-    
-            playbackController.clearQueue(profileId);
-            List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
-            playbackController.addToQueue(songIds, false, profileId);
-    
-            // Start playback with the first song
-            playbackController.selectSong(songIds.get(0), profileId);
-    
-            return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
+            songsToQueue = playlist.getSongs();
         }
+
+        if (songsToQueue == null || songsToQueue.isEmpty()) {
+            return Response.ok(ApiResponse.success("No songs to queue")).build();
+        }
+
+        playbackController.clearQueue(profileId);
+        List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
+        playbackController.addToQueue(songIds, false, profileId);
+
+        // Start playback with the first song
+        playbackController.selectSong(songIds.get(0), profileId);
+
+        return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
+    }
+        
     @POST
     @Path("/queue/add/{profileId}/{songId}")
     @Consumes(MediaType.WILDCARD)
