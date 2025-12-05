@@ -58,14 +58,15 @@ function deletePlaylist(playlistId, playlistName) {
                 if (playlistRow) {
                     playlistRow.remove();
                 }
+                showToast(`Playlist '${playlistName}' deleted successfully`, 'success');
             } else {
                 console.error('Failed to delete playlist');
-                alert('Failed to delete playlist');
+                showToast('Failed to delete playlist', 'error');
             }
         })
         .catch(error => {
             console.error('Error deleting playlist:', error);
-            alert('Error deleting playlist');
+            showToast('Error deleting playlist', 'error');
         });
     }
 }
@@ -84,12 +85,15 @@ function togglePlaylistShared(playlistId, currentSharedStatus) {
         if (response.ok) {
             // Update UI to reflect the change
             location.reload(); // Simple reload to show updated status
+            showToast(`Playlist ${newSharedStatus ? 'shared' : 'unshared'} successfully`, 'success');
         } else {
             console.error('Failed to toggle playlist shared status');
+            showToast('Failed to toggle playlist shared status', 'error');
         }
     })
     .catch(error => {
         console.error('Error toggling playlist shared status:', error);
+        showToast('Error toggling playlist shared status', 'error');
     });
 }
 

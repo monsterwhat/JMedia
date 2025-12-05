@@ -2,41 +2,66 @@ document.addEventListener("DOMContentLoaded", () => {
     const browseVideoFolderBtn = document.getElementById("browseVideoFolderBtn");
     if (browseVideoFolderBtn) {
         browseVideoFolderBtn.onclick = async () => {
-            const res = await fetch(`/api/settings/${globalActiveProfileId}/browse-video-folder`);
-            const json = await res.json();
-            if (res.ok && json.data) {
-                const pathInputElem = document.getElementById("videoLibraryPathInput");
-                if (pathInputElem) {
-                    pathInputElem.value = json.data;
+            try {
+                const res = await fetch(`/api/settings/${globalActiveProfileId}/browse-video-folder`);
+                
+                // Handle case where user cancels folder selection (NO_CONTENT status)
+                if (res.status === 204) {
+                    console.log("[Settings] Video folder selection cancelled by user");
+                    return; // Silently return - no notification needed for cancel
                 }
-            } else {
-                console.error("[Settings] Failed to browse video folder:", json.error);
+                
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                
+                const json = await res.json();
+                if (json.data) {
+                    const pathInputElem = document.getElementById("videoLibraryPathInput");
+                    if (pathInputElem) {
+                        pathInputElem.value = json.data;
+                    }
+                } else {
+                    console.error("[Settings] No data in response:", json);
+                    showToast("No folder selected", 'info');
+                }
+            } catch (error) {
+                console.error("[Settings] Failed to browse video folder:", error);
+                showToast("Failed to browse video folder: " + error.message, 'error');
             }
         };
     }
 
     const saveVideoLibraryPathBtn = document.getElementById("saveVideoLibraryPathBtn");
     if(saveVideoLibraryPathBtn) {
-        saveVideoLibraryPathBtn.addEventListener("click", () => {
-            const path = document.getElementById("videoLibraryPathInput").value;
-            htmx.ajax('POST', `/api/settings/${globalActiveProfileId}/video-library-path`, {
-                values: { 'videoLibraryPathInput': path },
-                swap: 'none'
-            });
+        saveVideoLibraryPathBtn.addEventListener('htmx:afterRequest', function(evt) {
+            if (evt.detail.successful) {
+                showToast("Video library path saved successfully", 'success');
+            } else {
+                showToast("Failed to save video library path", 'error');
+            }
         });
     }
 
     const scanVideoLibraryBtn = document.getElementById("scanVideoLibrary");
     if (scanVideoLibraryBtn) {
         scanVideoLibraryBtn.addEventListener('htmx:afterRequest', function (evt) {
-            alert("Video library scan started.");
+            if (evt.detail.successful) {
+                showToast("Video library scan started", 'success');
+            } else {
+                showToast("Failed to start video library scan", 'error');
+            }
         });
     }
     
     const reloadVideoMetadataBtn = document.getElementById("reloadVideoMetadata");
     if (reloadVideoMetadataBtn) {
         reloadVideoMetadataBtn.addEventListener('htmx:afterRequest', function (evt) {
-            alert("Video metadata reload started.");
+            if (evt.detail.successful) {
+                showToast("Video metadata reload started", 'success');
+            } else {
+                showToast("Failed to start video metadata reload", 'error');
+            }
         });
     }
 
@@ -53,33 +78,19 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                     const result = await response.json();
                     if (response.ok) {
-                        alert(result.data || "Video database reset successfully.");
+                        showToast(result.data || "Video database reset successfully", 'success');
                     } else {
-                        alert("Error resetting video database: " + (result.error || "Unknown error"));
+                        showToast("Error resetting video database: " + (result.error || "Unknown error"), 'error');
                     }
                 } catch (error) {
-                    alert("An unexpected error occurred while resetting the video database: " + error.message);
+                    showToast("An unexpected error occurred while resetting the video database: " + error.message, 'error');
                 }
             }
         });
     }
-    
-    const toggleVideoLibraryManagementBtn = document.getElementById("toggleVideoLibraryManagementBtn");
-    if (toggleVideoLibraryManagementBtn) {
-        toggleVideoLibraryManagementBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "videoLibraryManagementContent");
-    }
 
-    async function refreshVideoSettingsUI() {
-        const res = await fetch(`/api/settings/${globalActiveProfileId}`);
-        const json = await res.json();
-        if (res.ok && json.data) {
-            const pathInputElem = document.getElementById("videoLibraryPathInput");
-            if (pathInputElem && json.data.videoLibraryPath)
-                pathInputElem.value = json.data.videoLibraryPath;
-        } else {
-            console.error("[Settings] Failed to refresh video settings UI:", json.error);
-        }
-    }
 
-    refreshVideoSettingsUI();
+
+
+
 });

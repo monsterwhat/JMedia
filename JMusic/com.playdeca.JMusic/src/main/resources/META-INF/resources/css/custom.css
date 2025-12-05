@@ -388,6 +388,99 @@ input[type="range"] {
     cursor: pointer;
 }
 
+/* Toast Notification Styles */
+.toast {
+    background-color: var(--card-background);
+    color: var(--text-color);
+    border: 1px solid #dbdbdb;
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    min-width: 250px;
+    max-width: 350px;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease-in-out;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 
+.toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
 
+.toast.success {
+    border-left: 4px solid #48c78e; /* Bulma success green */
+}
 
+.toast.error {
+    border-left: 4px solid #f14668; /* Bulma danger red */
+}
+
+.toast.info {
+    border-left: 4px solid #3298dc; /* Bulma info blue */
+}
+
+.toast-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.toast.success .toast-icon {
+    color: #48c78e;
+}
+
+.toast.error .toast-icon {
+    color: #f14668;
+}
+
+.toast.info .toast-icon {
+    color: #3298dc;
+}
+
+.toast-message {
+    flex-grow: 1;
+    font-size: 0.9rem;
+}
+
+/* Installation Dialog Styles */
+#installOutput {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+#installDialog .modal-card {
+    width: 600px;
+}
+
+#installDialog .modal-card-body {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+#installDialog .content {
+    text-align: left;
+}
+
+#installDialog .field {
+    margin-bottom: 1rem;
+}
+
+#installDialog .label {
+    margin-bottom: 0.5rem;
+}
+
+#installDialog .control {
+    width: 100%;
+}
+
+#installDialog .buttons {
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+ 

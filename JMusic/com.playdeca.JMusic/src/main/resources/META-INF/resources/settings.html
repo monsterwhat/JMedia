@@ -157,80 +157,138 @@
                                                 </button>
                                             </header>
                                             <div class="card-content" id="libraryManagementContent">
-                                                <div class="field">
-                                                    <label class="label has-text-white">Music Library Folder</label>
-                                                    <div class="control has-addons">
-                                                        <input id="musicLibraryPathInput" name="musicLibraryPathInput" class="input has-background-grey-darker has-text-white is-expanded" type="text" placeholder="Select music library folder" value="(not set)">
-                                                        <button id="browseMusicFolderBtn" class="button is-info">Browse</button>
-                                                    </div>
-                                                </div>
-                                                <div class="buttons mt-3">
-                                                    <button id="saveMusicLibraryPathBtn" class="button is-success"
-                                                            hx-post="/api/settings/music-library-path"
-                                                            hx-include="#musicLibraryPathInput"
-                                                            hx-swap="none">Save Path</button>
-                                                </div>
-                                                <div class="buttons">
-                                                    <button id="resetLibrary" class="button is-link">Reset to Default</button>
-                                                    <button id="scanLibrary" class="button is-primary">Scan Library</button>
-                                                    <button id="reloadMetadata" class="button is-info">Reload All Metadata</button>
-                                                    <button id="deleteDuplicates" class="button is-warning">Delete Duplicates</button>
-                                                </div>
-                                                <div class="field mt-5">
+                                                
+                                                <!-- Run as Service -->
+                                                <div class="field mb-4">
                                                     <label class="switch is-info">
-                                                        <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle"
-                                                               hx-post="/api/settings/toggle-run-as-service"
-                                                               hx-trigger="change"
-                                                               hx-swap="none">
+                                                        <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle">
                                                         <span class="check"></span>
                                                         <span class="control-label has-text-white">Run as Service</span>
                                                     </label>
                                                 </div>
+
+                                                <!-- Music Library Section -->
+                                                <div class="mb-5">
+                                                    <h6 class="title is-6 has-text-white mb-3">Music Library</h6>
+                                                    <div class="field">
+                                                        <label class="label has-text-white">Music Library Folder</label>
+                                                        <div class="field has-addons">
+                                                            <div class="control">
+                                                                <button id="browseMusicFolderBtn" class="button is-warning">Browse</button>
+                                                            </div>
+                                                            <div class="control is-expanded">
+                                                                <input id="musicLibraryPathInput" name="musicLibraryPathInput" class="input has-background-grey-darker has-text-white" type="text" placeholder="Select music library folder" value="(not set)">
+                                                            </div>
+                                                            <div class="control">
+                                                                <button id="saveMusicLibraryPathBtn" class="button is-success"
+                                                                        hx-post="/api/settings/music-library-path"
+                                                                        hx-include="#musicLibraryPathInput"
+                                                                        hx-swap="none">Save Path</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="buttons">
+                                                        <button id="scanLibrary" class="button is-primary is-small">Scan Library</button>
+                                                        <button id="reloadMetadata" class="button is-info is-small">Reload Metadata</button>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Video Library Section -->
+                                                <div class="mb-5">
+                                                    <div class="field">
+                                                        <label class="switch is-info">
+                                                            <input id="enableVideoLibraryToggle" type="checkbox" name="enableVideoLibraryToggle">
+                                                            <span class="check"></span>
+                                                            <span class="control-label has-text-white">Enable Video Library (BETA)</span>
+                                                        </label>
+                                                    </div>
+                                                    
+                                                    <div id="videoLibraryOptions" class="is-hidden">
+                                                        <h6 class="title is-6 has-text-white mb-3">Video Library</h6>
+                                                        <div class="field">
+                                                            <label class="label has-text-white">Video Library Folder</label>
+                                                            <div class="field has-addons">
+                                                                <div class="control">
+                                                                    <button id="browseVideoFolderBtn" class="button is-warning">Browse</button>
+                                                                </div>
+                                                                <div class="control is-expanded">
+                                                                    <input id="videoLibraryPathInput" name="videoLibraryPathInput" class="input has-background-grey-darker has-text-white" type="text" placeholder="Select video library folder" value="(not set)">
+                                                                </div>
+                                                                <div class="control">
+                                                                    <button id="saveVideoLibraryPathBtn" class="button is-success"
+                                                                            hx-post="/api/settings/video-library-path"
+                                                                            hx-include="#videoLibraryPathInput"
+                                                                            hx-swap="none">Save Path</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="buttons">
+                                                            <button id="scanVideoLibrary" class="button is-primary is-small"
+                                                                    hx-post="/api/video/scan"
+                                                                    hx-trigger="click"
+                                                                    hx-swap="none">Scan Video Library</button>
+                                                            <button id="reloadVideoMetadata" class="button is-info is-small"
+                                                                    hx-post="/api/video/reload-metadata"
+                                                                    hx-trigger="click"
+                                                                    hx-swap="none">Reload Metadata</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Data Management Section -->
+                                                <div class="mb-3">
+                                                    <hr class="has-background-grey-light" style="height: 1px;">
+                                                    <h6 class="title is-6 has-text-white mb-3">Data Management</h6>
+                                                    <div class="buttons">
+                                                        <button id="resetLibrary" class="button is-danger is-small">Reset Music to Default</button>
+                                                        <button id="deleteDuplicates" class="button is-danger is-small">Delete Music Duplicates</button>
+                                                        <button id="clearSongs" class="button is-danger is-small">Clear Songs DB</button>
+                                                        <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger is-small">Clear Playback History</button>
+                                                        <button id="resetVideoDb" class="button is-danger is-small">Reset Video Database</button>
+                                                    </div>
+                                                </div>
+
+
                                             </div>
                                         </div>
                                     </div>
 
-                                    <!-- Video Library Management Card -->
-                                    <div class="column is-one-third">
-                                        <div class="card has-background-grey-darker has-text-white">
+                                    <!-- Import Installation Card -->
+                                    <div class="column is-one-third is-hidden" id="importInstallationCardColumn">
+                                        <div class="card has-background-grey-darker has-text-white" id="importInstallationCard">
                                             <header class="card-header">
                                                 <p class="card-header-title has-text-white">
-                                                    Video Library Management
+                                                    Import Installation Required
                                                 </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleVideoLibraryManagementBtn">
+                                                <button class="card-header-icon" aria-label="more options" id="toggleImportInstallationBtn">
                                                     <span class="icon">
                                                         <i class="pi pi-angle-down" aria-hidden="true"></i>
                                                     </span>
                                                 </button>
                                             </header>
-                                            <div class="card-content" id="videoLibraryManagementContent">
+                                            <div class="card-content" id="importInstallationContent">
+                                                <div class="notification is-warning is-light">
+                                                    <strong>Import features require additional installations.</strong>
+                                                    <p class="mb-3">The following components need to be installed to enable music import functionality:</p>
+                                                    <ul class="mb-4">
+                                                        <li><strong>Python ≤3.13.9</strong> (Required for Whisper)</li>
+                                                        <li><strong>FFmpeg</strong> (For audio processing)</li>
+                                                        <li><strong>SpotDL</strong> (For music downloading)</li>
+                                                    </ul>
+                                                    <p class="is-size-7">Note: Python can be installed via Chocolatey, then SpotDL and FFmpeg can be installed via pip or Chocolatey on Windows.</p>
+                                                </div>
+                                                
                                                 <div class="field">
-                                                    <label class="label has-text-white">Video Library Folder</label>
-                                                    <div class="control has-addons">
-                                                        <input id="videoLibraryPathInput" name="videoLibraryPathInput" class="input has-background-grey-darker has-text-white is-expanded" type="text" placeholder="Select video library folder" value="(not set)">
-                                                        <button id="browseVideoFolderBtn" class="button is-info">Browse</button>
-                                                    </div>
-                                                </div>
-                                                <div class="buttons mt-3">
-                                                    <button id="saveVideoLibraryPathBtn" class="button is-success"
-                                                            hx-post="/api/settings/video-library-path"
-                                                            hx-include="#videoLibraryPathInput"
-                                                            hx-swap="none">Save Path</button>
-                                                </div>
-                                                <div class="buttons">
-                                                    <button id="scanVideoLibrary" class="button is-primary"
-                                                            hx-post="/api/video/scan"
-                                                            hx-trigger="click"
-                                                            hx-swap="none">Scan Video Library</button>
-                                                    <button id="reloadVideoMetadata" class="button is-info"
-                                                            hx-post="/api/video/reload-metadata"
-                                                            hx-trigger="click"
-                                                            hx-swap="none">Reload All Metadata</button>
-                                                    <button id="resetVideoDb" class="button is-danger">Reset Video Database</button>
+                                                    <button id="installRequirementsBtn" class="button is-primary is-large is-fullwidth">
+                                                        <i class="pi pi-download mr-2"></i>
+                                                        Install Requirements
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+
+
 
                                     <!-- Import Settings Card -->
                                     <div class="column is-one-third is-hidden" id="importSettingsCardColumn">
@@ -305,34 +363,14 @@
                                                     <!-- JS will populate logs here -->
                                                 </div>
                                                 <div class="buttons mt-3">
-                                                    <button id="clearLogs" class="button is-danger">Clear Logs</button>
+                                                    <button id="clearLogs" class="button is-danger is-small">Clear Logs</button>
                                                 </div>
+
                                             </div>
                                         </div>
                                     </div> 
 
-                                    <!-- Data Management Card -->
-                                    <div class="column is-one-third">
-                                        <div class="card has-background-grey-darker has-text-white">
-                                            <header class="card-header">
-                                                <p class="card-header-title has-text-white">
-                                                    Data Management
-                                                </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleDataManagementBtn">
-                                                    <span class="icon">
-                                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                                    </span>
-                                                </button>
-                                            </header>
-                                            <div class="card-content" id="dataManagementContent">
-                                                <p class="subtitle has-text-white">Manage application data.</p>
-                                                <div class="buttons">
-                                                    <button id="clearSongs" class="button is-warning">Clear Songs DB</button>
-                                                    <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger">Clear Playback History</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+
 
 
                                 </div>
@@ -409,12 +447,63 @@
 
         </section>
 
+        <!-- Toast Container -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
+
         <script src="/js/musicBar.js"></script>
         <script src="/js/mediaSession.js"></script>
         <script src="/js/settings.js"></script>
         <script src="/js/video-settings.js"></script>
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
+
+        <script>
+        // Toast Notification System
+        function showToast(message, type = 'info', duration = 3000) {
+            const toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) return;
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            // Add icon based on type
+            let icon = '';
+            switch(type) {
+                case 'success':
+                    icon = '<i class="pi pi-check toast-icon"></i>';
+                    break;
+                case 'error':
+                    icon = '<i class="pi pi-times toast-icon"></i>';
+                    break;
+                case 'info':
+                default:
+                    icon = '<i class="pi pi-info toast-icon"></i>';
+                    break;
+            }
+            
+            toast.innerHTML = `
+                ${icon}
+                <span class="toast-message">${message}</span>
+            `;
+            
+            toastContainer.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Remove toast after duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, duration);
+        }
+        </script>
 
         <script>
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
@@ -550,17 +639,32 @@
  
             document.addEventListener('DOMContentLoaded', async () => {
                 const importSettingsCardColumn = document.getElementById('importSettingsCardColumn');
-                if (importSettingsCardColumn) {
+                const importInstallationCardColumn = document.getElementById('importInstallationCardColumn');
+                
+                if (importSettingsCardColumn && importInstallationCardColumn) {
                     try {
                         const response = await fetch(`/api/settings/${globalActiveProfileId}/import-capability`);
                         const data = await response.json();
-                        if (response.ok && data.data === true) {
-                            importSettingsCardColumn.classList.remove('is-hidden');
+                        if (response.ok) {
+                            if (data.data === true) {
+                                // Show settings card, hide installation card
+                                importSettingsCardColumn.classList.remove('is-hidden');
+                                importInstallationCardColumn.classList.add('is-hidden');
+                            } else {
+                                // Show installation card, hide settings card
+                                importInstallationCardColumn.classList.remove('is-hidden');
+                                importSettingsCardColumn.classList.add('is-hidden');
+                            }
                         }
                     } catch (error) {
                         console.error('Failed to fetch import capability status:', error);
+                        // Show installation card by default on error
+                        importInstallationCardColumn.classList.remove('is-hidden');
+                        importSettingsCardColumn.classList.add('is-hidden');
                     }
                 }
+
+
 
                 // --- Start of copied global search logic ---
                 const globalSearchInput = document.querySelector('input[name="search"]');
@@ -678,3 +782,37 @@
 
     </body>
 </html>
+
+<!-- Installation Progress Dialog -->
+<div id="installDialog" class="modal">
+    <div class="modal-background"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Installing Requirements</p>
+            <button class="delete" aria-label="close" id="closeInstallDialog"></button>
+        </header>
+        <section class="modal-card-body">
+            <div class="content">
+                <p class="mb-3">Installing Python, FFmpeg, and SpotDL...</p>
+                
+                <div class="field">
+                    <label class="label has-text-white">Installation Output</label>
+                    <div class="control">
+                        <div id="installOutput" class="textarea has-background-black has-text-success" rows="15" readonly>
+                            Starting installation...
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <div class="control">
+                        <progress id="installProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-danger" id="cancelInstallBtn">Cancel Installation</button>
+        </footer>
+    </div>
+</div>

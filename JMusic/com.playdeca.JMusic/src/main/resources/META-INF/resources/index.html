@@ -572,7 +572,59 @@ if (newUrl !== targetUrl) {
                 <span>Share</span>
             </div>
 </div>
+        
+        <!-- Toast Notifications Container -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
+        
         <script src="/js/playlistBodyHelper.js"></script>
+        
+        <script>
+        // Toast Notification System
+        function showToast(message, type = 'info', duration = 3000) {
+            const toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) return;
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            // Add icon based on type
+            let icon = '';
+            switch(type) {
+                case 'success':
+                    icon = '<i class="pi pi-check toast-icon"></i>';
+                    break;
+                case 'error':
+                    icon = '<i class="pi pi-times toast-icon"></i>';
+                    break;
+                case 'info':
+                default:
+                    icon = '<i class="pi pi-info toast-icon"></i>';
+                    break;
+            }
+            
+            toast.innerHTML = `
+                ${icon}
+                <span class="toast-message">${message}</span>
+            `;
+            
+            toastContainer.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Remove toast after duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, duration);
+        }
+        </script>
 
         <!-- Profile Management Modal -->
         <div id="profileModal" class="modal">

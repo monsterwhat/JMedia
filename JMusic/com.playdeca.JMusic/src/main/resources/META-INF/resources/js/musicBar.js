@@ -657,10 +657,10 @@ async function addSongToPlaylist(playlistId, songId) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         console.log(`Song ${songId} added to playlist ${playlistId}`);
-        // Optionally, show a success message to the user
+        showToast('Song added to playlist successfully', 'success');
     } catch (error) {
         console.error(`Error adding song ${songId} to playlist ${playlistId}:`, error);
-        // Optionally, show an error message to the user
+        showToast('Failed to add song to playlist', 'error');
     }
 }
 
@@ -693,7 +693,7 @@ async function rescanSong(songId) {
                 userMessage = `Server error: ${response.status}`;
             }
             
-            alert(userMessage);
+            showToast(userMessage, 'error');
             throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
         
@@ -702,8 +702,9 @@ async function rescanSong(songId) {
         
         // Show success message
         if (result.message) {
-            // You could show a toast notification here instead of alert
-            console.log("Success:", result.message);
+            showToast(result.message, 'success');
+        } else {
+            showToast('Song re-scan initiated successfully', 'success');
         }
         
         reloadSongTableBody(); // Reload the table to show potential updates
@@ -723,6 +724,7 @@ async function deleteSong(songId) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             console.log(`Song ${songId} deleted.`);
+            showToast('Song deleted successfully', 'success');
             reloadSongTableBody(); // Reload the table to remove the deleted song
             if (window.refreshQueue) {
                 window.refreshQueue();
@@ -841,6 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         htmx.ajax('POST', `/api/music/queue/add/${globalActiveProfileId}/${currentRightClickedSongId}`, {
                             handler: function () {
                                 console.log(`Song ${currentRightClickedSongId} added to queue.`);
+                                showToast('Song added to queue', 'success');
                                 // Refresh the queue display
                                 if (window.refreshQueue) {
                                     window.refreshQueue();

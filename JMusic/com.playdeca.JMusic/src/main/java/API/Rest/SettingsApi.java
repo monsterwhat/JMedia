@@ -3,6 +3,7 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.SettingsController;
 import Models.Settings;
+import Models.DTOs.ImportInstallationStatus;
 import Services.PlaybackHistoryService;
 import Services.SongService;
 import jakarta.inject.Inject;
@@ -369,6 +370,58 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Duplicate deletion started")).build();
     }
     // -----------------------------
+    // INSTALL REQUIREMENTS
+    // -----------------------------
+    @POST
+    @Path("/{profileId}/install-requirements")
+    @Consumes(MediaType.WILDCARD)
+    public Response installRequirements(@PathParam("profileId") Long profileId) {
+        try {
+            settingsController.addLog("Installation process started for profile: " + profileId);
+            
+            // Start installation in background thread
+            executor.submit(() -> {
+                try {
+                    settingsController.getImportService().installRequirements(profileId);
+                    settingsController.addLog("Installation process completed successfully");
+                } catch (Exception e) {
+                    settingsController.addLog("Installation failed: " + e.getMessage(), e);
+                }
+            }, "InstallationThread");
+            
+            return Response.ok(ApiResponse.success("Installation process started")).build();
+        } catch (Exception e) {
+            settingsController.addLog("Failed to start installation: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to start installation: " + e.getMessage()))
+                    .build();
+        }
+    }
+    
+    @GET
+    @Path("/{profileId}/install-status")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getInstallationStatus(@PathParam("profileId") Long profileId) {
+        // Check current installation status
+        ImportInstallationStatus status = settingsController.getImportService().getInstallationStatus();
+        
+        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        response.put("pythonInstalled", status.pythonInstalled);
+        response.put("spotdlInstalled", status.spotdlInstalled);
+        response.put("ffmpegInstalled", status.ffmpegInstalled);
+        response.put("whisperInstalled", status.whisperInstalled);
+        response.put("allInstalled", status.isAllInstalled());
+        response.put("messages", java.util.List.of(
+            status.pythonMessage,
+            status.spotdlMessage,
+            status.ffmpegMessage,
+            status.whisperMessage
+        ));
+        
+        return Response.ok(ApiResponse.success(response)).build();
+    }
+    
+    // -----------------------------
     // CHECK IMPORT CAPABILITY
     // -----------------------------
     @GET
@@ -377,5 +430,6 @@ public class SettingsApi {
         boolean isInstalled = settingsController.getImportService().getInstallationStatus().isAllInstalled();
         return Response.ok(ApiResponse.success(isInstalled)).build();
     }
+   
   
 }

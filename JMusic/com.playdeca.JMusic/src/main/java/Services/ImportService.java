@@ -760,6 +760,145 @@ public class ImportService {
         return new ImportInstallationStatus(pythonInstalled, importInstalled, ffmpegInstalled, whisperInstalled, pythonMessage, importMessage, ffmpegMessage, whisperMessage);
     }
 
+    public void installRequirements(Long profileId) throws Exception {
+        ImportInstallationStatus status = getInstallationStatus();
+        
+        if (!status.pythonInstalled) {
+            broadcast("Installing Python...\n", profileId);
+            installPython(profileId);
+        }
+        
+        // Refresh status after Python installation
+        status = getInstallationStatus();
+        if (status.pythonInstalled) {
+            if (!status.ffmpegInstalled) {
+                broadcast("Installing FFmpeg...\n", profileId);
+                installFFmpeg(profileId);
+            }
+            
+            if (!status.spotdlInstalled) {
+                broadcast("Installing SpotDL...\n", profileId);
+                installSpotdl(profileId);
+            }
+            
+            if (!status.whisperInstalled) {
+                broadcast("Installing Whisper...\n", profileId);
+                installWhisper(profileId);
+            }
+        }
+        
+        broadcast("Installation process completed.\n", profileId);
+        broadcast("[INSTALLATION_FINISHED]", profileId);
+    }
+
+    private void installPython(Long profileId) throws Exception {
+        broadcast("Downloading Python installer...\n", profileId);
+        
+        // Download Python using PowerShell
+        String downloadScript = "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.13.9/python-3.13.9-amd64.exe' -OutFile '$env:TEMP\\python-installer.exe'";
+        executePowerShellCommand(downloadScript, profileId);
+        
+        broadcast("Installing Python (this may take a few minutes)...\n", profileId);
+        
+        // Install Python silently with all users and add to PATH
+        String installScript = "Start-Process -FilePath '$env:TEMP\\python-installer.exe' -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait";
+        executePowerShellCommand(installScript, profileId);
+        
+        // Clean up
+        executePowerShellCommand("Remove-Item '$env:TEMP\\python-installer.exe' -ErrorAction SilentlyContinue", profileId);
+        
+        broadcast("Python installation completed\n", profileId);
+    }
+
+    private void installFFmpeg(Long profileId) throws Exception {
+        broadcast("Downloading FFmpeg...\n", profileId);
+        
+        // Download FFmpeg using PowerShell
+        String downloadScript = "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile '$env:TEMP\\ffmpeg.zip'";
+        executePowerShellCommand(downloadScript, profileId);
+        
+        broadcast("Extracting FFmpeg...\n", profileId);
+        
+        // Extract FFmpeg
+        String extractScript = "Expand-Archive -Path '$env:TEMP\\ffmpeg.zip' -DestinationPath '$env:TEMP\\ffmpeg' -Force";
+        executePowerShellCommand(extractScript, profileId);
+        
+        broadcast("Installing FFmpeg to system...\n", profileId);
+        
+        // Move FFmpeg to Program Files and add to PATH
+        String installScript = "New-Item -Path 'C:\\Program Files\\FFmpeg' -ItemType Directory -Force; " +
+                              "Get-ChildItem '$env:TEMP\\ffmpeg\\ffmpeg-*' | ForEach-Object { Move-Item $_.FullName 'C:\\Program Files\\FFmpeg\\bin' -Force }; " +
+                              "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';C:\\Program Files\\FFmpeg\\bin', 'Machine')";
+        executePowerShellCommand(installScript, profileId);
+        
+        // Clean up
+        executePowerShellCommand("Remove-Item '$env:TEMP\\ffmpeg.zip' -ErrorAction SilentlyContinue; Remove-Item '$env:TEMP\\ffmpeg' -Recurse -ErrorAction SilentlyContinue", profileId);
+        
+        broadcast("FFmpeg installation completed\n", profileId);
+    }
+
+    private void installSpotdl(Long profileId) throws Exception {
+        broadcast("Installing SpotDL via pip...\n", profileId);
+        
+        // Install SpotDL using pip
+        String installScript = "pip install spotdl";
+        executeCommand(installScript, profileId);
+        
+        broadcast("SpotDL installation completed\n", profileId);
+    }
+
+    private void installWhisper(Long profileId) throws Exception {
+        broadcast("Installing Whisper via pip...\n", profileId);
+        
+        // Install Whisper using pip
+        String installScript = "pip install openai-whisper";
+        executeCommand(installScript, profileId);
+        
+        broadcast("Whisper installation completed\n", profileId);
+    }
+
+    private void executePowerShellCommand(String command, Long profileId) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-Command", command);
+        pb.redirectErrorStream(true);
+        
+        Process process = pb.start();
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    broadcast(line.trim() + "\n", profileId);
+                }
+            }
+        }
+        
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new Exception("PowerShell command failed with exit code: " + exitCode);
+        }
+    }
+
+    private void executeCommand(String command, Long profileId) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(command.split(" "));
+        pb.redirectErrorStream(true);
+        
+        Process process = pb.start();
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    broadcast(line.trim() + "\n", profileId);
+                }
+            }
+        }
+        
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new Exception("Command failed with exit code: " + exitCode + ": " + command);
+        }
+    }
+
     private void checkImportInstallation() throws Exception {
         ImportInstallationStatus status = getInstallationStatus();
         if (!status.isAllInstalled()) {

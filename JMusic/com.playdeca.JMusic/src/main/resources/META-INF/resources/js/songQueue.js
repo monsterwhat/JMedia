@@ -180,8 +180,16 @@ window.handleQueueAction = (action, index, profileIdParam) => { // Added profile
                     tbody.innerHTML = data.html; // Update tbody with new HTML
                 }
                 loadQueuePage(1); // Reload first page after action
+                
+                // Show success message based on action
+                if (action === 'skip') {
+                    showToast('Skipped to selected song in queue', 'success');
+                } else if (action === 'remove') {
+                    showToast('Song removed from queue', 'success');
+                }
             })
             .catch(error => {
                 console.error(`[songQueue.js] handleQueueAction: Request failed for ${action} at index ${index}:`, error);
+                showToast(`Failed to ${action} song from queue`, 'error');
             });
 };
