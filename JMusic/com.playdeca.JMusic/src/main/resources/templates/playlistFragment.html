@@ -23,9 +23,9 @@
                          style="flex-grow: 1;"
                          title="{p.originalLink ? 'Original: ' + p.originalLink : ''}">
                           {p.name ?: 'Unnamed Playlist'}
-                          {#if p.isGlobal}
-                          <span class="tag is-info is-small ml-2">Global</span>
-                          {/if}
+                           {#if p.isGlobal}
+                           <span class="tag is-info is-small ml-2" title="Global Playlist"><i class="pi pi-globe"></i></span>
+                           {/if}
                       </button>
                       <div id="playlist-context-menu-{p.id}" class="context-menu" style="display: none;">
                           <ul>
