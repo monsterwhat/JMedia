@@ -126,7 +126,7 @@
                                         <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
                                     </div>
                                     <div class="dropdown-content"
-                                         hx-post="/api/music/ui/search-suggestions/{profileId}"
+                                         hx-post="/api/music/ui/search-suggestions"
                                          hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
                                          hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
                                          hx-target="this"
@@ -209,11 +209,11 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/songQueue.js"></script>
         <script>
-                                        let globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
+                                        window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
 
                                         // Listen for profile switches from profileManager.js
                                         document.body.addEventListener('profileSwitched', (event) => {
-                                            globalActiveProfileId = localStorage.getItem('activeProfileId');
+                                            window.globalActiveProfileId = localStorage.getItem('activeProfileId');
                                             console.log('Profile switched event received. New globalActiveProfileId:', globalActiveProfileId);
                                             // Trigger a full page reload or update all relevant HTMX components
                                             // For simplicity and full refresh of profile-specific data, a reload is best here.
@@ -250,9 +250,12 @@
 
                                                     if (subModule === 'ui') {
                                                         // Pattern: /api/music/ui/{profileId}/...
-                                                        // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/{profileId}/0, /api/music/ui/search-suggestions/{profileId}
+                                                        // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/{profileId}/0, /api/music/ui/search-suggestions
                                                         // Ensure profileId is inserted right after 'ui'
-                                                        if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
+                                                        if (parts[4] === 'search-suggestions') {
+                                                            // Special case for search-suggestions: /api/music/ui/search-suggestions -> /api/music/ui/search-suggestions/{profileId}
+                                                            newUrl = `/api/music/ui/search-suggestions/${currentProfileId}`;
+                                                        } else if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
                                                             newUrl = `/api/music/ui/${currentProfileId}` + targetUrl.substring('/api/music/ui'.length);
                                                         }
                                                     } else if (subModule === 'playback') {

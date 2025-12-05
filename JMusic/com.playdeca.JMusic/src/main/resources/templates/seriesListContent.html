@@ -1,15 +1,25 @@
 <div id="seriesList">
-    {#if seriesTitles.empty}
+    {#if seriesTitleEntries.empty}
         <div class="has-text-centered py-4">
             <p>No shows found.</p>
         </div>
     {#else}
-        {#for seriesTitle in seriesTitles}
-            <div class="video-entry" hx-get="/api/video/ui/shows/{seriesTitle}/seasons-fragment" hx-trigger="click" hx-target="next .nested-list" hx-swap="innerHTML">
+        {#for entry in seriesTitleEntries}
+            <div class="video-entry"
+                 hx-get="/api/video/ui/shows/{entry.encodedTitle}/seasons-fragment"
+                 hx-trigger="click"
+                 hx-target="next .nested-list"
+                 hx-swap="innerHTML"
+                 hx-on:htmx:beforeRequest="console.log('Loading seasons for:', '{entry.rawTitle}');"
+                 hx-on:htmx:afterRequest="console.log('Seasons loaded'); this.nextElementSibling.classList.toggle('is-hidden');"
+                 hx-on:htmx:responseError="console.error('Error loading seasons:', event.detail);"
+                 hx-on:click="this.querySelector('i').classList.toggle('pi-angle-right'); this.querySelector('i').classList.toggle('pi-angle-down');"
+                 hx-indicator="#loadingIndicator_{entry.cssId}">
                 <span class="icon is-small"><i class="pi pi-angle-right"></i></span>
-                <span class="video-title">{seriesTitle}</span>
+                <span class="video-title">{entry.rawTitle}</span>
+                <span id="loadingIndicator_{entry.cssId}" class="htmx-indicator ml-2">Loading...</span>
             </div>
-            <div class="nested-list" style="display:none;">
+            <div class="nested-list is-hidden">
                 <!-- Seasons will be loaded here via HTMX -->
                 <div class="has-text-centered py-2">
                     <i class="pi pi-spin pi-spinner" style="font-size: 1.2rem;"></i>

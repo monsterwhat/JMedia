@@ -1,7 +1,7 @@
 package Services;
 
+import Models.MediaFile;
 import Models.Profile;
-import Models.Video;
 import Models.VideoHistory;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -25,18 +25,22 @@ public class VideoHistoryService {
     }
 
     @Transactional
-    public void add(Video video) {
-        if (video == null) {
+    public void add(Long mediaFileId) {
+        if (mediaFileId == null) {
             return;
         }
+        MediaFile mediaFile = MediaFile.findById(mediaFileId);
+        if (mediaFile == null) {
+            return;
+        }
+        
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) {
             return;
         }
         
-        Video managedVideo = em.merge(video);
         VideoHistory history = new VideoHistory();
-        history.video = managedVideo;
+        history.mediaFile = mediaFile;
         history.playedAt = LocalDateTime.now();
         history.profile = activeProfile;
         history.persist();
@@ -56,19 +60,19 @@ public class VideoHistoryService {
     }
 
     @Transactional
-    public void deleteByVideoId(Long videoId) {
-        if (videoId == null) {
+    public void deleteByMediaFileId(Long mediaFileId) {
+        if (mediaFileId == null) {
             return;
         }
         if (isMainProfileActive()) {
-            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.video.id = :videoId")
-                    .setParameter("videoId", videoId)
+            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.mediaFile.id = :mediaFileId")
+                    .setParameter("mediaFileId", mediaFileId)
                     .executeUpdate();
         } else {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return;
-            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.video.id = :videoId AND vh.profile = :profile")
-                    .setParameter("videoId", videoId)
+            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.mediaFile.id = :mediaFileId AND vh.profile = :profile")
+                    .setParameter("mediaFileId", mediaFileId)
                     .setParameter("profile", activeProfile)
                     .executeUpdate();
         }
@@ -93,13 +97,13 @@ public class VideoHistoryService {
 
     public List<Long> getRecentlyPlayedVideoIds(int count) {
         if (isMainProfileActive()) {
-            return em.createQuery("SELECT vh.video.id FROM VideoHistory vh ORDER BY vh.playedAt DESC", Long.class)
+            return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh ORDER BY vh.playedAt DESC", Long.class)
                 .setMaxResults(count)
                 .getResultList();
         } else {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return List.of();
-            return em.createQuery("SELECT vh.video.id FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", Long.class)
+            return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", Long.class)
                     .setParameter("profile", activeProfile)
                     .setMaxResults(count)
                     .getResultList();

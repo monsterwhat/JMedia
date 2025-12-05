@@ -62,14 +62,14 @@
                                     <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
                                         <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
                                     </div>
-                                    <div class="dropdown-content"
-                                         hx-post="/api/music/ui/search-suggestions/{profileId}"
-                                         hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
-                                         hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
-                                         hx-target="this"
-                                         hx-swap="innerHTML"
-                                         hx-indicator="#globalSearchDropdownLoadingIndicator">
-                                        <!-- Suggestions will be loaded here -->
+<div class="dropdown-content"
+                                          id="searchSuggestionsDropdown"
+                                          hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                                          hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                                          hx-target="this"
+                                          hx-swap="innerHTML"
+                                          hx-indicator="#globalSearchDropdownLoadingIndicator">
+                                         <!-- Suggestions will be loaded here -->
                                     </div>
                                 </div>
                             </div>
@@ -249,14 +249,17 @@
             </div>
         </div>
         <script>
-            // Listen for profile switches from profileManager.js
-            document.body.addEventListener('profileSwitched', (event) => {
-                window.globalActiveProfileId = localStorage.getItem('activeProfileId');
-                console.log('Profile switched event received. New globalActiveProfileId:', window.globalActiveProfileId);
-                // Trigger a full page reload or update all relevant HTMX components
-                // For simplicity and full refresh of profile-specific data, a reload is best here.
-                location.reload();
-            });
+            // Set dynamic URLs for HTMX elements that need profileId
+            function updateHmxUrls() {
+                const searchSuggestionsDropdown = document.getElementById('searchSuggestionsDropdown');
+                if (searchSuggestionsDropdown) {
+                    searchSuggestionsDropdown.setAttribute('hx-post', `/api/music/ui/search-suggestions/${window.globalActiveProfileId}`);
+                }
+            }
+
+            // Update URLs initially and when profile switches
+            updateHmxUrls();
+            document.body.addEventListener('profileSwitched', updateHmxUrls);
 
             // HTMX request interception to inject profileId into URLs
             document.body.addEventListener('htmx:beforeRequest', function (event) {
@@ -289,8 +292,25 @@
                         if (subModule === 'ui') {
                             // Pattern: /api/music/ui/{profileId}/...
                             // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/{profileId}/0, /api/music/ui/search-suggestions/{profileId}
-                            // Ensure profileId is inserted right after 'ui'
-                            if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
+                            // Special case for search-suggestions: /api/music/ui/search-suggestions -> /api/music/ui/search-suggestions/{profileId}
+                            if (parts[4] === 'search-suggestions') {
+                                newUrl = `/api/music/ui/search-suggestions/${currentProfileId}`;
+                            } else if (parts[4] === 'tbody' && parts[5] === '{playlistId}') {
+                                // Special case for tbody: /api/music/ui/tbody/{playlistId} -> /api/music/ui/tbody/{currentProfileId}
+                                newUrl = `/api/music/ui/tbody/${currentProfileId}`;
+                            } else if (parts[4] === 'playlists-fragment' && parts[5] === '{profileId}') {
+                                // Special case for playlists-fragment: /api/music/ui/playlists-fragment/{profileId} -> /api/music/ui/playlists-fragment/{currentProfileId}
+                                newUrl = `/api/music/ui/playlists-fragment/${currentProfileId}`;
+                            } else if (parts[4] === 'playlist-view' && parts[5] === '{profileId}') {
+                                // Special case for playlist-view: /api/music/ui/playlist-view/{profileId} -> /api/music/ui/playlist-view/${currentProfileId}
+                                newUrl = `/api/music/ui/playlist-view/${currentProfileId}`;
+                            } else if (parts[4] === 'queue-fragment' && parts[5] === '{profileId}') {
+                                // Special case for queue-fragment: /api/music/ui/queue-fragment/{profileId} -> /api/music/ui/queue-fragment/{currentProfileId}
+                                newUrl = `/api/music/ui/queue-fragment/${currentProfileId}`;
+                            } else if (parts[4] === 'add-to-playlist-dialog' && parts[5] === '{profileId}') {
+                                // Special case for add-to-playlist-dialog: /api/music/ui/add-to-playlist-dialog/{profileId} -> /api/music/ui/add-to-playlist-dialog/${currentProfileId}
+                                newUrl = `/api/music/ui/add-to-playlist-dialog/${currentProfileId}`;
+                            } else if (parts[4] !== currentProfileId) { // Check if profileId is NOT already correctly placed
                                 newUrl = `/api/music/ui/${currentProfileId}` + targetUrl.substring('/api/music/ui'.length);
                             }
                         } else if (subModule === 'playback') {

@@ -1,6 +1,6 @@
 {#for suggestion in suggestions}
 <a href="#" class="dropdown-item"
-   hx-post="/api/music/playback/select/{suggestion.id}"
+   hx-post="/api/music/playback/select/{profileId}/{suggestion.id}"
    hx-swap="none"
    hx-on::after-request="document.getElementById('globalSearchDropdown').style.display = 'none';">
     <div class="is-flex is-align-items-center">

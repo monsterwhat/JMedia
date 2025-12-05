@@ -541,7 +541,7 @@ function updatePageTitle(song) {
         document.title = "JMusic Home";
         return;
     }
-    document.getElementById('pageTitle').innerText = `${song.name} — ${song.artist}`;
+    document.getElementById('pageTitle').innerText = `${song.name} - ${song.artist}`;
     document.title = `${song.name} : ${song.artist}`;
 }
 
@@ -667,13 +667,45 @@ async function addSongToPlaylist(playlistId, songId) {
 // Function to rescan a song
 async function rescanSong(songId) {
     try {
-        const response = await fetch(`/api/settings/rescan-song/${songId}/${globalActiveProfileId}`, {
+        console.log(`[musicBar.js] Attempting to rescan song with ID: ${songId}`);
+        const response = await fetch(`/api/settings/${globalActiveProfileId}/rescan-song/${songId}`, {
             method: 'POST'
         });
+        
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errorText = await response.text();
+            console.error(`[musicBar.js] Server response (${response.status}): ${errorText}`);
+            
+            // Parse the error message to provide better user feedback
+            let userMessage = "Failed to rescan song.";
+            try {
+                const errorData = JSON.parse(errorText);
+                if (errorData.error) {
+                    if (errorData.error.includes("Song file not found")) {
+                        userMessage = "The song file is missing from your music library. The file may have been moved or deleted.";
+                    } else if (errorData.error.includes("not found")) {
+                        userMessage = "Song not found in the database.";
+                    } else {
+                        userMessage = errorData.error;
+                    }
+                }
+            } catch (e) {
+                userMessage = `Server error: ${response.status}`;
+            }
+            
+            alert(userMessage);
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
-        console.log(`Song ${songId} re-scan initiated.`);
+        
+        const result = await response.json();
+        console.log(`Song ${songId} re-scan initiated. Server response:`, result);
+        
+        // Show success message
+        if (result.message) {
+            // You could show a toast notification here instead of alert
+            console.log("Success:", result.message);
+        }
+        
         reloadSongTableBody(); // Reload the table to show potential updates
     } catch (error) {
         console.error(`Error initiating re-scan for song ${songId}:`, error);
@@ -684,7 +716,7 @@ async function rescanSong(songId) {
 async function deleteSong(songId) {
     if (confirm('Are you sure you want to delete this song? This action cannot be undone.')) {
         try {
-            const response = await fetch(`/api/settings/songs/${songId}/${globalActiveProfileId}`, {
+            const response = await fetch(`/api/settings/${globalActiveProfileId}/songs/${songId}`, {
                 method: 'DELETE'
             });
             if (!response.ok) {
@@ -712,7 +744,7 @@ function reloadSongTableBody() {
         const sortDir = window.currentSortDirection || 'asc';
         
         // When reloading, we can go back to the first page.
-        let url = `/api/music/ui/${globalActiveProfileId}/tbody/${playlistId}?page=1&sortBy=${sortBy}&sortDirection=${sortDir}`;
+        let url = `/api/music/ui/tbody/${globalActiveProfileId}/${playlistId}?page=1&sortBy=${sortBy}&sortDirection=${sortDir}`;
         if (searchTerm) {
             url += `&search=${encodeURIComponent(searchTerm)}`;
         }
@@ -806,7 +838,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     hideContextMenu(); // Hide all menus after adding
                 } else if (action === 'queue-song') {
                     if (currentRightClickedSongId) {
-                        htmx.ajax('POST', `/api/music/queue/add/${currentRightClickedSongId}`, {
+                        htmx.ajax('POST', `/api/music/queue/add/${globalActiveProfileId}/${currentRightClickedSongId}`, {
                             handler: function () {
                                 console.log(`Song ${currentRightClickedSongId} added to queue.`);
                                 // Refresh the queue display

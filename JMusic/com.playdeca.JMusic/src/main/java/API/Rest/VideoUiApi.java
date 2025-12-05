@@ -1,11 +1,8 @@
 package API.Rest;
 
 import Controllers.VideoController;
-import Models.Video;
-import Models.DTOs.PaginatedMovieResponse;
 import Services.VideoService;
 import io.quarkus.qute.Template;
-import io.quarkus.qute.TemplateInstance;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -13,15 +10,17 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import java.time.format.DateTimeFormatter; // Not directly used in current template, but useful
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Function; // For Qute function injection
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Path("/api/video/ui")
-@Produces(MediaType.TEXT_HTML) // Default to HTML for UI fragments
+@Produces(MediaType.TEXT_HTML)
 public class VideoUiApi {
 
     @Inject
@@ -40,7 +39,7 @@ public class VideoUiApi {
     @Inject @io.quarkus.qute.Location("episodeListContent.html")
     Template episodeListContent;
     @Inject @io.quarkus.qute.Location("videoEntryFragment.html")
-    Template videoEntryFragment; // Injected for completeness, though included in others
+    Template videoEntryFragment;
 
 
     // Helper functions for Qute templates
@@ -49,9 +48,13 @@ public class VideoUiApi {
             return "0:00";
         }
         int minutes = totalSeconds / 60;
-        int seconds = totalSeconds % 60;
-        return String.format("%d:%02d", minutes, seconds < 10 ? '0' + seconds : seconds);
+        int remainingSeconds = totalSeconds % 60;
+        return String.format("%d:%02d", minutes, remainingSeconds);
     }
+    
+    // Helper record for passing series title (raw and encoded) to templates
+    public record SeriesTitleEntry(String rawTitle, String encodedTitle, String cssId) {}
+
 
     private List<Integer> getPaginationNumbers(int currentPage, int totalPages) {
         Set<Integer> pageNumbers = new java.util.LinkedHashSet<>();
@@ -93,7 +96,7 @@ public class VideoUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit) {
 
         VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
-        List<Video> movies = paginatedVideos.videos();
+        List<VideoService.VideoDTO> movies = paginatedVideos.videos();
         long totalItems = paginatedVideos.totalCount();
         
         int totalPages = (int) Math.ceil((double) totalItems / limit);
@@ -116,8 +119,17 @@ public class VideoUiApi {
     @Blocking
     public String getSeriesFragment() {
         List<String> seriesTitles = videoService.findAllSeriesTitles();
+        AtomicInteger counter = new AtomicInteger(0);
+        List<SeriesTitleEntry> seriesTitleEntries = seriesTitles.stream()
+                .map(title -> new SeriesTitleEntry(
+                    title, 
+                    URLEncoder.encode(title, StandardCharsets.UTF_8),
+                    "show_" + counter.getAndIncrement()
+                ))
+                .collect(Collectors.toList());
+        
         return seriesListContent
-                .data("seriesTitles", seriesTitles)
+                .data("seriesTitleEntries", seriesTitleEntries)
                 .render();
     }
 
@@ -125,9 +137,13 @@ public class VideoUiApi {
     @Path("/shows/{seriesTitle}/seasons-fragment")
     @Blocking
     public String getSeasonsFragment(@PathParam("seriesTitle") String seriesTitle) {
+        // JAX-RS automatically decodes path parameters, so seriesTitle here is already decoded.
+        System.out.println("DEBUG: getSeasonsFragment called with seriesTitle: " + seriesTitle);
         List<Integer> seasonNumbers = videoService.findSeasonNumbersForSeries(seriesTitle);
+        System.out.println("DEBUG: Found season numbers: " + seasonNumbers);
         return seasonListContent
-                .data("seriesTitle", seriesTitle) // Pass seriesTitle for episode fragment
+                .data("seriesTitle", seriesTitle) // Pass raw seriesTitle for display in template
+                .data("encodedSeriesTitle", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8)) // Pass encoded for URLs
                 .data("seasonNumbers", seasonNumbers)
                 .render();
     }
@@ -138,10 +154,12 @@ public class VideoUiApi {
     public String getEpisodesFragment(
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
-        List<Video> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+        // JAX-RS automatically decodes path parameters, so seriesTitle here is already decoded.
+        List<VideoService.VideoDTO> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
         return episodeListContent
                 .data("episodes", episodes)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .data("encodedSeriesTitle", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8)) // Pass encoded for URLs
                 .render();
     }
 
@@ -163,7 +181,7 @@ public class VideoUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
         VideoController.PaginatedQueue paginatedQueue = videoController.getQueuePage(page, limit);
-        List<Video> queuePage = paginatedQueue.videos();
+        List<VideoService.VideoDTO> queuePage = paginatedQueue.videos();
         int totalQueueSize = paginatedQueue.totalSize();
 
         int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
@@ -213,7 +231,7 @@ public class VideoUiApi {
     }
     
     // Helper record to pass video and its index to the template/JSON
-    public record VideoWithIndex(Video video, int index) {
+    public record VideoWithIndex(VideoService.VideoDTO video, int index) {
 
     }
 }

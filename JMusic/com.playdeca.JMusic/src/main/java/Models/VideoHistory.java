@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 public class VideoHistory extends PanacheEntity {
 
     @ManyToOne
-    public Video video; // Changed from Song
+    public MediaFile mediaFile;
 
     @ManyToOne
     public Profile profile;

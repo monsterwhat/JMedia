@@ -411,29 +411,29 @@ document.addEventListener('DOMContentLoaded', () => {
         window.currentVideoId = video.id; // Store current video ID globally accessible
         
         let displayTitle = video.title;
-        let displayArtist = ''; // Default for artist, can be refined
+        let displaySubtext = '';
 
-        if (video.episodeNumber && video.episodeTitle) {
-            displayTitle = `E${video.episodeNumber} - ${video.episodeTitle}`;
-            if (video.seriesTitle) {
-                displayArtist = video.seriesTitle;
+        if (video.type === 'Episode') {
+            displaySubtext = video.seriesTitle || 'TV Show';
+            let seasonNum = String(video.seasonNumber || 0).padStart(2, '0');
+            let episodeNum = String(video.episodeNumber || 0).padStart(2, '0');
+            displayTitle = `S${seasonNum}E${episodeNum}`;
+            if (video.episodeTitle) {
+                displayTitle += ` - ${video.episodeTitle}`;
             }
-        } else if (video.episodeNumber) {
-             displayTitle = `E${video.episodeNumber} - ${video.title}`;
-             if (video.seriesTitle) {
-                displayArtist = video.seriesTitle;
+        } else if (video.type === 'Movie') {
+            // The main title is already correct from the DTO
+            if (video.releaseYear) {
+                displaySubtext = `Movie (${video.releaseYear})`;
+            } else {
+                displaySubtext = 'Movie';
             }
-        } else if (video.releaseYear) {
-            displayArtist = `Movie (${video.releaseYear})`;
-        } else {
-            displayArtist = "Video";
         }
 
         if (videoCurrentTitleDisplay) videoCurrentTitleDisplay.textContent = displayTitle;
-        if (videoCurrentArtistDisplay) videoCurrentArtistDisplay.textContent = displayArtist;
+        if (videoCurrentArtistDisplay) videoCurrentArtistDisplay.textContent = displaySubtext;
 
-        // Apply marquee effect if needed (only if text is too long for the new display area)
-        // For the new location, we need to consider if its parent has overflow:hidden
+        // Apply marquee effect if needed
         const titleParent = videoCurrentTitleDisplay.parentElement;
         if (titleParent) {
             checkAndApplyMarquee(videoCurrentTitleDisplay, titleParent);

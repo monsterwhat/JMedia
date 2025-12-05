@@ -1,4 +1,4 @@
-<div class="column is-9 is-full-mobile" id="playlistView">
+<div class="column is-9 is-full-mobile" id="playlistView" x-data="playlistViewController()">
 <div id='mainPlaylistCard' class='card has-background-grey-darker has-text-white' data-playlist-id="{playlistId}">
     <header class='card-header'>
         <p id='playlistTitle' class='card-header-title has-text-white is-4'>{playlistName}</p>
@@ -19,20 +19,18 @@
         <div class="field has-addons "  style="width:100%">
             <div class="control is-expanded">
                 <input class="input is-rounded" type="text" placeholder="Search songs..." name="search"
+                       x-model="playlistSearchQuery"
                        hx-get="/api/music/ui/tbody/{profileId}/{playlistId}"
                        hx-trigger="keyup changed delay:500ms, search"
                        hx-target="#songTableBody"
                        hx-swap="innerHTML"
-                       hx-vals="{raw('js:{sortBy: currentSortField, sortDirection: currentSortDirection}')}">
+                       hx-include="[name='search']"
+                        hx-indicator="#loadingRow"
+                        :hx-vals="JSON.stringify({'sortBy': sortField, 'sortDirection': sortDirection})">
             </div>
             <div class="control">
                 <button class="button is-info is-rounded"
-                        hx-get="/api/music/ui/tbody/{profileId}/{playlistId}"
-                        onclick="document.querySelector('input[name=\'search\']').value = ''"
-                        hx-target="#songTableBody"
-                        hx-swap="innerHTML"
-                        hx-indicator="#loadingRow"
-                        hx-vals="{raw('js:{sortBy: currentSortField, sortDirection: currentSortDirection}')}">
+                        @click="playlistSearchQuery = ''; htmx.trigger($el.parentElement.previousElementSibling.querySelector('input'), 'search')">
                     Clear
                 </button>
             </div>
@@ -44,60 +42,100 @@
                 <thead>
                     <tr>
                         <th></th>
-                        <th class="has-text-white has-text-weight-semibold sortable-header"
-                            hx-get="js:getSortUrl(this, 'title')"
-                            hx-trigger="click"
-                            hx-target="#songTableBody"
-                            hx-swap="innerHTML"
-                            hx-include="[name='search']"
-                            hx-indicator="#loadingRow"
-                            data-sort-by="title"
-                            data-sort-direction="asc">
+                        <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
                             Title <i class="pi pi-sort"></i>
                         </th>
-                        <th class="has-text-white has-text-weight-semibold sortable-header"
-                            hx-get="js:getSortUrl(this, 'artist')"
-                            hx-trigger="click"
-                            hx-target="#songTableBody"
-                            hx-swap="innerHTML"
-                            hx-include="[name='search']"
-                            hx-indicator="#loadingRow"
-                            data-sort-by="artist"
-                            data-sort-direction="asc">
+                        <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
                             Artist <i class="pi pi-sort"></i>
                         </th>
-                        <th class="has-text-white has-text-weight-semibold sortable-header"
-                            hx-get="js:getSortUrl(this, 'dateAdded')"
-                            hx-trigger="click"
-                            hx-target="#songTableBody"
-                            hx-swap="innerHTML"
-                            hx-include="[name='search']"
-                            hx-indicator="#loadingRow"
-                            data-sort-by="dateAdded"
-                            data-sort-direction="asc">
+                        <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
                             Date Added <i class="pi pi-sort"></i>
                         </th>
-                        <th class="has-text-white has-text-weight-semibold sortable-header"
-                            hx-get="js:getSortUrl(this, 'duration')"
-                            hx-trigger="click"
-                            hx-target="#songTableBody"
-                            hx-swap="innerHTML"
-                            hx-include="[name='search']"
-                            hx-indicator="#loadingRow"
-                            data-sort-by="duration"
-                            data-sort-direction="asc">
+                        <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
                             Duration <i class="pi pi-sort"></i>
                         </th>
                         <th class="has-text-white has-text-weight-semibold">Action</th>
                     </tr>
                 </thead> 
                 <tbody id='songTableBody'
+                       hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page=1&limit=50&sortBy=title&sortDirection=asc"
+                       hx-trigger="load"
                        hx-swap='innerHTML'
-                       hx-include="[name='search'], [data-sort-by]"> 
+                       hx-include="[name='search']"> 
                     {#include playlistTableBodyFragment /}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+
+<script>
+    function playlistViewController() {
+        return {
+            sortField: 'title',
+            sortDirection: 'asc',
+            playlistId: '0',
+            profileId: '1',
+            playlistSearchQuery: '',
+            init() {
+                // Extract values from the rendered template
+                const mainCard = this.$el.querySelector('#mainPlaylistCard');
+                this.playlistId = mainCard ? mainCard.dataset.playlistId || '0' : '0';
+                this.profileId = '{profileId}';
+                this.playlistSearchQuery = '{search}' || '';
+                
+                console.log(`[Alpine] playlistViewController initialized - profileId: ${this.profileId}, playlistId: ${this.playlistId}`);
+
+                this.updateSortIcons();
+
+                // Re-apply icons after HTMX swaps of table body
+                htmx.on(this.$el, 'htmx:afterSwap', (evt) => {
+                    if (evt.detail.target.id === 'songTableBody') {
+                        this.updateSortIcons();
+                    }
+                });
+            },
+            toggleSortAndFetch(field) {
+                if (this.sortField === field) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortField = field;
+                    this.sortDirection = 'asc';
+                }
+                this.updateSortIcons(); // Give immediate feedback
+
+                // Manually trigger HTMX request with new sort parameters
+                htmx.ajax('GET', `/api/music/ui/tbody/` + this.profileId + `/` + this.playlistId, {
+                    target: '#songTableBody',
+                    swap: 'innerHTML',
+                    values: {
+                        sortBy: this.sortField,
+                        sortDirection: this.sortDirection,
+                        search: this.getCurrentSearchTerm()
+                    },
+                    indicator: '#loadingRow'
+                });
+            },
+            updateSortIcons() {
+                this.$el.querySelectorAll('.sortable-header').forEach(header => {
+                    const icon = header.querySelector('i');
+                    const field = header.dataset.sortByTemp;
+
+                    if (icon && field) {
+                        icon.className = 'pi '; // Reset classes
+                        if (field === this.sortField) {
+                            icon.classList.add(this.sortDirection === 'asc' ? 'pi-sort-up' : 'pi-sort-down');
+                        } else {
+                            icon.classList.add('pi-sort');
+                        }
+                    }
+                });
+            },
+            getCurrentSearchTerm() {
+                const searchInput = this.$el.querySelector('input[name="search"]');
+                return searchInput ? searchInput.value : '';
+            }
+        };
+    }
+</script>
 </div>

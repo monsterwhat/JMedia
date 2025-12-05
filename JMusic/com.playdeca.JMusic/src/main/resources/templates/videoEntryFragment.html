@@ -1,10 +1,6 @@
 <div class="video-entry" onclick="playVideo(this, {'id': '{video.id}', 'title': '{video.title}', 'releaseYear': '{video.releaseYear}', 'durationSeconds': '{video.durationSeconds}', 'episodeNumber': '{video.episodeNumber}', 'episodeTitle': '{video.episodeTitle}'})">
     <div class="video-thumbnail">
-        {#if video.thumbnailBase64}
-            <img src="data:image/jpeg;base64,{video.thumbnailBase64}" alt="{video.title or video.path.segments.last}" />
-        {#else}
-            <img src="https://picsum.photos/320/180" alt="Placeholder image" />
-        {/if}
+        <img src="https://picsum.photos/320/180" alt="Placeholder image" />
     </div>
     <div class="video-title">
         {#if video.episodeNumber}E{video.episodeNumber} - {video.episodeTitle or video.title or video.path.segments.last}{else}{video.title or video.path.segments.last} {#if video.releaseYear} ({video.releaseYear}) {/if}{/if}

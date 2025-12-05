@@ -4,7 +4,15 @@
     </div>
 {#else}
     {#for seasonNumber in seasonNumbers}
-        <div class="video-entry" hx-get="/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/episodes-fragment" hx-trigger="click" hx-target="next .nested-list" hx-swap="innerHTML">
+        <div class="video-entry" 
+             hx-get="/api/video/ui/shows/{encodedSeriesTitle}/seasons/{seasonNumber}/episodes-fragment" 
+             hx-trigger="click" 
+             hx-target="next .nested-list" 
+             hx-swap="innerHTML"
+             hx-on:htmx:beforeRequest="console.log('Loading episodes for season {seasonNumber} of {encodedSeriesTitle}');"
+             hx-on:htmx:afterRequest="console.log('Episodes loaded'); this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none';"
+             hx-on:htmx:responseError="console.error('Error loading episodes:', event.detail);"
+             hx-on:click="this.querySelector('i').classList.toggle('pi-angle-right'); this.querySelector('i').classList.toggle('pi-angle-down');">
             <span class="icon is-small"><i class="pi pi-angle-right"></i></span>
             <span class="video-title">Season {seasonNumber}</span>
         </div>

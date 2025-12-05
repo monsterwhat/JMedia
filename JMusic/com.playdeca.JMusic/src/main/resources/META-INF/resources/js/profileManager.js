@@ -139,10 +139,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function switchProfile(profileId) {
+function switchProfile(profileId) {
         // Update localStorage immediately
         setActiveProfileId(profileId);
-        // Then call the backend to actually switch the profile (important for server-side state consistency)
+        // Update global variable immediately for any code that might access it before reload
+        if (typeof window !== 'undefined') {
+            window.globalActiveProfileId = profileId;
+        }
+        // Then call the backend to actually switch to profile (important for server-side state consistency)
         fetch(`/api/profiles/switch/${profileId}`, { method: 'POST' })
             .then(() => {
                 // Dispatch custom event after successful profile switch

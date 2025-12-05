@@ -13,8 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Restore playlist view on page load
     const playlistId = sessionStorage.getItem('currentPlaylistId');
     if (playlistId && playlistId !== '0') {
-        console.log(`[playlistBar.js] Restoring playlist view for ID: ${playlistId}`);
-        htmx.ajax('GET', `/api/music/ui/playlist-view/${playlistId}`, {
+        console.log(`[playlistBar.js] Restoring playlist view for ID: ${globalActiveProfileId}`);
+        htmx.ajax('GET', `/api/music/ui/playlist-view/${globalActiveProfileId}`, {
             target: '#playlistView',
             swap: 'outerHTML'
         });

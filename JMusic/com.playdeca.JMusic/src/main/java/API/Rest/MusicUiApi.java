@@ -2,8 +2,10 @@ package API.Rest;
 
 import Controllers.PlaybackController;
 import Models.Playlist;
+import Models.Profile;
 import Models.Song;
 import Services.PlaylistService;
+import Services.ProfileService;
 import Services.SongService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -37,12 +39,20 @@ public class MusicUiApi {
     @Inject
     SongService songService;
 
+    @Inject
+    private PlaylistService playlistService;
+
+    @Inject
+    private ProfileService profileService;
+
     // Templates
     @Inject
     Template playlistFragment;
-    @Inject @io.quarkus.qute.Location("playlistView.html")
+    @Inject
+    @io.quarkus.qute.Location("playlistView.html")
     Template playlistView;
-    @Inject @io.quarkus.qute.Location("playlistTableBodyFragment.html")
+    @Inject
+    @io.quarkus.qute.Location("playlistTableBodyFragment.html")
     Template playlistTableBodyFragment;
     @Inject
     Template queueFragment;
@@ -142,6 +152,7 @@ public class MusicUiApi {
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong(profileId))
+                .data("profileId", profileId)
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -176,6 +187,7 @@ public class MusicUiApi {
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong(profileId))
+                .data("profileId", profileId)
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -215,6 +227,7 @@ public class MusicUiApi {
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong(profileId))
+                .data("profileId", profileId)
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -249,6 +262,7 @@ public class MusicUiApi {
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong(profileId))
+                .data("profileId", profileId)
                 .data("offset", 0)
                 .data("limit", 50)
                 .data("totalQueueSize", updatedQueue.size())
@@ -268,8 +282,9 @@ public class MusicUiApi {
     @Path("/playlists-fragment/{profileId}")
     @Blocking
     public String playlistsFragment(@PathParam("profileId") Long profileId) {
+        List<Playlist> playlists = getPlaylistsByProfileId(profileId);
         return playlistFragment
-                .data("playlists", playbackController.getPlaylists()) // Playlists are global
+                .data("playlists", playlists) // Profile-specific playlists
                 .data("profileId", profileId)
                 .render();
     }
@@ -287,8 +302,26 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
 
         long playlistId = id == null ? 0L : id;
-        Playlist playlist = playbackController.findPlaylist(playlistId);
-        String name = playlistId == 0 ? "All Songs" : (playlist != null ? playlist.getName() : "Playlist not found");
+        
+        // For playlist view, we need to check if the user has access to this specific playlist
+        Playlist playlist = null;
+        String name;
+        if (playlistId == 0) {
+            // All Songs - always accessible
+            name = "All Songs";
+            playlist = null; // No specific playlist for All Songs
+        } else {
+            // Check access to specific playlist
+            playlist = playlistService.find(id);
+            if (playlist != null) {
+                name = playlist.getName();
+                System.err.println("DEBUG: Playlist found - ID: " + id + ", Name: " + name + ", Profile: " + profileId);
+            } else {
+                name = "Playlist not found";
+                // Debug logging
+                System.err.println("DEBUG: Playlist not found for ID: " + id + " when requested by profile: " + profileId);
+            }
+        }
 
         List<Song> paginatedSongs;
         long totalSongs;
@@ -425,13 +458,14 @@ public class MusicUiApi {
         String html = queueFragment
                 .data("queue", queueWithIndex)
                 .data("currentSong", playbackController.getCurrentSong(profileId))
+                .data("profileId", profileId)
+                .data("offset", offset)
+                .data("limit", limit)
                 .data("totalQueueSize", totalQueueSize)
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
-                .data("limit", limit)
-                .data("profileId", profileId)
                 .render();
 
         return new QueueFragmentResponse(html, totalQueueSize); // Reverted to return DTO
@@ -442,7 +476,18 @@ public class MusicUiApi {
     @Blocking
     @Produces(MediaType.TEXT_HTML)
     public String getAddToPlaylistDialog(@PathParam("profileId") Long profileId, @PathParam("songId") Long songId) {
-        List<Playlist> playlists = playbackController.getPlaylistsWithSongStatus(songId); // Playlists are global
+        List<Playlist> playlists = getPlaylistsByProfileId(profileId);
+        // Set song status for each playlist
+        if (songId != null) {
+            List<Long> playlistIdsWithSong = playlistService.findAll().stream()
+                    .filter(p -> p.getSongs().stream().anyMatch(s -> s.id.equals(songId)))
+                    .map(p -> p.id)
+                    .toList();
+
+            for (Playlist p : playlists) {
+                p.setContainsSong(playlistIdsWithSong.contains(p.id));
+            }
+        }
         return addToPlaylistDialog
                 .data("playlists", playlists)
                 .data("songId", songId)
@@ -487,5 +532,24 @@ public class MusicUiApi {
                 .data("searchQuery", search)
                 .data("profileId", profileId)
                 .render();
+    }
+
+    private List<Playlist> getPlaylistsByProfileId(Long profileId) {
+        if (profileId == null) {
+            return new java.util.ArrayList<>();
+        }
+
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return new java.util.ArrayList<>();
+        }
+
+        // Get playlists for this specific profile (user's playlists + global playlists)
+        List<Playlist> playlists = playlistService.findAllForProfile(profile);
+        System.err.println("DEBUG: Found " + playlists.size() + " playlists for profile " + profileId);
+        for (Playlist p : playlists) {
+            System.err.println("DEBUG: Playlist ID=" + p.id + ", Name=" + p.getName() + ", Global=" + p.getIsGlobal() + ", Profile=" + (p.getProfile() != null ? p.getProfile().id : null));
+        }
+        return playlists;
     }
 }

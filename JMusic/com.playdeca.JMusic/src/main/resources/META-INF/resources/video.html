@@ -115,7 +115,7 @@
                             <div class="navbar-search-container">
                                 <div class="control has-icons-right" style="flex-grow: 1;">
                                     <input class="input is-rounded" type="text" placeholder="Search all videos..." name="search" id="globalSearchInput"
-                                           hx-get="/api/video/ui/tbody/0"
+                                           hx-get="/api/video/ui/tbody/{profileId}/0"
                                            hx-trigger="search, keyup changed delay:500ms from:this"
                                            hx-target="#videoTableBody"
                                            hx-swap="innerHTML"
@@ -124,20 +124,6 @@
                                     <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
                                         <i class="pi pi-times"></i>
                                     </span>
-                                </div>
-                                <div id="globalSearchDropdown" class="dropdown-menu" role="menu" style="display: none;">
-                                    <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
-                                        <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
-                                    </div>
-                                    <div class="dropdown-content"
-                                         hx-post="/api/video/ui/search-suggestions"
-                                         hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
-                                         hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
-                                         hx-target="this"
-                                         hx-swap="innerHTML"
-                                         hx-indicator="#globalSearchDropdownLoadingIndicator">
-                                        <!-- Suggestions will be loaded here -->
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -243,7 +229,7 @@
                             </header>
                             <div class="card-content p-0 m-0" style="height: calc(100vh - 120px); overflow-y: scroll;">
                                 <div x-show="activeVideoTab === 'shows'" id="showsTabContent"
-                                     :hx-get="getShowsUrl()" hx-swap="innerHTML">
+                                     :hx-get="getShowsUrl()" hx-swap="innerHTML" hx-trigger="load">
                                     <!-- Series will be dynamically populated here by HTMX -->
                                     <div class="has-text-centered py-4">
                                         <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
@@ -349,6 +335,10 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
         <script src="/js/videoBar.js"></script>
+        <script>
+            // Define globalActiveProfileId as a property of the window object
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+        </script>
         <script>
             document.body.addEventListener('htmx:beforeRequest', function (event) {
                 // Check if the request is for shows-fragment or movies-fragment pagination

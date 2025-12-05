@@ -251,7 +251,7 @@ public class ImportService {
                 }
 
                 if (playlistName != null && !playlistName.trim().isEmpty()) {
-                    addSongsToPlaylist(playlistName, finalSongsForPlaylist, profileId);
+                    addSongsToPlaylist(playlistName, finalSongsForPlaylist, profileId, url);
                 }
 
                 if (queueAfterDownload) {
@@ -346,7 +346,7 @@ public class ImportService {
         return command;
     }
 
-    private void addSongsToPlaylist(String playlistName, List<Song> songsToAdd, Long profileId) {
+    private void addSongsToPlaylist(String playlistName, List<Song> songsToAdd, Long profileId, String originalUrl) {
         if (songsToAdd == null || songsToAdd.isEmpty()) {
             broadcast("No songs found to add to playlist '" + playlistName + "'.\n", profileId);
             return;
@@ -358,8 +358,16 @@ public class ImportService {
                 broadcast("Could not find or create playlist '" + trimmedPlaylistName + "'. Skipping.\n", profileId);
                 return;
             }
-            playlistService.addSongsToPlaylist(targetPlaylist, finalSongsForPlaylist);
-            broadcast("Added " + finalSongsForPlaylist.size() + " songs to playlist '" + trimmedPlaylistName + "'.\n", profileId);
+            
+            // Set original link if this is a new playlist and URL is provided
+            if (targetPlaylist.id == null && originalUrl != null && !originalUrl.trim().isEmpty()) {
+                targetPlaylist.setOriginalLink(originalUrl.trim());
+                // Make imported playlists global by default
+                targetPlaylist.setIsGlobal(true);
+            }
+            
+            playlistService.addSongsToPlaylist(targetPlaylist, songsToAdd);
+            broadcast("Added " + songsToAdd.size() + " songs to playlist '" + trimmedPlaylistName + "'.\n", profileId);
         } catch (Exception e) {
             LOGGER.error("Failed to add songs to playlist: {}", playlistName, e);
             broadcast("ERROR: Failed to add songs to playlist '" + playlistName + "': " + e.getMessage() + "\n", profileId);

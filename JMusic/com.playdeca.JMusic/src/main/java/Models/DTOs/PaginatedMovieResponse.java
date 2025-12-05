@@ -1,6 +1,6 @@
 package Models.DTOs;
 
-import Models.Video;
+import Services.VideoService;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -11,9 +11,9 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PaginatedMovieResponse {
-    private List<Video> videos;
+    private List<VideoService.VideoDTO> videos;
     private int currentPage;
-    private int limit; // Renamed from pageSize to limit for consistency
+    private int limit;
     private long totalItems;
     private int totalPages;
 }

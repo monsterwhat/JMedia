@@ -49,7 +49,7 @@ function loadQueuePage(page = 1, profileIdParam) { // Added profileIdParam
     }
     isFetchingQueue = true;
     currentPage = page; // Update current page
-    const currentProfileId = profileIdParam || window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const currentProfileId = profileIdParam || globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
 
     fetch(`/api/music/ui/queue-fragment/${currentProfileId}?page=${currentPage}&limit=${queueLimit}`, {
         headers: {'Accept': 'application/json'} // Request JSON
@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Clear queue
     if (clearQueueBtn) {
         clearQueueBtn.addEventListener('click', () => {
-            const currentProfileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const currentProfileId = globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
             fetch(`/api/music/queue/clear/${currentProfileId}`, {
                 method: 'POST',
                 headers: {'Accept': 'application/json'}
@@ -153,12 +153,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // Global function to handle queue actions (skip/remove)
 window.handleQueueAction = (action, index, profileIdParam) => { // Added profileIdParam
     console.log(`[songQueue.js] handleQueueAction: ${action} at index ${index}`);
-    const currentProfileId = profileIdParam || window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const currentProfileId = profileIdParam || globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     let url = '';
     if (action === 'skip') {
-        url = `/api/music/ui/queue/skip-to/${currentProfileId}/${index}`;
+        url = `/api/music/queue/skip-to/${currentProfileId}/${index}`;
     } else if (action === 'remove') {
-        url = `/api/music/ui/queue/remove/${currentProfileId}/${index}`;
+        url = `/api/music/queue/remove/${currentProfileId}/${index}`;
     } else {
         console.error(`[songQueue.js] handleQueueAction: Unknown action type: ${action}`);
         return;

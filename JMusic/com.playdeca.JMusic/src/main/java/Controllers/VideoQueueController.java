@@ -1,15 +1,16 @@
 package Controllers;
 
 import Models.VideoState;
-import Models.Video;
 import Services.VideoHistoryService;
 import Services.VideoService;
+import Services.VideoService.VideoDTO;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class VideoQueueController {
@@ -24,26 +25,24 @@ public class VideoQueueController {
         if (videoId == null) {
             return;
         }
-        Video video = videoService.find(videoId);
-        if (video != null) {
-            videoHistoryService.add(video);
-        }
+        // The new VideoHistoryService.add takes a Long mediaFileId directly.
+        videoHistoryService.add(videoId);
     }
 
     public void populateCue(VideoState state, List<Long> videoIds) {
         state.setCue(new ArrayList<>(videoIds));
-        state.setOriginalCue(new ArrayList<>()); // Clear any previously saved original cue
+        state.setOriginalCue(new ArrayList<>());
         state.setCueIndex(videoIds.isEmpty() ? -1 : 0);
         state.setCurrentVideoId(videoIds.isEmpty() ? null : videoIds.get(0));
         state.setPlaying(!videoIds.isEmpty());
         state.setCurrentTime(0);
-        // Update video title, series title, episode title
+
         if (state.getCurrentVideoId() != null) {
-            Video currentVideo = videoService.find(state.getCurrentVideoId());
+            VideoDTO currentVideo = videoService.find(state.getCurrentVideoId());
             if (currentVideo != null) {
-                state.setVideoTitle(currentVideo.getTitle());
-                state.setSeriesTitle(currentVideo.getSeriesTitle());
-                state.setEpisodeTitle(currentVideo.getEpisodeTitle());
+                state.setVideoTitle(currentVideo.title());
+                state.setSeriesTitle(currentVideo.seriesTitle());
+                state.setEpisodeTitle("Episode".equals(currentVideo.type()) ? currentVideo.title() : null);
             } else {
                 state.setVideoTitle("Unknown Title");
                 state.setSeriesTitle(null);
@@ -54,18 +53,16 @@ public class VideoQueueController {
 
     public Long advance(VideoState state, boolean forward) {
         if (!forward) {
-            // 'previous' logic
             List<Long> cue = state.getCue();
             if (cue == null || cue.isEmpty()) return null;
             int prevIndex = state.getCueIndex() - 1;
             if (prevIndex < 0) {
-                prevIndex = 0; // Stay at the beginning
+                prevIndex = 0;
             }
             state.setCueIndex(prevIndex);
             return cue.get(prevIndex);
         }
 
-        // --- FORWARD ADVANCEMENT ---
         addVideoToHistory(state.getCurrentVideoId());
 
         List<Long> cue = state.getCue();
@@ -73,7 +70,7 @@ public class VideoQueueController {
 
         int nextIndex = state.getCueIndex() + 1;
         if (nextIndex >= cue.size()) {
-            state.setPlaying(false); // Stop playback if at the end of the queue
+            state.setPlaying(false);
             return null;
         }
 
@@ -81,53 +78,43 @@ public class VideoQueueController {
         return cue.get(nextIndex);
     }
 
-    // Shuffle logic is omitted for now as discussed.
-
     public void clearShuffle(VideoState state) {
-        // Shuffle logic is omitted, so this method will simply clear original cue
         List<Long> originalCue = state.getOriginalCue();
         if (originalCue != null && !originalCue.isEmpty()) {
             state.setCue(new ArrayList<>(originalCue));
             state.setOriginalCue(new ArrayList<>());
         }
         if (state.getCue() != null && state.getCurrentVideoId() != null) {
-            int newIndex = state.getCue().indexOf(state.getCurrentVideoId());
-            state.setCueIndex(newIndex);
+            state.setCueIndex(state.getCue().indexOf(state.getCurrentVideoId()));
         } else {
             state.setCueIndex(-1);
         }
     }
 
     public void addToQueue(VideoState state, List<Long> videoIds, boolean playNext) {
-        if (videoIds == null || videoIds.isEmpty()) {
-            return;
-        }
+        if (videoIds == null || videoIds.isEmpty()) return;
+        
         List<Long> cue = state.getCue();
         if (cue == null) {
             cue = new ArrayList<>();
             state.setCue(cue);
         }
 
-        int insertIndex = playNext && state.getCueIndex() >= 0
-                ? state.getCueIndex() + 1
-                : cue.size();
+        int insertIndex = playNext && state.getCueIndex() >= 0 ? state.getCueIndex() + 1 : cue.size();
 
         for (Long id : videoIds) {
             if (!cue.contains(id)) {
-                cue.add(insertIndex, id);
-                insertIndex++;
+                cue.add(insertIndex++, id);
             }
         }
     }
 
     public void removeFromQueue(VideoState state, Long videoId) {
         List<Long> cue = state.getCue();
-        if (cue == null || !cue.contains(videoId)) {
-            return;
-        }
+        if (cue == null || !cue.contains(videoId)) return;
 
         int index = cue.indexOf(videoId);
-        cue.remove(videoId);
+        cue.remove(index);
 
         if (Objects.equals(videoId, state.getCurrentVideoId())) {
             if (cue.isEmpty()) {
@@ -156,28 +143,25 @@ public class VideoQueueController {
 
     public void moveInQueue(VideoState state, int fromIndex, int toIndex) {
         List<Long> cue = state.getCue();
-        if (cue == null || cue.isEmpty() || fromIndex < 0 || fromIndex >= cue.size() || toIndex < 0 || toIndex >= cue.size()) {
-            return;
-        }
-
+        if (cue == null || fromIndex < 0 || fromIndex >= cue.size() || toIndex < 0 || toIndex > cue.size()) return;
+        
         Long videoId = cue.remove(fromIndex);
         cue.add(toIndex, videoId);
-
-        int currentIdx = state.getCueIndex();
-        if (currentIdx == fromIndex) {
+        
+        // Adjust current cue index
+        int currentIndex = state.getCueIndex();
+        if (currentIndex == fromIndex) {
             state.setCueIndex(toIndex);
-        } else if (fromIndex < currentIdx && toIndex >= currentIdx) {
-            state.setCueIndex(currentIdx - 1);
-        } else if (fromIndex > currentIdx && toIndex <= currentIdx) {
-            state.setCueIndex(currentIdx + 1);
+        } else if (fromIndex < currentIndex && toIndex >= currentIndex) {
+            state.setCueIndex(currentIndex - 1);
+        } else if (fromIndex > currentIndex && toIndex <= currentIndex) {
+            state.setCueIndex(currentIndex + 1);
         }
     }
 
     public void togglePlay(VideoState state) {
         state.setPlaying(!state.isPlaying());
     }
-
-
 
     public void changeVolume(VideoState state, float level) {
         state.setVolume(Math.max(0f, Math.min(1f, level)));
@@ -193,25 +177,12 @@ public class VideoQueueController {
 
     public void skipToQueueIndex(VideoState state, int index) {
         List<Long> cue = state.getCue();
-        if (cue == null || index < 0 || index >= cue.size()) {
-            return;
-        }
-        addVideoToHistory(state.getCurrentVideoId()); // Add the video we are skipping from
+        if (cue == null || index < 0 || index >= cue.size()) return;
+        
+        addVideoToHistory(state.getCurrentVideoId());
 
-        List<Long> newCue = new ArrayList<>(cue.subList(index, cue.size()));
-
-        List<Long> originalCue = state.getOriginalCue();
-        if (originalCue != null && !originalCue.isEmpty()) {
-            java.util.Set<Long> remainingIds = new java.util.HashSet<>(newCue);
-            List<Long> newOriginalCue = originalCue.stream()
-                    .filter(remainingIds::contains)
-                    .collect(java.util.stream.Collectors.toList());
-            state.setOriginalCue(newOriginalCue);
-        }
-
-        state.setCue(newCue);
-        state.setCueIndex(0);
-        state.setCurrentVideoId(newCue.get(0));
+        state.setCueIndex(index);
+        state.setCurrentVideoId(cue.get(index));
         state.setCurrentTime(0);
         state.setPlaying(true);
     }

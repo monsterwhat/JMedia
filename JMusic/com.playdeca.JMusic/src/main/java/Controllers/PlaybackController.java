@@ -4,10 +4,12 @@ import API.WS.MusicSocket;
 import Models.PlaybackHistory;
 import Models.PlaybackState;
 import Models.Playlist;
+import Models.Profile;
 import Models.Settings;
 import Models.Song;
 import Services.PlaybackHistoryService;
 import Services.PlaylistService;
+import Services.ProfileService;
 import Services.SongService;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -36,6 +38,7 @@ public class PlaybackController {
     @Inject PlaylistService playlistService;
     @Inject PlaybackHistoryService playbackHistoryService;
     @Inject MusicSocket ws;
+    @Inject ProfileService profileService;
 
     private ScheduledExecutorService scheduler;
     private final Map<Long, ScheduledFuture<?>> playbackTasks = new ConcurrentHashMap<>();
@@ -282,6 +285,14 @@ public class PlaybackController {
 
     public List<Playlist> getPlaylists() {
         return playlistService.findAll();
+    }
+
+    public List<Playlist> getPlaylistsForProfile(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return List.of();
+        }
+        return playlistService.findAllForProfile(profile);
     }
 
     public List<Playlist> getPlaylistsWithSongStatus(Long songId) {

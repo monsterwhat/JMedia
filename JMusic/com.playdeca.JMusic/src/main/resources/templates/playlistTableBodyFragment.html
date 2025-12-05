@@ -1,5 +1,10 @@
 {#for s in songs}
-<tr data-song-id="{s.id}" class="{#if currentSong != null && s.id == currentSong.id}has-background-grey-dark has-text-white{/if}">
+<tr data-song-id="{s.id}" class="{#if currentSong != null && s.id == currentSong.id}has-background-grey-dark has-text-white{/if}" 
+    hx-post="/api/music/playback/select/{profileId}/{s.id}"
+    hx-trigger="click"
+    hx-swap="none"
+    data-playlist-id="{playlistId}"
+    style="cursor: pointer;">
     <!-- Artwork -->
     <td class="has-text-centered" style="width: 5%;">
         <figure class="image is-48x48 is-inline-block">
@@ -23,17 +28,9 @@
     <!-- Duration -->
     <td class="has-text-centered is-centered is-vcentered has-text-white has-text-weight-semibold">{formatDuration.apply(s.durationSeconds)}</td>
 
-    <!-- Play button -->
+    <!-- Action button -->
     <td class="has-text-centered is-centered is-vcentered">
         <div class="buttons is-small is-grouped is-centered is-vcentered">
-            <button
-                        class="has-text-success"
-                        hx-post="/api/music/playback/select/{profileId}/{s.id}"
-                        hx-trigger="click"
-                        hx-swap="none"
-                        data-playlist-id="{playlistId}">
-                        <i class="pi pi-play"></i>
-                    </button>
             {#if playlistId == 0}
             <button
                         class="has-text-info"

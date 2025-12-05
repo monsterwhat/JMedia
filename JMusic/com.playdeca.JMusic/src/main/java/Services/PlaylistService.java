@@ -33,10 +33,16 @@ public class PlaylistService {
         if (playlist.id == null) { // New playlist
             Profile activeProfile = settingsService.getActiveProfile();
             playlist.setProfile(activeProfile);
+            // All playlists are global by default - both user-created and imported
+            playlist.setIsGlobal(true);
             em.persist(playlist);
         } else {
             Playlist existingPlaylist = em.find(Playlist.class, playlist.id);
-            if (isMainProfileActive() || (existingPlaylist != null && existingPlaylist.getProfile().equals(settingsService.getActiveProfile()))) {
+            if (isMainProfileActive() || 
+                (existingPlaylist != null && (
+                    existingPlaylist.getProfile().equals(settingsService.getActiveProfile()) || 
+                    Boolean.TRUE.equals(existingPlaylist.getIsGlobal())
+                ))) {
                 em.merge(playlist);
             }
         }
@@ -45,8 +51,11 @@ public class PlaylistService {
     @Transactional
     public void delete(Playlist playlist) {
         if (playlist != null) {
-            // Main profile can delete any playlist. Other profiles can only delete their own.
-            if (isMainProfileActive() || (playlist.getProfile() != null && playlist.getProfile().equals(settingsService.getActiveProfile()))) {
+            // Main profile can delete any playlist. Other profiles can only delete their own (not global).
+            if (isMainProfileActive() || 
+                (playlist.getProfile() != null && 
+                 playlist.getProfile().equals(settingsService.getActiveProfile()) && 
+                 !Boolean.TRUE.equals(playlist.getIsGlobal()))) {
                 Playlist managed = em.contains(playlist) ? playlist : em.merge(playlist);
 
                 for (Song song : managed.getSongs()) {
@@ -61,24 +70,19 @@ public class PlaylistService {
 
     public Playlist find(Long id) {
         Playlist playlist = em.find(Playlist.class, id);
-        // Main profile can find any playlist. Others can only find their own.
-        if (isMainProfileActive() || (playlist != null && playlist.getProfile() != null && playlist.getProfile().equals(settingsService.getActiveProfile()))) {
-            return playlist;
-        }
-        return null;
+        // All playlists are global now, so anyone can find any playlist
+        return playlist;
     }
 
     public List<Playlist> findAll() {
         try {
-            if (isMainProfileActive()) {
-                return em.createQuery("SELECT p FROM Playlist p", Playlist.class).getResultList();
-            } else {
-                Profile activeProfile = settingsService.getActiveProfile();
-                if (activeProfile == null) return List.of();
-                return em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile", Playlist.class)
-                        .setParameter("profile", activeProfile)
-                        .getResultList();
-            }
+            Profile activeProfile = settingsService.getActiveProfile();
+            if (activeProfile == null) return List.of();
+            
+            // Return user's playlists + global playlists (imported ones)
+            return em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
+                    .setParameter("profile", activeProfile)
+                    .getResultList();
         } catch (Exception e) {
             System.err.println("[ERROR] PlaylistService: Error in findAll: " + e.getMessage());
             e.printStackTrace();
@@ -86,9 +90,24 @@ public class PlaylistService {
         }
     }
 
+    public List<Playlist> findAllForProfile(Profile profile) {
+        try {
+            if (profile == null) return List.of();
+            
+            // Return specified profile's playlists + global playlists (imported ones)
+            return em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
+                    .setParameter("profile", profile)
+                    .getResultList();
+        } catch (Exception e) {
+            System.err.println("[ERROR] PlaylistService: Error in findAllForProfile: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("Error fetching playlists for profile", e);
+        }
+    }
+
     @Transactional
     public void toggleSongInPlaylist(Long playlistId, Long songId) {
-        Playlist playlist = find(playlistId); // find is now access-aware
+        Playlist playlist = find(playlistId); // find is access-aware
         Song song = songService.find(songId);
 
         if (playlist != null && song != null) {
@@ -119,6 +138,8 @@ public class PlaylistService {
         if (playlist == null) {
             return new PaginatedPlaylistSongs(List.of(), 0);
         }
+        
+        System.err.println("DEBUG: findSongsByPlaylist called with playlistId=" + playlistId + ", playlist found=" + (playlist != null) + ", name=" + (playlist != null ? playlist.getName() : "null"));
         
         // The rest of the logic remains the same as the playlist is already verified.
         StringBuilder baseQuery = new StringBuilder("SELECT s FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
@@ -181,7 +202,14 @@ public class PlaylistService {
             Playlist playlist = em.createQuery("SELECT p FROM Playlist p LEFT JOIN FETCH p.songs WHERE p.id = :id", Playlist.class)
                     .setParameter("id", id)
                     .getSingleResult();
-            if (isMainProfileActive() || (playlist != null && playlist.getProfile() != null && playlist.getProfile().equals(settingsService.getActiveProfile()))) {
+            
+            // Check access permissions
+            Profile activeProfile = settingsService.getActiveProfile();
+            if (isMainProfileActive() || 
+                (playlist != null && (
+                    (playlist.getProfile() != null && playlist.getProfile().equals(activeProfile)) || 
+                    Boolean.TRUE.equals(playlist.getIsGlobal())
+                ))) {
                 return playlist;
             }
             return null;
@@ -196,21 +224,10 @@ public class PlaylistService {
             return playlists;
         }
         
-        List<Long> playlistIdsWithSong;
-        if(isMainProfileActive()){
-            playlistIdsWithSong = em.createQuery(
+        List<Long> playlistIdsWithSong = em.createQuery(
                 "SELECT p.id FROM Playlist p JOIN p.songs s WHERE s.id = :songId", Long.class)
                 .setParameter("songId", songId)
                 .getResultList();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return playlists;
-            playlistIdsWithSong = em.createQuery(
-                    "SELECT p.id FROM Playlist p JOIN p.songs s WHERE s.id = :songId AND p.profile = :profile", Long.class)
-                    .setParameter("songId", songId)
-                    .setParameter("profile", activeProfile)
-                    .getResultList();
-        }
 
         for (Playlist p : playlists) {
             if (playlistIdsWithSong.contains(p.id)) {
@@ -222,17 +239,17 @@ public class PlaylistService {
 
     public Playlist findByName(String name) {
         try {
+            Profile activeProfile = settingsService.getActiveProfile();
             if (isMainProfileActive()) {
                 return em.createQuery("SELECT p FROM Playlist p WHERE p.name = :name", Playlist.class)
                         .setParameter("name", name)
                         .setMaxResults(1)
                         .getSingleResult();
             } else {
-                Profile activeProfile = settingsService.getActiveProfile();
-                 if (activeProfile == null) return null;
-                return em.createQuery("SELECT p FROM Playlist p WHERE p.name = :name AND p.profile = :profile", Playlist.class)
+                return em.createQuery("SELECT p FROM Playlist p WHERE p.name = :name AND (p.profile = :profile OR p.isGlobal = true)", Playlist.class)
                         .setParameter("name", name)
                         .setParameter("profile", activeProfile)
+                        .setMaxResults(1)
                         .getSingleResult();
             }
         } catch (jakarta.persistence.NoResultException e) {
@@ -285,10 +302,13 @@ public class PlaylistService {
                 .setParameter("songId", songId)
                 .executeUpdate();
         } else {
-            List<Playlist> playlists = findAll(); // This is just the current profile's playlists
+            List<Playlist> playlists = findAll(); // This gets user's playlists + global playlists
             for (Playlist playlist : playlists) {
-                playlist.getSongs().removeIf(song -> song.id.equals(songId));
-                em.merge(playlist);
+                // Only remove from user's own playlists, not global ones
+                if (playlist.getProfile() != null && playlist.getProfile().equals(settingsService.getActiveProfile())) {
+                    playlist.getSongs().removeIf(song -> song.id.equals(songId));
+                    em.merge(playlist);
+                }
             }
         }
     }

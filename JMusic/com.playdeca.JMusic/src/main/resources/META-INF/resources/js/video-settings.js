@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if(saveVideoLibraryPathBtn) {
         saveVideoLibraryPathBtn.addEventListener("click", () => {
             const path = document.getElementById("videoLibraryPathInput").value;
-            htmx.ajax('POST', '/api/settings/video-library-path', {
+            htmx.ajax('POST', `/api/settings/${globalActiveProfileId}/video-library-path`, {
                 values: { 'videoLibraryPathInput': path },
                 swap: 'none'
             });
@@ -30,6 +30,37 @@ document.addEventListener("DOMContentLoaded", () => {
     if (scanVideoLibraryBtn) {
         scanVideoLibraryBtn.addEventListener('htmx:afterRequest', function (evt) {
             alert("Video library scan started.");
+        });
+    }
+    
+    const reloadVideoMetadataBtn = document.getElementById("reloadVideoMetadata");
+    if (reloadVideoMetadataBtn) {
+        reloadVideoMetadataBtn.addEventListener('htmx:afterRequest', function (evt) {
+            alert("Video metadata reload started.");
+        });
+    }
+
+    const resetVideoDbBtn = document.getElementById("resetVideoDb");
+    if (resetVideoDbBtn) {
+        resetVideoDbBtn.addEventListener("click", async () => {
+            if (confirm("Are you sure you want to reset the video database? This will delete all video, movie, episode, show, and season data from the database. This action cannot be undone.")) {
+                try {
+                    const response = await fetch("/api/video/reset-database", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        alert(result.data || "Video database reset successfully.");
+                    } else {
+                        alert("Error resetting video database: " + (result.error || "Unknown error"));
+                    }
+                } catch (error) {
+                    alert("An unexpected error occurred while resetting the video database: " + error.message);
+                }
+            }
         });
     }
     
