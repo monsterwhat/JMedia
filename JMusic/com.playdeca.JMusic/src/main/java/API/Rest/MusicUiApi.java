@@ -63,6 +63,9 @@ public class MusicUiApi {
 
     @Inject
     Template searchResultsView;
+    
+    @Inject
+    Template allSongsFragment;
 
     private String formatDate(Object date) {
         if (date == null) {
@@ -530,6 +533,51 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
         return searchResultsView
                 .data("searchQuery", search)
+                .data("profileId", profileId)
+                .render();
+    }
+
+    @GET
+    @Path("/songs-fragment/{profileId}")
+    @Blocking
+    public String getSongsFragment(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+        
+        SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+        List<Song> songs = result.songs();
+        long totalSongs = result.totalCount();
+        
+        if (totalSongs == 0) {
+            return "<tr><td colspan='5' class='has-text-centered'>No songs found.</td></tr>";
+        }
+        
+        int totalPages = (int) Math.ceil((double) totalSongs / limit);
+        int currentPage = Math.max(1, Math.min(page, totalPages));
+        
+        Song currentSong = playbackController.getCurrentSong(profileId);
+        boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
+        
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+        
+        return allSongsFragment
+                .data("songs", songs)
+                .data("currentSong", currentSong)
+                .data("isPlaying", isPlaying)
+                .data("formatDate", (Function<Object, String>) this::formatDate)
+                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("limit", limit)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .data("search", search)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
                 .data("profileId", profileId)
                 .render();
     }

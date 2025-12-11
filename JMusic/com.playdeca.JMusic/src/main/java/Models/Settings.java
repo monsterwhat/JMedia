@@ -16,7 +16,7 @@ public class Settings extends PanacheEntity {
     private String libraryPath;
     private String videoLibraryPath;
 
-
+    private Boolean firstTimeSetup = true;
     
     private Long activeProfileId;
     

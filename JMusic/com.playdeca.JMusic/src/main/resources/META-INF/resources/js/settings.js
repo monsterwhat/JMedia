@@ -322,47 +322,76 @@ document.addEventListener("DOMContentLoaded", () => {
         toggleImportInstallationBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "importInstallationContent");
     }
 
-    // Install requirements button
-    const installRequirementsBtn = document.getElementById("installRequirementsBtn");
-    const installDialog = document.getElementById("installDialog");
-    const closeInstallDialogBtn = document.getElementById("closeInstallDialog");
-    const cancelInstallBtn = document.getElementById("cancelInstallBtn");
-    const installOutput = document.getElementById("installOutput");
-    const installProgress = document.getElementById("installProgress");
+    // Individual installation buttons and progress tracking
+    const installPythonBtn = document.getElementById("installPythonBtn");
+    const installFfmpegBtn = document.getElementById("installFfmpegBtn");
+    const installSpotdlBtn = document.getElementById("installSpotdlBtn");
+    const installWhisperBtn = document.getElementById("installWhisperBtn");
     
-    if (installRequirementsBtn) {
-        installRequirementsBtn.onclick = () => {
-            // Show dialog
-            installDialog.classList.add('is-active');
-            installOutput.value = "Starting installation process...\r\n";
-            installProgress.value = 0;
-            
-            // Start installation process
-            startInstallation();
-        };
+    const pythonInstallProgress = document.getElementById("pythonInstallProgress");
+    const ffmpegInstallProgress = document.getElementById("ffmpegInstallProgress");
+    const spotdlInstallProgress = document.getElementById("spotdlInstallProgress");
+    const whisperInstallProgress = document.getElementById("whisperInstallProgress");
+    
+    const pythonProgressContainer = document.getElementById("pythonProgressContainer");
+    const ffmpegProgressContainer = document.getElementById("ffmpegProgressContainer");
+    const spotdlProgressContainer = document.getElementById("spotdlProgressContainer");
+    const whisperProgressContainer = document.getElementById("whisperProgressContainer");
+    
+    const pythonStatus = document.getElementById("pythonStatus");
+    const ffmpegStatus = document.getElementById("ffmpegStatus");
+    const spotdlStatus = document.getElementById("spotdlStatus");
+    const whisperStatus = document.getElementById("whisperStatus");
+    
+    const pythonInstalledText = document.getElementById("pythonInstalledText");
+    const ffmpegInstalledText = document.getElementById("ffmpegInstalledText");
+    const spotdlInstalledText = document.getElementById("spotdlInstalledText");
+    const whisperInstalledText = document.getElementById("whisperInstalledText");
+    
+    // Installation WebSocket for progress updates
+    let installationWebSocket = null;
+    
+    // Component state tracking
+    const componentStates = {
+        python: false,
+        ffmpeg: false,
+        spotdl: false,
+        whisper: false
+    };
+    
+    // Setup individual installation button handlers
+    if (installPythonBtn) {
+        installPythonBtn.onclick = () => handleComponentAction('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer);
     }
     
-    // Close dialog handlers
-    if (closeInstallDialogBtn) {
-        closeInstallDialogBtn.onclick = () => {
-            installDialog.classList.remove('is-active');
-        };
+    if (installFfmpegBtn) {
+        installFfmpegBtn.onclick = () => handleComponentAction('ffmpeg', installFfmpegBtn, ffmpegInstallProgress, ffmpegProgressContainer);
     }
     
-    if (cancelInstallBtn) {
-        cancelInstallBtn.onclick = () => {
-            installDialog.classList.remove('is-active');
-        };
+    if (installSpotdlBtn) {
+        installSpotdlBtn.onclick = () => handleComponentAction('spotdl', installSpotdlBtn, spotdlInstallProgress, spotdlProgressContainer);
     }
     
-    // Installation process
-    async function startInstallation() {
+    if (installWhisperBtn) {
+        installWhisperBtn.onclick = () => handleComponentAction('whisper', installWhisperBtn, whisperInstallProgress, whisperProgressContainer);
+    }
+    
+    // Handle component install/uninstall action
+    async function handleComponentAction(component, button, progressBar, progressContainer) {
+        const isInstalled = componentStates[component];
+        const action = isInstalled ? 'uninstall' : 'install';
+        
         try {
-            installOutput.value += "Starting installation process...\r\n";
-            installProgress.value = 5;
+            // Disable button and show loading state
+            button.disabled = true;
+            button.classList.add('is-loading');
             
-            // Call backend installation API
-            const response = await fetch(`/api/settings/${globalActiveProfileId}/install-requirements`, {
+            // Show progress bar
+            progressContainer.style.display = 'block';
+            progressBar.value = 0;
+            
+            // Call backend API
+            const response = await fetch(`/api/import/${action}/${component}/${globalActiveProfileId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -370,74 +399,264 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             
             if (response.ok) {
-                installOutput.value += "Installation process started on server...\r\n";
-                installProgress.value = 20;
+                showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} ${action}ation started`, 'info');
                 
-                // Start WebSocket for real-time updates
-                setupInstallationWebSocket();
+                // Setup WebSocket for progress updates if not already connected
+                if (!installationWebSocket) {
+                    setupInstallationWebSocket();
+                }
             } else {
-                throw new Error(`Failed to start installation: ${response.status}`);
+                throw new Error(`Failed to start ${component} ${action}ation: ${response.status}`);
             }
             
         } catch (error) {
-            installOutput.value += `ERROR: ${error.message}\r\n`;
-            installProgress.value = 0;
+            console.error(`Error starting ${component} ${action}ation:`, error);
+            showToast(`Failed to start ${component} ${action}ation: ${error.message}`, 'error');
+            
+            // Re-enable button and hide progress bar on error
+            button.disabled = false;
+            button.classList.remove('is-loading');
+            progressContainer.style.display = 'none';
         }
     }
     
     // Setup WebSocket for real-time installation updates
     function setupInstallationWebSocket() {
-        const socket = new WebSocket(`ws://${window.location.host}/ws/import-status/${globalActiveProfileId}`);
+        installationWebSocket = new WebSocket(`ws://${window.location.host}/ws/import-status/${globalActiveProfileId}`);
         
-        socket.onmessage = function (event) {
+        installationWebSocket.onmessage = function (event) {
             const message = event.data;
             
-            // Handle installation completion
-            if (message === '[INSTALLATION_FINISHED]') {
-                installProgress.value = 100;
-                installOutput.value += "\r\nInstallation completed successfully!\r\n";
-                
-                setTimeout(() => {
-                    installDialog.classList.remove('is-active');
-                    showToast("Installation completed successfully!", 'success');
-                    // Refresh the page to update UI state
-                    location.reload();
-                }, 2000);
-                socket.close();
-                return;
+            // Handle individual installation completion
+            if (message.includes('[PYTHON_INSTALLATION_FINISHED]')) {
+                handleActionCompletion('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer, pythonStatus, true);
+            } else if (message.includes('[FFMPEG_INSTALLATION_FINISHED]')) {
+                handleActionCompletion('ffmpeg', installFfmpegBtn, ffmpegInstallProgress, ffmpegProgressContainer, ffmpegStatus, true);
+            } else if (message.includes('[SPOTDL_INSTALLATION_FINISHED]')) {
+                handleActionCompletion('spotdl', installSpotdlBtn, spotdlInstallProgress, spotdlProgressContainer, spotdlStatus, true);
+            } else if (message.includes('[WHISPER_INSTALLATION_FINISHED]')) {
+                handleActionCompletion('whisper', installWhisperBtn, whisperInstallProgress, whisperProgressContainer, whisperStatus, true);
             }
             
-            // Handle installation progress/output
-            if (message && message.trim()) {
-                installOutput.value += message;
-                installOutput.scrollTop = installOutput.scrollHeight;
-                
-                // Update progress based on installation stage
-                if (message.includes('Installing Python')) {
-                    installProgress.value = 30;
-                } else if (message.includes('Installing FFmpeg')) {
-                    installProgress.value = 60;
-                } else if (message.includes('Installing SpotDL')) {
-                    installProgress.value = 80;
-                } else if (message.includes('Installing Whisper')) {
-                    installProgress.value = 90;
+            // Handle individual uninstallation completion
+            if (message.includes('[PYTHON_UNINSTALLATION_FINISHED]')) {
+                handleActionCompletion('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer, pythonStatus, false);
+            } else if (message.includes('[FFMPEG_UNINSTALLATION_FINISHED]')) {
+                handleActionCompletion('ffmpeg', installFfmpegBtn, ffmpegInstallProgress, ffmpegProgressContainer, ffmpegStatus, false);
+            } else if (message.includes('[SPOTDL_UNINSTALLATION_FINISHED]')) {
+                handleActionCompletion('spotdl', installSpotdlBtn, spotdlInstallProgress, spotdlProgressContainer, spotdlStatus, false);
+            } else if (message.includes('[WHISPER_UNINSTALLATION_FINISHED]')) {
+                handleActionCompletion('whisper', installWhisperBtn, whisperInstallProgress, whisperProgressContainer, whisperStatus, false);
+            }
+            
+            // Handle installation/uninstallation progress messages
+            try {
+                const progressData = JSON.parse(message);
+                if (progressData.type === 'installation-progress') {
+                    updateActionProgress(progressData.component, progressData.progress, progressData.installing);
                 }
+            } catch (e) {
+                // Not a JSON progress message, ignore
             }
         };
         
-        socket.onopen = function () {
+        installationWebSocket.onopen = function () {
             console.log("Installation WebSocket connected.");
         };
         
-        socket.onclose = function () {
+        installationWebSocket.onclose = function () {
             console.log("Installation WebSocket disconnected.");
+            installationWebSocket = null;
         };
         
-        socket.onerror = function (error) {
+        installationWebSocket.onerror = function (error) {
             console.error("Installation WebSocket error:", error);
-            installOutput.value += `ERROR: WebSocket connection failed\r\n`;
+            showToast("WebSocket connection failed for installation updates", 'error');
         };
     }
+    
+    // Handle installation/uninstallation completion
+    function handleActionCompletion(component, button, progressBar, progressContainer, statusElement, isInstall) {
+        progressBar.value = 100;
+        button.disabled = false;
+        button.classList.remove('is-loading');
+        
+        // Update component state
+        componentStates[component] = isInstall;
+        
+        if (isInstall) {
+            // Installation completed
+            button.classList.remove('is-success');
+            button.classList.add('is-danger');
+            button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
+            
+            if (statusElement) {
+                statusElement.textContent = 'Installed';
+                statusElement.classList.remove('is-info');
+                statusElement.classList.add('is-success');
+            }
+            
+            showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} installed successfully!`, 'success');
+        } else {
+            // Uninstallation completed
+            button.classList.remove('is-danger');
+            button.classList.add('is-success');
+            button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
+            
+            if (statusElement) {
+                statusElement.textContent = 'Not installed';
+                statusElement.classList.remove('is-success');
+                statusElement.classList.remove('is-info');
+            }
+            
+            showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} removed successfully!`, 'info');
+        }
+        
+        // Hide progress bar after completion
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+        }, 1000);
+        
+        // Check if all components are installed
+        checkAllComponentsInstalled();
+    }
+    
+    // Update installation/uninstallation progress
+    function updateActionProgress(component, progress, isInstalling) {
+        const progressBar = document.getElementById(`${component}InstallProgress`);
+        const statusElement = document.getElementById(`${component}Status`);
+        
+        if (progressBar) {
+            progressBar.value = progress;
+        }
+        
+        if (statusElement) {
+            const action = isInstalling ? (componentStates[component] ? 'Uninstalling' : 'Installing') : '';
+            if (action) {
+                statusElement.textContent = `${action}... ${progress}%`;
+                statusElement.classList.add('is-info');
+                statusElement.classList.remove('is-success');
+            }
+        }
+    }
+    
+    // Check if all components are installed and refresh UI
+    async function checkAllComponentsInstalled() {
+        try {
+            const response = await fetch(`/api/import/status`);
+            const data = await response.json();
+            
+            if (response.ok && data.data && data.data.isAllInstalled) {
+                showToast("All components installed successfully! Import functionality is now available.", 'success');
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            }
+        } catch (error) {
+            console.error("Error checking installation status:", error);
+        }
+    }
+    
+    // Load initial installation status
+    async function loadInstallationStatus() {
+        try {
+            const response = await fetch(`/api/import/status`);
+            const data = await response.json();
+            
+            if (response.ok && data.data) {
+                const status = data.data;
+                
+                // Update Python status
+                updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatus);
+                
+                // Update FFmpeg status
+                updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatus);
+                
+                // Update SpotDL status
+                updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatus);
+                
+                // Update Whisper status
+                updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatus);
+                
+                // Update missing components list and dialog visibility
+                updateMissingComponentsDialog(status);
+            }
+        } catch (error) {
+            console.error("Error loading installation status:", error);
+        }
+    }
+    
+    // Update missing components dialog
+    function updateMissingComponentsDialog(status) {
+        if (!installationRequiredDialog || !missingComponentsList) return;
+        
+        const missingComponents = [];
+        
+        if (!status.pythonInstalled) {
+            missingComponents.push('<li><strong>Python ≤3.13.9</strong> (Required for audio processing)</li>');
+        }
+        if (!status.ffmpegInstalled) {
+            missingComponents.push('<li><strong>FFmpeg</strong> (For audio processing)</li>');
+        }
+        if (!status.spotdlInstalled) {
+            missingComponents.push('<li><strong>SpotDL</strong> (For music downloading)</li>');
+        }
+        if (!status.whisperInstalled) {
+            missingComponents.push('<li><strong>Whisper</strong> (For audio transcription)</li>');
+        }
+        
+        // Update the missing components list
+        missingComponentsList.innerHTML = missingComponents.join('');
+        
+        // Show/hide the notification based on whether components are missing
+        if (missingComponents.length === 0) {
+            // All components installed - hide the notification
+            installationRequiredDialog.style.display = 'none';
+        } else {
+            // Some components missing - show the notification
+            installationRequiredDialog.style.display = 'block';
+            
+            // Update the message to reflect how many are missing
+            const messageElement = installationRequiredDialog.querySelector('strong');
+            if (messageElement) {
+                if (missingComponents.length === 1) {
+                    messageElement.textContent = 'Import feature requires 1 additional installation.';
+                } else {
+                    messageElement.textContent = `Import features require ${missingComponents.length} additional installations.`;
+                }
+            }
+        }
+    }
+    
+    // Update individual component status
+    function updateComponentStatus(component, isInstalled, button, statusElement) {
+        componentStates[component] = isInstalled;
+        
+        if (isInstalled) {
+            button.disabled = false;
+            button.classList.remove('is-success');
+            button.classList.add('is-danger');
+            button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
+            
+            if (statusElement) {
+                statusElement.textContent = 'Installed';
+                statusElement.classList.add('is-success');
+            }
+        } else {
+            button.disabled = false;
+            button.classList.remove('is-danger');
+            button.classList.add('is-success');
+            button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
+            
+            if (statusElement) {
+                statusElement.textContent = 'Not installed';
+                statusElement.classList.remove('is-success');
+            }
+        }
+    }
+    
+    // Load installation status on page load
+    loadInstallationStatus();
     
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));

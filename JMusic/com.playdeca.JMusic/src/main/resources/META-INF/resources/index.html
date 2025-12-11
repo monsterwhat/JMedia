@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title id="pageTitle">JMusic Home</title>
+        <title id="pageTitle">JMedia Home</title>
 
         <script src="/js/theme-initializer.js"></script>
 
@@ -22,6 +22,26 @@
                 Alpine.store('profile', {
                     currentProfile: null,
                 });
+                
+                // Check if setup is needed
+                Alpine.store('setup', {
+                    async checkSetupStatus() {
+                        try {
+                            const response = await fetch('/api/setup/status');
+                            const result = await response.json();
+                            
+                            if (result.success && result.data.isFirstTimeSetup) {
+                                // Redirect to setup page
+                                window.location.href = '/setup.html';
+                            }
+                        } catch (error) {
+                            console.error('Error checking setup status:', error);
+                        }
+                    }
+                });
+                
+                // Check setup status on page load
+                Alpine.store('setup').checkSetupStatus();
             });
         </script>
 
@@ -65,7 +85,7 @@
             <div class="hero-head">
                 <nav class="navbar" role="navigation">
                     <div class="navbar-brand">
-                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMusic</strong></a>
+                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
@@ -257,7 +277,7 @@
                         <div id="mainPlaylistCard" class="card has-background-grey-darker has-text-white" data-playlist-id="0">
                             <header class="card-header">
                                 <p id="playlistTitle" class="card-header-title has-text-white is-4">All Songs</p>
-                                <button class="has-text-success ml-2" hx-post="/api/music/playback/queue-all/0" hx-trigger="click" hx-swap="none" hx-on::after-request="htmx.ajax('GET','/api/music/ui/queue-fragment',{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/songs-fragment',{target:'#songTable tbody', swap:'innerHTML'});">
+                                <button class="has-text-success ml-2" hx-trigger="click" hx-swap="none" hx-on::click="fetch('/api/music/playback/queue-all/'+globalActiveProfileId+'/0', {method: 'POST'}).then(() => { htmx.ajax('GET','/api/music/ui/queue-fragment/'+globalActiveProfileId,{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/songs-fragment/'+globalActiveProfileId,{target:'#songTable tbody', swap:'innerHTML'}); });">
                                     <i class="pi pi-play"></i>
                                 </button>
                                 <button class="card-header-icon" aria-label="more options" id="toggleAllSongsBtn">

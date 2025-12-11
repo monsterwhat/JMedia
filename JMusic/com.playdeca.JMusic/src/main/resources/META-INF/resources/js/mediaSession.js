@@ -11,7 +11,7 @@ if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
             title: songName,
             artist: artist,
-            album: 'JMusic', // You might want to get the actual album from musicState
+            album: 'JMedia', // You might want to get the actual album from musicState
             artwork: [
                 {src: artworkUrl, sizes: '96x96', type: 'image/png'},
                 {src: artworkUrl, sizes: '128x128', type: 'image/png'},

@@ -41,4 +41,60 @@ public class ImportController {
     public ImportInstallationStatus getInstallationStatus() {
         return importService.getInstallationStatus();
     }
+
+    /**
+     * Installs Python.
+     */
+    public void installPython(Long profileId) throws Exception {
+        importService.installPython(profileId);
+    }
+
+    /**
+     * Installs FFmpeg.
+     */
+    public void installFFmpeg(Long profileId) throws Exception {
+        importService.installFFmpeg(profileId);
+    }
+
+    /**
+     * Installs SpotDL.
+     */
+    public void installSpotdl(Long profileId) throws Exception {
+        importService.installSpotdl(profileId);
+    }
+
+    /**
+     * Installs Whisper.
+     */
+    public void installWhisper(Long profileId) throws Exception {
+        importService.installWhisper(profileId);
+    }
+
+    /**
+     * Uninstalls Python.
+     */
+    public void uninstallPython(Long profileId) throws Exception {
+        importService.uninstallPython(profileId);
+    }
+
+    /**
+     * Uninstalls FFmpeg.
+     */
+    public void uninstallFFmpeg(Long profileId) throws Exception {
+        importService.uninstallFFmpeg(profileId);
+    }
+
+    /**
+     * Uninstalls SpotDL.
+     */
+    public void uninstallSpotdl(Long profileId) throws Exception {
+        importService.uninstallSpotdl(profileId);
+    }
+
+    /**
+     * Uninstalls Whisper.
+     */
+    public void uninstallWhisper(Long profileId) throws Exception {
+        importService.uninstallWhisper(profileId);
+    }
 }

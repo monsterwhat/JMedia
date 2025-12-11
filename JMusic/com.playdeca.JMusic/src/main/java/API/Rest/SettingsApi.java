@@ -18,6 +18,8 @@ import java.util.concurrent.CompletableFuture;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import Models.DTOs.ImportSettingsDTO;
 import Services.SettingsService;
+import java.util.HashMap;
+import java.util.Map;
 
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
@@ -144,6 +146,36 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Video library path updated.")).build();
     }
     
+    // -----------------------------
+    // VALIDATE PATHS
+    // -----------------------------
+    @POST
+    @Path("/{profileId}/validate-paths")
+    public Response validatePaths(@PathParam("profileId") Long profileId, Map<String, String> paths) {
+        Map<String, Boolean> validation = new HashMap<>();
+        
+        String musicPath = paths.get("musicLibraryPath");
+        String videoPath = paths.get("videoLibraryPath");
+        
+        if (musicPath != null && !musicPath.isBlank()) {
+            validation.put("musicLibraryValid", validatePath(musicPath));
+        }
+        
+        if (videoPath != null && !videoPath.isBlank()) {
+            validation.put("videoLibraryValid", validatePath(videoPath));
+        }
+        
+        return Response.ok(ApiResponse.success(validation)).build();
+    }
+
+    private boolean validatePath(String path) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        java.io.File folder = new java.io.File(path);
+        return folder.exists() && folder.isDirectory();
+    }
+
     // -----------------------------
     // GET CURRENT SETTINGS
     // -----------------------------

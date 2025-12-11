@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title id="pageTitle">JMusic Videos</title>
+        <title id="pageTitle">JMedia Videos</title>
 
         <script src="/js/theme-initializer.js"></script>
 
@@ -89,7 +89,7 @@
             <div class="hero-head">
                 <nav class="navbar" role="navigation">
                     <div class="navbar-brand">
-                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMusic</strong></a>
+                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
@@ -157,19 +157,19 @@
                     <!-- Video List Sidebar -->
                     <div class="column is-4 is-full-mobile" id="videoListSidebar"
                          x-data="{ 
-                             activeVideoTab: localStorage.getItem('jmusic_videoTab') || 'shows',
-                             showsPage: parseInt(localStorage.getItem('jmusic_showsPage') || '1'),
-                             moviesPage: parseInt(localStorage.getItem('jmusic_moviesPage') || '1'),
+                              activeVideoTab: localStorage.getItem('jmedia_videoTab') || 'shows',
+                              showsPage: parseInt(localStorage.getItem('jmedia_showsPage') || '1'),
+                              moviesPage: parseInt(localStorage.getItem('jmedia_moviesPage') || '1'),
                              init() {
                                  // Load initial tab state
-                                 this.activeVideoTab = localStorage.getItem('jmusic_videoTab') || 'shows';
-                                 // Load initial page states
-                                 this.showsPage = parseInt(localStorage.getItem('jmusic_showsPage') || '1');
-                                 this.moviesPage = parseInt(localStorage.getItem('jmusic_moviesPage') || '1');
+                                  this.activeVideoTab = localStorage.getItem('jmedia_videoTab') || 'shows';
+                                  // Load initial page states
+                                  this.showsPage = parseInt(localStorage.getItem('jmedia_showsPage') || '1');
+                                  this.moviesPage = parseInt(localStorage.getItem('jmedia_moviesPage') || '1');
 
                                  // Watch for tab changes and save
                                  this.$watch('activeVideoTab', value => {
-                                     localStorage.setItem('jmusic_videoTab', value);
+                                      localStorage.setItem('jmedia_videoTab', value);
                                      // When tab changes, trigger HTMX load for that tab's content
                                      this.$nextTick(() => {
                                          if (value === 'shows') {
@@ -189,10 +189,10 @@
                              setPage(tab, page) {
                                  if (tab === 'shows') {
                                      this.showsPage = page;
-                                     localStorage.setItem('jmusic_showsPage', page);
+                                      localStorage.setItem('jmedia_showsPage', page);
                                  } else if (tab === 'movies') {
                                      this.moviesPage = page;
-                                     localStorage.setItem('jmusic_moviesPage', page);
+                                      localStorage.setItem('jmedia_moviesPage', page);
                                  }
                                  // Re-trigger HTMX to load the new page
                                  this.$nextTick(() => {
@@ -348,9 +348,9 @@
                 if (pageParam) {
                     const pageNumber = parseInt(pageParam);
                     if (url.pathname.includes('/shows-fragment')) {
-                        localStorage.setItem('jmusic_showsPage', pageNumber);
+                        localStorage.setItem('jmedia_showsPage', pageNumber);
                     } else if (url.pathname.includes('/movies-fragment')) {
-                        localStorage.setItem('jmusic_moviesPage', pageNumber);
+                        localStorage.setItem('jmedia_moviesPage', pageNumber);
                     }
                 }
             });

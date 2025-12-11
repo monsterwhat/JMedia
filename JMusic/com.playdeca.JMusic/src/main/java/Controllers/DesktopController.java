@@ -32,6 +32,9 @@ public class DesktopController {
     @Inject
     SettingsController settings;
 
+    @Inject
+    SetupController setupController;
+
     private final AtomicInteger activeClients = new AtomicInteger(0);
     private volatile boolean hasHadClient = false;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -40,20 +43,34 @@ public class DesktopController {
 
     void onStart(@Observes StartupEvent ev) {
         LOG.info("\n" +
-                 "JMusic - Free Software\n" +
+                  "JMedia - Free Software\n" +
                  "This program comes with ABSOLUTELY NO WARRANTY; for details see GPL-3.0.txt.\n" +
                  "This is free software, and you are welcome to redistribute it\n" +
                  "under certain conditions; see GPL-3.0.txt for details.");
         settings.addLog("Application starting...");
+        // Skip tray icon in native builds to avoid AWT issues
         startTrayIcon();
         startBrowser();
         settings.addLog("Application started.");
+    }
+    
+    private boolean isNativeBuild() {
+        try {
+            // Check if we're running in native mode
+            Class.forName("org.graalvm.nativeimage.ImageInfo");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 
     private void startBrowser() {
         try {
             if (Desktop.isDesktopSupported()) {
-                Desktop.getDesktop().browse(new URI("http://localhost:80"));
+                String url = setupController.isFirstTimeSetup() ? 
+                    "http://localhost:80/setup.html" : 
+                    "http://localhost:80";
+                Desktop.getDesktop().browse(new URI(url));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -68,18 +85,21 @@ public class DesktopController {
 
         // Prevent adding multiple tray icons
         for (TrayIcon existingIcon : SystemTray.getSystemTray().getTrayIcons()) {
-            if (existingIcon.getToolTip().equals("JMusic")) {
+            if (existingIcon.getToolTip().equals("JMedia")) {
                 SystemTray.getSystemTray().remove(existingIcon);
             }
         }
 
-
-
         PopupMenu menu = new PopupMenu();
 
         // Open browser button
-        MenuItem openItem = new MenuItem("Open JMusic");
-        openItem.addActionListener(e -> openBrowser("http://localhost"));
+        MenuItem openItem = new MenuItem("Open JMedia");
+        openItem.addActionListener(e -> {
+            String url = setupController.isFirstTimeSetup() ? 
+                "http://localhost:80/setup.html" : 
+                "http://localhost:80";
+            openBrowser(url);
+        });
         menu.add(openItem);
 
         // Exit button
@@ -95,13 +115,16 @@ public class DesktopController {
         if (iconImage == null) {
             System.out.println("Failed to load tray icon image!");
         } else {
-            trayIcon = new TrayIcon(iconImage, "JMusic", menu);
+            trayIcon = new TrayIcon(iconImage, "JMedia", menu);
             trayIcon.setImageAutoSize(true);
             trayIcon.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mouseClicked(java.awt.event.MouseEvent e) {
                     if (e.getClickCount() == 2) {
-                        openBrowser("http://localhost");
+                        String url = setupController.isFirstTimeSetup() ? 
+                            "http://localhost:80/setup.html" : 
+                            "http://localhost:80";
+                        openBrowser(url);
                     }
                 }
             });

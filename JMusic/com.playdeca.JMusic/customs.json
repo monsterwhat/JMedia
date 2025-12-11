@@ -12,7 +12,10 @@
             "context": "div"
         },
         "@click": {
-            "context": "th"
+            "context": "button"
+        },
+        ":style": {
+            "context": "div"
         },
         "x-show": {},
         "x-model": {}

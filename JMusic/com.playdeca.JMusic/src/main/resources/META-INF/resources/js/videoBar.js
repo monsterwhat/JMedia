@@ -22,12 +22,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const subtitlesBtn = document.getElementById('subtitlesBtn');
 
     // localStorage Keys
-    const LAST_PLAYED_VIDEO_KEY = 'jmusic_lastPlayedVideo';
-    const VOLUME_KEY = 'jmusic_videoVolume';
-    const LAST_TAB_KEY = 'jmusic_videoTab';
-    const SHOWS_PAGE_KEY = 'jmusic_showsPage';
-    const MOVIES_PAGE_KEY = 'jmusic_moviesPage';
-    const PLAYBACK_SPEED_KEY = 'jmusic_playbackSpeed';
+    const LAST_PLAYED_VIDEO_KEY = 'jmedia_lastPlayedVideo';
+    const VOLUME_KEY = 'jmedia_videoVolume';
+    const LAST_TAB_KEY = 'jmedia_videoTab';
+    const SHOWS_PAGE_KEY = 'jmedia_showsPage';
+    const MOVIES_PAGE_KEY = 'jmedia_moviesPage';
+    const PLAYBACK_SPEED_KEY = 'jmedia_playbackSpeed';
 
     let isDraggingProgressBar = false;
     let isDraggingVolumeBar = false;

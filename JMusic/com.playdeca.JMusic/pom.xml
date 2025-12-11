@@ -5,8 +5,8 @@
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.playdeca.jmusic</groupId>
-    <artifactId>JMusic</artifactId>
+    <groupId>com.playdeca.jmedia</groupId>
+    <artifactId>JMedia</artifactId>
     <version>1.0</version>
     <packaging>jar</packaging>
 
@@ -57,7 +57,7 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-qute</artifactId>
-        </dependency> 
+        </dependency>
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -87,7 +87,7 @@
 
 
     <build>
-        <finalName>JMusic</finalName>
+        <finalName>JMedia</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -141,6 +141,7 @@
                             </execution>
                         </executions>
                         <configuration>
+                            <graalvmHome>C:\Program Files\GraalVM\graalvm-community-openjdk-25.0.1+8.1</graalvmHome>
                             <nativeImageBuildArgs>
                                 <arg>-H:+ReportExceptionStackTraces</arg>
                                 <arg>-J-Xmx4G</arg>

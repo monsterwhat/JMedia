@@ -552,11 +552,12 @@ public class ImportService {
     }
 
     public ImportInstallationStatus getInstallationStatus() {
-
+        LOGGER.info("Starting library installation status detection...");
+        
         boolean pythonInstalled = false;
         String pythonMessage = "";
-        boolean importInstalled = false;
-        String importMessage = "";
+        boolean spotdlInstalled = false;
+        String spotdlMessage = "";
         boolean ffmpegInstalled = false;
         String ffmpegMessage = "";
         boolean whisperInstalled = false;
@@ -569,6 +570,7 @@ public class ImportService {
         boolean microsoftStoreAliasDetected = false;
 
         // Attempt 1: Try 'python --version'
+        LOGGER.info("Attempting Python detection with command: python --version");
         try {
             ProcessBuilder pb = new ProcessBuilder("python", "--version");
             pb.redirectErrorStream(true);
@@ -594,11 +596,13 @@ public class ImportService {
                 pythonExecutable = "python";
                 pythonInstalled = true;
                 pythonMessage = "Python found: " + pythonVersionOutput.trim();
+                LOGGER.info("Python detection successful using 'python' command. Exit code: {}, Output: {}", pythonExitCode, pythonVersionOutput.trim());
             } else {
                 if (pythonVersionOutput.contains("Microsoft Store") || pythonVersionOutput.contains("App execution aliases")) {
                     microsoftStoreAliasDetected = true;
+                    LOGGER.warn("Microsoft Store alias detected during Python detection");
                 }
-                LOGGER.warn("Attempted 'python --version' failed. Output: {}", pythonVersionOutput.trim());
+                LOGGER.warn("Python detection failed with 'python' command. Exit code: {}, Output: {}", pythonExitCode, pythonVersionOutput.trim());
             }
         } catch (IOException e) {
             LOGGER.warn("Failed to execute 'python --version'.", e);
@@ -654,7 +658,8 @@ public class ImportService {
             LOGGER.info("Python check passed using '{}'.", pythonExecutable);
         }
 
-        // Check for spotdl
+        // Check for spotdl - try direct command first, then fall back to Python module
+        LOGGER.info("Attempting SpotDL detection with command: spotdl --version");
         try {
             Process importProcess = new ProcessBuilder("spotdl", "--version").redirectErrorStream(true).start();
             StringBuilder output = new StringBuilder();
@@ -667,21 +672,52 @@ public class ImportService {
             int exitCode = importProcess.waitFor();
 
             if (exitCode == 0) {
-                importInstalled = true;
-                importMessage = "SpotDL found: " + output.toString().trim();
+                spotdlInstalled = true;
+                spotdlMessage = "SpotDL found: " + output.toString().trim();
+                LOGGER.info("SpotDL detection successful using direct command. Exit code: {}, Output: {}", exitCode, output.toString().trim());
             } else {
-                importMessage = "SpotDL is not installed or not found in PATH. Please install SpotDL (pip install spotdl). Output: " + output.toString();
+                spotdlMessage = "SpotDL is not installed or not found in PATH. Please install SpotDL (pip install spotdl). Output: " + output.toString();
+                LOGGER.warn("SpotDL detection failed with direct command. Exit code: {}, Output: {}", exitCode, output.toString().trim());
             }
-            LOGGER.info("SpotDL check passed: {}", output.toString().trim());
         } catch (IOException e) {
-            importMessage = "Failed to execute 'spotdl --version'. SpotDL might not be installed or configured correctly. Error: " + e.getMessage();
-            LOGGER.warn(importMessage, e);
+            // Fallback to Python module if direct command fails
+            if (pythonInstalled) {
+                try {
+                    Process importProcess = new ProcessBuilder(pythonExecutable, "-m", "spotdl", "--version").redirectErrorStream(true).start();
+                    StringBuilder output = new StringBuilder();
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(importProcess.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            output.append(line).append(System.lineSeparator());
+                        }
+                    }
+                    int exitCode = importProcess.waitFor();
+
+                    if (exitCode == 0) {
+                        spotdlInstalled = true;
+                        spotdlMessage = "SpotDL found as Python module: " + output.toString().trim();
+                        LOGGER.info("SpotDL check passed using Python module: {}", output.toString().trim());
+                    } else {
+                        spotdlMessage = "SpotDL is not installed or not found. Please install SpotDL (pip install spotdl). Output: " + output.toString();
+                    }
+                } catch (IOException | InterruptedException ex) {
+                    spotdlMessage = "Failed to execute 'spotdl --version' both as direct command and Python module. SpotDL might not be installed or configured correctly. Error: " + e.getMessage();
+                    LOGGER.warn(spotdlMessage, ex);
+                    if (ex instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            } else {
+                spotdlMessage = "Failed to execute 'spotdl --version'. SpotDL might not be installed or configured correctly. Error: " + e.getMessage();
+                LOGGER.warn(spotdlMessage, e);
+            }
         } catch (InterruptedException ex) {
             LOGGER.error("Interrupted while waiting for spotdl process", ex);
             Thread.currentThread().interrupt();
         }
 
         // Check for ffmpeg
+        LOGGER.info("Attempting FFmpeg detection with command: ffmpeg -version");
         try {
             Process ffmpegProcess = new ProcessBuilder("ffmpeg", "-version").redirectErrorStream(true).start();
             StringBuilder output = new StringBuilder();
@@ -696,10 +732,11 @@ public class ImportService {
             if (exitCode == 0) {
                 ffmpegInstalled = true;
                 ffmpegMessage = "FFmpeg found: " + output.toString().trim().split("\n")[0];
+                LOGGER.info("FFmpeg detection successful. Exit code: {}, Output: {}", exitCode, output.toString().trim().split("\n")[0]);
             } else {
                 ffmpegMessage = "FFmpeg is not installed or not found in PATH. Please install FFmpeg. Output: " + output.toString();
+                LOGGER.warn("FFmpeg detection failed. Exit code: {}, Output: {}", exitCode, output.toString().trim());
             }
-            LOGGER.info("FFmpeg check passed: {}", output.toString().trim().split("\n")[0]);
         } catch (IOException e) {
             ffmpegMessage = "Failed to execute 'ffmpeg -version'. FFmpeg might not be installed or configured correctly. Error: " + e.getMessage();
             LOGGER.warn(ffmpegMessage, e);
@@ -708,7 +745,8 @@ public class ImportService {
             Thread.currentThread().interrupt();
         }
 
-        // Check for whisper
+        // Check for whisper using Python module
+        LOGGER.info("Attempting Whisper detection using Python module");
         try {
             ProcessBuilder whisperPb;
             List<String> command = new ArrayList<>();
@@ -717,11 +755,13 @@ public class ImportService {
                 command.add("-m");
                 command.add("whisper");
                 command.add("-h"); // Using -h for help
+                LOGGER.info("Whisper detection command: {} -m whisper -h", pythonExecutable);
             } else {
                 // Fallback to checking whisper directly if python executable is not determined
                 command.add("whisper");
                 command.add("-h");
-            }
+                LOGGER.warn("Python executable not found, trying direct whisper command");
+                }
             whisperPb = new ProcessBuilder(command);
             whisperPb.environment().put("PYTHONIOENCODING", "UTF-8");
 
@@ -741,13 +781,13 @@ public class ImportService {
             if (exitCode == 0 && outputString.toLowerCase().contains("usage:")) {
                 whisperInstalled = true;
                 whisperMessage = "Whisper found.";
-                LOGGER.info("Whisper check passed.");
+                LOGGER.info("Whisper detection successful. Exit code: {}, Output contains usage: {}", exitCode, outputString.toLowerCase().contains("usage:"));
             } else {
                 whisperMessage = "Whisper is not installed or not found in PATH. Please install OpenAI's Whisper (pip install openai-whisper).";
                 if (!outputString.trim().isEmpty()) {
                     whisperMessage += " Output: " + outputString.trim();
                 }
-                LOGGER.warn("Whisper check failed. Exit code: {}. Output: {}", exitCode, outputString.trim());
+                LOGGER.warn("Whisper detection failed. Exit code: {}, Contains usage: {}, Output: {}", exitCode, outputString.toLowerCase().contains("usage:"), outputString.trim());
             }
         } catch (IOException e) {
             whisperMessage = "Failed to execute whisper check. Whisper might not be installed or configured correctly. Error: " + e.getMessage();
@@ -757,7 +797,14 @@ public class ImportService {
             Thread.currentThread().interrupt();
         }
 
-        return new ImportInstallationStatus(pythonInstalled, importInstalled, ffmpegInstalled, whisperInstalled, pythonMessage, importMessage, ffmpegMessage, whisperMessage);
+        // Log final detection results
+        LOGGER.info("Library installation status detection completed:");
+        LOGGER.info("  Python: {} - {}", pythonInstalled ? "INSTALLED" : "NOT INSTALLED", pythonMessage);
+        LOGGER.info("  SpotDL: {} - {}", spotdlInstalled ? "INSTALLED" : "NOT INSTALLED", spotdlMessage);
+        LOGGER.info("  FFmpeg: {} - {}", ffmpegInstalled ? "INSTALLED" : "NOT INSTALLED", ffmpegMessage);
+        LOGGER.info("  Whisper: {} - {}", whisperInstalled ? "INSTALLED" : "NOT INSTALLED", whisperMessage);
+
+        return new ImportInstallationStatus(pythonInstalled, spotdlInstalled, ffmpegInstalled, whisperInstalled, pythonMessage, spotdlMessage, ffmpegMessage, whisperMessage);
     }
 
     public void installRequirements(Long profileId) throws Exception {
@@ -791,72 +838,152 @@ public class ImportService {
         broadcast("[INSTALLATION_FINISHED]", profileId);
     }
 
-    private void installPython(Long profileId) throws Exception {
-        broadcast("Downloading Python installer...\n", profileId);
+    public void installPython(Long profileId) throws Exception {
+        broadcastInstallationProgress("python", 0, true, profileId);
+        broadcast("Installing Python via Chocolatey...\n", profileId);
         
-        // Download Python using PowerShell
-        String downloadScript = "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.13.9/python-3.13.9-amd64.exe' -OutFile '$env:TEMP\\python-installer.exe'";
-        executePowerShellCommand(downloadScript, profileId);
+        // Try Chocolatey first, fallback to manual installer
+        String chocoInstallScript = "choco install python --version=3.13.9 -y";
+        try {
+            executePowerShellCommand(chocoInstallScript, profileId);
+            broadcastInstallationProgress("python", 100, false, profileId);
+            broadcast("Python installation completed via Chocolatey\n", profileId);
+        } catch (Exception e) {
+            broadcast("Chocolatey not available, downloading Python installer...\n", profileId);
+            broadcastInstallationProgress("python", 25, true, profileId);
+            
+            // Download Python using PowerShell
+            String downloadScript = "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.13.9/python-3.13.9-amd64.exe' -OutFile '$env:TEMP\\python-installer.exe'";
+            executePowerShellCommand(downloadScript, profileId);
+            
+            broadcastInstallationProgress("python", 50, true, profileId);
+            broadcast("Installing Python (this may take a few minutes)...\n", profileId);
+            
+            // Install Python silently with all users and add to PATH
+            String installScript = "Start-Process -FilePath '$env:TEMP\\python-installer.exe' -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait";
+            executePowerShellCommand(installScript, profileId);
+            
+            // Clean up
+            executePowerShellCommand("Remove-Item '$env:TEMP\\python-installer.exe' -ErrorAction SilentlyContinue", profileId);
+            
+            broadcastInstallationProgress("python", 100, false, profileId);
+            broadcast("Python installation completed via manual installer\n", profileId);
+        }
         
-        broadcast("Installing Python (this may take a few minutes)...\n", profileId);
-        
-        // Install Python silently with all users and add to PATH
-        String installScript = "Start-Process -FilePath '$env:TEMP\\python-installer.exe' -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 Include_test=0' -Wait";
-        executePowerShellCommand(installScript, profileId);
-        
-        // Clean up
-        executePowerShellCommand("Remove-Item '$env:TEMP\\python-installer.exe' -ErrorAction SilentlyContinue", profileId);
-        
-        broadcast("Python installation completed\n", profileId);
+        broadcast("[PYTHON_INSTALLATION_FINISHED]", profileId);
     }
 
-    private void installFFmpeg(Long profileId) throws Exception {
-        broadcast("Downloading FFmpeg...\n", profileId);
+    public void installFFmpeg(Long profileId) throws Exception {
+        broadcastInstallationProgress("ffmpeg", 0, true, profileId);
+        broadcast("Installing FFmpeg via Chocolatey...\n", profileId);
         
-        // Download FFmpeg using PowerShell
-        String downloadScript = "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile '$env:TEMP\\ffmpeg.zip'";
-        executePowerShellCommand(downloadScript, profileId);
+        // Try Chocolatey first, fallback to manual installation
+        String chocoInstallScript = "choco install ffmpeg -y";
+        try {
+            executePowerShellCommand(chocoInstallScript, profileId);
+            broadcastInstallationProgress("ffmpeg", 100, false, profileId);
+            broadcast("FFmpeg installation completed via Chocolatey\n", profileId);
+        } catch (Exception e) {
+            broadcast("Chocolatey not available, downloading FFmpeg manually...\n", profileId);
+            broadcastInstallationProgress("ffmpeg", 25, true, profileId);
+            
+            // Download FFmpeg using PowerShell
+            String downloadScript = "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile '$env:TEMP\\ffmpeg.zip'";
+            executePowerShellCommand(downloadScript, profileId);
+            
+            broadcastInstallationProgress("ffmpeg", 50, true, profileId);
+            broadcast("Extracting FFmpeg...\n", profileId);
+            
+            // Extract FFmpeg
+            String extractScript = "Expand-Archive -Path '$env:TEMP\\ffmpeg.zip' -DestinationPath '$env:TEMP\\ffmpeg' -Force";
+            executePowerShellCommand(extractScript, profileId);
+            
+            broadcastInstallationProgress("ffmpeg", 75, true, profileId);
+            broadcast("Installing FFmpeg to system...\n", profileId);
+            
+            // Move FFmpeg to Program Files and add to PATH
+            String installScript = "New-Item -Path 'C:\\Program Files\\FFmpeg' -ItemType Directory -Force; " +
+                                  "Get-ChildItem '$env:TEMP\\ffmpeg\\ffmpeg-*' | ForEach-Object { Move-Item $_.FullName 'C:\\Program Files\\FFmpeg\\bin' -Force }; " +
+                                  "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';C:\\Program Files\\FFmpeg\\bin', 'Machine')";
+            executePowerShellCommand(installScript, profileId);
+            
+            // Clean up
+            executePowerShellCommand("Remove-Item '$env:TEMP\\ffmpeg.zip' -ErrorAction SilentlyContinue; Remove-Item '$env:TEMP\\ffmpeg' -Recurse -ErrorAction SilentlyContinue", profileId);
+            
+            broadcastInstallationProgress("ffmpeg", 100, false, profileId);
+            broadcast("FFmpeg installation completed via manual installer\n", profileId);
+        }
         
-        broadcast("Extracting FFmpeg...\n", profileId);
-        
-        // Extract FFmpeg
-        String extractScript = "Expand-Archive -Path '$env:TEMP\\ffmpeg.zip' -DestinationPath '$env:TEMP\\ffmpeg' -Force";
-        executePowerShellCommand(extractScript, profileId);
-        
-        broadcast("Installing FFmpeg to system...\n", profileId);
-        
-        // Move FFmpeg to Program Files and add to PATH
-        String installScript = "New-Item -Path 'C:\\Program Files\\FFmpeg' -ItemType Directory -Force; " +
-                              "Get-ChildItem '$env:TEMP\\ffmpeg\\ffmpeg-*' | ForEach-Object { Move-Item $_.FullName 'C:\\Program Files\\FFmpeg\\bin' -Force }; " +
-                              "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';C:\\Program Files\\FFmpeg\\bin', 'Machine')";
-        executePowerShellCommand(installScript, profileId);
-        
-        // Clean up
-        executePowerShellCommand("Remove-Item '$env:TEMP\\ffmpeg.zip' -ErrorAction SilentlyContinue; Remove-Item '$env:TEMP\\ffmpeg' -Recurse -ErrorAction SilentlyContinue", profileId);
-        
-        broadcast("FFmpeg installation completed\n", profileId);
+        broadcast("[FFMPEG_INSTALLATION_FINISHED]", profileId);
     }
 
-    private void installSpotdl(Long profileId) throws Exception {
+    public void installSpotdl(Long profileId) throws Exception {
+        broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Installing SpotDL via pip...\n", profileId);
         
-        // Install SpotDL using pip
-        String installScript = "pip install spotdl";
+        // Try to find Python executable and use python -m pip
+        String pythonExecutable = findPythonExecutable();
+        String installScript = pythonExecutable + " -m pip install spotdl";
         executeCommand(installScript, profileId);
         
+        broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL installation completed\n", profileId);
+        broadcast("[SPOTDL_INSTALLATION_FINISHED]", profileId);
     }
 
-    private void installWhisper(Long profileId) throws Exception {
+    public void installWhisper(Long profileId) throws Exception {
+        broadcastInstallationProgress("whisper", 0, true, profileId);
         broadcast("Installing Whisper via pip...\n", profileId);
         
-        // Install Whisper using pip
-        String installScript = "pip install openai-whisper";
+        // Try to find Python executable and use python -m pip
+        String pythonExecutable = findPythonExecutable();
+        String installScript = pythonExecutable + " -m pip install openai-whisper";
         executeCommand(installScript, profileId);
         
+        broadcastInstallationProgress("whisper", 100, false, profileId);
         broadcast("Whisper installation completed\n", profileId);
+        broadcast("[WHISPER_INSTALLATION_FINISHED]", profileId);
     }
 
+    private String findPythonExecutable() throws Exception {
+        // Try different Python executables in order of preference
+        String[] pythonExecutables = {"python", "py", "python3", "python3.13"};
+        
+        for (String executable : pythonExecutables) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(executable, "--version");
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                
+                StringBuilder output = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        output.append(line).append("\n");
+                    }
+                }
+                
+                int exitCode = process.waitFor();
+                if (exitCode == 0) {
+                    LOGGER.info("Found Python executable: {}", executable);
+                    return executable;
+                }
+            } catch (Exception e) {
+                LOGGER.debug("Python executable {} not available: {}", executable, e.getMessage());
+            }
+        }
+        
+        throw new Exception("Python executable not found. Please ensure Python is installed and available in PATH.");
+    }
+
+    private void broadcastInstallationProgress(String component, int progress, boolean isInstalling, Long profileId) {
+        String progressMessage = String.format(
+            "{\"type\": \"installation-progress\", \"component\": \"%s\", \"progress\": %d, \"installing\": %s}\n",
+            component, progress, isInstalling
+        );
+        importStatusSocket.broadcast(progressMessage, profileId);
+    }
+  
     private void executePowerShellCommand(String command, Long profileId) throws Exception {
         ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-Command", command);
         pb.redirectErrorStream(true);
@@ -917,5 +1044,67 @@ public class ImportService {
             }
             throw new Exception(errorMessage.toString());
         }
+    }
+
+    public void uninstallPython(Long profileId) throws Exception {
+        broadcastInstallationProgress("python", 0, true, profileId);
+        broadcast("Uninstalling Python...\n", profileId);
+        
+        // Uninstall Python using PowerShell
+        String uninstallScript = "Get-WmiObject -Class Win32_Product | Where-Object {$_.Name -like '*Python*'} | ForEach-Object { $_.Uninstall() }";
+        executePowerShellCommand(uninstallScript, profileId);
+        
+        // Remove Python from PATH
+        String removeFromPathScript = "[Environment]::SetEnvironmentVariable('Path', ([Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';' | Where-Object { $_ -notlike '*Python*' }) -join ';', 'Machine')";
+        executePowerShellCommand(removeFromPathScript, profileId);
+        
+        broadcastInstallationProgress("python", 100, false, profileId);
+        broadcast("Python uninstallation completed\n", profileId);
+        broadcast("[PYTHON_UNINSTALLATION_FINISHED]", profileId);
+    }
+
+    public void uninstallFFmpeg(Long profileId) throws Exception {
+        broadcastInstallationProgress("ffmpeg", 0, true, profileId);
+        broadcast("Uninstalling FFmpeg...\n", profileId);
+        
+        // Remove FFmpeg directory
+        String removeScript = "Remove-Item 'C:\\Program Files\\FFmpeg' -Recurse -Force -ErrorAction SilentlyContinue";
+        executePowerShellCommand(removeScript, profileId);
+        
+        // Remove FFmpeg from PATH
+        String removeFromPathScript = "[Environment]::SetEnvironmentVariable('Path', ([Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';' | Where-Object { $_ -notlike '*FFmpeg*' }) -join ';', 'Machine')";
+        executePowerShellCommand(removeFromPathScript, profileId);
+        
+        broadcastInstallationProgress("ffmpeg", 100, false, profileId);
+        broadcast("FFmpeg uninstallation completed\n", profileId);
+        broadcast("[FFMPEG_UNINSTALLATION_FINISHED]", profileId);
+    }
+
+    public void uninstallSpotdl(Long profileId) throws Exception {
+        broadcastInstallationProgress("spotdl", 0, true, profileId);
+        broadcast("Uninstalling SpotDL...\n", profileId);
+        
+        // Try to find Python executable and use python -m pip
+        String pythonExecutable = findPythonExecutable();
+        String uninstallScript = pythonExecutable + " -m pip uninstall spotdl -y";
+        executeCommand(uninstallScript, profileId);
+        
+        broadcastInstallationProgress("spotdl", 100, false, profileId);
+        broadcast("SpotDL uninstallation completed\n", profileId);
+        broadcast("[SPOTDL_UNINSTALLATION_FINISHED]", profileId);
+    }
+
+    public void uninstallWhisper(Long profileId) throws Exception {
+        broadcastInstallationProgress("whisper", 0, true, profileId);
+        broadcast("Uninstalling Whisper...\n", profileId);
+        
+        // Try to find Python executable and use python -m pip
+        String pythonExecutable = findPythonExecutable();
+        String uninstallScript = pythonExecutable + " -m pip uninstall openai-whisper -y";
+        executeCommand(uninstallScript, profileId);
+        
+        broadcastInstallationProgress("whisper", 100, false, profileId);
+        broadcast("Whisper uninstallation completed\n", profileId);
+        broadcast("[WHISPER_UNINSTALLATION_FINISHED]", profileId);
     }
 }

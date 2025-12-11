@@ -202,6 +202,18 @@ body {
     opacity: 0.7; /* Make placeholder slightly lighter than regular text */
 }
 
+    /* Feature card navigation buttons */
+    .is-outlined {
+        background-color: transparent;
+        border: 1px solid var(--text-color);
+        color: var(--text-color);
+    }
+
+    .is-outlined:hover {
+        background-color: var(--text-color);
+        color: var(--card-background);
+    }
+
 input[type="range"] {
     accent-color: #48c78e; /* Bulma's 'success' green */
 }

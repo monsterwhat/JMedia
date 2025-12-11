@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title id="pageTitle">JMusic Settings</title>
+        <title id="pageTitle">JMedia Settings</title>
 
         <script src="/js/theme-initializer.js"></script>
 
@@ -65,7 +65,7 @@
             <div class="hero-head">
                 <nav class="navbar" role="navigation">
                     <div class="navbar-brand">
-                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMusic</strong></a>
+                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
@@ -254,11 +254,11 @@
                                     </div>
 
                                     <!-- Import Installation Card -->
-                                    <div class="column is-one-third is-hidden" id="importInstallationCardColumn">
+                                    <div class="column is-one-third" id="importInstallationCardColumn">
                                         <div class="card has-background-grey-darker has-text-white" id="importInstallationCard">
                                             <header class="card-header">
                                                 <p class="card-header-title has-text-white">
-                                                    Import Installation Required
+                                                    Import Installation
                                                 </p>
                                                 <button class="card-header-icon" aria-label="more options" id="toggleImportInstallationBtn">
                                                     <span class="icon">
@@ -267,22 +267,89 @@
                                                 </button>
                                             </header>
                                             <div class="card-content" id="importInstallationContent">
-                                                <div class="notification is-warning is-light">
+                                                <div class="notification is-warning is-light" id="installationRequiredDialog">
                                                     <strong>Import features require additional installations.</strong>
                                                     <p class="mb-3">The following components need to be installed to enable music import functionality:</p>
-                                                    <ul class="mb-4">
-                                                        <li><strong>Python ≤3.13.9</strong> (Required for Whisper)</li>
-                                                        <li><strong>FFmpeg</strong> (For audio processing)</li>
-                                                        <li><strong>SpotDL</strong> (For music downloading)</li>
+                                                    <ul class="mb-4" id="missingComponentsList">
+                                                        <!-- Components will be dynamically added here -->
                                                     </ul>
-                                                    <p class="is-size-7">Note: Python can be installed via Chocolatey, then SpotDL and FFmpeg can be installed via pip or Chocolatey on Windows.</p>
+                                                    <p class="is-size-7">Note: On Windows, Python and FFmpeg are installed via Chocolatey, then SpotDL and Whisper via pip (Python).</p>
                                                 </div>
                                                 
-                                                <div class="field">
-                                                    <button id="installRequirementsBtn" class="button is-primary is-large is-fullwidth">
-                                                        <i class="pi pi-download mr-2"></i>
-                                                        Install Requirements
-                                                    </button>
+                                                <!-- Python Installation -->
+                                                <div class="field mb-3">
+                                                    <div class="level is-mobile">
+                                                        <div class="level-left">
+                                                            <label class="label has-text-white mb-0">Python</label>
+                                                        </div>
+                                                        <div class="level-right">
+                                                            <button id="installPythonBtn" class="button is-success is-rounded is-small">
+                                                                <i class="pi pi-download mr-1"></i>
+                                                                Install Python
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-2" id="pythonProgressContainer" style="display: none;">
+                                                        <progress id="pythonInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                                    </div>
+                                                    <p id="pythonStatus" class="help is-size-7 mt-2">Not installed</p>
+                                                </div>
+                                                
+                                                <!-- FFmpeg Installation -->
+                                                <div class="field mb-3">
+                                                    <div class="level is-mobile">
+                                                        <div class="level-left">
+                                                            <label class="label has-text-white mb-0">FFmpeg</label>
+                                                        </div>
+                                                        <div class="level-right">
+                                                            <button id="installFfmpegBtn" class="button is-success is-rounded is-small">
+                                                                <i class="pi pi-download mr-1"></i>
+                                                                Install FFmpeg
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-2" id="ffmpegProgressContainer" style="display: none;">
+                                                        <progress id="ffmpegInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                                    </div>
+                                                    <p id="ffmpegStatus" class="help is-size-7 mt-2">Not installed</p>
+                                                </div>
+                                                
+                                                <!-- SpotDL Installation -->
+                                                <div class="field mb-3">
+                                                    <div class="level is-mobile">
+                                                        <div class="level-left">
+                                                            <label class="label has-text-white mb-0">SpotDL</label>
+                                                        </div>
+                                                        <div class="level-right">
+                                                            <button id="installSpotdlBtn" class="button is-success is-rounded is-small">
+                                                                <i class="pi pi-download mr-1"></i>
+                                                                Install SpotDL
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-2" id="spotdlProgressContainer" style="display: none;">
+                                                        <progress id="spotdlInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                                    </div>
+                                                    <p id="spotdlStatus" class="help is-size-7 mt-2">Not installed</p>
+                                                </div>
+                                                
+                                                <!-- Whisper Installation -->
+                                                <div class="field mb-3">
+                                                    <div class="level is-mobile">
+                                                        <div class="level-left">
+                                                            <label class="label has-text-white mb-0">Whisper</label>
+                                                        </div>
+                                                        <div class="level-right">
+                                                            <button id="installWhisperBtn" class="button is-success is-rounded is-small">
+                                                                <i class="pi pi-download mr-1"></i>
+                                                                Install Whisper
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-2" id="whisperProgressContainer" style="display: none;">
+                                                        <progress id="whisperInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                                    </div>
+                                                    <p id="whisperStatus" class="help is-size-7 mt-2">Not installed</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -623,10 +690,20 @@
                                 }
                             }
                         }
-                    } else if (module === 'settings' && parts[3] === 'clearPlaybackHistory') {
-                        // Pattern: /api/settings/clearPlaybackHistory/{profileId}
-                        if (parts.length < 5 || parts[4] !== currentProfileId) { // If profileId is not appended
-                            newUrl = `${targetUrl}/${currentProfileId}`;
+                    } else if (module === 'settings') {
+                        // Handle various settings endpoints that need profileId
+                        const settingPath = parts[3];
+                        if (settingPath === 'clearPlaybackHistory') {
+                            // Pattern: /api/settings/clearPlaybackHistory/{profileId}
+                            if (parts.length < 5 || parts[4] !== currentProfileId) { // If profileId is not appended
+                                newUrl = `${targetUrl}/${currentProfileId}`;
+                            }
+                        } else if (settingPath === 'music-library-path' || settingPath === 'video-library-path') {
+                            // Pattern: /api/settings/music-library-path or /api/settings/video-library-path
+                            // These need to become /api/settings/{settingPath}/{profileId}
+                            if (parts.length < 5 || parts[4] !== currentProfileId) { // If profileId is not appended
+                                newUrl = `${targetUrl}/${currentProfileId}`;
+                            }
                         }
                     }
                 }
@@ -654,7 +731,7 @@
                                 // Show installation card, hide settings card
                                 importInstallationCardColumn.classList.remove('is-hidden');
                                 importSettingsCardColumn.classList.add('is-hidden');
-                            }
+                        }
                         }
                     } catch (error) {
                         console.error('Failed to fetch import capability status:', error);

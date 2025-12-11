@@ -537,8 +537,8 @@ async function refreshSongTable() {
 
 function updatePageTitle(song) {
     if (!song) {
-        document.getElementById('pageTitle').innerText = "JMusic Home";
-        document.title = "JMusic Home";
+        document.getElementById('pageTitle').innerText = "JMedia Home";
+        document.title = "JMedia Home";
         return;
     }
     document.getElementById('pageTitle').innerText = `${song.name} - ${song.artist}`;
