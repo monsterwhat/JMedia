@@ -178,7 +178,7 @@ audio.onended = () => {
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
     isUpdatingAudioSource = true; // Set flag to true at the beginning
-    console.log("[musicBar.js] UpdateAudioSource called with currentSong:", currentSong, "prevSong:", prevSong, "nextSong:", nextSong, "play:", play, "backendTime:", backendTime);
+    
     if (!currentSong || !currentSong.id) {
         isUpdatingAudioSource = false; // Reset flag if no current song
         return;
@@ -298,8 +298,9 @@ function handleWSMessage(msg) {
                 (state.cue && !musicState.cue) || (!state.cue && musicState.cue);
         // Update musicState.cue for future comparisons
         musicState.cue = state.cue;
+        
         if (songChanged || playChanged || queueChanged) { // Trigger update if song, play state, or queue changed
-            console.log("[WS] handleWSMessage: Song, play state, or queue changed, fetching current, previous, and next song details.");
+            
             Promise.all([
                 fetch(`/api/music/playback/current/${globalActiveProfileId}`).then(r => r.json()),
                 fetch(`/api/music/playback/previousSong/${globalActiveProfileId}`).then(r => r.json()),
@@ -310,12 +311,15 @@ function handleWSMessage(msg) {
                         const prevSong = prevSongResponse.data;
                         const nextSong = nextSongResponse.data;
                         if (currentSong) {
-                            console.log("[WS] handleWSMessage: Calling UpdateAudioSource with data:", currentSong, prevSong, nextSong);
+                            
                             UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
-                            refreshSongTable();
-                            if (window.refreshQueue) {
-                                window.refreshQueue();
-                            }
+                            // Add delay to ensure table content is updated before refreshing highlighting
+                            setTimeout(() => {
+                                refreshSongTable();
+                                if (window.refreshQueue) {
+                                    window.refreshQueue();
+                                }
+                            }, 100);
                     }
                     }).catch(error => console.error("Error fetching song context:", error));
         } else if (playChanged) { // This block is now redundant if playChanged is already in the main if
@@ -504,34 +508,8 @@ function bindPlaybackButtons() {
 
 // ---------------- UI ----------------
 async function refreshSongTable() {  
-    const songTableBody = document.querySelector('#songTable tbody');
-    if (!songTableBody) {
-        console.log("[musicBar.js] refreshSongTable: #songTable tbody not found.");
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/music/playback/current/${globalActiveProfileId}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const currentSongData = await response.json();
-        const currentSongId = currentSongData.data ? String(currentSongData.data.id) : null;
-        console.log("[musicBar.js] refreshSongTable: Current song ID from API:", currentSongId);
-        // Iterate through all song rows and update their styling
-        const songRows = songTableBody.querySelectorAll('tr');
-        songRows.forEach(row => {
-            const rowSongId = row.dataset.songId; // Assuming song ID is stored in data-song-id attribute on the tr
-            if (rowSongId && rowSongId === currentSongId) {
-                row.classList.add('has-background-grey-dark', 'has-text-white');
-                console.log(`[musicBar.js] refreshSongTable: Highlighted song ID: ${rowSongId}`);
-            } else {
-                row.classList.remove('has-background-grey-dark', 'has-text-white');
-            }
-        });
-    } catch (error) {
-        console.error("[musicBar.js] refreshSongTable: Error fetching current song or updating table:", error);
-    }
+    // Server-side highlighting now handles this, so this function can be minimal
+    // Just ensure the function exists for compatibility
 }
 
 
@@ -770,6 +748,46 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     connectWS();
+    
+    // Listen for HTMX content swaps to refresh song highlighting
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if (event.detail.target.id === 'songTableBody') {
+            // Refresh song highlighting after table content is updated
+            setTimeout(() => refreshSongTable(), 50); // Small delay to ensure DOM is ready
+        }
+    });
+    
+    // Listen for song selection events to reload table
+    document.body.addEventListener('htmx:afterRequest', function(event) {
+        const url = event.detail.requestConfig?.url || event.detail.path;
+        if (url && url.includes('/api/music/playback/select/')) {
+            // Reload the table after a short delay to allow server to update state
+            setTimeout(() => {
+                const playlistId = document.querySelector('#mainPlaylistCard')?.dataset.playlistId || '0';
+                htmx.ajax('GET', `/api/music/ui/tbody/${globalActiveProfileId}/${playlistId}`, {
+                    target: '#songTableBody',
+                    swap: 'innerHTML',
+                    indicator: '#loadingRow'
+                });
+            }, 200);
+        }
+    });
+    
+    // Alternative: Listen for clicks on song rows directly
+    document.body.addEventListener('click', function(event) {
+        const songRow = event.target.closest('tr[data-song-id]');
+        if (songRow && songRow.dataset.songId) {
+            // Reload the table after a short delay to allow server to update state
+            setTimeout(() => {
+                const playlistId = document.querySelector('#mainPlaylistCard')?.dataset.playlistId || '0';
+                htmx.ajax('GET', `/api/music/ui/tbody/${globalActiveProfileId}/${playlistId}`, {
+                    target: '#songTableBody',
+                    swap: 'innerHTML',
+                    indicator: '#loadingRow'
+                });
+            }, 300);
+        }
+    });
     // Add context menu listener to the document, using event delegation
     document.addEventListener('contextmenu', (event) => {
         const songTableBody = document.getElementById('songTableBody'); // Using getElementById for a more direct selection
