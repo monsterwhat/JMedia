@@ -48,6 +48,50 @@
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <style>
+            /* Glassmorphism base styles */
+            body {
+                background:
+                    linear-gradient(135deg, rgba(219, 234, 254, 0.3) 0%, rgba(96, 165, 250, 0.3) 50%, rgba(30, 64, 175, 0.3) 100%),
+                    url('https://images.unsplash.com/photo-1453280339213-efb07f95531b?w=1920&h=1080&fit=crop');
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                background-blend-mode: overlay;
+                min-height: 100vh;
+                position: relative;
+                overflow-x: hidden;
+            }
+
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background:
+                    radial-gradient(circle at 20% 80%, rgba(251, 191, 36, 0.3) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 20%, rgba(147, 51, 234, 0.3) 0%, transparent 50%),
+                    radial-gradient(circle at 40% 40%, rgba(236, 72, 153, 0.2) 0%, transparent 50%);
+                pointer-events: none;
+                z-index: -1;
+            }
+
+            [data-theme="dark"] {
+                background:
+                    linear-gradient(135deg, rgba(30, 58, 138, 0.6) 0%, rgba(30, 64, 175, 0.6) 50%, rgba(49, 46, 129, 0.6) 100%),
+                    url('https://images.unsplash.com/photo-1453280339213-efb07f95531b?w=1920&h=1080&fit=crop') center/cover;
+                background-blend-mode: overlay;
+            }
+
+            [data-theme="dark"]::before {
+                background:
+                    radial-gradient(circle at 20% 80%, rgba(251, 191, 36, 0.2) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 20%, rgba(147, 51, 234, 0.2) 0%, transparent 50%),
+                    radial-gradient(circle at 40% 40%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
+            }
+
             html, body {
                 height: 100%;
             }
@@ -72,9 +116,422 @@
             #songListContainer::-webkit-scrollbar-thumb:hover {
                 background: #aaa;
             }
+
+            /* Glass box styles */
+            .glass-box {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                color: #333 !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .glass-box {
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .glass-box::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+            }
+
+            .glass-box:hover::before {
+                left: 100%;
+            }
+
+            /* Apply glass styles to cards */
+            .card {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                color: #333 !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .card {
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+            }
+
+            .card:hover::before {
+                left: 100%;
+            }
+
+            /* Apply glass styles to navbar */
+            .navbar {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+            }
+
+            [data-theme="dark"] .navbar {
+                background: rgba(0, 0, 0, 0.35) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+            }
+
+            /* Apply glass styles to inputs */
+            .input, .select select {
+                background: rgba(255, 255, 255, 0.2);
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                color: inherit;
+                border-radius: 12px;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            }
+
+            [data-theme="dark"] .input, [data-theme="dark"] .select select {
+                background: rgba(0, 0, 0, 0.35);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                color: #fff;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+            }
+
+            .input:focus, .select select:focus {
+                background: rgba(255, 255, 255, 0.25);
+                border-color: #3273dc;
+                box-shadow:
+                    0 0 0 3px rgba(50, 115, 220, 0.2),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            }
+
+            [data-theme="dark"] .input:focus, [data-theme="dark"] .select select:focus {
+                background: rgba(0, 0, 0, 0.4);
+                box-shadow:
+                    0 0 0 3px rgba(50, 115, 220, 0.2),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            }
+
+            /* Apply glass styles to buttons */
+            .button {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                color: #333 !important;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+                border-radius: 12px;
+            }
+
+            [data-theme="dark"] .button {
+                background: rgba(0, 0, 0, 0.35) !important;
+                border: 1px solid rgba(255, 255, 255, 0.15) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+            }
+
+            .button:hover {
+                background: rgba(255, 255, 255, 0.35) !important;
+                box-shadow:
+                    0 6px 20px rgba(0, 0, 0, 0.15),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+                transform: translateY(-2px);
+            }
+
+            [data-theme="dark"] .button:hover {
+                background: rgba(0, 0, 0, 0.45) !important;
+                box-shadow:
+                    0 6px 20px rgba(0, 0, 0, 0.4),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .button::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+                border-radius: 12px;
+            }
+
+            .button:hover::before {
+                left: 100%;
+            }
+
+            /* Modal glass styles */
+            .modal-card {
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 20px;
+                color: #333;
+            }
+
+            [data-theme="dark"] .modal-card {
+                background: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: #fff;
+            }
+
+            .modal-card-head {
+                background: transparent;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .modal-card-title {
+                color: inherit;
+            }
+
+            /* Table styles */
+            .table {
+                background: transparent;
+                color: inherit;
+            }
+
+            .table th {
+                color: inherit !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            }
+
+            .table td {
+                color: inherit;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            [data-theme="dark"] .table th {
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            [data-theme="dark"] .table td {
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            }
+
+            /* Override default Bulma colors for glass theme */
+            .has-background-grey-darker {
+                background-color: transparent !important;
+            }
+
+            .has-text-white {
+                color: inherit !important;
+            }
+
+            .has-text-success {
+                color: #23d160 !important;
+            }
+
+            /* Ensure proper text visibility */
+            .title, .subtitle, .label {
+                color: inherit;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            }
+
+            /* Dark theme text adjustments */
+            [data-theme="dark"] .title,
+            [data-theme="dark"] .subtitle,
+            [data-theme="dark"] .label {
+                color: #fff !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+            }
+
+            /* Navbar item colors */
+            .navbar-item {
+                color: inherit !important;
+            }
+
+            .navbar-item:hover {
+                background-color: rgba(255, 255, 255, 0.1) !important;
+                color: inherit !important;
+            }
+
+            [data-theme="dark"] .navbar-item:hover {
+                background-color: rgba(255, 255, 255, 0.05) !important;
+            }
+
+            /* Tabs styling */
+            .tabs a {
+                color: inherit !important;
+                border-bottom-color: rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .tabs li.is-active a {
+                color: inherit !important;
+                border-bottom-color: currentColor !important;
+            }
+
+            /* Progress bar styling */
+            .progress {
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+
+            [data-theme="dark"] .progress {
+                background-color: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            /* Override default table styles completely */
+            .table {
+                background: transparent !important;
+                border: none !important;
+            }
+
+            .table thead {
+                background: transparent !important;
+            }
+
+            .table tbody {
+                background: transparent !important;
+                border: none !important;
+            }
+
+            /* Remove all default table row backgrounds */
+            .table tr,
+            .table tbody tr,
+            .table tbody tr:nth-child(odd),
+            .table tbody tr:nth-child(even) {
+                background: transparent !important;
+                border: none !important;
+            }
+
+            /* Apply glass styling to table rows */
+            .table tbody tr {
+                position: relative;
+                margin-bottom: 4px;
+                transition: all 0.3s ease;
+            }
+
+            /* Create glass effect for each row using pseudo-element */
+            .table tbody tr::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(5px);
+                -webkit-backdrop-filter: blur(5px);
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                z-index: -1;
+                transition: all 0.3s ease;
+            }
+
+            [data-theme="dark"] .table tbody tr::before {
+                background: rgba(0, 0, 0, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }
+
+            /* Striped effect using different opacity */
+            .table tbody tr:nth-child(even)::before {
+                background: rgba(255, 255, 255, 0.15);
+            }
+
+            [data-theme="dark"] .table tbody tr:nth-child(even)::before {
+                background: rgba(0, 0, 0, 0.25);
+            }
+
+            /* Hover effect */
+            .table tbody tr:hover::before {
+                background: rgba(255, 255, 255, 0.25);
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+
+            [data-theme="dark"] .table tbody tr:hover::before {
+                background: rgba(0, 0, 0, 0.35);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
+
+            /* Current song row highlighting */
+            .current-song-row::before {
+                background: rgba(50, 115, 220, 0.3) !important;
+                backdrop-filter: blur(10px) !important;
+                border: 1px solid rgba(50, 115, 220, 0.4) !important;
+                box-shadow: 
+                    0 4px 16px rgba(50, 115, 220, 0.2),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+            }
+
+            [data-theme="dark"] .current-song-row::before {
+                background: rgba(50, 115, 220, 0.4) !important;
+                border: 1px solid rgba(50, 115, 220, 0.3) !important;
+                box-shadow: 
+                    0 4px 16px rgba(50, 115, 220, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            /* Table cell styling */
+            .table td {
+                background: transparent !important;
+                border: none !important;
+                padding: 12px 8px !important;
+                vertical-align: middle !important;
+                position: relative;
+                z-index: 1;
+            }
+
+            .table th {
+                background: transparent !important;
+                border: none !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+                position: relative;
+                z-index: 1;
+            }
+
+            [data-theme="dark"] .table th {
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
         </style>
     </head>
-    <body x-data>
+    <body x-data class="has-background-light">
 
         <audio id="audioPlayer" preload="metadata"></audio>
 
@@ -184,15 +641,15 @@
                          }
                          }
                          }">
-                        <div class="card has-background-grey-darker has-text-white">
+                        <div class="card glass-box">
                             <header class="card-header">
                                 <div class="tabs is-fullwidth">
                                     <ul>
-                                        <li class="has-text-white" :class="{ 'is-active': activeTab === 'playlists' }">
+                                        <li :class="{ 'is-active': activeTab === 'playlists' }">
                                             <a @click="activeTab = 'playlists'">Playlists</a>
                                         </li>
                                         <li :class="{ 'is-active': activeTab === 'queue' }">
-                                            <a class="has-text-white" @click="activeTab = 'queue'">Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span></a>
+                                            <a @click="activeTab = 'queue'">Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span></a>
                                         </li>
                                     </ul>
                                 </div>
@@ -210,12 +667,12 @@
 
                                 <div id="queueTabContent" x-show="activeTab === 'queue'" >
                                     <div id="songQueueContainer">
-                                        <table id="songQueueTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                                        <table id="songQueueTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
                                             <thead>
                                                 <tr>
                                                     <th></th>
-                                                    <th class="has-text-white has-text-weight-semibold">Title / Artist</th>
-                                                    <th class="has-text-white has-text-weight-semibold" style="width:20%;">Action</th>
+                                                    <th class="has-text-weight-semibold">Title / Artist</th>
+                                                    <th class="has-text-weight-semibold" style="width:20%;">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="songQueueTableBody">
@@ -274,9 +731,9 @@
 
                     <!-- Playlist View -->
                     <div class="column is-9 is-full-mobile" id="playlistView" x-data="playlistViewController()">
-                        <div id="mainPlaylistCard" class="card has-background-grey-darker has-text-white" data-playlist-id="0">
+                        <div id="mainPlaylistCard" class="card glass-box" data-playlist-id="0">
                             <header class="card-header">
-                                <p id="playlistTitle" class="card-header-title has-text-white is-4">All Songs</p>
+                                <p id="playlistTitle" class="card-header-title is-4">All Songs</p>
                                 <button class="has-text-success ml-2" hx-trigger="click" hx-swap="none" hx-on::click="fetch('/api/music/playback/queue-all/'+globalActiveProfileId+'/0', {method: 'POST'}).then(() => { htmx.ajax('GET','/api/music/ui/queue-fragment/'+globalActiveProfileId,{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/songs-fragment/'+globalActiveProfileId,{target:'#songTable tbody', swap:'innerHTML'}); });">
                                     <i class="pi pi-play"></i>
                                 </button>
@@ -314,23 +771,23 @@
                                     </div>
                                 </div>
                                 <div id="songListContainer" >
-                                    <table id="songTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                                    <table id="songTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
                                         <thead>
                                             <tr>
                                                 <th></th>
-                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
+                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
                                                     Title <i class="pi pi-sort"></i>
                                                 </th>
-                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
+                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
                                                     Artist <i class="pi pi-sort"></i>
                                                 </th>
-                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
+                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
                                                     Date Added <i class="pi pi-sort"></i>
                                                 </th>
-                                                <th class="has-text-white has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
+                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
                                                     Duration <i class="pi pi-sort"></i>
                                                 </th>
-                                                <th class="has-text-white has-text-weight-semibold">Action</th>
+                                                <th class="has-text-weight-semibold">Action</th>
                                             </tr>
                                         </thead>
                                         <tr id="loadingRow" class="htmx-indicator is-hidden">
@@ -351,7 +808,7 @@
                         </div>
                     </div>  
                     <div id="autoFetchContainer" class="has-text-centered py-4 is-hidden">
-                        <p class="has-text-white mb-3">No songs found. Would you like to auto fetch?</p>
+                        <p class="mb-3">No songs found. Would you like to auto fetch?</p>
                         <button class="button is-primary" id="autoFetchBtn">Auto Fetch</button>
                         <div id="spotdlWarningMessage" class="notification is-warning is-hidden mt-3"></div>
                     </div>
@@ -359,7 +816,7 @@
             </div>
 
             <!-- Hero Foot (Music Bar) -->
-            <div class="hero-foot card has-background-grey-darker has-text-white m-3 p-3">
+            <div class="hero-foot card glass-box m-3 p-3">
                 <nav class="level is-mobile">
 
                     <!-- LEFT: Song Info -->
@@ -374,7 +831,7 @@
                                 </button>
                             </div>
                             <div>
-                                <p id="songTitle" class="has-text-white has-text-weight-semibold is-size-6">Loading...</p>
+                                <p id="songTitle" class="has-text-weight-semibold is-size-6">Loading...</p>
                                 <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>
                             </div>
                         </div>
@@ -403,7 +860,7 @@
                         <!-- Song Info for mobile -->
                         <div class="is-hidden-desktop mt-2" style="width: 100%;">
                             <div style="overflow: hidden;">
-                                <p id="songTitleMobile" class="has-text-white has-text-weight-semibold is-size-6 marquee">Loading...</p>
+                                <p id="songTitleMobile" class="has-text-weight-semibold is-size-6 marquee">Loading...</p>
                             </div>
                             <div style="overflow: hidden;">
                                 <p id="songArtistMobile" class="has-text-success is-size-7 marquee">Unknown Artist</p>
@@ -415,7 +872,7 @@
                     <div class="level-right is-hidden-mobile">
                         <div class="level-item">
                             <div class="is-flex is-align-items-center">
-                                <i class="pi pi-volume-up has-text-white mr-2"></i>
+                                <i class="pi pi-volume-up mr-2"></i>
                                 <input type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
                             </div>
                         </div>

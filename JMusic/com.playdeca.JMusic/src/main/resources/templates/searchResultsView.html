@@ -1,7 +1,7 @@
 <div id="searchResultsContainer" class="column is-full-mobile">
-    <div class="card has-background-grey-darker has-text-white">
+    <div class="card glass-box">
         <header class="card-header">
-            <p class="card-header-title has-text-white is-4">Search Results</p>
+            <p class="card-header-title is-4">Search Results</p>
             <button class="card-header-icon" aria-label="close">
                 <span class="icon">
                     <i class="pi pi-times"></i>
@@ -10,14 +10,14 @@
         </header>
         <div class="card-content m-0 p-0">
             <div id="songListContainer" style="max-height: calc(100vh - 320px); overflow-y: auto;">
-                <table id="songTable" class="table is-fullwidth is-hoverable is-striped has-text-white has-text-weight-semibold">
+                <table id="songTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
                     <thead>
                         <tr>
                             <th></th>
-                            <th class="has-text-white has-text-weight-semibold">Title / Artist</th>
-                            <th class="has-text-white has-text-weight-semibold">Date Added</th>
-                            <th class="has-text-white has-text-weight-semibold">Duration</th>
-                            <th class="has-text-white has-text-weight-semibold">Action</th>
+                            <th class="has-text-weight-semibold">Title / Artist</th>
+                            <th class="has-text-weight-semibold">Date Added</th>
+                            <th class="has-text-weight-semibold">Duration</th>
+                            <th class="has-text-weight-semibold">Action</th>
                         </tr>
                     </thead>
                     <tbody hx-get="/api/music/ui/tbody/{profileId}/0?search={searchQuery}"

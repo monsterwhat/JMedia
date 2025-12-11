@@ -1,6 +1,6 @@
  
 {#for s_with_index in queue}
-    <tr class="{#if currentSong != null && s_with_index.song.id == currentSong.id}has-background-grey{/if}">
+    <tr class="{#if currentSong != null && s_with_index.song.id == currentSong.id}current-song-row{/if}">
         <td style="text-align:center;">
             <figure class="image is-24x24">
                 <img src="{artworkUrl.apply(s_with_index.song.artworkBase64)}" loading="lazy"/>

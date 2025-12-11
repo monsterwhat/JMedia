@@ -1,5 +1,5 @@
 {#for s in songs}
-<tr data-song-id="{s.id}" class="{#if currentSong != null && s.id == currentSong.id}has-background-grey-dark has-text-white{/if}" 
+<tr data-song-id="{s.id}" class="{#if currentSong != null && s.id == currentSong.id}current-song-row{/if}" 
     hx-post="/api/music/playback/select/{profileId}/{s.id}"
     hx-trigger="click"
     hx-swap="none"
@@ -14,7 +14,7 @@
 
     <!-- Title -->
     <td>
-        <div class="has-text-white has-text-weight-semibold">{s.title ?: "Unknown Title"}</div>
+        <div class="has-text-weight-semibold">{s.title ?: "Unknown Title"}</div>
     </td>
 
     <!-- Artist -->
@@ -23,10 +23,10 @@
     </td>
 
     <!-- Date -->
-    <td class="has-text-centered is-centered is-vcentered has-text-white has-text-weight-semibold">{formatDate.apply(s.dateAdded)}</td>
+    <td class="has-text-centered is-centered is-vcentered has-text-weight-semibold">{formatDate.apply(s.dateAdded)}</td>
 
     <!-- Duration -->
-    <td class="has-text-centered is-centered is-vcentered has-text-white has-text-weight-semibold">{formatDuration.apply(s.durationSeconds)}</td>
+    <td class="has-text-centered is-centered is-vcentered has-text-weight-semibold">{formatDuration.apply(s.durationSeconds)}</td>
 
     <!-- Action button -->
     <td class="has-text-centered is-centered is-vcentered">
