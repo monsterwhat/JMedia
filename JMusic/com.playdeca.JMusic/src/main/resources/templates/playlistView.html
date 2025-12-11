@@ -40,22 +40,23 @@
         <div id='songListContainer' style='max-height: calc(100vh - 320px); overflow-y: auto;'>
             <table id='songTable' class='table is-fullwidth is-hoverable has-text-weight-semibold'>
                 <thead>
-                    <tr>
-                        <th></th>
-                        <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
-                            Title <i class="pi pi-sort"></i>
-                        </th>
-                        <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
-                            Artist <i class="pi pi-sort"></i>
-                        </th>
-                        <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
-                            Date Added <i class="pi pi-sort"></i>
-                        </th>
-                        <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
-                            Duration <i class="pi pi-sort"></i>
-                        </th>
-                        <th class="has-text-weight-semibold">Action</th>
-                    </tr>
+                     <tr>
+                         <th></th>
+                         <th></th>
+                         <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
+                             Title <i class="pi pi-sort"></i>
+                         </th>
+                         <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
+                             Artist <i class="pi pi-sort"></i>
+                         </th>
+                         <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
+                             Date Added <i class="pi pi-sort"></i>
+                         </th>
+                         <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
+                             Duration <i class="pi pi-sort"></i>
+                         </th>
+                         <th class="has-text-weight-semibold">Action</th>
+                     </tr>
                 </thead> 
                 <tbody id='songTableBody'
                        hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page=1&limit=50&sortBy=title&sortDirection=asc"

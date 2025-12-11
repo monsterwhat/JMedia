@@ -396,7 +396,7 @@ public class MusicUiApi {
             }
 
             if (totalSongs == 0) {
-                return "<tr><td colspan='5' class='has-text-centered'>No songs found.</td></tr>";
+                return "<tr><td colspan='6' class='has-text-centered'>No songs found.</td></tr>";
             }
             int totalPages = (int) Math.ceil((double) totalSongs / limit);
             int currentPage = Math.max(1, Math.min(page, totalPages));
@@ -553,7 +553,7 @@ public class MusicUiApi {
         long totalSongs = result.totalCount();
         
         if (totalSongs == 0) {
-            return "<tr><td colspan='5' class='has-text-centered'>No songs found.</td></tr>";
+            return "<tr><td colspan='6' class='has-text-centered'>No songs found.</td></tr>";
         }
         
         int totalPages = (int) Math.ceil((double) totalSongs / limit);

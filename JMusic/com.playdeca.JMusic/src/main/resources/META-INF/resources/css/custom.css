@@ -191,6 +191,50 @@ body {
     color: var(--text-color);
 }
 
+/* Ensure first column header is properly sized and visible */
+.table th:first-child {
+    width: 5% !important;
+    min-width: 48px !important;
+    text-align: center !important;
+    visibility: visible !important;
+    display: table-cell !important;
+    height: auto !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    padding: 0.5em 0.75em !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+}
+
+/* Ensure first column cells are also properly sized */
+.table td:first-child {
+    width: 5% !important;
+    min-width: 48px !important;
+    text-align: center !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+}
+
+/* Override any conflicting styles for song queue table specifically */
+#songQueueTable th:first-child,
+#songQueueTable td:first-child {
+    width: 5% !important;
+    min-width: 48px !important;
+    text-align: center !important;
+    visibility: visible !important;
+    display: table-cell !important;
+}
+
+/* Override any conflicting styles for main song table specifically */
+#songTable th:first-child,
+#songTable td:first-child {
+    width: 5% !important;
+    min-width: 48px !important;
+    text-align: center !important;
+    visibility: visible !important;
+    display: table-cell !important;
+}
+
 /* Style input elements to respect theme */
 .input, .textarea {
     background-color: var(--card-background) !important;

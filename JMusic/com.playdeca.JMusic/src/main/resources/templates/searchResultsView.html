@@ -14,7 +14,8 @@
                     <thead>
                         <tr>
                             <th></th>
-                            <th class="has-text-weight-semibold">Title / Artist</th>
+                            <th class="has-text-weight-semibold">Title</th>
+                            <th class="has-text-weight-semibold">Artist</th>
                             <th class="has-text-weight-semibold">Date Added</th>
                             <th class="has-text-weight-semibold">Duration</th>
                             <th class="has-text-weight-semibold">Action</th>
@@ -25,7 +26,7 @@
                            hx-swap="innerHTML"
                            hx-indicator="#loadingRow">
                         <tr id="loadingRow" class="htmx-indicator">
-                            <td colspan="5" class="has-text-centered py-4">
+                            <td colspan="6" class="has-text-centered py-4">
                                 <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
                                 <p>Loading songs...</p>
                             </td>

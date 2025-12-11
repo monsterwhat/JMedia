@@ -216,34 +216,41 @@
 
             /* Apply glass styles to inputs */
             .input, .select select {
-                background: rgba(255, 255, 255, 0.2);
-                backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.25);
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 color: inherit;
-                border-radius: 12px;
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+                border-radius: 16px;
+                box-shadow: 
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                    0 4px 16px rgba(0, 0, 0, 0.04);
             }
 
             [data-theme="dark"] .input, [data-theme="dark"] .select select {
-                background: rgba(0, 0, 0, 0.35);
-                border: 1px solid rgba(255, 255, 255, 0.15);
+                background: rgba(0, 0, 0, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 color: #fff;
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+                box-shadow: 
+                    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                    0 4px 16px rgba(0, 0, 0, 0.08);
             }
 
             .input:focus, .select select:focus {
-                background: rgba(255, 255, 255, 0.25);
-                border-color: #3273dc;
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(50, 115, 220, 0.4);
                 box-shadow:
-                    0 0 0 3px rgba(50, 115, 220, 0.2),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+                    0 0 0 3px rgba(50, 115, 220, 0.15),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                    0 4px 20px rgba(0, 0, 0, 0.06);
             }
 
             [data-theme="dark"] .input:focus, [data-theme="dark"] .select select:focus {
-                background: rgba(0, 0, 0, 0.4);
+                background: rgba(0, 0, 0, 0.25);
+                border-color: rgba(50, 115, 220, 0.3);
                 box-shadow:
-                    0 0 0 3px rgba(50, 115, 220, 0.2),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+                    0 0 0 3px rgba(50, 115, 220, 0.15),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                    0 4px 20px rgba(0, 0, 0, 0.1);
             }
 
             /* Apply glass styles to buttons */
@@ -377,18 +384,61 @@
                 text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
             }
 
+            /* Card header styling for liquid glass */
+            .card-header {
+                background: rgba(255, 255, 255, 0.05) !important;
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            [data-theme="dark"] .card-header {
+                background: rgba(0, 0, 0, 0.1) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+
+            .card-header-title {
+                background: transparent !important;
+                color: inherit !important;
+            }
+
             /* Navbar item colors */
             .navbar-item {
                 color: inherit !important;
             }
 
             .navbar-item:hover {
-                background-color: rgba(255, 255, 255, 0.1) !important;
+                background-color: rgba(255, 255, 255, 0.08) !important;
                 color: inherit !important;
             }
 
             [data-theme="dark"] .navbar-item:hover {
-                background-color: rgba(255, 255, 255, 0.05) !important;
+                background-color: rgba(255, 255, 255, 0.04) !important;
+            }
+
+            /* Navbar search container styling */
+            .navbar-search-container {
+                background: rgba(255, 255, 255, 0.05) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                padding: 4px;
+            }
+
+            [data-theme="dark"] .navbar-search-container {
+                background: rgba(0, 0, 0, 0.15) !important;
+                border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+
+            .navbar-search-container .input {
+                background: rgba(255, 255, 255, 0.05) !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            }
+
+            [data-theme="dark"] .navbar-search-container .input {
+                background: rgba(0, 0, 0, 0.2) !important;
+                border: 1px solid rgba(255, 255, 255, 0.06) !important;
             }
 
             /* Tabs styling */
@@ -452,42 +502,42 @@
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(5px);
-                -webkit-backdrop-filter: blur(5px);
+                background: rgba(255, 255, 255, 0.25);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
                 border-radius: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.3);
                 z-index: -1;
                 transition: all 0.3s ease;
             }
 
             [data-theme="dark"] .table tbody tr::before {
-                background: rgba(0, 0, 0, 0.2);
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                background: rgba(0, 0, 0, 0.4);
+                border: 1px solid rgba(255, 255, 255, 0.2);
             }
 
             /* Striped effect using different opacity */
             .table tbody tr:nth-child(even)::before {
-                background: rgba(255, 255, 255, 0.15);
+                background: rgba(255, 255, 255, 0.25);
             }
 
             [data-theme="dark"] .table tbody tr:nth-child(even)::before {
-                background: rgba(0, 0, 0, 0.25);
+                background: rgba(0, 0, 0, 0.4);
             }
 
             /* Hover effect */
             .table tbody tr:hover::before {
-                background: rgba(255, 255, 255, 0.25);
-                backdrop-filter: blur(8px);
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 transform: translateY(-1px);
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
             }
 
             [data-theme="dark"] .table tbody tr:hover::before {
-                background: rgba(0, 0, 0, 0.35);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                background: rgba(0, 0, 0, 0.12);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             }
 
             /* Current song row highlighting */
@@ -519,15 +569,18 @@
             }
 
             .table th {
-                background: transparent !important;
+                background: rgba(255, 255, 255, 0.25) !important;
                 border: none !important;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.3) !important;
                 position: relative;
                 z-index: 1;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
             }
 
             [data-theme="dark"] .table th {
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+                background: rgba(0, 0, 0, 0.4) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
             }
         </style>
     </head>
@@ -663,13 +716,14 @@
                                          :hx-get="'/api/music/ui/playlists-fragment/' + globalActiveProfileId"
                                          hx-trigger="load, delete-playlist from:body"
                                          hx-swap="innerHTML">                                        <!-- dynamically populated -->
-                                    </div>                                </div>
-
+                                    </div>                                
+                                </div> 
                                 <div id="queueTabContent" x-show="activeTab === 'queue'" >
                                     <div id="songQueueContainer">
-                                        <table id="songQueueTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
-                                            <thead>
+                                         <table id="songQueueTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
+                                         <thead>
                                                 <tr>
+                                                    <th></th>
                                                     <th></th>
                                                     <th class="has-text-weight-semibold">Title / Artist</th>
                                                     <th class="has-text-weight-semibold" style="width:20%;">Action</th>
@@ -772,24 +826,25 @@
                                 </div>
                                 <div id="songListContainer" >
                                     <table id="songTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
-                                        <thead>
-                                            <tr>
-                                                <th></th>
-                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
-                                                    Title <i class="pi pi-sort"></i>
-                                                </th>
-                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
-                                                    Artist <i class="pi pi-sort"></i>
-                                                </th>
-                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
-                                                    Date Added <i class="pi pi-sort"></i>
-                                                </th>
-                                                <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
-                                                    Duration <i class="pi pi-sort"></i>
-                                                </th>
-                                                <th class="has-text-weight-semibold">Action</th>
-                                            </tr>
-                                        </thead>
+                                         <thead>
+                                             <tr>
+                                                 <th></th>
+                                                 <th></th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
+                                                     Title <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
+                                                     Artist <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
+                                                     Date Added <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
+                                                     Duration <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold">Action</th>
+                                             </tr>
+                                         </thead>
                                         <tr id="loadingRow" class="htmx-indicator is-hidden">
                                             <td colspan="6" class="has-text-centered py-4">
                                                 <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
@@ -1164,12 +1219,7 @@ if (newUrl !== targetUrl) {
             </div>
 
         </div>
-
-
-
-
-
-
+ 
 
     </body>
 

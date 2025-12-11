@@ -11,9 +11,7 @@
         "x-data": {
             "context": "div"
         },
-        "@click": {
-            "context": "button"
-        },
+        "@click": {},
         ":style": {
             "context": "div"
         },
