@@ -539,6 +539,179 @@ input[type="range"] {
     gap: 0.5rem;
 }
 
+/* Global Liquid Glass Modal Styles */
+.modal-card {
+    background: rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 20px;
+    color: #333 !important;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+    position: relative;
+    overflow: hidden;
+}
+
+[data-theme="dark"] .modal-card {
+    background: rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+.modal-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transition: left 0.8s ease;
+}
+
+.modal-card:hover::before {
+    left: 100%;
+}
+
+.modal-card-head {
+    background: rgba(255, 255, 255, 0.05) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="dark"] .modal-card-head {
+    background: rgba(0, 0, 0, 0.1) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.modal-card-title {
+    color: inherit !important;
+}
+
+.modal-card-foot {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="dark"] .modal-card-foot {
+    background: rgba(0, 0, 0, 0.1) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.modal-background {
+    background: rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.delete {
+    background: rgba(255, 255, 255, 0.1) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 50%;
+    color: inherit !important;
+    transition: all 0.3s ease;
+}
+
+[data-theme="dark"] .delete {
+    background: rgba(0, 0, 0, 0.2) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.delete:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: scale(1.1);
+}
+
+[data-theme="dark"] .delete:hover {
+    background: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Global Toast Notification Styles */
+.toast {
+    background: rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 16px;
+    color: #333 !important;
+    box-shadow:
+        0 4px 16px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+    position: relative;
+    overflow: hidden;
+}
+
+[data-theme="dark"] .toast {
+    background: rgba(0, 0, 0, 0.35) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #fff !important;
+    box-shadow:
+        0 4px 16px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+.toast::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transition: left 0.8s ease;
+}
+
+.toast:hover::before {
+    left: 100%;
+}
+
+.toast-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.toast.success {
+    border-left: 4px solid #48c78e !important;
+}
+
+.toast.success .toast-icon {
+    color: #48c78e !important;
+}
+
+.toast.error {
+    border-left: 4px solid #f14668 !important;
+}
+
+.toast.error .toast-icon {
+    color: #f14668 !important;
+}
+
+.toast.warning {
+    border-left: 4px solid #ffdd57 !important;
+}
+
+.toast.warning .toast-icon {
+    color: #ffdd57 !important;
+}
+
+.toast.info {
+    border-left: 4px solid #3298dc !important;
+}
+
+.toast.info .toast-icon {
+    color: #3298dc !important;
+}
+
 /* Fix for playlist sidebar buttons to be full width */
 #sidebarPlaylistListContainer .table td {
     padding: 0.25rem;
@@ -564,5 +737,7 @@ input[type="range"] {
     width: 100% !important;
     display: block !important;
 }
+
+
 
  

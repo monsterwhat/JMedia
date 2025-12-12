@@ -1,5 +1,7 @@
 window.resetLibrary = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/resetLibrary`, {method: "POST"});
+    if (!window.globalActiveProfileId)
+        return;
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/resetLibrary`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Library reset to:", json.data.libraryPath);
@@ -14,7 +16,9 @@ window.resetLibrary = async function () {
 };
 
 window.scanLibrary = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/scanLibrary`, {method: "POST"});
+    if (!window.globalActiveProfileId)
+        return;
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/scanLibrary`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Scan started");
@@ -26,7 +30,7 @@ window.scanLibrary = async function () {
 };
 
 window.clearLogs = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/clearLogs`, {method: "POST"});
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/clearLogs`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Logs cleared");
@@ -42,7 +46,7 @@ window.clearLogs = async function () {
 };
 
 window.clearSongsDB = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/clearSongs`, {method: "POST"});
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/clearSongs`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] All songs deleted");
@@ -58,7 +62,7 @@ window.setupLogWebSocket = function () {
     if (!logsPanel)
         return;
 
-    const socket = new WebSocket(`ws://${window.location.host}/api/logs/ws/${globalActiveProfileId}`);
+    const socket = new WebSocket(`ws://${window.location.host}/api/logs/ws/${window.globalActiveProfileId}`);
 
     socket.onmessage = function (event) {
         const message = JSON.parse(event.data);
@@ -82,10 +86,13 @@ window.setupLogWebSocket = function () {
     socket.onerror = function (error) {
         console.error("Log WebSocket error:", error);
     };
+
+    // Store the socket reference globally
+    window.logWebSocket = socket;
 }
 
 window.refreshSettingsUI = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}`);
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}`);
     const json = await res.json();
     if (res.ok && json.data) {
         const pathElem = document.getElementById("musicLibraryPath");
@@ -97,7 +104,7 @@ window.refreshSettingsUI = async function () {
 };
 
 window.reloadMetadata = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/reloadMetadata`, {method: "POST"});
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/reloadMetadata`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Metadata reload started");
@@ -109,7 +116,7 @@ window.reloadMetadata = async function () {
 };
 
 window.deleteDuplicates = async function () {
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/deleteDuplicates`, {method: "POST"});
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/deleteDuplicates`, {method: "POST"});
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Duplicate deletion started");
@@ -131,7 +138,7 @@ window.saveImportSettings = async function () {
         searchThreads
     };
 
-    const res = await fetch(`/api/settings/${globalActiveProfileId}/import`, {
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}/import`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -151,7 +158,14 @@ window.saveImportSettings = async function () {
 
 window.refreshSettingsUI = async function () {
     console.log("[Settings] refreshSettingsUI called.");
-    const res = await fetch(`/api/settings/${globalActiveProfileId}`);
+
+    // Check if globalActiveProfileId is available
+    if (!window.globalActiveProfileId) {
+        console.warn("[Settings] globalActiveProfileId not available, skipping settings refresh");
+        return;
+    }
+
+    const res = await fetch(`/api/settings/${window.globalActiveProfileId}`);
     const json = await res.json();
     if (res.ok && json.data) {
         // Music library path
@@ -211,13 +225,167 @@ function showConfirmationDialog(message, callback) {
     }
 }
 
+// Helper functions - defined outside DOMContentLoaded to be accessible
+function updateMissingComponentsDialog(status) {
+    if (!window.installationRequiredDialog || !window.missingComponentsList)
+        return;
+    const missingComponents = [];
+    if (!status.pythonInstalled) {
+        missingComponents.push('<li><strong>Python ≤3.13.9</strong> (Required for audio processing)</li>');
+    }
+    if (!status.ffmpegInstalled) {
+        missingComponents.push('<li><strong>FFmpeg</strong> (For audio processing)</li>');
+    }
+    if (!status.spotdlInstalled) {
+        missingComponents.push('<li><strong>SpotDL</strong> (For music downloading)</li>');
+    }
+    if (!status.whisperInstalled) {
+        missingComponents.push('<li><strong>Whisper</strong> (For audio transcription)</li>');
+    }
+
+    // Update missing components list
+    window.missingComponentsList.innerHTML = missingComponents.join('');
+    // Show/hide notification based on whether components are missing
+    if (missingComponents.length === 0) {
+        // All components installed - hide notification
+        window.installationRequiredDialog.style.display = 'none';
+    } else {
+        // Some components missing - show notification
+        window.installationRequiredDialog.style.display = 'block';
+        // Update message to reflect how many are missing
+        const messageElement = window.installationRequiredDialog.querySelector('strong');
+        if (messageElement) {
+            if (missingComponents.length === 1) {
+                messageElement.textContent = 'Import feature requires 1 additional installation.';
+            } else {
+                messageElement.textContent = `Import features require ${missingComponents.length} additional installations.`;
+            }
+        }
+    }
+}
+
+function updateComponentStatus(component, isInstalled, button, statusElement) {
+    console.log(`[Settings] Updating ${component} status: ${isInstalled}`);
+    console.log(`[Settings] Button exists:`, !!button);
+    console.log(`[Settings] Status element exists:`, !!statusElement);
+    // Update component state
+    window.componentStates[component] = isInstalled;
+    if (button) {
+        button.disabled = false;
+        if (isInstalled) {
+            button.classList.remove('is-success');
+            button.classList.add('is-danger');
+            button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
+        } else {
+            button.classList.remove('is-danger');
+            button.classList.add('is-success');
+            button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
+        }
+    } else {
+        console.warn(`[Settings] Button element not found for component: ${component}`);
+    }
+
+    if (statusElement) {
+        if (isInstalled) {
+            statusElement.textContent = 'Installed';
+            statusElement.classList.remove('is-info', 'is-warning', 'is-danger');
+            statusElement.classList.add('is-success');
+        } else {
+            statusElement.textContent = 'Not installed';
+            statusElement.classList.remove('is-info', 'is-success', 'is-danger');
+            statusElement.classList.add('is-warning');
+        }
+    } else {
+        console.warn(`[Settings] Status element not found for component: ${component}`);
+    }
+}
+
+function updateInstallationStatusElements(status) {
+    console.log('[Settings] DOM update attempt with status:', status);
+    // Update individual status elements
+    const pythonStatusEl = document.getElementById('pythonStatus');
+    const ffmpegStatusEl = document.getElementById('ffmpegStatus');
+    const spotdlStatusEl = document.getElementById('spotdlStatus');
+    const whisperStatusEl = document.getElementById('whisperStatus');
+    console.log('[Settings] Found elements:', {
+        pythonStatus: !!pythonStatusEl,
+        ffmpegStatus: !!ffmpegStatusEl,
+        spotdlStatus: !!spotdlStatusEl,
+        whisperStatus: !!whisperStatusEl
+    });
+    // If any elements are missing, don't proceed
+    if (!pythonStatusEl || !ffmpegStatusEl || !spotdlStatusEl || !whisperStatusEl) {
+        console.log('[Settings] Some elements not found, skipping update');
+        return;
+    }
+
+    // Get button elements
+    const installPythonBtn = document.getElementById("installPythonBtn");
+    const installFfmpegBtn = document.getElementById("installFfmpegBtn");
+    const installSpotdlBtn = document.getElementById("installSpotdlBtn");
+    const installWhisperBtn = document.getElementById("installWhisperBtn");
+
+    if (pythonStatusEl) {
+        const isInstalled = Boolean(status.pythonInstalled);
+        console.log('[Settings] Updating Python status:', isInstalled, '(raw:', status.pythonInstalled, ')');
+        const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+        const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+        pythonStatusEl.textContent = newText;
+        pythonStatusEl.className = newClass;
+    }
+
+    if (ffmpegStatusEl) {
+        const isInstalled = Boolean(status.ffmpegInstalled);
+        console.log('[Settings] Updating FFmpeg status:', isInstalled, '(raw:', status.ffmpegInstalled, ')');
+        const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+        const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+        ffmpegStatusEl.textContent = newText;
+        ffmpegStatusEl.className = newClass;
+    }
+
+    if (spotdlStatusEl) {
+        const isInstalled = Boolean(status.spotdlInstalled);
+        console.log('[Settings] Updating SpotDL status:', isInstalled, '(raw:', status.spotdlInstalled, ')');
+        const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+        const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+        spotdlStatusEl.textContent = newText;
+        spotdlStatusEl.className = newClass;
+    }
+
+    if (whisperStatusEl) {
+        const isInstalled = Boolean(status.whisperInstalled);
+        console.log('[Settings] Updating Whisper status:', isInstalled, '(raw:', status.whisperInstalled, ')');
+        const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+        const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+        whisperStatusEl.textContent = newText;
+        whisperStatusEl.className = newClass;
+    }
+
+    // Update button states using existing function
+    updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatusEl);
+    updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatusEl);
+    updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatusEl);
+    updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatusEl);
+    // Update missing components list and dialog visibility
+    updateMissingComponentsDialog(status);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+    // Get DOM elements that are referenced throughout the code
+    window.installationRequiredDialog = document.getElementById("installationRequiredDialog");
+    window.missingComponentsList = document.getElementById("missingComponentsList");
+    window.componentStates = {
+        python: false,
+        ffmpeg: false,
+        spotdl: false,
+        whisper: false
+    };
+
     // Load saved card states
-    ['libraryManagementContent', 'logsCardContent', 'importSettingsContent', 'importInstallationContent'].forEach(contentId => {
+    ['libraryManagementContent', 'logsCardContent', 'importInstallationContent'].forEach(contentId => {
         const isHidden = localStorage.getItem(`cardState-${contentId}`);
         const content = document.getElementById(contentId);
         const button = document.getElementById(`toggle${contentId.charAt(0).toUpperCase() + contentId.slice(1)}Btn`);
-
         if (content && isHidden === 'true') {
             content.classList.add('is-hidden');
             if (button) {
@@ -229,32 +397,29 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
     });
-
     document.getElementById("resetLibrary").onclick = () => showConfirmationDialog("Are you sure you want to reset the library path?", window.resetLibrary);
     document.getElementById("scanLibrary").onclick = () => window.scanLibrary();
-
     document.getElementById("clearSongs").onclick = () => showConfirmationDialog("Are you sure you want to clear all songs from the database? This action cannot be undone.", window.clearSongsDB);
     document.getElementById("clearLogs").onclick = () => showConfirmationDialog("Are you sure you want to clear all logs?", window.clearLogs);
     document.getElementById("clearPlaybackHistory").onclick = () => showConfirmationDialog("Are you sure you want to clear the playback history? This action cannot be undone.", async () => {
-        try {
-            const res = await fetch(`/api/settings/clearPlaybackHistory/${globalActiveProfileId}`, {method: 'POST'});
-            if (res.ok) {
-                showToast("Playback history cleared successfully", 'success');
-            } else {
-                showToast("Failed to clear playback history", 'error');
+            try {
+                const res = await fetch(`/api/settings/clearPlaybackHistory/${window.globalActiveProfileId}`, {method: 'POST'});
+                if (res.ok) {
+                    showToast("Playback history cleared successfully", 'success');
+                } else {
+                    showToast("Failed to clear playback history", 'error');
+                }
+            } catch (error) {
+                showToast("Error clearing playback history", 'error');
             }
-        } catch (error) {
-            showToast("Error clearing playback history", 'error');
-        }
-    });
+        });
     document.getElementById("reloadMetadata").onclick = () => showConfirmationDialog("Are you sure you want to reload all song metadata? This might take a while.", window.reloadMetadata);
     document.getElementById("deleteDuplicates").onclick = () => showConfirmationDialog("Are you sure you want to delete duplicate songs? This action cannot be undone.", window.deleteDuplicates);
     document.getElementById("saveImportSettingsBtn").onclick = window.saveImportSettings;
-
     // Save path buttons with toast notifications
     const saveMusicLibraryPathBtn = document.getElementById("saveMusicLibraryPathBtn");
     if (saveMusicLibraryPathBtn) {
-        saveMusicLibraryPathBtn.addEventListener('htmx:afterRequest', function(evt) {
+        saveMusicLibraryPathBtn.addEventListener('htmx:afterRequest', function (evt) {
             if (evt.detail.successful) {
                 showToast("Music library path saved successfully", 'success');
             } else {
@@ -267,18 +432,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (browseMusicFolderBtn) {
         browseMusicFolderBtn.onclick = async () => {
             try {
-                const res = await fetch(`/api/settings/${globalActiveProfileId}/browse-folder`);
-                
+                const res = await fetch(`/api/settings/${window.globalActiveProfileId}/browse-folder`);
                 // Handle case where user cancels folder selection (NO_CONTENT status)
                 if (res.status === 204) {
                     console.log("[Settings] Folder selection cancelled by user");
                     return; // Silently return - no notification needed for cancel
                 }
-                
+
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
-                
+
                 const json = await res.json();
                 if (json.data) {
                     const pathInputElem = document.getElementById("musicLibraryPathInput");
@@ -296,7 +460,7 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    // Attach event listeners for the new card header toggles
+// Attach event listeners for the new card header toggles
     const toggleLibraryManagementBtn = document.getElementById("toggleLibraryManagementBtn");
     if (toggleLibraryManagementBtn) {
         toggleLibraryManagementBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "libraryManagementContent");
@@ -312,45 +476,36 @@ document.addEventListener("DOMContentLoaded", () => {
         toggleLogsBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "logsCardContent");
     }
 
-    const toggleImportSettingsBtn = document.getElementById("toggleImportSettingsBtn");
-    if (toggleImportSettingsBtn) {
-        toggleImportSettingsBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "importSettingsContent");
-    }
+
 
     const toggleImportInstallationBtn = document.getElementById("toggleImportInstallationBtn");
     if (toggleImportInstallationBtn) {
         toggleImportInstallationBtn.onclick = (event) => window.toggleCardContent(event.currentTarget, "importInstallationContent");
     }
 
-    // Individual installation buttons and progress tracking
+// Individual installation buttons and progress tracking
     const installPythonBtn = document.getElementById("installPythonBtn");
     const installFfmpegBtn = document.getElementById("installFfmpegBtn");
     const installSpotdlBtn = document.getElementById("installSpotdlBtn");
     const installWhisperBtn = document.getElementById("installWhisperBtn");
-    
     const pythonInstallProgress = document.getElementById("pythonInstallProgress");
     const ffmpegInstallProgress = document.getElementById("ffmpegInstallProgress");
     const spotdlInstallProgress = document.getElementById("spotdlInstallProgress");
     const whisperInstallProgress = document.getElementById("whisperInstallProgress");
-    
     const pythonProgressContainer = document.getElementById("pythonProgressContainer");
     const ffmpegProgressContainer = document.getElementById("ffmpegProgressContainer");
     const spotdlProgressContainer = document.getElementById("spotdlProgressContainer");
     const whisperProgressContainer = document.getElementById("whisperProgressContainer");
-    
     const pythonStatus = document.getElementById("pythonStatus");
     const ffmpegStatus = document.getElementById("ffmpegStatus");
     const spotdlStatus = document.getElementById("spotdlStatus");
     const whisperStatus = document.getElementById("whisperStatus");
-    
     const pythonInstalledText = document.getElementById("pythonInstalledText");
     const ffmpegInstalledText = document.getElementById("ffmpegInstalledText");
     const spotdlInstalledText = document.getElementById("spotdlInstalledText");
     const whisperInstalledText = document.getElementById("whisperInstalledText");
-    
-    // Installation WebSocket for progress updates
-    let installationWebSocket = null;
-    
+    // Installation WebSocket for progress updates is now global
+
     // Component state tracking
     const componentStates = {
         python: false,
@@ -358,75 +513,68 @@ document.addEventListener("DOMContentLoaded", () => {
         spotdl: false,
         whisper: false
     };
-    
     // Setup individual installation button handlers
     if (installPythonBtn) {
         installPythonBtn.onclick = () => handleComponentAction('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer);
     }
-    
+
     if (installFfmpegBtn) {
         installFfmpegBtn.onclick = () => handleComponentAction('ffmpeg', installFfmpegBtn, ffmpegInstallProgress, ffmpegProgressContainer);
     }
-    
+
     if (installSpotdlBtn) {
         installSpotdlBtn.onclick = () => handleComponentAction('spotdl', installSpotdlBtn, spotdlInstallProgress, spotdlProgressContainer);
     }
-    
+
     if (installWhisperBtn) {
         installWhisperBtn.onclick = () => handleComponentAction('whisper', installWhisperBtn, whisperInstallProgress, whisperProgressContainer);
     }
-    
-    // Handle component install/uninstall action
+
+// Handle component install/uninstall action
     async function handleComponentAction(component, button, progressBar, progressContainer) {
         const isInstalled = componentStates[component];
         const action = isInstalled ? 'uninstall' : 'install';
-        
         try {
             // Disable button and show loading state
             button.disabled = true;
             button.classList.add('is-loading');
-            
             // Show progress bar
             progressContainer.style.display = 'block';
             progressBar.value = 0;
-            
             // Call backend API
-            const response = await fetch(`/api/import/${action}/${component}/${globalActiveProfileId}`, {
+            const response = await fetch(`/api/import/${action}/${component}/${window.globalActiveProfileId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 }
             });
-            
             if (response.ok) {
                 showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} ${action}ation started`, 'info');
-                
                 // Setup WebSocket for progress updates if not already connected
-                if (!installationWebSocket) {
+                if (!window.installationWebSocket) {
                     setupInstallationWebSocket();
                 }
             } else {
                 throw new Error(`Failed to start ${component} ${action}ation: ${response.status}`);
             }
-            
+
         } catch (error) {
             console.error(`Error starting ${component} ${action}ation:`, error);
             showToast(`Failed to start ${component} ${action}ation: ${error.message}`, 'error');
-            
             // Re-enable button and hide progress bar on error
             button.disabled = false;
             button.classList.remove('is-loading');
             progressContainer.style.display = 'none';
         }
     }
-    
-    // Setup WebSocket for real-time installation updates
+
+// Setup WebSocket for real-time installation updates
     function setupInstallationWebSocket() {
-        installationWebSocket = new WebSocket(`ws://${window.location.host}/ws/import-status/${globalActiveProfileId}`);
-        
-        installationWebSocket.onmessage = function (event) {
+        window.installationWebSocket = new WebSocket(`ws://${window.location.host}/ws/import-status/${window.globalActiveProfileId}`);
+        const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+        window.installationWebSocket = new WebSocket(protocol + location.host + `/ws/import-status/${window.globalActiveProfileId}`);
+        window.installationWebSocket.onmessage = function (event) {
             const message = event.data;
-            
             // Handle individual installation completion
             if (message.includes('[PYTHON_INSTALLATION_FINISHED]')) {
                 handleActionCompletion('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer, pythonStatus, true);
@@ -437,7 +585,7 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (message.includes('[WHISPER_INSTALLATION_FINISHED]')) {
                 handleActionCompletion('whisper', installWhisperBtn, whisperInstallProgress, whisperProgressContainer, whisperStatus, true);
             }
-            
+
             // Handle individual uninstallation completion
             if (message.includes('[PYTHON_UNINSTALLATION_FINISHED]')) {
                 handleActionCompletion('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer, pythonStatus, false);
@@ -448,7 +596,7 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (message.includes('[WHISPER_UNINSTALLATION_FINISHED]')) {
                 handleActionCompletion('whisper', installWhisperBtn, whisperInstallProgress, whisperProgressContainer, whisperStatus, false);
             }
-            
+
             // Handle installation/uninstallation progress messages
             try {
                 const progressData = JSON.parse(message);
@@ -459,77 +607,81 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Not a JSON progress message, ignore
             }
         };
-        
         installationWebSocket.onopen = function () {
             console.log("Installation WebSocket connected.");
         };
-        
-        installationWebSocket.onclose = function () {
-            console.log("Installation WebSocket disconnected.");
+        installationWebSocket.onclose = function (event) {
+            console.log("Installation WebSocket disconnected.", event.code, event.reason);
             installationWebSocket = null;
+            // Don't reconnect if the connection was closed cleanly (code 1000) or if page is unloading
+            if (event.code === 1000 || document.hidden) {
+                console.log("Installation WebSocket closed cleanly, not reconnecting");
+                return;
+            }
+
+            // Reconnect after 3 seconds for abnormal closures
+            setTimeout(() => {
+                if (!document.hidden && !installationWebSocket) {
+                    console.log("Installation WebSocket attempting to reconnect...");
+                    setupInstallationWebSocket();
+                }
+            }, 3000);
         };
-        
         installationWebSocket.onerror = function (error) {
             console.error("Installation WebSocket error:", error);
             showToast("WebSocket connection failed for installation updates", 'error');
         };
     }
-    
-    // Handle installation/uninstallation completion
+
+// Handle installation/uninstallation completion
     function handleActionCompletion(component, button, progressBar, progressContainer, statusElement, isInstall) {
         progressBar.value = 100;
         button.disabled = false;
         button.classList.remove('is-loading');
-        
         // Update component state
         componentStates[component] = isInstall;
-        
         if (isInstall) {
-            // Installation completed
+// Installation completed
             button.classList.remove('is-success');
             button.classList.add('is-danger');
             button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
-            
             if (statusElement) {
                 statusElement.textContent = 'Installed';
                 statusElement.classList.remove('is-info');
                 statusElement.classList.add('is-success');
             }
-            
+
             showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} installed successfully!`, 'success');
         } else {
-            // Uninstallation completed
+// Uninstallation completed
             button.classList.remove('is-danger');
             button.classList.add('is-success');
             button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
-            
             if (statusElement) {
                 statusElement.textContent = 'Not installed';
                 statusElement.classList.remove('is-success');
                 statusElement.classList.remove('is-info');
             }
-            
+
             showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} removed successfully!`, 'info');
         }
-        
-        // Hide progress bar after completion
+
+// Hide progress bar after completion
         setTimeout(() => {
             progressContainer.style.display = 'none';
         }, 1000);
-        
         // Check if all components are installed
         checkAllComponentsInstalled();
     }
-    
-    // Update installation/uninstallation progress
+
+// Update installation/uninstallation progress
     function updateActionProgress(component, progress, isInstalling) {
         const progressBar = document.getElementById(`${component}InstallProgress`);
         const statusElement = document.getElementById(`${component}Status`);
-        
         if (progressBar) {
             progressBar.value = progress;
         }
-        
+
         if (statusElement) {
             const action = isInstalling ? (componentStates[component] ? 'Uninstalling' : 'Installing') : '';
             if (action) {
@@ -539,14 +691,23 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
     }
-    
-    // Check if all components are installed and refresh UI
+
+// Check if all components are installed and refresh UI
     async function checkAllComponentsInstalled() {
         try {
-            const response = await fetch(`/api/import/status`);
-            const data = await response.json();
-            
-            if (response.ok && data.data && data.data.isAllInstalled) {
+            const response = await fetch(`/api/settings/${window.globalActiveProfileId}/install-status`);
+            const result = await response.json();
+            // Handle response structure
+            let status = null;
+            if (result.success && result.data) {
+                status = result.data;
+            } else if (result.data) {
+                status = result.data;
+            } else if (result.allInstalled !== undefined) {
+                status = result;
+            }
+
+            if (response.ok && status && (status.allInstalled || status.isAllInstalled)) {
                 showToast("All components installed successfully! Import functionality is now available.", 'success');
                 setTimeout(() => {
                     location.reload();
@@ -556,66 +717,167 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Error checking installation status:", error);
         }
     }
-    
-    // Load initial installation status
-    async function loadInstallationStatus() {
+
+// Test if settings.js is loading properly
+    console.log('[Settings] === SETTINGS.JS LOADING ===');
+    console.log('[Settings] Window object:', typeof window);
+    console.log('[Settings] Document ready:', document.readyState);
+    // Load initial installation status with retry logic (same as setup.js)
+    window.loadInstallationStatus = async function (retryCount = 0) {
+        console.log('[Settings] FUNCTION DEFINITION CHECK - loadInstallationStatus called');
+        const maxRetries = 20;
+        const baseDelay = 100; // 100ms
+
+        console.log(`[Settings] === LOAD INSTALLATION STATUS CALLED === (attempt ${retryCount + 1}/${maxRetries})`);
+        console.log(`[Settings] globalActiveProfileId:`, window.globalActiveProfileId);
+        console.log(`[Settings] document ready:`, document.readyState);
+        // Check if globalActiveProfileId is available
+        if (!window.globalActiveProfileId) {
+            console.warn("[Settings] globalActiveProfileId not available, retrying...");
+            if (retryCount < maxRetries) {
+                setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
+            }
+            return;
+        }
+
         try {
-            const response = await fetch(`/api/import/status`);
-            const data = await response.json();
-            
-            if (response.ok && data.data) {
-                const status = data.data;
-                
+            console.log(`[Settings] Attempting to load installation status (attempt ${retryCount + 1}/${maxRetries})`);
+            // Check if all required DOM elements are available
+            const requiredElements = {
+                installPythonBtn, installFfmpegBtn, installSpotdlBtn, installWhisperBtn,
+                pythonStatus, ffmpegStatus, spotdlStatus, whisperStatus
+            };
+            const missingElements = Object.entries(requiredElements)
+                    .filter(([key, element]) => !element)
+                    .map(([key]) => key);
+            if (missingElements.length > 0) {
+                console.warn(`[Settings] Missing DOM elements: ${missingElements.join(', ')}`);
+                if (retryCount < maxRetries) {
+                    console.log(`[Settings] DOM elements not ready, retrying...`, {
+                        installPythonBtn: !!installPythonBtn,
+                        installFfmpegBtn: !!installFfmpegBtn,
+                        installSpotdlBtn: !!installSpotdlBtn,
+                        installWhisperBtn: !!installWhisperBtn,
+                        pythonStatus: !!pythonStatus,
+                        ffmpegStatus: !!ffmpegStatus,
+                        spotdlStatus: !!spotdlStatus,
+                        whisperStatus: !!whisperStatus
+                    });
+                    setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
+                    return;
+                } else {
+                    console.error('[Settings] Failed to find DOM elements after maximum retries');
+                    throw new Error(`Required UI elements not found after ${maxRetries} attempts: ${missingElements.join(', ')}`);
+                }
+            }
+
+            console.log('[Settings] All required DOM elements found');
+            const response = await fetch(`/api/settings/${window.globalActiveProfileId}/install-status`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache'
+                },
+                credentials: 'same-origin'
+            });
+            console.log(`[Settings] Installation status response: ${response.status} ${response.statusText}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log(`[Settings] Installation status response:`, result);
+            console.log(`[Settings] Response status:`, response.status);
+            console.log(`[Settings] Response ok:`, response.ok);
+            console.log(`[Settings] Result structure:`, {
+                hasSuccess: 'success' in result,
+                successValue: result.success,
+                hasData: 'data' in result,
+                dataValue: result.data,
+                allKeys: Object.keys(result)
+            });
+            // Handle different response structures (same as setup.js)
+            let status = null;
+            if (result.success && result.data) {
+                // Standard API response format
+                status = result.data;
+            } else if (result.data) {
+                // Direct data response (no success wrapper)
+                status = result.data;
+            } else if (result.pythonInstalled !== undefined) {
+                // Direct status response (no wrapper)
+                status = result;
+            } else {
+                console.error('[Settings] Unexpected response structure:', result);
+                throw new Error('Unexpected response structure from installation status API');
+            }
+
+            // Ensure we have the expected properties
+            if (status.pythonInstalled === undefined) {
+                console.error('[Settings] Invalid status object - missing pythonInstalled property');
+                throw new Error('Invalid status object returned from API');
+            }
+
+            console.log('[Settings] Status data:', status);
+            console.log('[Settings] Individual statuses:', {
+                pythonInstalled: status.pythonInstalled,
+                ffmpegInstalled: status.ffmpegInstalled,
+                spotdlInstalled: status.spotdlInstalled,
+                whisperInstalled: status.whisperInstalled
+            });
+            // Update installation status using the same approach as setup.js
+            updateInstallationStatusElements(status);
+            console.log('[Settings] Installation status loaded successfully');
+            // Use the already parsed 'result' instead of calling response.json() again
+            console.log(`[Settings] Installation status data:`, result);
+            console.log(`[Settings] Data type:`, typeof result);
+            console.log(`[Settings] Data.data:`, result.data);
+            console.log(`[Settings] Data.data type:`, typeof result.data);
+            if (result.data) {
+                const status = result.data;
+                console.log(`[Settings] Status object:`, status);
+                console.log(`[Settings] Status.pythonInstalled:`, status.pythonInstalled);
+                console.log(`[Settings] Status keys:`, Object.keys(status));
                 // Update Python status
                 updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatus);
-                
                 // Update FFmpeg status
                 updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatus);
-                
                 // Update SpotDL status
                 updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatus);
-                
                 // Update Whisper status
                 updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatus);
-                
                 // Update missing components list and dialog visibility
                 updateMissingComponentsDialog(status);
+                console.log('[Settings] Installation status loaded successfully');
+            } else {
+                if (retryCount < maxRetries - 1) {
+                    console.log(`[Settings] Retrying in ${baseDelay}ms due to missing elements...`);
+                    setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
+                    return;
+                } else {
+                    throw new Error(`Required UI elements not found after ${maxRetries} attempts: ${missingElements.join(', ')}`);
+                }
             }
         } catch (error) {
-            console.error("Error loading installation status:", error);
-        }
-    }
-    
-    // Update missing components dialog
-    function updateMissingComponentsDialog(status) {
-        if (!installationRequiredDialog || !missingComponentsList) return;
-        
-        const missingComponents = [];
-        
-        if (!status.pythonInstalled) {
-            missingComponents.push('<li><strong>Python ≤3.13.9</strong> (Required for audio processing)</li>');
-        }
-        if (!status.ffmpegInstalled) {
-            missingComponents.push('<li><strong>FFmpeg</strong> (For audio processing)</li>');
-        }
-        if (!status.spotdlInstalled) {
-            missingComponents.push('<li><strong>SpotDL</strong> (For music downloading)</li>');
-        }
-        if (!status.whisperInstalled) {
-            missingComponents.push('<li><strong>Whisper</strong> (For audio transcription)</li>');
-        }
-        
-        // Update the missing components list
-        missingComponentsList.innerHTML = missingComponents.join('');
-        
-        // Show/hide the notification based on whether components are missing
-        if (missingComponents.length === 0) {
-            // All components installed - hide the notification
-            installationRequiredDialog.style.display = 'none';
-        } else {
-            // Some components missing - show the notification
-            installationRequiredDialog.style.display = 'block';
-            
+            console.error('[Settings] Error loading installation status:', error);
+            // Retry logic with linear backoff (same as setup.js)
+            if (retryCount < maxRetries) {
+                console.log(`[Settings] Retrying in ${baseDelay}ms...`);
+                setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
+            } else {
+                console.error('[Settings] Failed to load installation status after maximum retries');
+                // Show error to user if showToast function is available
+                if (typeof showToast === 'function') {
+                    showToast('Failed to load installation status. Please refresh the page.', 'error', 5000);
+                }
+            }
+
+
+            // Manual refresh function for installation status
+            window.refreshInstallationStatus = function () {
+                console.log('[Settings] Manual refresh of installation status requested');
+                window.loadInstallationStatus();
+            };
             // Update the message to reflect how many are missing
             const messageElement = installationRequiredDialog.querySelector('strong');
             if (messageElement) {
@@ -625,39 +887,118 @@ document.addEventListener("DOMContentLoaded", () => {
                     messageElement.textContent = `Import features require ${missingComponents.length} additional installations.`;
                 }
             }
-        }
     }
-    
+    }
+
     // Update individual component status
     function updateComponentStatus(component, isInstalled, button, statusElement) {
+        console.log(`[Settings] Updating ${component} status: ${isInstalled}`);
+        console.log(`[Settings] Button exists:`, !!button);
+        console.log(`[Settings] Status element exists:`, !!statusElement);
+        // Update component state
         componentStates[component] = isInstalled;
-        
-        if (isInstalled) {
+        if (button) {
             button.disabled = false;
-            button.classList.remove('is-success');
-            button.classList.add('is-danger');
-            button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
-            
-            if (statusElement) {
-                statusElement.textContent = 'Installed';
-                statusElement.classList.add('is-success');
+            if (isInstalled) {
+                button.classList.remove('is-success');
+                button.classList.add('is-danger');
+                button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
+            } else {
+                button.classList.remove('is-danger');
+                button.classList.add('is-success');
+                button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
             }
         } else {
-            button.disabled = false;
-            button.classList.remove('is-danger');
-            button.classList.add('is-success');
-            button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
-            
-            if (statusElement) {
+            console.warn(`[Settings] Button element not found for component: ${component}`);
+        }
+
+        if (statusElement) {
+            if (isInstalled) {
+                statusElement.textContent = 'Installed';
+                statusElement.classList.remove('is-info', 'is-warning', 'is-danger');
+                statusElement.classList.add('is-success');
+            } else {
                 statusElement.textContent = 'Not installed';
-                statusElement.classList.remove('is-success');
+                statusElement.classList.remove('is-info', 'is-success', 'is-danger');
+                statusElement.classList.add('is-warning');
             }
+        } else {
+            console.warn(`[Settings] Status element not found for component: ${component}`);
         }
     }
-    
-    // Load installation status on page load
-    loadInstallationStatus();
-    
+
+    // Update installation status display (same as setup.js)
+    function updateInstallationStatusElements(status) {
+        console.log('[Settings] DOM update attempt with status:', status);
+        // Update individual status elements
+        const pythonStatus = document.getElementById('pythonStatus');
+        const ffmpegStatus = document.getElementById('ffmpegStatus');
+        const spotdlStatus = document.getElementById('spotdlStatus');
+        const whisperStatus = document.getElementById('whisperStatus');
+        console.log('[Settings] Found elements:', {
+            pythonStatus: !!pythonStatus,
+            ffmpegStatus: !!ffmpegStatus,
+            spotdlStatus: !!spotdlStatus,
+            whisperStatus: !!whisperStatus
+        });
+        // If any elements are missing, don't proceed
+        if (!pythonStatus || !ffmpegStatus || !spotdlStatus || !whisperStatus) {
+            console.log('[Settings] Some elements not found, skipping update');
+            return;
+        }
+
+        if (pythonStatus) {
+            const isInstalled = Boolean(status.pythonInstalled);
+            console.log('[Settings] Updating Python status:', isInstalled, '(raw:', status.pythonInstalled, ')');
+            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+            pythonStatus.textContent = newText;
+            pythonStatus.className = newClass;
+        }
+
+        if (ffmpegStatus) {
+            const isInstalled = Boolean(status.ffmpegInstalled);
+            console.log('[Settings] Updating FFmpeg status:', isInstalled, '(raw:', status.ffmpegInstalled, ')');
+            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+            ffmpegStatus.textContent = newText;
+            ffmpegStatus.className = newClass;
+        }
+
+        if (spotdlStatus) {
+            const isInstalled = Boolean(status.spotdlInstalled);
+            console.log('[Settings] Updating SpotDL status:', isInstalled, '(raw:', status.spotdlInstalled, ')');
+            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+            spotdlStatus.textContent = newText;
+            spotdlStatus.className = newClass;
+        }
+
+        if (whisperStatus) {
+            const isInstalled = Boolean(status.whisperInstalled);
+            console.log('[Settings] Updating Whisper status:', isInstalled, '(raw:', status.whisperInstalled, ')');
+            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+            whisperStatus.textContent = newText;
+            whisperStatus.className = newClass;
+        }
+
+        // Also update button states using existing function
+        updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatus);
+        updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatus);
+        updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatus);
+        updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatus);
+        // Update missing components list and dialog visibility
+        updateMissingComponentsDialog(status);
+    }
+
+    // Manual refresh function for installation status
+    window.refreshInstallationStatus = function () {
+        console.log('[Settings] Manual refresh of installation status requested');
+        loadInstallationStatus();
+    };
+
+
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -665,7 +1006,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // Video library toggle functionality
     const enableVideoLibraryToggle = document.getElementById("enableVideoLibraryToggle");
     const videoLibraryOptions = document.getElementById("videoLibraryOptions");
-    
     if (enableVideoLibraryToggle && videoLibraryOptions) {
         // Load saved video library state
         const savedVideoState = localStorage.getItem('videoLibraryEnabled');
@@ -674,7 +1014,7 @@ document.addEventListener("DOMContentLoaded", () => {
             videoLibraryOptions.classList.remove('is-hidden');
         }
 
-        enableVideoLibraryToggle.addEventListener('change', function() {
+        enableVideoLibraryToggle.addEventListener('change', function () {
             if (this.checked) {
                 videoLibraryOptions.classList.remove('is-hidden');
                 localStorage.setItem('videoLibraryEnabled', 'true');
@@ -689,21 +1029,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.refreshSettingsUI?.();
     setTimeout(() => window.setupLogWebSocket?.(), 0);
-
     const runAsServiceToggle = document.getElementById("runAsServiceToggle");
     const runAsServiceModal = document.getElementById("runAsServiceModal");
     const modalCloseButtons = runAsServiceModal ? runAsServiceModal.querySelectorAll('.delete, .button.is-success') : [];
-
     if (runAsServiceToggle) {
         runAsServiceToggle.addEventListener('change', async () => {
             try {
-                const res = await fetch(`/api/settings/${globalActiveProfileId}/toggle-run-as-service`, {
+                const res = await fetch(`/api/settings/${window.globalActiveProfileId}/toggle-run-as-service`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     }
                 });
-                
                 if (res.ok) {
                     if (runAsServiceToggle.checked) {
                         runAsServiceModal?.classList.add('is-active');
@@ -730,12 +1067,41 @@ document.addEventListener("DOMContentLoaded", () => {
             runAsServiceModal?.classList.remove('is-active');
         });
     });
-
     // Navbar burger functionality
     const burger = document.querySelector('.navbar-burger');
     const menu = document.querySelector('.navbar-menu');
     burger.addEventListener('click', () => {
         burger.classList.toggle('is-active');
         menu.classList.toggle('is-active');
+    });
+    // Handle page visibility to clean up WebSocket connections
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            // Page is hidden, close WebSocket connections
+            if (logWebSocket) {
+                logWebSocket.close(1000, 'Page hidden');
+                logWebSocket = null;
+            }
+            if (installationWebSocket) {
+                installationWebSocket.close(1000, 'Page hidden');
+                installationWebSocket = null;
+            }
+        } else {
+            // Page is visible again, reconnect if needed
+            setTimeout(() => {
+                if (!logWebSocket) {
+                    window.setupLogWebSocket();
+                }
+            }, 1000);
+        }
+    });
+    // Clean up on page unload
+    window.addEventListener('beforeunload', () => {
+        if (window.logWebSocket) {
+            window.logWebSocket.close(1000, 'Page unloading');
+        }
+        if (window.installationWebSocket) {
+            window.installationWebSocket.close(1000, 'Page unloading');
+        }
     });
 });

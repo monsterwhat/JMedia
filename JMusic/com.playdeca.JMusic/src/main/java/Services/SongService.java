@@ -12,6 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -57,6 +59,34 @@ public class SongService {
             playbackHistoryService.deleteBySongIdForAllProfiles(song.id);
             // Then, remove the song from all playlists
             playlistService.removeSongFromAllPlaylists(song.id);
+            
+            Song managed = em.contains(song) ? song : em.merge(song);
+            em.remove(managed);
+        }
+    }
+
+    /**
+     * Enhanced delete method that preserves playlists by finding replacement duplicates
+     */
+    @Transactional
+    public void deleteWithPlaylistPreservation(Song song) {
+        if (song != null) {
+            // Find replacement before deletion
+            Song replacement = findBestReplacement(song.id);
+
+            if (replacement != null) {
+                // Replace in all playlists
+                playlistService.replaceSongInAllPlaylists(song.id, replacement.id);
+                // Update playback history
+                playbackHistoryService.replaceSongInHistory(song.id, replacement.id);
+                LOGGER.log(Level.INFO, "Preserving playlists by replacing song ID {0} with replacement ID {1}", 
+                    new Object[]{song.id, replacement.id});
+            } else {
+                // No replacement found, remove from playlists
+                playlistService.removeSongFromAllPlaylists(song.id);
+                playbackHistoryService.deleteBySongIdForAllProfiles(song.id);
+                LOGGER.log(Level.INFO, "No replacement found for song ID {0}, removing from playlists and history", song.id);
+            }
             
             Song managed = em.contains(song) ? song : em.merge(song);
             em.remove(managed);
@@ -365,5 +395,77 @@ public class SongService {
             System.out.println("Error deleting physical file for song: " + absolutePath + " " + e);
             throw new RuntimeException("Failed to delete physical file: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Finds all duplicates of a specific song based on metadata matching
+     */
+    @Transactional
+    public List<Song> findDuplicates(Long songId) {
+        Song originalSong = find(songId);
+        if (originalSong == null) {
+            return new ArrayList<>();
+        }
+
+        return em.createQuery(
+            "SELECT s FROM Song s WHERE " +
+            "s.id != :songId AND " +
+            "LOWER(s.title) = LOWER(:title) AND " +
+            "LOWER(s.artist) = LOWER(:artist) AND " +
+            "s.durationSeconds = :duration", Song.class)
+            .setParameter("songId", songId)
+            .setParameter("title", originalSong.getTitle())
+            .setParameter("artist", originalSong.getArtist())
+            .setParameter("duration", originalSong.getDurationSeconds())
+            .getResultList();
+    }
+
+    /**
+     * Finds the best replacement song for a given song ID
+     * Prioritizes main library files over import folder files
+     */
+    @Transactional
+    public Song findBestReplacement(Long songId) {
+        List<Song> duplicates = findDuplicates(songId);
+        if (duplicates.isEmpty()) {
+            return null;
+        }
+
+        // Prioritize main library over import folder
+        return duplicates.stream()
+            .min(Comparator.comparing(s -> s.getPath().contains("/import/") ? 1 : 0))
+            .orElse(duplicates.get(0));
+    }
+
+    /**
+     * Deletes a song with replacement logic to preserve playlists
+     * If a replacement duplicate exists, it will replace the deleted song in all playlists
+     */
+    @Transactional
+    public void deleteWithReplacement(Long songId) {
+        Song songToDelete = find(songId);
+        if (songToDelete == null) {
+            throw new NotFoundException("Song with ID " + songId + " not found.");
+        }
+
+        // Find replacement
+        Song replacement = findBestReplacement(songId);
+
+        if (replacement != null) {
+            // Replace in all playlists
+            playlistService.replaceSongInAllPlaylists(songId, replacement.id);
+            // Update playback history
+            playbackHistoryService.replaceSongInHistory(songId, replacement.id);
+            LOGGER.log(Level.INFO, "Replacing song ID {0} with replacement ID {1} in playlists and history", 
+                new Object[]{songId, replacement.id});
+        } else {
+            // No replacement found, remove from playlists
+            playlistService.removeSongFromAllPlaylists(songId);
+            playbackHistoryService.deleteBySongIdForAllProfiles(songId);
+            LOGGER.log(Level.INFO, "No replacement found for song ID {0}, removing from playlists and history", songId);
+        }
+
+        // Delete the song
+        delete(songToDelete);
     }
 }

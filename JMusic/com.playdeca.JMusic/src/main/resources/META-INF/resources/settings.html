@@ -15,7 +15,7 @@
 
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
-        
+
         <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
         <script>
             document.addEventListener('alpine:init', () => {
@@ -28,14 +28,64 @@
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <style>
-            html, body {
-                height: 100%;
-                background-color: #222;
-            }
-
+            /* Glassmorphism base styles */
             body {
+                background:
+                    linear-gradient(135deg, rgba(219, 234, 254, 0.3) 0%, rgba(96, 165, 250, 0.3) 50%, rgba(30, 64, 175, 0.3) 100%),
+                    url('https://images.unsplash.com/photo-1453280339213-efb07f95531b?w=1920&h=1080&fit=crop');
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                background-blend-mode: overlay;
+                min-height: 100vh;
+                position: relative;
+                overflow-x: hidden;
                 display: flex;
                 flex-direction: column;
+            }
+
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background:
+                    radial-gradient(circle at 20% 80%, rgba(251, 191, 36, 0.3) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 20%, rgba(147, 51, 234, 0.3) 0%, transparent 50%),
+                    radial-gradient(circle at 40% 40%, rgba(236, 72, 153, 0.2) 0%, transparent 50%);
+                pointer-events: none;
+                z-index: -1;
+            }
+
+            [data-theme="dark"] {
+                background:
+                    linear-gradient(135deg, rgba(30, 58, 138, 0.6) 0%, rgba(30, 64, 175, 0.6) 50%, rgba(49, 46, 129, 0.6) 100%),
+                    url('https://images.unsplash.com/photo-1453280339213-efb07f95531b?w=1920&h=1080&fit=crop') center/cover;
+                background-blend-mode: overlay;
+            }
+
+            [data-theme="dark"]::before {
+                background:
+                    radial-gradient(circle at 20% 80%, rgba(251, 191, 36, 0.2) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 20%, rgba(147, 51, 234, 0.2) 0%, transparent 50%),
+                    radial-gradient(circle at 40% 40%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
+            }
+
+            html, body {
+                height: 100%;
+            }
+
+            .hero {
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .hero-body {
+                overflow: auto;
             }
 
             .content-wrapper {
@@ -43,15 +93,824 @@
                 overflow: auto;
             }
 
+            /* Glass box styles */
+            .glass-box {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                color: #333 !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .glass-box {
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .glass-box::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+            }
+
+            .glass-box:hover::before {
+                left: 100%;
+            }
+
+            /* Apply glass styles to cards */
+            .card {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                color: #333 !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .card {
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+            }
+
+            .card:hover::before {
+                left: 100%;
+            }
+
+            /* Apply glass styles to navbar */
+            .navbar {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+            }
+
+            [data-theme="dark"] .navbar {
+                background: rgba(0, 0, 0, 0.35) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+            }
+
+            /* Apply glass styles to inputs */
+            .input, .textarea, .select select {
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: inherit;
+                border-radius: 16px;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                    0 4px 16px rgba(0, 0, 0, 0.04);
+            }
+
+            [data-theme="dark"] .input, [data-theme="dark"] .textarea, [data-theme="dark"] .select select {
+                background: rgba(0, 0, 0, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                color: #fff;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                    0 4px 16px rgba(0, 0, 0, 0.08);
+            }
+
+            .input:focus, .textarea:focus, .select select:focus {
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(50, 115, 220, 0.4);
+                box-shadow:
+                    0 0 0 3px rgba(50, 115, 220, 0.15),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                    0 4px 20px rgba(0, 0, 0, 0.06);
+            }
+
+            [data-theme="dark"] .input:focus, [data-theme="dark"] .textarea:focus, [data-theme="dark"] .select select:focus {
+                background: rgba(0, 0, 0, 0.25);
+                border-color: rgba(50, 115, 220, 0.3);
+                box-shadow:
+                    0 0 0 3px rgba(50, 115, 220, 0.15),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                    0 4px 20px rgba(0, 0, 0, 0.1);
+            }
+
+            /* Apply glass styles to buttons */
+            .button {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                color: #333 !important;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+                border-radius: 12px;
+            }
+
+            [data-theme="dark"] .button {
+                background: rgba(0, 0, 0, 0.35) !important;
+                border: 1px solid rgba(255, 255, 255, 0.15) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+            }
+
+            .button:hover {
+                background: rgba(255, 255, 255, 0.35) !important;
+                box-shadow:
+                    0 6px 20px rgba(0, 0, 0, 0.15),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+                transform: translateY(-2px);
+            }
+
+            [data-theme="dark"] .button:hover {
+                background: rgba(0, 0, 0, 0.45) !important;
+                box-shadow:
+                    0 6px 20px rgba(0, 0, 0, 0.4),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .button::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+                border-radius: 12px;
+            }
+
+            .button:hover::before {
+                left: 100%;
+            }
+
+            /* Modal glass styles */
+            .modal-card {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                border-radius: 20px;
+                color: #333 !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .modal-card {
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+            }
+
+            .modal-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+            }
+
+            .modal-card:hover::before {
+                left: 100%;
+            }
+
+            .modal-card-head {
+                background: rgba(255, 255, 255, 0.05) !important;
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            [data-theme="dark"] .modal-card-head {
+                background: rgba(0, 0, 0, 0.1) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+
+            .modal-card-title {
+                color: inherit !important;
+            }
+
+            .modal-card-foot {
+                background: rgba(255, 255, 255, 0.05) !important;
+                border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            [data-theme="dark"] .modal-card-foot {
+                background: rgba(0, 0, 0, 0.1) !important;
+                border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+
+            /* Modal background */
+            .modal-background {
+                background: rgba(0, 0, 0, 0.6) !important;
+                backdrop-filter: blur(5px);
+                -webkit-backdrop-filter: blur(5px);
+            }
+
+            /* Enhanced toast notification styles */
+            .toast {
+                background: rgba(255, 255, 255, 0.25) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                border-radius: 16px;
+                color: #333 !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .toast {
+                background: rgba(0, 0, 0, 0.35) !important;
+                border: 1px solid rgba(255, 255, 255, 0.15) !important;
+                color: #fff !important;
+                box-shadow:
+                    0 4px 16px rgba(0, 0, 0, 0.3),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+            }
+
+            .toast::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+                transition: left 0.8s ease;
+            }
+
+            .toast:hover::before {
+                left: 100%;
+            }
+
+            .toast-content {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                width: 100%;
+            }
+
+            .toast.success {
+                border-left: 4px solid #48c78e !important;
+            }
+
+            .toast.success .toast-icon {
+                color: #48c78e !important;
+            }
+
+            .toast.error {
+                border-left: 4px solid #f14668 !important;
+            }
+
+            .toast.error .toast-icon {
+                color: #f14668 !important;
+            }
+
+            .toast.warning {
+                border-left: 4px solid #ffdd57 !important;
+            }
+
+            .toast.warning .toast-icon {
+                color: #ffdd57 !important;
+            }
+
+            .toast.info {
+                border-left: 4px solid #3298dc !important;
+            }
+
+            .toast.info .toast-icon {
+                color: #3298dc !important;
+            }
+
+            /* Enhanced delete button styling */
+            .delete {
+                background: rgba(255, 255, 255, 0.1) !important;
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                border-radius: 50%;
+                color: inherit !important;
+                transition: all 0.3s ease;
+            }
+
+            [data-theme="dark"] .delete {
+                background: rgba(0, 0, 0, 0.2) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            .delete:hover {
+                background: rgba(255, 255, 255, 0.2) !important;
+                transform: scale(1.1);
+            }
+
+            [data-theme="dark"] .delete:hover {
+                background: rgba(0, 0, 0, 0.3) !important;
+            }
+
+            /* Enhanced modal animations */
+            .modal.is-active .modal-card {
+                animation: modalSlideIn 0.3s ease-out;
+            }
+
+            @keyframes modalSlideIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-30px) scale(0.95);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+            }
+
+            /* Enhanced progress bars */
+            .progress {
+                background-color: rgba(255, 255, 255, 0.1) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                border-radius: 12px !important;
+                overflow: hidden;
+            }
+
+            [data-theme="dark"] .progress {
+                background-color: rgba(0, 0, 0, 0.3) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            .progress::-webkit-progress-value {
+                background: linear-gradient(90deg, #48c78e, #3ec46d) !important;
+                border-radius: 12px;
+                transition: width 0.3s ease;
+            }
+
+            .progress::-moz-progress-bar {
+                background: linear-gradient(90deg, #48c78e, #3ec46d) !important;
+                border-radius: 12px;
+                transition: width 0.3s ease;
+            }
+
+            /* Override default Bulma colors for glass theme */
+            .has-background-grey-darker {
+                background-color: transparent !important;
+            }
+
+            .has-text-white {
+                color: inherit !important;
+            }
+
+            .has-text-success {
+                color: #23d160 !important;
+            }
+
+            /* Ensure proper text visibility */
+            .title, .subtitle, .label {
+                color: inherit;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            }
+
+            /* Dark theme text adjustments */
+            [data-theme="dark"] .title,
+            [data-theme="dark"] .subtitle,
+            [data-theme="dark"] .label {
+                color: #fff !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+            }
+
+            /* Card header styling for liquid glass */
+            .card-header {
+                background: rgba(255, 255, 255, 0.05) !important;
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            [data-theme="dark"] .card-header {
+                background: rgba(0, 0, 0, 0.1) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+
+            .card-header-title {
+                background: transparent !important;
+                color: inherit !important;
+            }
+
+            /* Navbar item colors */
+            .navbar-item {
+                color: inherit !important;
+            }
+
+            .navbar-item:hover {
+                background-color: rgba(255, 255, 255, 0.08) !important;
+                color: inherit !important;
+            }
+
+            [data-theme="dark"] .navbar-item:hover {
+                background-color: rgba(255, 255, 255, 0.04) !important;
+            }
+
+            /* Navbar search container styling */
+            .navbar-search-container {
+                background: rgba(255, 255, 255, 0.05) !important;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+                border-radius: 20px;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                padding: 4px;
+            }
+
+            [data-theme="dark"] .navbar-search-container {
+                background: rgba(0, 0, 0, 0.15) !important;
+                border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+
+            .navbar-search-container .input {
+                background: rgba(255, 255, 255, 0.05) !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            }
+
+            [data-theme="dark"] .navbar-search-container .input {
+                background: rgba(0, 0, 0, 0.2) !important;
+                border: 1px solid rgba(255, 255, 255, 0.06) !important;
+            }
+
+            /* Notification styling */
+            .notification {
+                background: rgba(255, 255, 255, 0.15) !important;
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: inherit !important;
+            }
+
+            [data-theme="dark"] .notification {
+                background: rgba(0, 0, 0, 0.25) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            }
+
+            .notification.is-info {
+                background: rgba(32, 156, 238, 0.2) !important;
+                border-color: rgba(32, 156, 238, 0.3) !important;
+            }
+
+            .notification.is-warning {
+                background: rgba(255, 221, 87, 0.2) !important;
+                border-color: rgba(255, 221, 87, 0.3) !important;
+            }
+
+            .notification.is-warning.is-light {
+                background: rgba(255, 221, 87, 0.15) !important;
+                border-color: rgba(255, 221, 87, 0.25) !important;
+            }
+
+            /* Progress bar styling */
+            .progress {
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+
+            [data-theme="dark"] .progress {
+                background-color: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            /* Switch styling */
+            .switch {
+                position: relative;
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+                width: auto;
+                height: auto;
+                cursor: pointer;
+            }
+
+            .switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+                position: absolute;
+                z-index: -1;
+            }
+
+            .switch .check {
+                position: relative;
+                cursor: pointer;
+                display: inline-block;
+                width: 50px;
+                height: 24px;
+                background-color: rgba(255, 255, 255, 0.2);
+                transition: .4s;
+                border-radius: 24px;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                flex-shrink: 0;
+            }
+
+            .switch input:checked + .check {
+                background-color: rgba(50, 115, 220, 0.6);
+                border-color: rgba(50, 115, 220, 0.8);
+            }
+
+            .switch .check:before {
+                position: absolute;
+                content: "";
+                height: 18px;
+                width: 18px;
+                left: 3px;
+                bottom: 2px;
+                background-color: white;
+                transition: .4s;
+                border-radius: 50%;
+            }
+
+            .switch input:checked + .check:before {
+                transform: translateX(26px);
+            }
+
+            .switch .control-label {
+                color: inherit !important;
+                font-weight: 500;
+                user-select: none;
+                order: 2;
+            }
+
+            /* Dark theme switch adjustments */
+            [data-theme="dark"] .switch .check {
+                background-color: rgba(0, 0, 0, 0.3);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+
+            [data-theme="dark"] .switch input:checked + .check {
+                background-color: rgba(50, 115, 220, 0.5);
+                border-color: rgba(50, 115, 220, 0.7);
+            }
+
+            /* Switch hover effects */
+            .switch:hover .check {
+                background-color: rgba(255, 255, 255, 0.3);
+                border-color: rgba(255, 255, 255, 0.4);
+            }
+
+            [data-theme="dark"] .switch:hover .check {
+                background-color: rgba(0, 0, 0, 0.4);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+
+            .switch:hover input:checked + .check {
+                background-color: rgba(50, 115, 220, 0.7);
+                border-color: rgba(50, 115, 220, 0.9);
+            }
+
+            [data-theme="dark"] .switch:hover input:checked + .check {
+                background-color: rgba(50, 115, 220, 0.6);
+                border-color: rgba(50, 115, 220, 0.8);
+            }
+
+            /* Ensure switches don't overlap with other content */
+            .field .switch {
+                margin-bottom: 0.5rem;
+            }
+
+            /* Add specific class for switch fields for better spacing */
+            .field.switch-field {
+                margin-bottom: 1.5rem !important;
+            }
+
+            .field.switch-field:last-child {
+                margin-bottom: 0 !important;
+            }
+
+            /* Textarea specific styling */
+            .textarea.has-background-black.has-text-success {
+                background: rgba(0, 0, 0, 0.3) !important;
+                color: #23d160 !important;
+                border: 1px solid rgba(35, 209, 96, 0.3) !important;
+                font-family: 'Courier New', monospace;
+            }
+
+            [data-theme="dark"] .textarea.has-background-black.has-text-success {
+                background: rgba(0, 0, 0, 0.5) !important;
+                color: #23d160 !important;
+                border: 1px solid rgba(35, 209, 96, 0.4) !important;
+            }
+
+            /* Scrollbar styling */
             #logsPanel::-webkit-scrollbar {
                 width: 6px;
             }
+            #logsPanel::-webkit-scrollbar-track {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 3px;
+            }
             #logsPanel::-webkit-scrollbar-thumb {
-                background: #888;
+                background: rgba(255, 255, 255, 0.3);
                 border-radius: 3px;
             }
             #logsPanel::-webkit-scrollbar-thumb:hover {
-                background: #aaa;
+                background: rgba(255, 255, 255, 0.5);
+            }
+
+            [data-theme="dark"] #logsPanel::-webkit-scrollbar-track {
+                background: rgba(0, 0, 0, 0.2);
+            }
+
+            [data-theme="dark"] #logsPanel::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.2);
+            }
+
+            [data-theme="dark"] #logsPanel::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.3);
+            }
+
+            /* Card scrollbar styling */
+            .card[style*="overflow-y: auto"]::-webkit-scrollbar {
+                width: 6px;
+            }
+
+            .card[style*="overflow-y: auto"]::-webkit-scrollbar-track {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 3px;
+            }
+
+            .card[style*="overflow-y: auto"]::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.3);
+                border-radius: 3px;
+            }
+
+            .card[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.5);
+            }
+
+            [data-theme="dark"] .card[style*="overflow-y: auto"]::-webkit-scrollbar-track {
+                background: rgba(0, 0, 0, 0.2);
+            }
+
+            [data-theme="dark"] .card[style*="overflow-y: auto"]::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.2);
+            }
+
+            [data-theme="dark"] .card[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.3);
+            }
+
+            /* Settings specific improvements */
+            .section {
+                padding: 1.5rem;
+            }
+
+            .columns.is-multiline .column {
+                margin-bottom: 1.5rem;
+            }
+
+            .field {
+                margin-bottom: 1rem !important;
+            }
+
+            .field:last-child {
+                margin-bottom: 0 !important;
+            }
+
+            /* Icon text styling */
+            .icon-text {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .icon-text .icon {
+                color: inherit;
+                opacity: 0.8;
+            }
+
+            /* Help text styling */
+            .help {
+                color: inherit !important;
+                opacity: 0.7;
+                font-style: italic;
+                margin-top: 0.25rem !important;
+            }
+
+            /* Level improvements */
+            .level {
+                align-items: center;
+            }
+
+            /* HR styling */
+            hr {
+                background: rgba(255, 255, 255, 0.2) !important;
+                border: none;
+                height: 1px !important;
+            }
+
+            [data-theme="dark"] hr {
+                background: rgba(255, 255, 255, 0.1) !important;
+            }
+
+            /* Responsive improvements for settings cards */
+            @media screen and (max-width: 1024px) {
+                .columns.is-multiline .column.is-one-third {
+                    flex: none;
+                    width: 50%;
+                }
+            }
+
+            @media screen and (max-width: 768px) {
+                .columns.is-multiline .column.is-one-third {
+                    flex: none;
+                    width: 100%;
+                }
+                
+                .card {
+                    max-height: none !important;
+                }
+                
+                .card-content {
+                    overflow-y: visible !important;
+                }
+                
+                .buttons.is-flex-wrap-wrap .button {
+                    flex: 1 1 calc(50% - 0.5rem);
+                    min-width: 0;
+                }
+                
+                .field.has-addons .control {
+                    flex: 1;
+                }
+                
+                .field.has-addons .control:not(:last-child) {
+                    margin-right: 0.5rem;
+                }
+            }
+
+            @media screen and (max-width: 480px) {
+                .buttons.is-flex-wrap-wrap .button {
+                    flex: 1 1 100%;
+                }
+                
+                .field.has-addons {
+                    flex-direction: column;
+                }
+                
+                .field.has-addons .control {
+                    width: 100%;
+                    margin-right: 0 !important;
+                    margin-bottom: 0.5rem;
+                }
+                
+                .field.has-addons .control:last-child {
+                    margin-bottom: 0;
+                }
             }
         </style>
     </head>
@@ -102,7 +961,7 @@
                                     <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
                                         <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
                                     </div>
-<div class="dropdown-content"
+                                    <div class="dropdown-content"
                                          id="searchSuggestionsDropdown"
                                          hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
                                          hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
@@ -110,6 +969,49 @@
                                          hx-swap="innerHTML"
                                          hx-indicator="#globalSearchDropdownLoadingIndicator">
                                         <!-- Suggestions will be loaded here -->
+                                    </div>
+
+                                    <!-- Debug Buttons -->
+                                    <div class="field">
+                                        <div class="control">
+                                            <button class="button is-warning is-outlined is-fullwidth is-small" onclick="debugInstallationElements()">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-search"></i></span>
+                                                    <span>Debug Elements</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <div class="control">
+                                            <button class="button is-info is-outlined is-fullwidth is-small" onclick="testInstallationAPI()">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-plug"></i></span>
+                                                    <span>Test API</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <div class="control">
+                                            <button class="button is-success is-outlined is-fullwidth is-small" onclick="forceUpdateStatus()">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-check"></i></span>
+                                                    <span>Force Update Test</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!-- Refresh Status Button -->
+                                    <div class="field">
+                                        <div class="control">
+                                            <button class="button is-primary is-outlined is-fullwidth is-small" onclick="refreshInstallationStatus()">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                    <span>Refresh Installation Status</span>
+                                                </span>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -119,7 +1021,7 @@
                                 <span class="icon"><i class="pi pi-user"></i></span>
                                 <span id="currentProfileName">Loading...</span>
                             </a>
- 
+
                             <a class="navbar-item" href="/settings.html">
                                 <span class="icon"><i class="pi pi-cog"></i></span>
                                 <span>Settings</span>
@@ -134,321 +1036,469 @@
             </div>
 
             <!-- Hero Body (Main content area) -->
-            <div class="hero-body m-0 p-0" style="display: block;">
-                <div id="mainContent" class="columns p-0 m-0" style="width:100%;">
-                    <!-- Settings Content -->
-                    <div class="content-wrapper" style="height: calc(100vh - 200px);">
-                        <section class="section">
-                            <div class="container">
-                                <h1 class="title has-text-white">Settings</h1>
-                                <div class="columns is-multiline">
+            <div class="hero-body m-0 p-0">
+                <div id="mainContent" class="columns p-0 m-0" style="width:100%; overflow-y: auto;">
+                    <section class="section">
+                        <h1 class="title">Settings</h1>
+                        <div class="columns is-multiline"> 
+                            <!-- Library Management Card -->
+                            <div class="column is-one-third">
+                                <div class="card glass-box" style="max-height: calc(100vh - 320px); display: flex; flex-direction: column;">
+                                    <header class="card-header">
+                                        <p class="card-header-title">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-folder-open"></i></span>
+                                                <span>Library Management</span>
+                                            </span>
+                                        </p>
+                                        <button class="card-header-icon" aria-label="more options" id="toggleLibraryManagementBtn">
+                                            <span class="icon">
+                                                <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                            </span>
+                                        </button>
+                                    </header>
+                                    <div class="card-content" id="libraryManagementContent" style="flex: 1; overflow-y: auto;">
 
-                                    <!-- Library Management Card -->
-                                    <div class="column is-one-third">
-                                        <div class="card has-background-grey-darker has-text-white">
-                                            <header class="card-header">
-                                                <p class="card-header-title has-text-white">
-                                                    Library Management
-                                                </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleLibraryManagementBtn">
-                                                    <span class="icon">
-                                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                                    </span>
-                                                </button>
-                                            </header>
-                                            <div class="card-content" id="libraryManagementContent">
-                                                
-                                                <!-- Run as Service -->
-                                                <div class="field mb-4">
-                                                    <label class="switch is-info">
-                                                        <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle">
-                                                        <span class="check"></span>
-                                                        <span class="control-label has-text-white">Run as Service</span>
-                                                    </label>
-                                                </div>
-
-                                                <!-- Music Library Section -->
-                                                <div class="mb-5">
-                                                    <h6 class="title is-6 has-text-white mb-3">Music Library</h6>
-                                                    <div class="field">
-                                                        <label class="label has-text-white">Music Library Folder</label>
-                                                        <div class="field has-addons">
-                                                            <div class="control">
-                                                                <button id="browseMusicFolderBtn" class="button is-warning">Browse</button>
-                                                            </div>
-                                                            <div class="control is-expanded">
-                                                                <input id="musicLibraryPathInput" name="musicLibraryPathInput" class="input has-background-grey-darker has-text-white" type="text" placeholder="Select music library folder" value="(not set)">
-                                                            </div>
-                                                            <div class="control">
-                                                                <button id="saveMusicLibraryPathBtn" class="button is-success"
-                                                                        hx-post="/api/settings/music-library-path"
-                                                                        hx-include="#musicLibraryPathInput"
-                                                                        hx-swap="none">Save Path</button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div class="buttons">
-                                                        <button id="scanLibrary" class="button is-primary is-small">Scan Library</button>
-                                                        <button id="reloadMetadata" class="button is-info is-small">Reload Metadata</button>
-                                                    </div>
-                                                </div>
-
-                                                <!-- Video Library Section -->
-                                                <div class="mb-5">
-                                                    <div class="field">
-                                                        <label class="switch is-info">
-                                                            <input id="enableVideoLibraryToggle" type="checkbox" name="enableVideoLibraryToggle">
-                                                            <span class="check"></span>
-                                                            <span class="control-label has-text-white">Enable Video Library (BETA)</span>
-                                                        </label>
-                                                    </div>
-                                                    
-                                                    <div id="videoLibraryOptions" class="is-hidden">
-                                                        <h6 class="title is-6 has-text-white mb-3">Video Library</h6>
-                                                        <div class="field">
-                                                            <label class="label has-text-white">Video Library Folder</label>
-                                                            <div class="field has-addons">
-                                                                <div class="control">
-                                                                    <button id="browseVideoFolderBtn" class="button is-warning">Browse</button>
-                                                                </div>
-                                                                <div class="control is-expanded">
-                                                                    <input id="videoLibraryPathInput" name="videoLibraryPathInput" class="input has-background-grey-darker has-text-white" type="text" placeholder="Select video library folder" value="(not set)">
-                                                                </div>
-                                                                <div class="control">
-                                                                    <button id="saveVideoLibraryPathBtn" class="button is-success"
-                                                                            hx-post="/api/settings/video-library-path"
-                                                                            hx-include="#videoLibraryPathInput"
-                                                                            hx-swap="none">Save Path</button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="buttons">
-                                                            <button id="scanVideoLibrary" class="button is-primary is-small"
-                                                                    hx-post="/api/video/scan"
-                                                                    hx-trigger="click"
-                                                                    hx-swap="none">Scan Video Library</button>
-                                                            <button id="reloadVideoMetadata" class="button is-info is-small"
-                                                                    hx-post="/api/video/reload-metadata"
-                                                                    hx-trigger="click"
-                                                                    hx-swap="none">Reload Metadata</button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <!-- Data Management Section -->
-                                                <div class="mb-3">
-                                                    <hr class="has-background-grey-light" style="height: 1px;">
-                                                    <h6 class="title is-6 has-text-white mb-3">Data Management</h6>
-                                                    <div class="buttons">
-                                                        <button id="resetLibrary" class="button is-danger is-small">Reset Music to Default</button>
-                                                        <button id="deleteDuplicates" class="button is-danger is-small">Delete Music Duplicates</button>
-                                                        <button id="clearSongs" class="button is-danger is-small">Clear Songs DB</button>
-                                                        <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger is-small">Clear Playback History</button>
-                                                        <button id="resetVideoDb" class="button is-danger is-small">Reset Video Database</button>
-                                                    </div>
-                                                </div>
-
-
-                                            </div>
+                                        <!-- Run as Service -->
+                                        <div class="field switch-field mb-5">
+                                            <label class="switch">
+                                                <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle">
+                                                <span class="check"></span>
+                                                <span class="control-label">Run as Service</span>
+                                            </label>
                                         </div>
-                                    </div>
 
-                                    <!-- Import Installation Card -->
-                                    <div class="column is-one-third" id="importInstallationCardColumn">
-                                        <div class="card has-background-grey-darker has-text-white" id="importInstallationCard">
-                                            <header class="card-header">
-                                                <p class="card-header-title has-text-white">
-                                                    Import Installation
-                                                </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleImportInstallationBtn">
-                                                    <span class="icon">
-                                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                                    </span>
-                                                </button>
-                                            </header>
-                                            <div class="card-content" id="importInstallationContent">
-                                                <div class="notification is-warning is-light" id="installationRequiredDialog">
-                                                    <strong>Import features require additional installations.</strong>
-                                                    <p class="mb-3">The following components need to be installed to enable music import functionality:</p>
-                                                    <ul class="mb-4" id="missingComponentsList">
-                                                        <!-- Components will be dynamically added here -->
-                                                    </ul>
-                                                    <p class="is-size-7">Note: On Windows, Python and FFmpeg are installed via Chocolatey, then SpotDL and Whisper via pip (Python).</p>
-                                                </div>
-                                                
-                                                <!-- Python Installation -->
-                                                <div class="field mb-3">
-                                                    <div class="level is-mobile">
-                                                        <div class="level-left">
-                                                            <label class="label has-text-white mb-0">Python</label>
-                                                        </div>
-                                                        <div class="level-right">
-                                                            <button id="installPythonBtn" class="button is-success is-rounded is-small">
-                                                                <i class="pi pi-download mr-1"></i>
-                                                                Install Python
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div class="mt-2" id="pythonProgressContainer" style="display: none;">
-                                                        <progress id="pythonInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
-                                                    </div>
-                                                    <p id="pythonStatus" class="help is-size-7 mt-2">Not installed</p>
-                                                </div>
-                                                
-                                                <!-- FFmpeg Installation -->
-                                                <div class="field mb-3">
-                                                    <div class="level is-mobile">
-                                                        <div class="level-left">
-                                                            <label class="label has-text-white mb-0">FFmpeg</label>
-                                                        </div>
-                                                        <div class="level-right">
-                                                            <button id="installFfmpegBtn" class="button is-success is-rounded is-small">
-                                                                <i class="pi pi-download mr-1"></i>
-                                                                Install FFmpeg
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div class="mt-2" id="ffmpegProgressContainer" style="display: none;">
-                                                        <progress id="ffmpegInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
-                                                    </div>
-                                                    <p id="ffmpegStatus" class="help is-size-7 mt-2">Not installed</p>
-                                                </div>
-                                                
-                                                <!-- SpotDL Installation -->
-                                                <div class="field mb-3">
-                                                    <div class="level is-mobile">
-                                                        <div class="level-left">
-                                                            <label class="label has-text-white mb-0">SpotDL</label>
-                                                        </div>
-                                                        <div class="level-right">
-                                                            <button id="installSpotdlBtn" class="button is-success is-rounded is-small">
-                                                                <i class="pi pi-download mr-1"></i>
-                                                                Install SpotDL
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div class="mt-2" id="spotdlProgressContainer" style="display: none;">
-                                                        <progress id="spotdlInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
-                                                    </div>
-                                                    <p id="spotdlStatus" class="help is-size-7 mt-2">Not installed</p>
-                                                </div>
-                                                
-                                                <!-- Whisper Installation -->
-                                                <div class="field mb-3">
-                                                    <div class="level is-mobile">
-                                                        <div class="level-left">
-                                                            <label class="label has-text-white mb-0">Whisper</label>
-                                                        </div>
-                                                        <div class="level-right">
-                                                            <button id="installWhisperBtn" class="button is-success is-rounded is-small">
-                                                                <i class="pi pi-download mr-1"></i>
-                                                                Install Whisper
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div class="mt-2" id="whisperProgressContainer" style="display: none;">
-                                                        <progress id="whisperInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
-                                                    </div>
-                                                    <p id="whisperStatus" class="help is-size-7 mt-2">Not installed</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-
-
-                                    <!-- Import Settings Card -->
-                                    <div class="column is-one-third is-hidden" id="importSettingsCardColumn">
-                                        <div class="card has-background-grey-darker has-text-white" id="importSettingsCard">
-                                            <header class="card-header">
-                                                <p class="card-header-title has-text-white">
-                                                    Import Settings
-                                                </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleImportSettingsBtn">
-                                                    <span class="icon">
-                                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                                    </span>
-                                                </button>
-                                            </header>
-                                            <div class="card-content" id="importSettingsContent">
-                                                <div class="field">
-                                                    <label class="label has-text-white" for="outputFormat">Output Format</label>
+                                        <!-- Music Library Section -->
+                                        <div class="mb-5">
+                                            <h6 class="title is-6 mb-4">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-music"></i></span>
+                                                    <span>Music Library</span>
+                                                </span>
+                                            </h6>
+                                            <div class="field">
+                                                <label class="label">Music Library Folder</label>
+                                                <div class="field has-addons">
                                                     <div class="control">
-                                                        <div class="select is-fullwidth">
-                                                            <select id="outputFormat">
-                                                                <option value="mp3">MP3</option>
-                                                                <option value="flac">FLAC</option>
-                                                                <option value="ogg">OGG</option>
-                                                                <option value="opus">OPUS</option>
-                                                                <option value="m4a">M4A</option>
-                                                                <option value="wav">WAV</option>
-                                                            </select>
-                                                        </div>
+                                                        <button id="browseMusicFolderBtn" class="button is-small is-warning">
+                                                            <span class="icon-text">
+                                                                <span class="icon"><i class="pi pi-folder-open"></i></span>
+                                                                <span>Browse</span>
+                                                            </span>
+                                                        </button>
                                                     </div>
-                                                </div>
-                                                <div class="columns">
-                                                    <div class="column">
-                                                        <div class="field">
-                                                            <label class="label has-text-white" for="downloadThreads">Download Threads</label>
-                                                            <div class="control">
-                                                                <input class="input" type="number" id="downloadThreads" value="4" min="1">
-                                                            </div>
-                                                        </div> 
+                                                    <div class="control is-expanded" >
+                                                        <input id="musicLibraryPathInput" style="height: 100%" name="musicLibraryPathInput" class="input" type="text" placeholder="Select music library folder" value="(not set)">
                                                     </div>
-                                                    <div class="column">
-                                                        <div class="field">
-                                                            <label class="label has-text-white" for="searchThreads">Search Threads</label>
-                                                            <div class="control">
-                                                                <input class="input" type="number" id="searchThreads" value="4" min="1">
-                                                            </div>
-                                                        </div>
+                                                    <div class="control">
+                                                        <button id="saveMusicLibraryPathBtn" class="button is-small is-success"
+                                                                hx-post="/api/settings/music-library-path"
+                                                                hx-include="#musicLibraryPathInput"
+                                                                hx-swap="none">
+                                                            <span class="icon-text">
+                                                                <span class="icon"><i class="pi pi-save"></i></span>
+                                                                <span>Save Path</span>
+                                                            </span>
+                                                        </button>
                                                     </div>
-                                                </div>
-
-                                                <div class="buttons mt-3">
-                                                    <button id="saveImportSettingsBtn" class="button is-success is-fullwidth">Save</button>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Logs Card -->
-                                    <div class="column is-one-third">
-                                        <div class="card has-background-grey-darker has-text-white">
-                                            <header class="card-header">
-                                                <p class="card-header-title has-text-white">
-                                                    Logs
-                                                </p>
-                                                <button class="card-header-icon" aria-label="more options" id="toggleLogsBtn">
-                                                    <span class="icon">
-                                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                            <div class="buttons is-flex-wrap-wrap">
+                                                <button id="scanLibrary" class="button is-primary is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                        <span>Scan Library</span>
                                                     </span>
                                                 </button>
-                                            </header>
-                                            <div class="card-content" id="logsCardContent">
-                                                <div style="max-height: 200px; overflow-y: auto;" id="logsPanel">
-                                                    <!-- JS will populate logs here -->
-                                                </div>
-                                                <div class="buttons mt-3">
-                                                    <button id="clearLogs" class="button is-danger is-small">Clear Logs</button>
-                                                </div>
-
+                                                <button id="reloadMetadata" class="button is-info is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-sync"></i></span>
+                                                        <span>Reload Metadata</span>
+                                                    </span>
+                                                </button>
                                             </div>
                                         </div>
-                                    </div> 
+
+                                        <!-- Video Library Section -->
+                                        <div class="mb-5">
+                                            <div class="field">
+                                                <label class="switch">
+                                                    <input id="enableVideoLibraryToggle" type="checkbox" name="enableVideoLibraryToggle">
+                                                    <span class="check"></span>
+                                                    <span class="control-label">Enable Video Library (BETA)</span>
+                                                </label>
+                                            </div>
+
+                                            <div id="videoLibraryOptions" class="is-hidden">
+                                                <h6 class="title is-6 mb-3">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-video"></i></span>
+                                                        <span>Video Library</span>
+                                                    </span>
+                                                </h6>
+                                                <div class="field">
+                                                    <label class="label">Video Library Folder</label>
+                                                    <div class="field has-addons">
+                                                        <div class="control">
+                                                            <button id="browseVideoFolderBtn" class="button is-small is-warning">
+                                                                <span class="icon-text">
+                                                                    <span class="icon"><i class="pi pi-folder-open"></i></span>
+                                                                    <span>Browse</span>
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                        <div class="control is-expanded">
+                                                            <input id="videoLibraryPathInput" style="height: 100%" name="videoLibraryPathInput" class="input" type="text" placeholder="Select video library folder" value="(not set)">
+                                                        </div>
+                                                        <div class="control">
+                                                            <button id="saveVideoLibraryPathBtn" class="button is-small is-success"
+                                                                    hx-post="/api/settings/video-library-path"
+                                                                    hx-include="#videoLibraryPathInput"
+                                                                    hx-swap="none">
+                                                                <span class="icon-text">
+                                                                    <span class="icon"><i class="pi pi-save"></i></span>
+                                                                    <span>Save Path</span>
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="buttons is-flex-wrap-wrap">
+                                                    <button id="scanVideoLibrary" class="button is-primary is-small"
+                                                            hx-post="/api/video/scan"
+                                                            hx-trigger="click"
+                                                            hx-swap="none">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                            <span>Scan Video Library</span>
+                                                        </span>
+                                                    </button>
+                                                    <button id="reloadVideoMetadata" class="button is-info is-small"
+                                                            hx-post="/api/video/reload-metadata"
+                                                            hx-trigger="click"
+                                                            hx-swap="none">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-sync"></i></span>
+                                                            <span>Reload Metadata</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Data Management Section -->
+                                        <div class="mb-3">
+                                            <hr>
+                                            <h6 class="title is-6 mb-3">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-database"></i></span>
+                                                    <span>Data Management</span>
+                                                </span>
+                                            </h6>
+                                            
+                                            <!-- Music Data Management -->
+                                            <div class="mb-4">
+                                                <p class="has-text-weight-semibold mb-2 is-size-7">Music Library</p>
+                                                <div class="buttons is-flex-wrap-wrap">
+                                                    <button id="resetLibrary" class="button is-danger is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-undo"></i></span>
+                                                            <span>Reset Music</span>
+                                                        </span>
+                                                    </button>
+                                                    <button id="deleteDuplicates" class="button is-danger is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-trash"></i></span>
+                                                            <span>Delete Duplicates</span>
+                                                        </span>
+                                                    </button>
+                                                    <button id="clearSongs" class="button is-danger is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-times-circle"></i></span>
+                                                            <span>Clear Songs DB</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Other Data Management -->
+                                            <div class="mb-4">
+                                                <p class="has-text-weight-semibold mb-2 is-size-7">Other Data</p>
+                                                <div class="buttons is-flex-wrap-wrap">
+                                                    <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-history"></i></span>
+                                                            <span>Clear History</span>
+                                                        </span>
+                                                    </button>
+                                                    <button id="resetVideoDb" class="button is-danger is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-database"></i></span>
+                                                            <span>Reset Video DB</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
 
 
-
-
+                                    </div>
                                 </div>
                             </div>
-                        </section>
-                    </div> 
+
+                            <!-- Import Installation & Settings Card -->
+                            <div class="column is-one-third" id="importInstallationCardColumn">
+                                <div class="card glass-box" id="importInstallationCard" style="max-height: calc(100vh - 320px); overflow-y: auto;">
+                                    <header class="card-header">
+                                        <p class="card-header-title">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-download"></i></span>
+                                                <span>Import Installation & Settings</span>
+                                            </span>
+                                        </p>
+                                        <button class="card-header-icon" aria-label="more options" id="toggleImportInstallationBtn">
+                                            <span class="icon">
+                                                <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                            </span>
+                                        </button>
+                                    </header>
+                                    <div class="card-content" id="importInstallationContent">
+                                        <div class="notification is-warning is-light" id="installationRequiredDialog">
+                                            <div class="content">
+                                                <p class="has-text-weight-semibold">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
+                                                        <span>Import features require additional installations.</span>
+                                                    </span>
+                                                </p>
+                                                <p class="mb-3">The following components need to be installed to enable music import functionality:</p>
+                                                <ul class="mb-4" id="missingComponentsList">
+                                                    <!-- Components will be dynamically added here -->
+                                                </ul>
+                                                <div class="notification is-info is-light">
+                                                    <p class="is-size-7 mb-0">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-info-circle"></i></span>
+                                                            <span>Note: On Windows, Python and FFmpeg are installed via Chocolatey, then SpotDL and Whisper via pip (Python).</span>
+                                                        </span>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Python Installation -->
+                                        <div class="field mb-3">
+                                            <div class="level is-mobile">
+                                                <div class="level-left">
+                                                    <label class="label mb-0">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-code"></i></span>
+                                                            <span>Python</span>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                                <div class="level-right">
+                                                    <button id="installPythonBtn" class="button is-success is-rounded is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Install Python</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2" id="pythonProgressContainer" style="display: none;">
+                                                <progress id="pythonInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            </div>
+                                            <p id="pythonStatus" class="help is-size-7 mt-2">Not installed</p>
+                                        </div>
+
+                                        <!-- FFmpeg Installation -->
+                                        <div class="field mb-3">
+                                            <div class="level is-mobile">
+                                                <div class="level-left">
+                                                    <label class="label mb-0">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-video"></i></span>
+                                                            <span>FFmpeg</span>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                                <div class="level-right">
+                                                    <button id="installFfmpegBtn" class="button is-success is-rounded is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Install FFmpeg</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2" id="ffmpegProgressContainer" style="display: none;">
+                                                <progress id="ffmpegInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            </div>
+                                            <p id="ffmpegStatus" class="help is-size-7 mt-2">Not installed</p>
+                                        </div>
+
+                                        <!-- SpotDL Installation -->
+                                        <div class="field mb-3">
+                                            <div class="level is-mobile">
+                                                <div class="level-left">
+                                                    <label class="label mb-0">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-music"></i></span>
+                                                            <span>SpotDL</span>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                                <div class="level-right">
+                                                    <button id="installSpotdlBtn" class="button is-success is-rounded is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Install SpotDL</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2" id="spotdlProgressContainer" style="display: none;">
+                                                <progress id="spotdlInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            </div>
+                                            <p id="spotdlStatus" class="help is-size-7 mt-2">Not installed</p>
+                                        </div>
+
+                                        <!-- Whisper Installation -->
+                                        <div class="field mb-3">
+                                            <div class="level is-mobile">
+                                                <div class="level-left">
+                                                    <label class="label mb-0">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-microphone"></i></span>
+                                                            <span>Whisper</span>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                                <div class="level-right">
+                                                    <button id="installWhisperBtn" class="button is-success is-rounded is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Install Whisper</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2" id="whisperProgressContainer" style="display: none;">
+                                                <progress id="whisperInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            </div>
+                                            <p id="whisperStatus" class="help is-size-7 mt-2">Not installed</p>
+                                        </div>
+
+                                        <!-- Import Settings Section -->
+                                        <hr>
+                                        <h6 class="title is-6 mb-4">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                                <span>Import Settings</span>
+                                            </span>
+                                        </h6>
+
+                                        <div class="field">
+                                            <label class="label" for="outputFormat">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-file"></i></span>
+                                                    <span>Output Format</span>
+                                                </span>
+                                            </label>
+                                            <div class="control">
+                                                <div class="select is-fullwidth">
+                                                    <select id="outputFormat">
+                                                        <option value="mp3">MP3</option>
+                                                        <option value="flac">FLAC</option>
+                                                        <option value="ogg">OGG</option>
+                                                        <option value="opus">OPUS</option>
+                                                        <option value="m4a">M4A</option>
+                                                        <option value="wav">WAV</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="columns">
+                                            <div class="column">
+                                                <div class="field">
+                                                    <label class="label" for="downloadThreads">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Download Threads</span>
+                                                        </span>
+                                                    </label>
+                                                    <div class="control">
+                                                        <input class="input" type="number" id="downloadThreads" value="4" min="1">
+                                                    </div>
+                                                </div> 
+                                            </div>
+                                            <div class="column">
+                                                <div class="field">
+                                                    <label class="label" for="searchThreads">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-search"></i></span>
+                                                            <span>Search Threads</span>
+                                                        </span>
+                                                    </label>
+                                                    <div class="control">
+                                                        <input class="input" type="number" id="searchThreads" value="4" min="1">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="buttons mt-3">
+                                            <button id="saveImportSettingsBtn" class="button is-success is-fullwidth">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-save"></i></span>
+                                                    <span>Save Settings</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Logs Card -->
+                            <div class="column is-one-third">
+                                <div class="card glass-box" style="max-height: calc(100vh - 320px);">
+                                    <header class="card-header">
+                                        <p class="card-header-title">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-list"></i></span>
+                                                <span>Logs</span>
+                                            </span>
+                                        </p>
+                                        <button class="card-header-icon" aria-label="more options" id="toggleLogsBtn">
+                                            <span class="icon">
+                                                <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                            </span>
+                                        </button>
+                                    </header>
+                                    <div class="card-content" id="logsCardContent">
+                                        <div style="max-height: 200px; overflow-y: auto;" id="logsPanel">
+                                            <!-- JS will populate logs here -->
+                                        </div>
+                                        <div class="buttons mt-3">
+                                            <button id="clearLogs" class="button is-danger is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-trash"></i></span>
+                                                    <span>Clear Logs</span>
+                                                </span>
+                                            </button>
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </div>  
+                        </div> 
+                    </section>
                 </div>
-            </div>
+            </div> 
 
             <!-- Hero Foot (Music Bar) -->
-            <div class="hero-foot card has-background-grey-darker has-text-white m-3 p-3">
+            <div class="hero-foot card glass-box mx-3 mb-3 p-3">
                 <nav class="level is-mobile">
 
                     <!-- LEFT: Song Info -->
@@ -525,55 +1575,79 @@
         <script src="/js/profileManager.js"></script>
 
         <script>
-        // Toast Notification System
-        function showToast(message, type = 'info', duration = 3000) {
-            const toastContainer = document.getElementById('toast-container');
-            if (!toastContainer) return;
-            
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            
-            // Add icon based on type
-            let icon = '';
-            switch(type) {
-                case 'success':
-                    icon = '<i class="pi pi-check toast-icon"></i>';
-                    break;
-                case 'error':
-                    icon = '<i class="pi pi-times toast-icon"></i>';
-                    break;
-                case 'info':
-                default:
-                    icon = '<i class="pi pi-info toast-icon"></i>';
-                    break;
-            }
-            
-            toast.innerHTML = `
-                ${icon}
-                <span class="toast-message">${message}</span>
-            `;
-            
-            toastContainer.appendChild(toast);
-            
-            // Trigger animation
-            setTimeout(() => {
-                toast.classList.add('show');
-            }, 10);
-            
-            // Remove toast after duration
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        toast.parentNode.removeChild(toast);
-                    }
-                }, 300);
-            }, duration);
-        }
+            // Initialize globalActiveProfileId after other scripts
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
         </script>
 
         <script>
-            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
+                                                        // Toast Notification System
+                                                        function showToast(message, type = 'info', duration = 3000) {
+                                                            const toastContainer = document.getElementById('toast-container');
+                                                            if (!toastContainer)
+                                                                return;
+
+                                                            const toast = document.createElement('div');
+                                                            toast.className = `toast ${type}`;
+
+                                                            // Add icon based on type
+                                                            let icon = '';
+                                                            switch (type) {
+                                                                case 'success':
+                                                                    icon = '<i class="pi pi-check-circle toast-icon"></i>';
+                                                                    break;
+                                                                case 'error':
+                                                                    icon = '<i class="pi pi-times-circle toast-icon"></i>';
+                                                                    break;
+                                                                case 'warning':
+                                                                    icon = '<i class="pi pi-exclamation-triangle toast-icon"></i>';
+                                                                    break;
+                                                                case 'info':
+                                                                default:
+                                                                    icon = '<i class="pi pi-info-circle toast-icon"></i>';
+                                                                    break;
+                                                            }
+
+                                                            toast.innerHTML = `
+                                                                <div class="toast-content">
+                                                                    ${icon}
+                                                                    <span class="toast-message">${message}</span>
+                                                                </div>
+                                                            `;
+
+                                                            toastContainer.appendChild(toast);
+
+                                                            // Trigger animation
+                                                            setTimeout(() => {
+                                                                toast.classList.add('show');
+                                                            }, 10);
+
+                                                            // Remove toast after duration
+                                                            setTimeout(() => {
+                                                                toast.classList.remove('show');
+                                                                setTimeout(() => {
+                                                                    if (toast.parentNode) {
+                                                                        toast.parentNode.removeChild(toast);
+                                                                    }
+                                                                }, 300);
+                                                            }, duration);
+                                                        }
+        </script>
+
+        <script>
+            // Load installation status after DOM is fully loaded and globalActiveProfileId is initialized
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('[Settings] DOMContentLoaded event fired');
+                console.log('[Settings] globalActiveProfileId:', window.globalActiveProfileId);
+
+                // Load installation status once after DOM is ready
+                if (typeof loadInstallationStatus === 'function') {
+                    console.log('[Settings] Loading installation status after DOM ready');
+                    setTimeout(() => {
+                        console.log('[Settings] Calling loadInstallationStatus');
+                        loadInstallationStatus();
+                    }, 100);
+                }
+            });
 
             // Listen for profile switches from profileManager.js
             document.body.addEventListener('profileSwitched', (event) => {
@@ -713,33 +1787,34 @@
                     console.log('HTMX Request URL modified to:', event.detail.path);
                 }
             });
- 
+
             document.addEventListener('DOMContentLoaded', async () => {
-                const importSettingsCardColumn = document.getElementById('importSettingsCardColumn');
-                const importInstallationCardColumn = document.getElementById('importInstallationCardColumn');
-                
-                if (importSettingsCardColumn && importInstallationCardColumn) {
-                    try {
-                        const response = await fetch(`/api/settings/${globalActiveProfileId}/import-capability`);
-                        const data = await response.json();
-                        if (response.ok) {
-                            if (data.data === true) {
-                                // Show settings card, hide installation card
-                                importSettingsCardColumn.classList.remove('is-hidden');
-                                importInstallationCardColumn.classList.add('is-hidden');
-                            } else {
-                                // Show installation card, hide settings card
-                                importInstallationCardColumn.classList.remove('is-hidden');
-                                importSettingsCardColumn.classList.add('is-hidden');
-                        }
-                        }
-                    } catch (error) {
-                        console.error('Failed to fetch import capability status:', error);
-                        // Show installation card by default on error
-                        importInstallationCardColumn.classList.remove('is-hidden');
-                        importSettingsCardColumn.classList.add('is-hidden');
-                    }
-                }
+                // Card visibility logic removed - both cards now always visible
+                // const importSettingsCardColumn = document.getElementById('importSettingsCardColumn');
+                // const importInstallationCardColumn = document.getElementById('importInstallationCardColumn');
+                // 
+                // if (importSettingsCardColumn && importInstallationCardColumn) {
+                //     try {
+                //         const response = await fetch(`/api/settings/${globalActiveProfileId}/import-capability`);
+                //         const data = await response.json();
+                //         if (response.ok) {
+                //             if (data.data === true) {
+                //                 // Show settings card, hide installation card
+                //                 importSettingsCardColumn.classList.remove('is-hidden');
+                //                 importInstallationCardColumn.classList.add('is-hidden');
+                //             } else {
+                //                 // Show installation card, hide settings card
+                //                 importInstallationCardColumn.classList.remove('is-hidden');
+                //                 importSettingsCardColumn.classList.add('is-hidden');
+                //         }
+                //         }
+                //     } catch (error) {
+                //         console.error('Failed to fetch import capability status:', error);
+                //         // Show installation card by default on error
+                //         importInstallationCardColumn.classList.remove('is-hidden');
+                //         importSettingsCardColumn.classList.add('is-hidden');
+                //     }
+                // }
 
 
 
@@ -773,7 +1848,7 @@
                     });
                 }
 
-                document.body.addEventListener('click', function(event) {
+                document.body.addEventListener('click', function (event) {
                     if (event.target.closest('#clearSearchIcon')) {
                         handleClearGlobalSearch();
                     }
@@ -814,82 +1889,199 @@
             <div class="modal-background"></div>
             <div class="modal-card">
                 <header class="modal-card-head">
-                    <p class="modal-card-title">Run as Service Information</p>
+                    <p class="modal-card-title">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-info-circle"></i></span>
+                            <span>Run as Service Information</span>
+                        </span>
+                    </p>
                     <button class="delete" aria-label="close"></button>
                 </header>
                 <section class="modal-card-body">
-                    <p>Enabling "Run as Service" allows this application to act as a music server, enabling other devices on the network (or with a connection to this device) to stream music from it. When "Run as Service" is enabled, the application will not automatically shut down when all connections close (i.e., no sessions left, either desktop or mobile) but rather will just exist in the background with the tray icon allowing you to close the app manually when desired. Please note that enabling this option does NOT make the application start automatically on system startup; you will still need to launch it manually.</p>
+                    <div class="content">
+                        <p>Enabling "Run as Service" allows this application to act as a music server, enabling other devices on the network (or with a connection to this device) to stream music from it.</p>
+                        
+                        <div class="notification is-info is-light">
+                            <strong>Key Features:</strong>
+                            <ul>
+                                <li>Stream music to other devices on your network</li>
+                                <li>Application continues running in background</li>
+                                <li>Accessible via system tray icon</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="notification is-warning is-light">
+                            <strong>Important Notes:</strong>
+                            <ul>
+                                <li>Application will not auto-start on system boot</li>
+                                <li>You must launch the application manually</li>
+                                <li>Close via tray icon when you want to shut down</li>
+                            </ul>
+                        </div>
+                    </div>
                 </section>
                 <footer class="modal-card-foot is-flex is-justify-content-center">
-                    <button class="button is-success">Got it!</button>
+                    <button class="button is-success">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-check"></i></span>
+                            <span>Got it!</span>
+                        </span>
+                    </button>
                 </footer>
             </div>
         </div>
 
-    <!-- Profile Management Modal -->
-    <div id="profileModal" class="modal">
-      <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
-      <div class="modal-card">
-        <header class="modal-card-head">
-          <p class="modal-card-title">Manage Profiles</p>
-          <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
-        </header>
-        <section class="modal-card-body">
-          <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
-          <h6 class="title is-6 mt-4">All Profiles:</h6>
-          <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
-            <!-- Profiles will be dynamically loaded here as circular buttons -->
-          </div>
-          <hr>
-          <div class="field has-addons">
-              <div class="control is-expanded">
-                  <input class="input" type="text" id="newProfileNameInput" placeholder="New Profile Name">
-              </div>
-              <div class="control">
-                  <button class="button is-info" id="createProfileBtn">Create</button>
-              </div>
-          </div>
-          <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
-        </section>
-        <footer class="modal-card-foot">
-          <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
-        </footer>
-      </div>
-    </div>
+        <!-- Profile Management Modal -->
+        <div id="profileModal" class="modal">
+            <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-user"></i></span>
+                            <span>Manage Profiles</span>
+                        </span>
+                    </p>
+                    <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
+                </header>
+                <section class="modal-card-body">
+                    <div class="content">
+                        <div class="notification is-info is-light">
+                            <h5 class="title is-5 mb-2">
+                                <span class="icon-text">
+                                    <span class="icon"><i class="pi pi-user-circle"></i></span>
+                                    <span>Current Profile: <span id="modalCurrentProfileName">Loading...</span></span>
+                                </span>
+                            </h5>
+                        </div>
+                        
+                        <h6 class="title is-6 mb-4">
+                            <span class="icon-text">
+                                <span class="icon"><i class="pi pi-users"></i></span>
+                                <span>All Profiles</span>
+                            </span>
+                        </h6>
+                        
+                        <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
+                            <!-- Profiles will be dynamically loaded here as circular buttons -->
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="field">
+                            <label class="label">
+                                <span class="icon-text">
+                                    <span class="icon"><i class="pi pi-plus-circle"></i></span>
+                                    <span>Create New Profile</span>
+                                </span>
+                            </label>
+                            <div class="field has-addons">
+                                <div class="control is-expanded">
+                                    <input class="input" type="text" id="newProfileNameInput" placeholder="Enter profile name...">
+                                </div>
+                                <div class="control">
+                                    <button class="button is-info" id="createProfileBtn">
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-plus"></i></span>
+                                            <span>Create</span>
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="notification is-warning is-light">
+                            <p class="has-text-weight-semibold mb-2">
+                                <span class="icon-text">
+                                    <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
+                                    <span>Danger Zone</span>
+                                </span>
+                            </p>
+                            <p class="is-size-7">Deleting a profile will permanently remove all associated data including playlists, playback history, and settings.</p>
+                        </div>
+                        
+                        <button class="button is-danger is-fullwidth" id="deleteCurrentProfileBtn">
+                            <span class="icon-text">
+                                <span class="icon"><i class="pi pi-trash"></i></span>
+                                <span>Delete Current Profile</span>
+                            </span>
+                        </button>
+                    </div>
+                </section>
+                <footer class="modal-card-foot">
+                    <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-times"></i></span>
+                            <span>Close</span>
+                        </span>
+                    </button>
+                </footer>
+            </div>
+        </div>
 
     </body>
 </html>
 
-<!-- Installation Progress Dialog -->
+ <!-- Installation Progress Dialog -->
 <div id="installDialog" class="modal">
     <div class="modal-background"></div>
     <div class="modal-card">
         <header class="modal-card-head">
-            <p class="modal-card-title">Installing Requirements</p>
+            <p class="modal-card-title">
+                <span class="icon-text">
+                    <span class="icon"><i class="pi pi-download"></i></span>
+                    <span>Installing Requirements</span>
+                </span>
+            </p>
             <button class="delete" aria-label="close" id="closeInstallDialog"></button>
         </header>
         <section class="modal-card-body">
             <div class="content">
-                <p class="mb-3">Installing Python, FFmpeg, and SpotDL...</p>
-                
+                <div class="notification is-info is-light mb-4">
+                    <p class="has-text-weight-semibold">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-info-circle"></i></span>
+                            <span>Installing Components</span>
+                        </span>
+                    </p>
+                    <p class="is-size-7 mb-0">Installing Python, FFmpeg, SpotDL, and Whisper...</p>
+                </div>
+
                 <div class="field">
-                    <label class="label has-text-white">Installation Output</label>
+                    <label class="label">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-terminal"></i></span>
+                            <span>Installation Output</span>
+                        </span>
+                    </label>
                     <div class="control">
                         <div id="installOutput" class="textarea has-background-black has-text-success" rows="15" readonly>
                             Starting installation...
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="field">
+                    <label class="label">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-spinner"></i></span>
+                            <span>Progress</span>
+                        </span>
+                    </label>
                     <div class="control">
                         <progress id="installProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                        <p class="has-text-centered is-size-7 mt-1" id="installProgressText">0% Complete</p>
                     </div>
                 </div>
             </div>
         </section>
         <footer class="modal-card-foot">
-            <button class="button is-danger" id="cancelInstallBtn">Cancel Installation</button>
+            <button class="button is-danger" id="cancelInstallBtn">
+                <span class="icon-text">
+                    <span class="icon"><i class="pi pi-times-circle"></i></span>
+                    <span>Cancel Installation</span>
+                </span>
+            </button>
         </footer>
     </div>
 </div>

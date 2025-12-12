@@ -26,6 +26,8 @@ public class Song extends PanacheEntity {
     @Column(length = Integer.MAX_VALUE)
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;
+    private Long size;
+    private Long lastModified;
  
     @Override
     public boolean equals(Object o) {

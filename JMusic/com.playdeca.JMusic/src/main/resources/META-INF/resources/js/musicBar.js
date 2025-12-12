@@ -179,12 +179,12 @@ audio.ontimeupdate = () => {
 };
 audio.onended = () => {
     console.log("[musicBar.js] audio.onended: Song ended, calling /api/music/playback/next.");
-    fetch(`/api/music/playback/next/${globalActiveProfileId}`, {method: 'POST'});
+    fetch(`/api/music/playback/next/${window.globalActiveProfileId}`, {method: 'POST'});
 };
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
     isUpdatingAudioSource = true; // Set flag to true at the beginning
-    
+
     if (!currentSong || !currentSong.id) {
         isUpdatingAudioSource = false; // Reset flag if no current song
         return;
@@ -239,7 +239,7 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     musicState.hasLyrics = currentSong.lyrics !== null && currentSong.lyrics !== undefined && currentSong.lyrics !== '';
 
     updatePageTitle({name: musicState.songName, artist: musicState.artist});
-    audio.src = `/api/music/stream/${globalActiveProfileId}/${currentSong.id}`;
+    audio.src = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
     audio.load();
     audio.volume = musicState.volume;
     audio.onloadedmetadata = () => {
@@ -263,7 +263,12 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
 // ---------------- WebSocket ----------------
 let ws;
 function connectWS() {
-    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${globalActiveProfileId}`);
+    if (!window.globalActiveProfileId) {
+        console.log('[WS] globalActiveProfileId not available, retrying in 500ms...');
+        setTimeout(connectWS, 500);
+        return;
+    }
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${window.globalActiveProfileId}`);
     ws.onopen = () => console.log('[WS] Connected');
     ws.onclose = () => {
         console.log('[WS] Disconnected. Attempting to reconnect...');
@@ -304,20 +309,20 @@ function handleWSMessage(msg) {
                 (state.cue && !musicState.cue) || (!state.cue && musicState.cue);
         // Update musicState.cue for future comparisons
         musicState.cue = state.cue;
-        
+
         if (songChanged || playChanged || queueChanged) { // Trigger update if song, play state, or queue changed
-            
+
             Promise.all([
-                fetch(`/api/music/playback/current/${globalActiveProfileId}`).then(r => r.json()),
-                fetch(`/api/music/playback/previousSong/${globalActiveProfileId}`).then(r => r.json()),
-                fetch(`/api/music/playback/nextSong/${globalActiveProfileId}`).then(r => r.json())
+                fetch(`/api/music/playback/current/${window.globalActiveProfileId}`).then(r => r.json()),
+                fetch(`/api/music/playback/previousSong/${window.globalActiveProfileId}`).then(r => r.json()),
+                fetch(`/api/music/playback/nextSong/${window.globalActiveProfileId}`).then(r => r.json())
             ])
                     .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
                         const currentSong = currentSongResponse.data;
                         const prevSong = prevSongResponse.data;
                         const nextSong = nextSongResponse.data;
                         if (currentSong) {
-                            
+
                             UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
                             // Add delay to ensure table content is updated before refreshing highlighting
                             setTimeout(() => {
@@ -437,22 +442,22 @@ function bindVolumeSlider() {
 function bindPlaybackButtons() {
     document.getElementById('playPauseBtn').onclick = () => {
         console.log("[musicBar.js] playPauseBtn clicked");
-        apiPost('toggle', globalActiveProfileId);
+        apiPost('toggle', window.globalActiveProfileId);
     };
     document.getElementById('prevBtn').onclick = () => {
         console.log("[musicBar.js] prevBtn clicked");
-        apiPost('previous', globalActiveProfileId);
+        apiPost('previous', window.globalActiveProfileId);
     };
     document.getElementById('nextBtn').onclick = () => {
         console.log("[musicBar.js] nextBtn clicked");
-        apiPost('next', globalActiveProfileId);
+        apiPost('next', window.globalActiveProfileId);
     };
     // Add click listeners for previous and next song cover images
     const prevSongCoverImage = document.getElementById('prevSongCoverImage');
     if (prevSongCoverImage) {
         prevSongCoverImage.onclick = () => {
             console.log("[musicBar.js] prevSongCoverImage clicked");
-            apiPost('previous', globalActiveProfileId);
+            apiPost('previous', window.globalActiveProfileId);
         };
     }
 
@@ -460,9 +465,11 @@ function bindPlaybackButtons() {
     if (nextSongCoverImage) {
         nextSongCoverImage.onclick = () => {
             console.log("[musicBar.js] nextSongCoverImage clicked");
-            apiPost('next', globalActiveProfileId);
+            apiPost('next', window.globalActiveProfileId);
         };
     }
+
+
     document.getElementById('shuffleBtn').onclick = () => {
         console.log("[musicBar.js] shuffleBtn clicked");
         // Optimistic UI update
@@ -484,7 +491,7 @@ function bindPlaybackButtons() {
         updateMusicBar(); // Update UI immediately
 
         // Send request to backend for persistence and synchronization
-        apiPost('shuffle', globalActiveProfileId);
+        apiPost('shuffle', window.globalActiveProfileId);
     };
     document.getElementById('repeatBtn').onclick = () => {
         console.log("[musicBar.js] repeatBtn clicked");
@@ -507,13 +514,13 @@ function bindPlaybackButtons() {
         updateMusicBar(); // Update UI immediately
 
         // Send request to backend for persistence and synchronization
-        apiPost('repeat', globalActiveProfileId);
+        apiPost('repeat', window.globalActiveProfileId);
     };
 }
 
 
 // ---------------- UI ----------------
-async function refreshSongTable() {  
+async function refreshSongTable() {
     // Server-side highlighting now handles this, so this function can be minimal
     // Just ensure the function exists for compatibility
 }
@@ -524,7 +531,7 @@ function updateSelectedSongRow(songId) {
     allRows.forEach(row => {
         row.classList.remove('current-song-row');
     });
-    
+
     // Add current-song-row class to the selected row
     const selectedRow = document.querySelector(`#songTableBody tr[data-song-id="${songId}"]`);
     if (selectedRow) {
@@ -616,7 +623,7 @@ async function populatePlaylistSubMenu() {
     playlistSubMenu.innerHTML = '<div class="context-menu-item">Loading Playlists...</div>'; // Show loading state
 
     try {
-        const response = await fetch(`/api/music/playlists/${globalActiveProfileId}`); // Assuming this endpoint returns JSON
+        const response = await fetch(`/api/music/playlists/${window.globalActiveProfileId}`); // Assuming this endpoint returns JSON
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -647,7 +654,7 @@ async function populatePlaylistSubMenu() {
 // Function to add song to a specific playlist
 async function addSongToPlaylist(playlistId, songId) {
     try {
-        const response = await fetch(`/api/music/playlists/${playlistId}/songs/${songId}/${globalActiveProfileId}`, {
+        const response = await fetch(`/api/music/playlists/${playlistId}/songs/${songId}/${window.globalActiveProfileId}`, {
             method: 'POST'
         });
         if (!response.ok) {
@@ -665,14 +672,14 @@ async function addSongToPlaylist(playlistId, songId) {
 async function rescanSong(songId) {
     try {
         console.log(`[musicBar.js] Attempting to rescan song with ID: ${songId}`);
-        const response = await fetch(`/api/settings/${globalActiveProfileId}/rescan-song/${songId}`, {
+        const response = await fetch(`/api/settings/${window.globalActiveProfileId}/rescan-song/${songId}`, {
             method: 'POST'
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             console.error(`[musicBar.js] Server response (${response.status}): ${errorText}`);
-            
+
             // Parse the error message to provide better user feedback
             let userMessage = "Failed to rescan song.";
             try {
@@ -689,21 +696,21 @@ async function rescanSong(songId) {
             } catch (e) {
                 userMessage = `Server error: ${response.status}`;
             }
-            
+
             showToast(userMessage, 'error');
             throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
-        
+
         const result = await response.json();
         console.log(`Song ${songId} re-scan initiated. Server response:`, result);
-        
+
         // Show success message
         if (result.message) {
             showToast(result.message, 'success');
         } else {
             showToast('Song re-scan initiated successfully', 'success');
         }
-        
+
         reloadSongTableBody(); // Reload the table to show potential updates
     } catch (error) {
         console.error(`Error initiating re-scan for song ${songId}:`, error);
@@ -714,7 +721,7 @@ async function rescanSong(songId) {
 async function deleteSong(songId) {
     if (confirm('Are you sure you want to delete this song? This action cannot be undone.')) {
         try {
-            const response = await fetch(`/api/settings/${globalActiveProfileId}/songs/${songId}`, {
+            const response = await fetch(`/api/settings/${window.globalActiveProfileId}/songs/${songId}`, {
                 method: 'DELETE'
             });
             if (!response.ok) {
@@ -741,15 +748,15 @@ function reloadSongTableBody() {
         const searchTerm = window.getCurrentSearchTerm ? window.getCurrentSearchTerm() : '';
         const sortBy = window.currentSortField || 'title';
         const sortDir = window.currentSortDirection || 'asc';
-        
+
         // When reloading, we can go back to the first page.
-        let url = `/api/music/ui/tbody/${globalActiveProfileId}/${playlistId}?page=1&sortBy=${sortBy}&sortDirection=${sortDir}`;
+        let url = `/api/music/ui/tbody/${window.globalActiveProfileId}/${playlistId}?page=1&sortBy=${sortBy}&sortDirection=${sortDir}`;
         if (searchTerm) {
             url += `&search=${encodeURIComponent(searchTerm)}`;
         }
 
         console.log(`[musicBar.js] Reloading song table with URL: ${url}`);
-        htmx.ajax('GET', url, { target: '#songTableBody', swap: 'innerHTML' });
+        htmx.ajax('GET', url, {target: '#songTableBody', swap: 'innerHTML'});
     } else {
         console.error("[musicBar.js] reloadSongTableBody: #songTableBody element not found.");
     }
@@ -767,32 +774,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     connectWS();
-    
+
     // Listen for HTMX content swaps to refresh song highlighting
-    document.body.addEventListener('htmx:afterSwap', function(event) {
+    document.body.addEventListener('htmx:afterSwap', function (event) {
         if (event.detail.target.id === 'songTableBody') {
             // Refresh song highlighting after table content is updated
             setTimeout(() => refreshSongTable(), 50); // Small delay to ensure DOM is ready
         }
     });
-    
+
     // Update selected song row styling without full table reload
-    document.body.addEventListener('htmx:afterRequest', function(event) {
+    document.body.addEventListener('htmx:afterRequest', function (event) {
         const url = event.detail.requestConfig?.url || event.detail.path;
         if (url && url.includes('/api/music/playback/select/')) {
             // Extract song ID from the URL
             const urlParts = url.split('/');
             const songId = urlParts[urlParts.length - 1];
-            
+
             // Update row styling after a short delay to allow server to update state
             setTimeout(() => {
                 updateSelectedSongRow(songId);
             }, 100);
         }
     });
-    
+
     // Alternative: Listen for clicks on song rows directly
-    document.body.addEventListener('click', function(event) {
+    document.body.addEventListener('click', function (event) {
         const songRow = event.target.closest('tr[data-song-id]');
         if (songRow && songRow.dataset.songId) {
             // Update row styling after a short delay to allow server to update state
@@ -817,19 +824,18 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 hideContextMenu();
             }
-        } 
+        }
         // NEW: If right-click is on the song cover image in the player
         else if (songCoverImage && songCoverImage.contains(event.target)) {
             event.preventDefault();
-            
+
             if (musicState.currentSongId) {
                 currentRightClickedSongId = musicState.currentSongId;
                 showContextMenu(event.clientX, event.clientY);
             } else {
                 hideContextMenu();
             }
-        } 
-        else {
+        } else {
             hideContextMenu();
         }
     });
@@ -871,7 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     hideContextMenu(); // Hide all menus after adding
                 } else if (action === 'queue-song') {
                     if (currentRightClickedSongId) {
-                        htmx.ajax('POST', `/api/music/queue/add/${globalActiveProfileId}/${currentRightClickedSongId}`, {
+                        htmx.ajax('POST', `/api/music/queue/add/${window.globalActiveProfileId}/${currentRightClickedSongId}`, {
                             handler: function () {
                                 console.log(`Song ${currentRightClickedSongId} added to queue.`);
                                 showToast('Song added to queue', 'success');
@@ -919,9 +925,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-// Initial call to set lyrics icon visibility
+    // Initial call to set lyrics icon visibility
     updateLyricsIconVisibility();
 });
+
 function updateLyricsIconVisibility() {
     const lyricsIcon = document.getElementById('viewLyricsIcon');
     if (lyricsIcon) {

@@ -282,7 +282,17 @@ public class SettingsApi {
             settingsController.scanLibrary();
         }, "LibraryScanThread");
 
-        return Response.ok(ApiResponse.success("Scan started")).build();
+        return Response.ok(ApiResponse.success("Full scan started")).build();
+    }
+
+    @POST
+    @Path("/{profileId}/scanLibraryIncremental")
+    public Response scanLibraryIncremental(@PathParam("profileId") Long profileId) {
+        executor.submit(() -> {
+            settingsController.scanLibraryIncremental();
+        }, "IncrementalScanThread");
+
+        return Response.ok(ApiResponse.success("Incremental scan started")).build();
     }
 
     // -----------------------------
@@ -430,27 +440,33 @@ public class SettingsApi {
         }
     }
     
-    @GET
+@GET
     @Path("/{profileId}/install-status")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getInstallationStatus(@PathParam("profileId") Long profileId) {
-        // Check current installation status
-        ImportInstallationStatus status = settingsController.getImportService().getInstallationStatus();
-        
-        java.util.Map<String, Object> response = new java.util.HashMap<>();
-        response.put("pythonInstalled", status.pythonInstalled);
-        response.put("spotdlInstalled", status.spotdlInstalled);
-        response.put("ffmpegInstalled", status.ffmpegInstalled);
-        response.put("whisperInstalled", status.whisperInstalled);
-        response.put("allInstalled", status.isAllInstalled());
-        response.put("messages", java.util.List.of(
-            status.pythonMessage,
-            status.spotdlMessage,
-            status.ffmpegMessage,
-            status.whisperMessage
-        ));
-        
-        return Response.ok(ApiResponse.success(response)).build();
+        try {
+            // Check current installation status
+            ImportInstallationStatus status = settingsController.getImportService().getInstallationStatus();
+            
+            java.util.Map<String, Object> response = new java.util.HashMap<>();
+            response.put("pythonInstalled", status.pythonInstalled);
+            response.put("spotdlInstalled", status.spotdlInstalled);
+            response.put("ffmpegInstalled", status.ffmpegInstalled);
+            response.put("whisperInstalled", status.whisperInstalled);
+            response.put("allInstalled", status.isAllInstalled());
+            response.put("messages", java.util.List.of(
+                status.pythonMessage,
+                status.spotdlMessage,
+                status.ffmpegMessage,
+                status.whisperMessage
+            ));
+            
+            return Response.ok(ApiResponse.success(response)).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get installation status: " + e.getMessage()))
+                    .build();
+        }
     }
     
     // -----------------------------

@@ -291,6 +291,19 @@ public class SettingsController implements Serializable {
         performScan(folder, "full library");
     }
 
+    public List<Song> scanLibraryIncremental() {
+        this.failedSongs.clear();
+        addLog("Starting incremental music library scan...");
+        File folder = getMusicFolder();
+
+        if (!folder.exists() || !folder.isDirectory()) {
+            addLog("Music folder does not exist: " + folder.getAbsolutePath());
+            return new ArrayList<>();
+        }
+
+        return performIncrementalScan(folder, "incremental library scan");
+    }
+
     public List<Song> scanImportFolder() {
         addLog("Scanning import folder for new songs...");
         File importFolder = new File(getMusicFolder(), "import");
@@ -301,6 +314,38 @@ public class SettingsController implements Serializable {
         }
 
         return performScan(importFolder, "import folder");
+    }
+
+    public List<Song> scanSpecificFiles(List<String> targetFileNames, String downloadPath) {
+        if (targetFileNames == null || targetFileNames.isEmpty()) {
+            addLog("No specific files to scan.");
+            return new ArrayList<>();
+        }
+
+        addLog("Scanning " + targetFileNames.size() + " specific downloaded files...");
+        File importFolder = new File(downloadPath);
+
+        if (!importFolder.exists() || !importFolder.isDirectory()) {
+            addLog("Download folder does not exist: " + importFolder.getAbsolutePath());
+            return new ArrayList<>();
+        }
+
+        List<File> targetFiles = new ArrayList<>();
+        for (String fileName : targetFileNames) {
+            File file = new File(importFolder, fileName);
+            if (file.exists() && file.isFile() && file.getName().toLowerCase().endsWith(".mp3")) {
+                targetFiles.add(file);
+            } else {
+                addLog("Target file not found or not MP3: " + fileName);
+            }
+        }
+
+        if (targetFiles.isEmpty()) {
+            addLog("No valid target MP3 files found to scan.");
+            return new ArrayList<>();
+        }
+
+        return performTargetedScan(targetFiles, "specific files");
     }
 
     private List<Song> performScan(File folderToScan, String scanType) {
@@ -336,6 +381,90 @@ public class SettingsController implements Serializable {
         }
 
         addLog("Scan of " + scanType + " completed. Total MP3 files processed successfully: " + totalAdded);
+        if (!failedSongs.isEmpty()) {
+            addLog("The following " + failedSongs.size() + " songs failed to process:");
+            failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
+        }
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
+        return processedSongs;
+    }
+
+    private List<Song> performTargetedScan(List<File> targetFiles, String scanType) {
+        addLog("Processing " + targetFiles.size() + " specific files from " + scanType + "...");
+
+        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
+        targetFiles.forEach(f -> completion.submit(() -> processFile(f)));
+
+        int totalProcessed = 0;
+        int totalAdded = 0;
+        int totalSkipped = 0;
+        List<Song> processedSongs = new ArrayList<>();
+
+        for (int i = 0; i < targetFiles.size(); i++) {
+            try {
+                Future<Song> future = completion.take();
+                Song result = future.get();
+                totalProcessed++;
+                if (result != null) {
+                    totalAdded++;
+                    processedSongs.add(result);
+                } else {
+                    totalSkipped++;
+                }
+
+                if ((i + 1) % 10 == 0 || (i + 1) == targetFiles.size()) {
+                    addLog("Processed " + (i + 1) + " / " + targetFiles.size() + " files from " + scanType + " (Added: " + totalAdded + ", Skipped: " + totalSkipped + ")...");
+                }
+            } catch (Exception e) {
+                addLog("Error while processing file in parallel from " + scanType + ": " + e.getMessage(), e);
+                failedSongs.add(new ScanResult("Unknown File (Parallel Processing Error)", e.getMessage()));
+            }
+        }
+
+        addLog("Targeted scan of " + scanType + " completed. Total processed: " + totalProcessed + ", Added: " + totalAdded + ", Skipped: " + totalSkipped);
+        if (!failedSongs.isEmpty()) {
+            addLog("The following " + failedSongs.size() + " songs failed to process:");
+            failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
+        }
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
+        return processedSongs;
+    }
+
+    private List<Song> performIncrementalScan(File folderToScan, String scanType) {
+        List<File> mp3Files = new ArrayList<>();
+        collectMp3Files(folderToScan, mp3Files);
+        addLog("Found " + mp3Files.size() + " MP3 files for " + scanType + ". Starting parallel metadata reading...");
+
+        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
+        mp3Files.forEach(f -> completion.submit(() -> processFile(f)));
+
+        int totalProcessed = 0;
+        int totalAdded = 0;
+        int totalSkipped = 0;
+        List<Song> processedSongs = new ArrayList<>();
+
+        for (int i = 0; i < mp3Files.size(); i++) {
+            try {
+                Future<Song> future = completion.take();
+                Song result = future.get();
+                totalProcessed++;
+                if (result != null) {
+                    totalAdded++;
+                    processedSongs.add(result);
+                } else {
+                    totalSkipped++;
+                }
+
+                if ((i + 1) % 50 == 0 || (i + 1) == mp3Files.size()) {
+                    addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files from " + scanType + " (Added: " + totalAdded + ", Skipped: " + totalSkipped + ")...");
+                }
+            } catch (Exception e) {
+                addLog("Error while processing file in parallel from " + scanType + ": " + e.getMessage(), e);
+                failedSongs.add(new ScanResult("Unknown File (Parallel Processing Error)", e.getMessage()));
+            }
+        }
+
+        addLog("Incremental scan of " + scanType + " completed. Total processed: " + totalProcessed + ", Added: " + totalAdded + ", Skipped: " + totalSkipped);
         if (!failedSongs.isEmpty()) {
             addLog("The following " + failedSongs.size() + " songs failed to process:");
             failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
@@ -398,6 +527,9 @@ public class SettingsController implements Serializable {
         try {
             File baseFolder = getMusicFolder();
             relativePath = baseFolder.toURI().relativize(file.toURI()).getPath();
+            
+            long size = file.length();
+            long lastModified = file.lastModified();
 
             Song song = songService.findByPathInNewTx(relativePath);
             if (song == null) {
@@ -405,7 +537,18 @@ public class SettingsController implements Serializable {
                 song = new Song();
                 song.setPath(relativePath);
                 song.setDateAdded(java.time.LocalDateTime.now());
+            } else {
+                // Check if file has changed since last scan (only if both values are set)
+                if (song.getSize() != null && song.getLastModified() != null &&
+                    song.getSize() == size && song.getLastModified() == lastModified) {
+                    // File hasn't changed, skip processing
+                    return null;
+                }
             }
+            
+            // Update size and modification time
+            song.setSize(size);
+            song.setLastModified(lastModified);
 
             MP3File mp3File = null;
             Tag tag = null;
@@ -907,12 +1050,12 @@ public class SettingsController implements Serializable {
             try {
                 // Delete physical file
                 if (fd.file.delete()) {
-                    // Delete corresponding database entry
+                    // Delete corresponding database entry with playlist preservation
                     String relativePath = getMusicFolder().toURI().relativize(fd.file.toURI()).getPath();
                     Song songInDb = songService.findByPathInNewTx(relativePath);
                     if (songInDb != null) {
-                        songService.delete(songInDb);
-                        return "Deleted duplicate file and DB entry: " + fd.file.getAbsolutePath();
+                        songService.deleteWithPlaylistPreservation(songInDb);
+                        return "Deleted duplicate file and preserved playlists: " + fd.file.getAbsolutePath();
                     } else {
                         return "Deleted duplicate file (no DB entry found): " + fd.file.getAbsolutePath();
                     }

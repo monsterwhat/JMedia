@@ -305,6 +305,7 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
 
         long playlistId = id == null ? 0L : id;
+        System.out.println("DEBUG: Rendering playlist view with profileId=" + profileId + ", playlistId=" + playlistId);
         
         // For playlist view, we need to check if the user has access to this specific playlist
         Playlist playlist = null;
@@ -348,7 +349,7 @@ public class MusicUiApi {
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
         return playlistView
-                .data("playlistId", playlistId)
+                .data("playlistId", String.valueOf(playlistId))
                 .data("playlistName", name)
                 .data("songs", paginatedSongs)
                 .data("currentSong", currentSong)
@@ -363,7 +364,7 @@ public class MusicUiApi {
                 .data("search", search)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
-                .data("profileId", profileId)
+                .data("profileId", String.valueOf(profileId))
                 .render();
     }
 
@@ -407,7 +408,7 @@ public class MusicUiApi {
             List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
             return playlistTableBodyFragment
-                    .data("playlistId", playlistId)
+                    .data("playlistId", String.valueOf(playlistId))
                     .data("songs", paginatedSongs)
                     .data("currentSong", currentSong)
                     .data("isPlaying", isPlaying)
@@ -421,7 +422,7 @@ public class MusicUiApi {
                     .data("search", search) // Pass search term back to template for pagination links
                     .data("sortBy", sortBy) // Pass sortBy back to template for pagination links
                     .data("sortDirection", sortDirection) // Pass sortDirection back to template for pagination links
-                    .data("profileId", profileId)
+                    .data("profileId", String.valueOf(profileId))
                     .render();
         } catch (Exception e) {
             System.out.println("Error: " + e.getLocalizedMessage());

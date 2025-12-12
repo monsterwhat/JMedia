@@ -69,6 +69,10 @@ public class ImportService {
     private final StringBuilder outputCache = new StringBuilder();
     private final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    
+    // Store the detected execution method for SpotDL
+    private volatile String spotdlExecutionMethod = "DIRECT_COMMAND"; // "DIRECT_COMMAND" or "PYTHON_MODULE"
+    private volatile String detectedPythonExecutable = "python"; // Store the working Python executable
 
     // Pattern to extract song title and artist from "Skipping" messages (Format 1: "Skipping <Song Name> (file already exists) (duplicate)")
     private static final Pattern SKIPPED_SONG_PATTERN_FORMAT1 = Pattern.compile("Skipping (.+) \\(file already exists\\) \\(duplicate\\)");
@@ -153,16 +157,7 @@ public class ImportService {
                     throw new Exception("Import process exited with error code " + exitCode + ".\nExternal tool output:\n" + outputCache.toString());
                 }
 
-                broadcast("Download completed successfully. Triggering import folder scan to discover new files...\n", profileId);
-                try {
-                    settings.scanImportFolder();
-                    broadcast("Import folder scan completed. Identifying newly added songs...\n", profileId);
-                } catch (Exception e) {
-                    LOGGER.error("An error occurred during the automatic import folder scan.", e);
-                    broadcast("WARNING: The automatic import folder scan failed. Newly downloaded songs may not be available immediately. Error: " + e.getMessage() + "\n", profileId);
-                }
-
-                // Construct relative paths for downloaded files
+                // Construct relative paths for downloaded files (needed for both targeted and fallback scanning)
                 Path baseMusicFolder = settings.getMusicFolder().toPath();
                 Set<String> relativeDownloadedPaths = new HashSet<>();
                 String fileExtension = "." + (format != null && !format.isEmpty() ? format : "mp3");
@@ -173,8 +168,92 @@ public class ImportService {
                     relativeDownloadedPaths.add(relativePath);
                 }
 
-                // Find these songs in the database
-                List<Song> newlyAddedSongs = songService.findByRelativePaths(relativeDownloadedPaths);
+                // Separate actually downloaded files from skipped files
+                List<String> actuallyDownloadedFiles = new ArrayList<>();
+                List<String> actuallySkippedFiles = new ArrayList<>();
+                
+                for (String filename : downloadedFileNames) {
+                    File file = normalizedDownloadPath.resolve(filename + "." + (format != null && !format.isEmpty() ? format : "mp3")).toFile();
+                    if (file.exists() && file.isFile()) {
+                        actuallyDownloadedFiles.add(filename);
+                    } else {
+                        actuallySkippedFiles.add(filename);
+                    }
+                }
+                
+                if (!actuallyDownloadedFiles.isEmpty()) {
+                    broadcast("Download completed successfully. Found " + actuallyDownloadedFiles.size() + " new files downloaded, " + actuallySkippedFiles.size() + " files were already available.\n", profileId);
+                } else {
+                    broadcast("Download completed successfully. All " + downloadedFileNames.size() + " files were already available locally.\n", profileId);
+                }
+
+                // Only scan actually downloaded files
+                if (actuallyDownloadedFiles.isEmpty()) {
+                    broadcast("No new files to scan. Processing skipped songs only...\n", profileId);
+                    // Process only skipped songs that were found in database
+                    // Process skipped songs inline since no new files to scan
+                    if (tempSkippedSongInfo != null && !tempSkippedSongInfo.isEmpty()) {
+                        List<Song> allSongs = songService.findAll();
+                        java.util.Map<String, List<Song>> songsByTitle = allSongs.stream()
+                                .filter(s -> s.getTitle() != null)
+                                .collect(Collectors.groupingBy(Song::getTitle));
+
+                        for (String[] artistTitle : tempSkippedSongInfo) {
+                            String parsedArtist = artistTitle[0];
+                            String parsedTitle = artistTitle[1];
+
+                            List<Song> titleMatches = songsByTitle.get(parsedTitle);
+                            Song bestMatch = null;
+
+                            if (titleMatches != null) {
+                                for (Song candidate : titleMatches) {
+                                    if (candidate.getArtist() != null && candidate.getArtist().toLowerCase().contains(parsedArtist.toLowerCase())) {
+                                        bestMatch = candidate;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (bestMatch != null) {
+                                skippedButExistingSongs.add(bestMatch);
+                            } else {
+                                unprocessedSongs.add("Skipped and not found in DB: " + parsedTitle + " by " + parsedArtist);
+                            }
+                        }
+                    }
+                    return; // Early return - no new files to process
+                }
+
+                broadcast("Download completed successfully. Triggering targeted scan for downloaded files...\n", profileId);
+                List<Song> newlyAddedSongs;
+                try {
+                    // Use targeted scanning instead of full folder scan
+                    newlyAddedSongs = settings.scanSpecificFiles(actuallyDownloadedFiles, normalizedDownloadPath.toString());
+                    broadcast("Targeted scan completed. Found " + newlyAddedSongs.size() + " newly added songs.\n", profileId);
+                } catch (Exception e) {
+                    LOGGER.error("An error occurred during targeted file scan.", e);
+                    broadcast("WARNING: The targeted file scan failed. Falling back to incremental library scan. Error: " + e.getMessage() + "\n", profileId);
+                    
+                    // Fallback to incremental scan instead of full folder scan
+                    try {
+                        newlyAddedSongs = settings.scanLibraryIncremental();
+                        broadcast("Incremental library scan completed. Found " + newlyAddedSongs.size() + " newly added songs.\n", profileId);
+                    } catch (Exception fallbackException) {
+                        LOGGER.error("Incremental scan also failed", fallbackException);
+                        broadcast("WARNING: Incremental scan failed. Falling back to full import folder scan. Error: " + fallbackException.getMessage() + "\n", profileId);
+                        
+                        // Final fallback to original method
+                        try {
+                            settings.scanImportFolder();
+                            broadcast("Fallback import folder scan completed. Identifying newly added songs...\n", profileId);
+                            newlyAddedSongs = songService.findByRelativePaths(relativeDownloadedPaths);
+                        } catch (Exception finalFallbackException) {
+                            LOGGER.error("Final fallback scan also failed", finalFallbackException);
+                            broadcast("ERROR: All scan methods failed. Newly downloaded songs may not be available immediately. Error: " + finalFallbackException.getMessage() + "\n", profileId);
+                            newlyAddedSongs = new ArrayList<>();
+                        }
+                    }
+                }
 
                 // Determine which downloaded files were not found in the database after the scan
                 Set<String> foundSongPaths = newlyAddedSongs.stream()
@@ -230,20 +309,6 @@ public class ImportService {
                 }
 
                 // Add deferred skipped songs that were found in DB
-                for (Song song : skippedButExistingSongs) {
-                    if (songIdsInFinalList.add(song.id)) {
-                        finalSongsForPlaylist.add(song);
-                    }
-                }
-
-                // Add newly added songs first                                                                           
-                for (Song song : newlyAddedSongs) {
-                    if (songIdsInFinalList.add(song.id)) {
-                        finalSongsForPlaylist.add(song);
-                    }
-                }
-
-                // Add deferred skipped songs that were found in DB                                                       
                 for (Song song : skippedButExistingSongs) {
                     if (songIdsInFinalList.add(song.id)) {
                         finalSongsForPlaylist.add(song);
@@ -320,14 +385,19 @@ public class ImportService {
             command.add(downloadPath.resolve("%(title)s.%(ext)s").toString());
             command.add(url);
         } else {
-            command.add("spotdl");
+            // Use the detected SpotDL execution method
+            if ("PYTHON_MODULE".equals(spotdlExecutionMethod)) {
+                Collections.addAll(command, detectedPythonExecutable.split(" "));
+                command.add("-m");
+                command.add("spotdl");
+            } else {
+                command.add("spotdl");
+            }
             command.add(url);
-            command.add("--restrict");
-            command.add("ascii");
             command.add("--output");
             command.add(downloadPath.toString());
             if (format != null && !format.isEmpty()) {
-                command.add("--format");
+                command.add("--output-format");
                 command.add(format);
             }
 
@@ -339,7 +409,7 @@ public class ImportService {
             }
 
             if (combinedThreads != null) {
-                command.add("--threads");
+                command.add("--download-threads");
                 command.add(combinedThreads.toString());
             }
         }
@@ -673,6 +743,7 @@ public class ImportService {
 
             if (exitCode == 0) {
                 spotdlInstalled = true;
+                spotdlExecutionMethod = "DIRECT_COMMAND";
                 spotdlMessage = "SpotDL found: " + output.toString().trim();
                 LOGGER.info("SpotDL detection successful using direct command. Exit code: {}, Output: {}", exitCode, output.toString().trim());
             } else {
@@ -695,6 +766,8 @@ public class ImportService {
 
                     if (exitCode == 0) {
                         spotdlInstalled = true;
+                        spotdlExecutionMethod = "PYTHON_MODULE";
+                        detectedPythonExecutable = pythonExecutable;
                         spotdlMessage = "SpotDL found as Python module: " + output.toString().trim();
                         LOGGER.info("SpotDL check passed using Python module: {}", output.toString().trim());
                     } else {
@@ -925,6 +998,10 @@ public class ImportService {
         String pythonExecutable = findPythonExecutable();
         String installScript = pythonExecutable + " -m pip install spotdl";
         executeCommand(installScript, profileId);
+        
+        // After installation, set the execution method to Python module since we installed via pip
+        spotdlExecutionMethod = "PYTHON_MODULE";
+        detectedPythonExecutable = pythonExecutable;
         
         broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL installation completed\n", profileId);

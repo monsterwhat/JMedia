@@ -312,4 +312,35 @@ public class PlaylistService {
             }
         }
     }
+
+    /**
+     * Replaces a song with another song in all playlists where the old song appears
+     * This preserves playlist structure when duplicates are deleted
+     */
+    @Transactional
+    public void replaceSongInAllPlaylists(Long oldSongId, Long newSongId) {
+        if (oldSongId == null || newSongId == null) {
+            return;
+        }
+
+        Song newSong = songService.find(newSongId);
+        if (newSong == null) {
+            return;
+        }
+
+        List<Playlist> affectedPlaylists = em.createQuery(
+            "SELECT p FROM Playlist p JOIN p.songs s WHERE s.id = :songId", Playlist.class)
+            .setParameter("songId", oldSongId)
+            .getResultList();
+
+        for (Playlist playlist : affectedPlaylists) {
+            // Remove the old song
+            playlist.getSongs().removeIf(s -> s.id.equals(oldSongId));
+            // Add the new song if it's not already there
+            if (!playlist.getSongs().contains(newSong)) {
+                playlist.getSongs().add(newSong);
+            }
+            em.merge(playlist);
+        }
+    }
 }

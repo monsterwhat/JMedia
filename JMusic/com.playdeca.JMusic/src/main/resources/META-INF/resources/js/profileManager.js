@@ -47,7 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(profileData => {
                     currentProfile = profileData;
                     // Ensure localStorage reflects the actual current profile from backend
-                    setActiveProfileId(currentProfile.id); 
+                    setActiveProfileId(currentProfile.id);
+                    // Update global variable
+                    window.globalActiveProfileId = currentProfile.id;
                     updateProfileDisplay();
                     renderProfileList();
                 })
@@ -65,6 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(profileData => {
                     currentProfile = profileData;
                     setActiveProfileId(currentProfile.id); // Store it for next time
+                    // Update global variable
+                    window.globalActiveProfileId = currentProfile.id;
                     updateProfileDisplay();
                     renderProfileList();
                 })
@@ -246,6 +250,12 @@ function switchProfile(profileId) {
         }
     }
 
+
+    // Initialize globalActiveProfileId from localStorage
+    const storedProfileId = getActiveProfileId();
+    if (storedProfileId) {
+        window.globalActiveProfileId = storedProfileId;
+    }
 
     // Initial fetches (modified to respect localStorage)
     fetchProfiles();

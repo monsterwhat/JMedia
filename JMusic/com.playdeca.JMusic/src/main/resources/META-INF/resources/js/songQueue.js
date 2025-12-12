@@ -63,7 +63,6 @@ function loadQueuePage(page = 1, profileIdParam) { // Added profileIdParam
             .then(data => {
                 const tbody = document.querySelector('#songQueueTable tbody');
                 if (!tbody) {
-                    console.error("[songQueue.js] loadQueuePage: #songQueueTable tbody not found.");
                     isFetchingQueue = false;
                     return;
                 }

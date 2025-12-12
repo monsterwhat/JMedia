@@ -101,4 +101,30 @@ public class PlaybackHistoryService {
                 .setMaxResults(count)
                 .getResultList();
     }
+
+    /**
+     * Replaces a song reference with another song in playback history
+     * This preserves history when duplicates are deleted
+     */
+    @Transactional
+    public void replaceSongInHistory(Long oldSongId, Long newSongId) {
+        if (oldSongId == null || newSongId == null) {
+            return;
+        }
+
+        Song newSong = em.find(Song.class, newSongId);
+        if (newSong == null) {
+            return;
+        }
+
+        List<PlaybackHistory> historyEntries = em.createQuery(
+            "SELECT ph FROM PlaybackHistory ph WHERE ph.song.id = :oldSongId", PlaybackHistory.class)
+            .setParameter("oldSongId", oldSongId)
+            .getResultList();
+
+        for (PlaybackHistory history : historyEntries) {
+            history.song = newSong;
+            em.merge(history);
+        }
+    }
 }
