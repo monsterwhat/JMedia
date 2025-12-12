@@ -502,7 +502,6 @@
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(255, 255, 255, 0.25);
                 backdrop-filter: blur(8px);
                 -webkit-backdrop-filter: blur(8px);
                 border-radius: 8px;
@@ -512,22 +511,18 @@
             }
 
             [data-theme="dark"] .table tbody tr::before {
-                background: rgba(0, 0, 0, 0.4);
                 border: 1px solid rgba(255, 255, 255, 0.2);
             }
 
             /* Striped effect using different opacity */
             .table tbody tr:nth-child(even)::before {
-                background: rgba(255, 255, 255, 0.25);
             }
 
             [data-theme="dark"] .table tbody tr:nth-child(even)::before {
-                background: rgba(0, 0, 0, 0.4);
             }
 
             /* Hover effect */
             .table tbody tr:hover::before {
-                background: rgba(255, 255, 255, 0.08);
                 backdrop-filter: blur(15px);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 transform: translateY(-1px);
@@ -535,7 +530,6 @@
             }
 
             [data-theme="dark"] .table tbody tr:hover::before {
-                background: rgba(0, 0, 0, 0.12);
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             }
@@ -584,7 +578,7 @@
             }
         </style>
     </head>
-    <body x-data class="has-background-light">
+    <body x-data>
 
         <audio id="audioPlayer" preload="metadata"></audio>
 
@@ -871,7 +865,7 @@
             </div>
 
             <!-- Hero Foot (Music Bar) -->
-            <div class="hero-foot card glass-box m-3 p-3">
+            <div class="hero-foot card glass-box mx-3 mb-3 p-3">
                 <nav class="level is-mobile">
 
                     <!-- LEFT: Song Info -->
@@ -898,7 +892,7 @@
                         <div class="buttons are-small mb-2">
                             <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
                             <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
-                            <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="playPauseBtn" class="button is-rounded is-large" title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
                             <button id="nextBtn"   title="Next"><i class="pi pi-step-forward"></i></button>
                             <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
                         </div>

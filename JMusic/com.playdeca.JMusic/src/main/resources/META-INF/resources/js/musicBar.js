@@ -90,9 +90,15 @@ function updateMusicBar() {
         artistMobileEl.innerText = artist ?? "Unknown Artist";
     applyMarqueeEffect('songTitleMobile', songName ?? "Unknown Title");
     applyMarqueeEffect('songArtistMobile', artist ?? "Unknown Artist");
-    document.getElementById('playPauseIcon').className = playing
-            ? "pi pi-pause button is-warning is-rounded is-large"
-            : "pi pi-play button is-success is-rounded is-large";
+    const playPauseIcon = document.getElementById('playPauseIcon');
+    if (playPauseIcon) {
+        playPauseIcon.className = "pi"; // Base class
+        if (playing) {
+            playPauseIcon.classList.add("pi-pause", "has-text-warning");
+        } else {
+            playPauseIcon.classList.add("pi-play", "has-text-success");
+        }
+    }
     document.getElementById('currentTime').innerText = formatTime(Math.floor(currentTime));
     document.getElementById('totalTime').innerText = formatTime(duration);
     const timeSlider = document.getElementById('playbackProgressBar'); // Use getElementById for direct access
@@ -512,6 +518,19 @@ async function refreshSongTable() {
     // Just ensure the function exists for compatibility
 }
 
+function updateSelectedSongRow(songId) {
+    // Remove current-song-row class from all rows
+    const allRows = document.querySelectorAll('#songTableBody tr[data-song-id]');
+    allRows.forEach(row => {
+        row.classList.remove('current-song-row');
+    });
+    
+    // Add current-song-row class to the selected row
+    const selectedRow = document.querySelector(`#songTableBody tr[data-song-id="${songId}"]`);
+    if (selectedRow) {
+        selectedRow.classList.add('current-song-row');
+    }
+}
 
 function updatePageTitle(song) {
     if (!song) {
@@ -757,19 +776,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Listen for song selection events to reload table
+    // Update selected song row styling without full table reload
     document.body.addEventListener('htmx:afterRequest', function(event) {
         const url = event.detail.requestConfig?.url || event.detail.path;
         if (url && url.includes('/api/music/playback/select/')) {
-            // Reload the table after a short delay to allow server to update state
+            // Extract song ID from the URL
+            const urlParts = url.split('/');
+            const songId = urlParts[urlParts.length - 1];
+            
+            // Update row styling after a short delay to allow server to update state
             setTimeout(() => {
-                const playlistId = document.querySelector('#mainPlaylistCard')?.dataset.playlistId || '0';
-                htmx.ajax('GET', `/api/music/ui/tbody/${globalActiveProfileId}/${playlistId}`, {
-                    target: '#songTableBody',
-                    swap: 'innerHTML',
-                    indicator: '#loadingRow'
-                });
-            }, 200);
+                updateSelectedSongRow(songId);
+            }, 100);
         }
     });
     
@@ -777,15 +795,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.addEventListener('click', function(event) {
         const songRow = event.target.closest('tr[data-song-id]');
         if (songRow && songRow.dataset.songId) {
-            // Reload the table after a short delay to allow server to update state
+            // Update row styling after a short delay to allow server to update state
             setTimeout(() => {
-                const playlistId = document.querySelector('#mainPlaylistCard')?.dataset.playlistId || '0';
-                htmx.ajax('GET', `/api/music/ui/tbody/${globalActiveProfileId}/${playlistId}`, {
-                    target: '#songTableBody',
-                    swap: 'innerHTML',
-                    indicator: '#loadingRow'
-                });
-            }, 300);
+                updateSelectedSongRow(songRow.dataset.songId);
+            }, 100);
         }
     });
     // Add context menu listener to the document, using event delegation

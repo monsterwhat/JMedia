@@ -539,4 +539,30 @@ input[type="range"] {
     gap: 0.5rem;
 }
 
+/* Fix for playlist sidebar buttons to be full width */
+#sidebarPlaylistListContainer .table td {
+    padding: 0.25rem;
+    width: 100%;
+}
+
+/* Fix All Songs button container to match playlist button containers */
+#sidebarPlaylistListContainer tbody tr:first-child td {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    background: transparent !important;
+}
+
+
+
+#sidebarPlaylistListContainer tbody tr:first-child .button.is-fullwidth {
+    flex-grow: 1 !important;
+}
+
+#sidebarPlaylistListContainer .button.is-fullwidth {
+    width: 100% !important;
+    display: block !important;
+}
+
  
