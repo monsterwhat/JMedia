@@ -6,11 +6,11 @@
     --card-header-background: #f8f9fa; /* Light mode card header - softer */
     --navbar-background: #ffffff; /* Light mode navbar */
     --navbar-text: #363636; /* Light mode navbar text */
-    --table-striped-background-odd: #ffffff; /* Light mode odd row background */
-    --table-striped-background-even: #f9f9f9; /* Light mode even row background */
-    --table-hover-background-odd: #f5f5f5; /* Lighter odd row hover for light mode */
-    --table-hover-background-even: #b8b4b4; /* Even lighter even row hover for light mode */
-    --table-hover-background-color: #d4edda; /* Light green hover for light mode */
+    --table-striped-background-odd: rgba(255, 255, 255, 0.25); /* Light mode odd row background */
+    --table-striped-background-even: rgba(255, 255, 255, 0.35); /* Light mode even row background */
+    --table-hover-background-odd: rgba(255, 255, 255, 0.4); /* Light mode odd row hover background */
+    --table-hover-background-even: rgba(255, 255, 255, 0.45); /* Light mode even row hover background */
+    --table-hover-background-color: rgba(255, 255, 255, 0.5); /* White hover for light mode */
 }
 
 /* Context menu styles */
@@ -55,11 +55,11 @@ html[data-theme="dark"] {
     --card-header-background: #2f2f2f; /* Dark mode card header */
     --navbar-background: #222222; /* Dark mode navbar */
     --navbar-text: #f5f5f5; /* Dark mode navbar text */
-    --table-striped-background-odd: #363636; /* Dark mode odd row background */
-    --table-striped-background-even: #3a3a3a; /* Dark mode even row background */
-    --table-hover-background-odd: #4a4a4a; /* Dark mode odd row hover background */
-    --table-hover-background-even: #5a5a5a; /* Dark mode even row hover background */
-    --table-hover-background-color: #28a745; /* Light green hover for dark mode (adjust as needed for visibility) */
+    --table-striped-background-odd: rgba(0, 0, 0, 0.25); /* Dark mode odd row background */
+    --table-striped-background-even: rgba(0, 0, 0, 0.35); /* Dark mode even row background */
+    --table-hover-background-odd: rgba(0, 0, 0, 0.4); /* Dark mode odd row hover background */
+    --table-hover-background-even: rgba(0, 0, 0, 0.45); /* Dark mode even row hover background */
+    --table-hover-background-color: rgba(0, 0, 0, 0.5); /* Dark hover for dark mode */
 }
 
 /* Apply Theme Variables */
@@ -265,13 +265,14 @@ input[type="range"] {
     cursor: pointer;
 }
 
-input[type="range"]::-webkit-slider-track {
+/* Override generic range input styles with more specific ones for playback bars */
+input[type="range"]:not(#playbackProgressBar):not(#volumeProgressBar)::-webkit-slider-track {
     background: rgba(50, 115, 220, 0.3);
     height: 6px;
     border-radius: 3px;
 }
 
-input[type="range"]::-webkit-slider-thumb {
+input[type="range"]:not(#playbackProgressBar):not(#volumeProgressBar)::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     background: #3298dc;
@@ -282,13 +283,13 @@ input[type="range"]::-webkit-slider-thumb {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-input[type="range"]::-moz-range-track {
+input[type="range"]:not(#playbackProgressBar):not(#volumeProgressBar)::-moz-range-track {
     background: rgba(50, 115, 220, 0.3);
     height: 6px;
     border-radius: 3px;
 }
 
-input[type="range"]::-moz-range-thumb {
+input[type="range"]:not(#playbackProgressBar):not(#volumeProgressBar)::-moz-range-thumb {
     background: #3298dc;
     height: 16px;
     width: 16px;
@@ -312,6 +313,194 @@ html[data-theme="dark"] input[type="range"]::-moz-range-track {
 }
 
 html[data-theme="dark"] input[type="range"]::-moz-range-thumb {
+    background: #48c78e;
+}
+
+/* Playback Bar Specific Styles - Blue for light mode, Green for dark mode */
+#playbackProgressBar {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 10px;
+    background: transparent;
+}
+
+/* Light mode - Blue */
+#playbackProgressBar::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+    border-radius: 5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #playbackProgressBar::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+}
+
+/* Light mode - Blue */
+#playbackProgressBar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    border: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #3298dc;
+    cursor: pointer;
+    margin-top: -5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #playbackProgressBar::-webkit-slider-thumb {
+    background: #48c78e;
+}
+
+/* Light mode - Blue */
+#playbackProgressBar::-moz-range-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+    border-radius: 5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #playbackProgressBar::-moz-range-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+}
+
+/* Light mode - Blue */
+#playbackProgressBar::-moz-range-thumb {
+    border: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #3298dc;
+    cursor: pointer;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #playbackProgressBar::-moz-range-thumb {
+    background: #48c78e;
+}
+
+/* Light mode - Blue */
+#playbackProgressBar::-ms-fill-lower {
+    background: #3298dc;
+    border-radius: 5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #playbackProgressBar::-ms-fill-lower {
+    background: #48c78e;
+}
+
+/* Light mode - Blue */
+#playbackProgressBar::-ms-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #3298dc;
+    cursor: pointer;
+    margin-top: 0;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #playbackProgressBar::-ms-thumb {
+    background: #48c78e;
+}
+
+/* Volume Progress Bar Specific Styles - Blue for light mode, Green for dark mode */
+#volumeProgressBar {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 10px;
+    background: transparent;
+}
+
+/* Light mode - Blue */
+#volumeProgressBar::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+    border-radius: 5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #volumeProgressBar::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+}
+
+/* Light mode - Blue */
+#volumeProgressBar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    border: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #3298dc;
+    cursor: pointer;
+    margin-top: -5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #volumeProgressBar::-webkit-slider-thumb {
+    background: #48c78e;
+}
+
+/* Light mode - Blue */
+#volumeProgressBar::-moz-range-track {
+    width: 100%;
+    height: 10px;
+    cursor: pointer;
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+    border-radius: 5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #volumeProgressBar::-moz-range-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%));
+}
+
+/* Light mode - Blue */
+#volumeProgressBar::-moz-range-thumb {
+    border: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #3298dc;
+    cursor: pointer;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #volumeProgressBar::-moz-range-thumb {
+    background: #48c78e;
+}
+
+/* Light mode - Blue */
+#volumeProgressBar::-ms-fill-lower {
+    background: #3298dc;
+    border-radius: 5px;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #volumeProgressBar::-ms-fill-lower {
+    background: #48c78e;
+}
+
+/* Light mode - Blue */
+#volumeProgressBar::-ms-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #3298dc;
+    cursor: pointer;
+    margin-top: 0;
+}
+
+/* Dark mode - Green */
+html[data-theme="dark"] #volumeProgressBar::-ms-thumb {
     background: #48c78e;
 }
 
@@ -795,14 +984,11 @@ html[data-theme="dark"] input[type="range"]::-moz-range-thumb {
 
 /* Glassmorphism Base Styles */
 body {
-    background:
-        linear-gradient(135deg, rgba(219, 234, 254, 0.5) 0%, rgba(96, 165, 250, 0.5) 50%, rgba(30, 64, 175, 0.5) 100%),
-        url('https://images.unsplash.com/photo-1453280339213-efb07f95531b?w=1920&h=1080&fit=crop');
+    background: url('https://images.unsplash.com/photo-1453280339213-efb07f95531b?w=1920&h=1080&fit=crop');
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
-    background-blend-mode: overlay;
     min-height: 100vh;
     position: relative;
     overflow-x: hidden;
@@ -1162,10 +1348,22 @@ body::before {
 /* Global fix for card-content padding/margin */
 .card-content {
     padding: 1rem !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-radius: 16px;
+    margin: 0.5rem;
+}
+
+[data-theme="dark"] .card-content {
+    background: rgba(0, 0, 0, 0.25) !important;
 }
 
 .glass-box .card-content {
     padding: 1.5rem !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="dark"] .glass-box .card-content {
+    background: rgba(0, 0, 0, 0.2) !important;
 }
 
 /* Feature cards carousel specific */
@@ -1920,6 +2118,7 @@ html[data-theme="dark"] .has-text-success {
     left: 0;
     right: 0;
     bottom: 0;
+    background: rgba(255, 255, 255, 0.12);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border-radius: 8px;
@@ -1929,6 +2128,7 @@ html[data-theme="dark"] .has-text-success {
 }
 
 [data-theme="dark"] .table tbody tr::before {
+    background: rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
@@ -1940,6 +2140,7 @@ html[data-theme="dark"] .has-text-success {
 
 .table.is-hoverable tbody tr:hover::before,
 .table tbody tr:hover::before {
+    background: rgba(255, 255, 255, 0.2);
     backdrop-filter: blur(15px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     transform: translateY(-1px);
@@ -1948,6 +2149,7 @@ html[data-theme="dark"] .has-text-success {
 
 [data-theme="dark"] .table.is-hoverable tbody tr:hover::before,
 [data-theme="dark"] .table tbody tr:hover::before {
+    background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
@@ -1982,9 +2184,20 @@ html[data-theme="dark"] .has-text-success {
 }
 
 /* Striped row styling for is-striped table */
-.table.is-striped tbody tr:not(.is-selected):nth-child(odd),
-.table.is-striped tbody tr:not(.is-selected):nth-child(even) {
-    background: transparent !important;
+.table.is-striped tbody tr:not(.is-selected):nth-child(odd)::before {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.table.is-striped tbody tr:not(.is-selected):nth-child(even)::before {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+[data-theme="dark"] .table.is-striped tbody tr:not(.is-selected):nth-child(odd)::before {
+    background: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="dark"] .table.is-striped tbody tr:not(.is-selected):nth-child(even)::before {
+    background: rgba(0, 0, 0, 0.25);
 }
 
 /* Settings page specific styles */
@@ -2560,83 +2773,7 @@ html, body {
     background: transparent; /* Make background transparent */
 }
 
-/* Track styling for Webkit (Chrome, Safari) */
-#playbackProgressBar::-webkit-slider-runnable-track,
-#volumeProgressBar::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 10px; /* Thickness of the track */
-    cursor: pointer;
-    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
-    border-radius: 5px; /* Adjust border-radius for new thickness */
-}
 
-/* Thumb styling for Webkit */
-#playbackProgressBar::-webkit-slider-thumb,
-#volumeProgressBar::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    border: none;
-    height: 20px; /* Size of the thumb */
-    width: 20px; /* Size of the thumb */
-    border-radius: 50%;
-    background: #48c78e; /* Bulma success color */
-    cursor: pointer;
-    margin-top: -5px; /* Center the thumb vertically on the track */
-}
-
-/* Track styling for Firefox */
-#playbackProgressBar::-moz-range-track,
-#volumeProgressBar::-moz-range-track {
-    width: 100%;
-    height: 10px;
-    cursor: pointer;
-    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
-    border-radius: 5px;
-}
-
-/* Thumb styling for Firefox */
-#playbackProgressBar::-moz-range-thumb,
-#volumeProgressBar::-moz-range-thumb {
-    border: none;
-    height: 20px;
-    width: 20px;
-    border-radius: 50%;
-    background: #48c78e;
-    cursor: pointer;
-}
-
-/* Track styling for IE/Edge */
-#playbackProgressBar::-ms-track,
-#volumeProgressBar::-ms-track {
-    width: 100%;
-    height: 10px;
-    cursor: pointer;
-    background: transparent; /* IE needs this to be transparent */
-    border-color: transparent;
-    color: transparent;
-}
-
-#playbackProgressBar::-ms-fill-lower,
-#volumeProgressBar::-ms-fill-lower {
-    background: #48c78e; /* Filled part */
-    border-radius: 5px;
-}
-
-#playbackProgressBar::-ms-fill-upper,
-#volumeProgressBar::-ms-fill-upper {
-    background: #dbdbdb; /* Unfilled part */
-    border-radius: 5px;
-}
-
-/* Thumb styling for IE/Edge */
-#playbackProgressBar::-ms-thumb,
-#volumeProgressBar::-ms-thumb {
-    height: 20px;
-    width: 20px;
-    border-radius: 50%;
-    background: #48c78e;
-    cursor: pointer;
-    margin-top: 0; /* IE centers thumb automatically */
-}
 
 .card[style*="overflow-y: auto"]::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.1);

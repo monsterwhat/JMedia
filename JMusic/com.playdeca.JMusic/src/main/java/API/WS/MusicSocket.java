@@ -112,7 +112,7 @@ public class MusicSocket {
         });
     }
 
-    public void broadcastAll(PlaybackState stateToBroadcast, Long profileId) {
+  public void broadcastAll(PlaybackState stateToBroadcast, Long profileId) {
         if (stateToBroadcast == null) {
             System.out.println("[MusicSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
             return;
@@ -123,6 +123,19 @@ public class MusicSocket {
             message.put("type", "state");
             message.set("payload", mapper.valueToTree(stateToBroadcast));
             webSocketManager.broadcastToProfile(profileId, mapper.writeValueAsString(message));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void broadcastHistoryUpdate(Long profileId) {
+        try {
+            ObjectNode message = mapper.createObjectNode();
+            message.put("type", "history-update");
+            message.put("profileId", profileId);
+            String messageJson = mapper.writeValueAsString(message);
+            System.out.println("[MusicSocket] Broadcasting history update for profile " + profileId + ": " + messageJson);
+            webSocketManager.broadcastToProfile(profileId, messageJson);
         } catch (IOException e) {
             e.printStackTrace();
         }

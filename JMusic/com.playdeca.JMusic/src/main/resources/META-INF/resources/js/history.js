@@ -100,6 +100,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expose a global function to refresh the history
     window.refreshHistory = () => {
+        console.log('[history.js] refreshHistory called, current page:', currentHistoryPage);
+        loadHistoryPage(currentHistoryPage); // Maintain current page
+    };
+
+    // Expose a function to refresh history from the beginning (for manual refresh)
+    window.refreshHistoryFromStart = () => {
         loadHistoryPage(1); // Reset page to load from the beginning
     };
 });

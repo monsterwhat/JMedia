@@ -202,6 +202,8 @@ public class PlaybackController {
                 Song finishedSong = findSong(st.getCurrentSongId());
                 if (finishedSong != null) {
                     playbackHistoryService.add(finishedSong, profileId);
+                    // Broadcast history update to all connected clients
+                    ws.broadcastHistoryUpdate(profileId);
                 }
             }
 
@@ -381,6 +383,16 @@ public class PlaybackController {
             return;
         }
 
+        // Save the current song to history before advancing to the next one
+        if (st.getCurrentSongId() != null) {
+            Song currentSong = findSong(st.getCurrentSongId());
+            if (currentSong != null) {
+                playbackHistoryService.add(currentSong, profileId);
+                // Broadcast history update to all connected clients
+                ws.broadcastHistoryUpdate(profileId);
+            }
+        }
+
         st.setCurrentSongId(nextSongId);
         Song newSong = findSong(nextSongId);
         st.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
@@ -417,7 +429,7 @@ public class PlaybackController {
             return;
         }
 
-        // We are at the beginning of the queue, try history.
+// We are at the beginning of the queue, try history.
         List<Long> historyIds = playbackHistoryService.getRecentlyPlayedSongIds(2, profileId);
 
         Long songIdToPlay = null;
@@ -432,6 +444,16 @@ public class PlaybackController {
         if (songIdToPlay != null) {
             Song songFromHistory = findSong(songIdToPlay);
             if (songFromHistory != null) {
+                // Save the current song to history before playing from history
+                if (st.getCurrentSongId() != null) {
+                    Song currentSong = findSong(st.getCurrentSongId());
+                    if (currentSong != null && !currentSong.id.equals(songFromHistory.id)) {
+                        playbackHistoryService.add(currentSong, profileId);
+                        // Broadcast history update to all connected clients
+                        ws.broadcastHistoryUpdate(profileId);
+                    }
+                }
+
                 // We found a song in history. Let's play it.
                 // We should also probably put it at the beginning of the cue.
                 List<Long> cue = st.getCue();

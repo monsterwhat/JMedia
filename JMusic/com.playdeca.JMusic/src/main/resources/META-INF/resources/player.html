@@ -21,7 +21,7 @@
     </head>
     <body>
 
-        <div id="contextMenu" class="context-menu">
+        <div id="contextMenu" class="context-menu" style="display: none;">
             <ul>
                 <li id="contextAddToPlaylist">
                     <i class="pi pi-list"></i>
@@ -337,9 +337,14 @@
                                             return '#';
                                         }
 
-                                        document.addEventListener('DOMContentLoaded', function () {
+                                    document.addEventListener('DOMContentLoaded', function () {
                                             const songCoverImage = document.getElementById('songCoverImage');
                                             const contextMenu = document.getElementById('contextMenu');
+                                            
+                                            // Explicitly hide context menu on page load
+                                            if (contextMenu) {
+                                                contextMenu.style.display = 'none';
+                                            }
                                             const contextAddToPlaylist = document.getElementById('contextAddToPlaylist');
                                             const contextViewLyrics = document.getElementById('contextViewLyrics');
 
@@ -353,7 +358,7 @@
                                             const whisperConfirmOk = document.getElementById('whisperConfirmOk');
                                             const whisperConfirmCancel = document.getElementById('whisperConfirmCancel');
 
-                                            songCoverImage.addEventListener('contextmenu', function (event) {
+                                          songCoverImage.addEventListener('contextmenu', function (event) {
                                                 event.preventDefault();
                                                 contextMenu.style.display = 'block';
                                                 contextMenu.style.left = event.pageX + 'px';

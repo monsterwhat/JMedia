@@ -409,7 +409,25 @@ function handleWSMessage(msg) {
                 console.log(`[WS] handleWSMessage: Correcting time. Local: ${currentAudioTime.toFixed(2)}, Server (projected): ${projectedRemoteTime.toFixed(2)}, Diff: ${timeDifference.toFixed(2)}, Latency: ${estimatedLatencyMs.toFixed(2)}ms`);
                 audio.currentTime = projectedRemoteTime;
             }
+        } else if (message.type === 'history-update') {
+        console.log('[WS] History update received for profile', message.profileId, ', refreshing history table');
+        // Trigger history refresh if the function exists
+        if (window.refreshHistory) {
+            console.log('[WS] Calling refreshHistory function');
+            window.refreshHistory();
+        } else {
+            console.error('[WS] refreshHistory function not available, retrying in 100ms...');
+            // Wait a bit and try again in case history.js hasn't loaded yet
+            setTimeout(() => {
+                if (window.refreshHistory) {
+                    console.log('[WS] Retrying refreshHistory function');
+                    window.refreshHistory();
+                } else {
+                    console.error('[WS] refreshHistory function still not available after retry');
+                }
+            }, 100);
         }
+    }
         updateMusicBar();
         
         // Update queue count based on current state
