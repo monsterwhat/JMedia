@@ -58,8 +58,8 @@ public class PlaybackQueueController {
             return cue.get(prevIndex);
         }
 
-        // --- FORWARD ADVANCEMENT ---
-        addSongToHistory(state.getCurrentSongId(), profileId);
+// --- FORWARD ADVANCEMENT ---
+        // Note: History is added by PlaybackController.advance() to avoid duplicates
 
         // Smart shuffle: find a suitable next song and move it to the next position in the cue
         if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
@@ -302,8 +302,8 @@ public class PlaybackQueueController {
         state.setCurrentTime(Math.max(0, seconds));
     }
 
-    public void songSelected(Long songId, Long profileId) {
-        addSongToHistory(songId, profileId);
+public void songSelected(Long songId, Long profileId) {
+        // Note: History will be added when song starts playing via PlaybackController
     }
 
     public void skipToQueueIndex(PlaybackState state, int index, Long profileId) {

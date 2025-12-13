@@ -30,13 +30,19 @@
             </div>
             <div class="control">
                 <button class="button is-info is-rounded"
-                        @click="playlistSearchQuery = ''; htmx.trigger($el.parentElement.previousElementSibling.querySelector('input'), 'search')">
+                        hx-get="/api/music/ui/tbody/{profileId}/{playlistId}"
+                        hx-trigger="click"
+                        hx-target="#songTableBody"
+                        hx-swap="innerHTML"
+                        hx-indicator="#loadingRow"
+                        :hx-vals="JSON.stringify({'sortBy': sortField, 'sortDirection': sortDirection, 'search': ''})"
+                        @click="playlistSearchQuery = ''; $el.parentElement.previousElementSibling.querySelector('input').value = ''">
                     Clear
                 </button>
             </div>
         </div>
     </div>
-    <div class='card-content m-0 p-0' id='allSongsContent' style='max-height: calc(100vh - 340px); overflow-y: auto;'>
+    <div class='card-content m-0 p-0' id='allSongsContent' style='max-height: calc(100vh - 420px); overflow-y: auto;'>
         <div id="allSongsForPlaylistContainer" style="display: none;">
             <div id="allSongsForPlaylist">
                 <!-- Content for all songs in a specific playlist will be loaded here -->
@@ -136,6 +142,10 @@
                         }
                     }
                 });
+            },
+      getCurrentSearchTerm() {
+                const searchInput = this.$el.querySelector('input[name="search"]');
+                return searchInput ? searchInput.value : '';
             },
             getCurrentSearchTerm() {
                 const searchInput = this.$el.querySelector('input[name="search"]');

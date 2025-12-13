@@ -625,13 +625,15 @@ public class ImportService {
         LOGGER.info("Starting library installation status detection...");
         
         boolean pythonInstalled = false;
-        String pythonMessage = "";
+        String pythonMessage = "Not checked yet";
         boolean spotdlInstalled = false;
-        String spotdlMessage = "";
+        String spotdlMessage = "Not checked yet";
         boolean ffmpegInstalled = false;
-        String ffmpegMessage = "";
+        String ffmpegMessage = "Not checked yet";
         boolean whisperInstalled = false;
-        String whisperMessage = "";
+        String whisperMessage = "Not checked yet";
+        
+        try {
 
         // Check for Python
         String pythonExecutable = null;
@@ -878,6 +880,17 @@ public class ImportService {
         LOGGER.info("  Whisper: {} - {}", whisperInstalled ? "INSTALLED" : "NOT INSTALLED", whisperMessage);
 
         return new ImportInstallationStatus(pythonInstalled, spotdlInstalled, ffmpegInstalled, whisperInstalled, pythonMessage, spotdlMessage, ffmpegMessage, whisperMessage);
+        
+        } catch (Exception e) {
+            LOGGER.error("Critical error during installation status detection", e);
+            return new ImportInstallationStatus(
+                false, false, false, false,
+                "Error checking Python: " + e.getMessage(),
+                "Error checking SpotDL: " + e.getMessage(),
+                "Error checking FFmpeg: " + e.getMessage(),
+                "Error checking Whisper: " + e.getMessage()
+            );
+        }
     }
 
     public void installRequirements(Long profileId) throws Exception {

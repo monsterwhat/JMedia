@@ -25,12 +25,32 @@ function applyMarqueeEffectToQueue(element) {
 function updateQueueCount(totalSize) {
     const queueCountSpan = document.getElementById('queueCount');
     if (queueCountSpan) {
-        console.log("[songQueue.js] updateQueueCount: Updating queue count to", totalSize);
         queueCountSpan.textContent = totalSize;
-    } else {
-        console.log("[songQueue.js] updateQueueCount: queueCountSpan not found.");
     }
 }
+
+// Expose updateQueueCount globally so other scripts can call it
+window.updateQueueCount = updateQueueCount;
+
+// -------------------------
+// Update queue current song highlighting
+// -------------------------
+function updateQueueCurrentSong(songId) {
+    // Remove current-song-row class from all rows in queue
+    const allRows = document.querySelectorAll('#songQueueTable tr[data-song-id]');
+    allRows.forEach(row => {
+        row.classList.remove('current-song-row');
+    });
+
+    // Add current-song-row class to the selected row in queue
+    const selectedRow = document.querySelector(`#songQueueTable tr[data-song-id="${songId}"]`);
+    if (selectedRow) {
+        selectedRow.classList.add('current-song-row');
+    }
+}
+
+// Expose updateQueueCurrentSong globally so musicBar.js can call it
+window.updateQueueCurrentSong = updateQueueCurrentSong;
 
 // -------------------------
 // Pagination variables
@@ -116,6 +136,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (tbody) {
                             tbody.innerHTML = data.html; // Use HTML from response
                         }
+                        // Update queue count immediately when cleared
+                        if (window.updateQueueCount) {
+                            window.updateQueueCount(0);
+                        }
                         loadQueuePage(1); // Reload first page after clearing
                     })
                     .catch(error => {
@@ -178,7 +202,13 @@ window.handleQueueAction = (action, index, profileIdParam) => { // Added profile
                 if (tbody) {
                     tbody.innerHTML = data.html; // Update tbody with new HTML
                 }
-                loadQueuePage(1); // Reload first page after action
+                
+                // Update queue count directly from response data if available
+                if (data.totalQueueSize !== undefined) {
+                    updateQueueCount(data.totalQueueSize);
+                } else {
+                    loadQueuePage(1); // Reload first page after action to get the count
+                }
                 
                 // Show success message based on action
                 if (action === 'skip') {

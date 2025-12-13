@@ -440,13 +440,40 @@ public class SettingsApi {
         }
     }
     
-@GET
+  @GET
     @Path("/{profileId}/install-status")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getInstallationStatus(@PathParam("profileId") Long profileId) {
         try {
-            // Check current installation status
-            ImportInstallationStatus status = settingsController.getImportService().getInstallationStatus();
+            // Check current installation status with timeout protection
+            ImportInstallationStatus status;
+            try {
+                // Create a thread with timeout to prevent hanging
+                java.util.concurrent.Future<ImportInstallationStatus> future = java.util.concurrent.Executors.newSingleThreadExecutor().submit(() -> {
+                    return settingsController.getImportService().getInstallationStatus();
+                });
+                
+                // Wait maximum 10 seconds for status check
+                status = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                // Return default status if timeout occurs
+                status = new ImportInstallationStatus(
+                    false, false, false, false,
+                    "Status check timed out - Python may not be available",
+                    "Status check timed out - SpotDL status unknown", 
+                    "Status check timed out - FFmpeg status unknown",
+                    "Status check timed out - Whisper status unknown"
+                );
+            } catch (Exception e) {
+                // Return default status if any other error occurs
+                status = new ImportInstallationStatus(
+                    false, false, false, false,
+                    "Status check failed: " + e.getMessage() + " - Python may not be available",
+                    "Status check failed: " + e.getMessage() + " - SpotDL status unknown",
+                    "Status check failed: " + e.getMessage() + " - FFmpeg status unknown", 
+                    "Status check failed: " + e.getMessage() + " - Whisper status unknown"
+                );
+            }
             
             java.util.Map<String, Object> response = new java.util.HashMap<>();
             response.put("pythonInstalled", status.pythonInstalled);
@@ -463,9 +490,21 @@ public class SettingsApi {
             
             return Response.ok(ApiResponse.success(response)).build();
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get installation status: " + e.getMessage()))
-                    .build();
+            // Final fallback - always return a response, never throw
+            java.util.Map<String, Object> fallbackResponse = new java.util.HashMap<>();
+            fallbackResponse.put("pythonInstalled", false);
+            fallbackResponse.put("spotdlInstalled", false);
+            fallbackResponse.put("ffmpegInstalled", false);
+            fallbackResponse.put("whisperInstalled", false);
+            fallbackResponse.put("allInstalled", false);
+            fallbackResponse.put("messages", java.util.List.of(
+                "Critical error checking Python: " + e.getMessage(),
+                "Critical error checking SpotDL: " + e.getMessage(),
+                "Critical error checking FFmpeg: " + e.getMessage(),
+                "Critical error checking Whisper: " + e.getMessage()
+            ));
+            
+            return Response.ok(ApiResponse.success(fallbackResponse)).build();
         }
     }
     

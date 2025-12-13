@@ -734,7 +734,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Check if globalActiveProfileId is available
         if (!window.globalActiveProfileId) {
             console.warn("[Settings] globalActiveProfileId not available, retrying...");
-            if (retryCount < maxRetries) {
+            if (retryCount < maxRetries - 1) {
                 setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
             }
             return;
@@ -861,7 +861,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             console.error('[Settings] Error loading installation status:', error);
             // Retry logic with linear backoff (same as setup.js)
-            if (retryCount < maxRetries) {
+            if (retryCount < maxRetries - 1) {
                 console.log(`[Settings] Retrying in ${baseDelay}ms...`);
                 setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
             } else {
@@ -870,6 +870,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (typeof showToast === 'function') {
                     showToast('Failed to load installation status. Please refresh the page.', 'error', 5000);
                 }
+                // Set default status to show appropriate UI
+                const defaultStatus = {
+                    pythonInstalled: false,
+                    ffmpegInstalled: false, 
+                    spotdlInstalled: false,
+                    whisperInstalled: false
+                };
+                updateInstallationStatusElements(defaultStatus);
+                updateMissingComponentsDialog(defaultStatus);
             }
 
 

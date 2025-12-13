@@ -1,23 +1,23 @@
  
-{#for s_with_index in queue}
-    <tr class="{#if currentSong != null && s_with_index.song.id == currentSong.id}current-song-row{/if}" data-song-id="{s_with_index.song.id}">
+{#for h_with_index in history}
+    <tr data-song-id="{h_with_index.history.song.id}" data-history-id="{h_with_index.history.id}">
         <td style="text-align:center;">
             <figure class="image is-24x24">
-                <img src="{artworkUrl.apply(s_with_index.song.artworkBase64)}" loading="lazy"/>
+                <img src="{artworkUrl.apply(h_with_index.history.song.artworkBase64)}" loading="lazy"/>
             </figure>
         </td>
         <td class="is-size-7" style="width:60%;">
-            <span>{s_with_index.song.title ?: "Unknown"}</span><br>
-            <span class="has-text-success is-size-7">{s_with_index.song.artist ?: "Unknown"}</span>
+            <span>{h_with_index.history.song.title ?: "Unknown"}</span><br>
+            <span class="has-text-success is-size-7">{h_with_index.history.song.artist ?: "Unknown"}</span>
         </td>
         <td class="is-size-7" style="width:20%;">
             <div class="buttons is-small has-text-centered">
                 <button class="is-small has-text-success"
-                        onclick="handleQueueAction('skip', {s_with_index.index}, {profileId})">
+                        onclick="handleHistoryAction('play', {h_with_index.history.song.id}, {profileId})">
                     <i class="pi pi-play"></i>
                 </button>
                 <button class="is-small has-text-danger"
-                        onclick="handleQueueAction('remove', {s_with_index.index}, {profileId})">
+                        onclick="handleHistoryAction('remove', {h_with_index.history.id}, {profileId})">
                     <i class="pi pi-times"></i>
                 </button>
             </div>
@@ -30,7 +30,7 @@
         <nav class="pagination is-centered py-4" role="navigation" aria-label="pagination">
             <a class="pagination-previous"
                {#if currentPage > 1}
-                   onclick="loadQueuePage({currentPage - 1}, {profileId})"
+                   onclick="loadHistoryPage({currentPage - 1}, {profileId})"
                {#else}
                    disabled
                {/if}>
@@ -38,7 +38,7 @@
             </a>
             <a class="pagination-next"
                {#if currentPage < totalPages}
-                   onclick="loadQueuePage({currentPage + 1}, {profileId})"
+                   onclick="loadHistoryPage({currentPage + 1}, {profileId})"
                {#else}
                    disabled
                {/if}>
@@ -54,7 +54,7 @@
                         <li>
                             <a class="pagination-link"
                                aria-label="Goto page {p}"
-                               onclick="loadQueuePage({p}, {profileId})">
+                               onclick="loadHistoryPage({p}, {profileId})">
                                 {p}
                             </a>
                         </li>
@@ -64,4 +64,4 @@
         </nav>
     </td>
 </tr>
-{/if} 
+{/if}

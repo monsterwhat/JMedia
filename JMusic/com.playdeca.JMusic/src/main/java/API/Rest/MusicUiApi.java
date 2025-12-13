@@ -1,6 +1,7 @@
 package API.Rest;
 
 import Controllers.PlaybackController;
+import Models.PlaybackHistory;
 import Models.Playlist;
 import Models.Profile;
 import Models.Song;
@@ -44,6 +45,9 @@ public class MusicUiApi {
 
     @Inject
     private ProfileService profileService;
+    
+    @Inject
+    Services.PlaybackHistoryService playbackHistoryService;
 
     // Templates
     @Inject
@@ -66,6 +70,9 @@ public class MusicUiApi {
     
     @Inject
     Template allSongsFragment;
+    
+    @Inject
+    Template historyFragment;
 
     private String formatDate(Object date) {
         if (date == null) {
@@ -127,6 +134,10 @@ public class MusicUiApi {
     // -------------------------
     // DTO for queue fragment response
     public record QueueFragmentResponse(String html, int totalQueueSize) {
+    }
+
+    // DTO for history fragment response
+    public record HistoryFragmentResponse(String html, int totalHistorySize) {
 
     }
 
@@ -434,6 +445,11 @@ public class MusicUiApi {
     public record SongWithIndex(Song song, int index) {
 
     }
+    
+    // Helper record to pass history entry and its index to the template
+    public record HistoryWithIndex(Models.PlaybackHistory history, int index) {
+
+    }
 
     @GET
     @Path("/queue-fragment/{profileId}")
@@ -581,6 +597,120 @@ public class MusicUiApi {
                 .data("sortDirection", sortDirection)
                 .data("profileId", profileId)
                 .render();
+    }
+
+    // -------------------------
+    // History actions
+    // -------------------------
+    @GET
+    @Path("/history-fragment/{profileId}")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public HistoryFragmentResponse getHistoryFragment(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+
+        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId);
+        
+        // Get total count for pagination
+        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
+
+        // Create a list of HistoryWithIndex objects
+        List<HistoryWithIndex> historyWithIndex = new ArrayList<>();
+        for (int i = 0; i < historyPage.size(); i++) {
+            historyWithIndex.add(new HistoryWithIndex(historyPage.get(i), i));
+        }
+
+        int totalPages = (int) Math.ceil((double) totalHistorySize / limit);
+        int currentPage = Math.max(1, Math.min(page, totalPages)); // Sanitize page number
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
+        String html = historyFragment
+                .data("history", historyWithIndex)
+                .data("profileId", profileId)
+                .data("offset", (page - 1) * limit)
+                .data("limit", limit)
+                .data("totalHistorySize", (int) totalHistorySize)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDate", (Function<Object, String>) this::formatDate)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new HistoryFragmentResponse(html, (int) totalHistorySize);
+    }
+
+    @POST
+    @Path("/history/clear/{profileId}")
+    @Consumes(MediaType.WILDCARD)
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public HistoryFragmentResponse clearHistoryUi(@PathParam("profileId") Long profileId) {
+        playbackHistoryService.clearHistory(profileId);
+
+        // Return empty history after clearing
+        List<Integer> pageNumbers = new ArrayList<>();
+        String html = historyFragment
+                .data("history", new ArrayList<HistoryWithIndex>())
+                .data("profileId", profileId)
+                .data("offset", 0)
+                .data("limit", 50)
+                .data("totalHistorySize", 0)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDate", (Function<Object, String>) this::formatDate)
+                .data("currentPage", 1)
+                .data("totalPages", 0)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new HistoryFragmentResponse(html, 0);
+    }
+
+    @POST
+    @Path("/history/remove/{profileId}/{historyId}")
+    @Consumes(MediaType.WILDCARD)
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public HistoryFragmentResponse removeFromHistoryUi(@PathParam("profileId") Long profileId, @PathParam("historyId") Long historyId) {
+        PlaybackHistory historyEntry = playbackHistoryService.getHistory(1, Integer.MAX_VALUE, profileId)
+                .stream()
+                .filter(h -> h.id.equals(historyId))
+                .findFirst()
+                .orElse(null);
+
+        if (historyEntry != null) {
+            playbackHistoryService.deleteBySongId(historyEntry.song.id, profileId);
+        }
+
+        // Reload the history page
+        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(1, 50, profileId);
+        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
+
+        List<HistoryWithIndex> historyWithIndex = new ArrayList<>();
+        for (int i = 0; i < historyPage.size(); i++) {
+            historyWithIndex.add(new HistoryWithIndex(historyPage.get(i), i));
+        }
+
+        int totalPages = (int) Math.ceil((double) totalHistorySize / 50);
+        int currentPage = 1;
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
+        String html = historyFragment
+                .data("history", historyWithIndex)
+                .data("profileId", profileId)
+                .data("offset", 0)
+                .data("limit", 50)
+                .data("totalHistorySize", (int) totalHistorySize)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDate", (Function<Object, String>) this::formatDate)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new HistoryFragmentResponse(html, (int) totalHistorySize);
     }
 
     private List<Playlist> getPlaylistsByProfileId(Long profileId) {

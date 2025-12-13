@@ -102,6 +102,16 @@ public class PlaybackHistoryService {
                 .getResultList();
     }
 
+    public long getHistoryCount(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return 0;
+        }
+        return em.createQuery("SELECT COUNT(ph) FROM PlaybackHistory ph WHERE ph.profile = :profile", Long.class)
+                .setParameter("profile", profile)
+                .getSingleResult();
+    }
+
     /**
      * Replaces a song reference with another song in playback history
      * This preserves history when duplicates are deleted

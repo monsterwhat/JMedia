@@ -305,12 +305,22 @@ function handleWSMessage(msg) {
         musicState.repeatMode = state.repeatMode;
         // Check if the queue itself has changed (e.g., due to shuffle, or songs added/removed)
         // Check if the queue has been re-ordered or its length has changed.
+        const oldCueLength = musicState.cue ? musicState.cue.length : 0;
+        const newCueLength = state.cue ? state.cue.length : 0;
         const queueChanged = (state.cue && musicState.cue && JSON.stringify(state.cue) !== JSON.stringify(musicState.cue)) ||
                 (state.cue && !musicState.cue) || (!state.cue && musicState.cue);
+        
+        console.log(`[musicBar.js] Queue change detection: oldLength=${oldCueLength}, newLength=${newCueLength}, queueChanged=${queueChanged}`);
+        
+        // Check if queue length changed (songs removed or added)
+        const queueLengthChanged = oldCueLength !== newCueLength;
+        
         // Update musicState.cue for future comparisons
         musicState.cue = state.cue;
 
-        if (songChanged || playChanged || queueChanged) { // Trigger update if song, play state, or queue changed
+        if (songChanged && state.currentSongId !== window.lastRefreshedSongId) { // Only refresh when song changes AND we haven't refreshed for this song yet
+            console.log(`[musicBar.js] Song changed from ${window.lastRefreshedSongId} to ${state.currentSongId}, updating highlighting`);
+            window.lastRefreshedSongId = state.currentSongId;
 
             Promise.all([
                 fetch(`/api/music/playback/current/${window.globalActiveProfileId}`).then(r => r.json()),
@@ -322,16 +332,50 @@ function handleWSMessage(msg) {
                         const prevSong = prevSongResponse.data;
                         const nextSong = nextSongResponse.data;
                         if (currentSong) {
-
                             UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
-                            // Add delay to ensure table content is updated before refreshing highlighting
-                            setTimeout(() => {
-                                refreshSongTable();
-                                if (window.refreshQueue) {
-                                    window.refreshQueue();
-                                }
-                            }, 100);
-                    }
+                            // Update highlighting without refreshing entire table
+                            updateSelectedSongRow(state.currentSongId);
+                            // Update queue highlighting
+                            if (window.updateQueueCurrentSong) {
+                                window.updateQueueCurrentSong(state.currentSongId);
+                            }
+                            // Update queue count when song changes (song advanced)
+                            if (window.updateQueueCount && state.cue) {
+                                // Update queue count based on current queue length
+                                window.updateQueueCount(state.cue.length);
+                            }
+                            // Refresh queue table when queue content actually changed
+                            if (window.refreshQueue && (queueChanged || queueLengthChanged)) {
+                                console.log("[musicBar.js] Song changed and queue content changed, refreshing queue table. queueChanged:", queueChanged, "queueLengthChanged:", queueLengthChanged);
+                                window.refreshQueue();
+                            }
+                        }
+                    }).catch(error => console.error("Error fetching song context:", error));
+        } else if (playChanged || queueChanged) { // Handle play state and queue changes without table refresh
+            Promise.all([
+                fetch(`/api/music/playback/current/${window.globalActiveProfileId}`).then(r => r.json()),
+                fetch(`/api/music/playback/previousSong/${window.globalActiveProfileId}`).then(r => r.json()),
+                fetch(`/api/music/playback/nextSong/${window.globalActiveProfileId}`).then(r => r.json())
+            ])
+                    .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
+                        const currentSong = currentSongResponse.data;
+                        const prevSong = prevSongResponse.data;
+                        const nextSong = nextSongResponse.data;
+                        if (currentSong) {
+                            UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
+                            // Update queue highlighting even when queue hasn't changed
+                            if (window.updateQueueCurrentSong) {
+                                window.updateQueueCurrentSong(state.currentSongId);
+                            }
+                        }
+                        // Update queue count when queue changes
+                        if (window.updateQueueCount && state.cue) {
+                            window.updateQueueCount(state.cue.length);
+                        }
+                        // Only refresh queue, not the song table
+                        if (window.refreshQueue && queueChanged) {
+                            window.refreshQueue();
+                        }
                     }).catch(error => console.error("Error fetching song context:", error));
         } else if (playChanged) { // This block is now redundant if playChanged is already in the main if
 // This else if block is now redundant because playChanged is included in the main if condition.
@@ -367,6 +411,11 @@ function handleWSMessage(msg) {
             }
         }
         updateMusicBar();
+        
+        // Update queue count based on current state
+        if (window.updateQueueCount && state.cue) {
+            window.updateQueueCount(state.cue.length);
+        }
     }
 }
 
@@ -521,8 +570,20 @@ function bindPlaybackButtons() {
 
 // ---------------- UI ----------------
 async function refreshSongTable() {
-    // Server-side highlighting now handles this, so this function can be minimal
-    // Just ensure the function exists for compatibility
+    const profileId = window.globalActiveProfileId;
+    const playlistId = sessionStorage.getItem('currentPlaylistId') || '0';
+    
+    if (profileId) {
+        console.log(`[musicBar.js] Refreshing song table for profile ${profileId}, playlist ${playlistId}`);
+        try {
+            await htmx.ajax('GET', `/api/music/ui/tbody/${profileId}/${playlistId}`, {
+                target: '#songTableBody',
+                swap: 'innerHTML'
+            });
+        } catch (error) {
+            console.error('Error refreshing song table:', error);
+        }
+    }
 }
 
 function updateSelectedSongRow(songId) {
@@ -775,13 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     connectWS();
 
-    // Listen for HTMX content swaps to refresh song highlighting
-    document.body.addEventListener('htmx:afterSwap', function (event) {
-        if (event.detail.target.id === 'songTableBody') {
-            // Refresh song highlighting after table content is updated
-            setTimeout(() => refreshSongTable(), 50); // Small delay to ensure DOM is ready
-        }
-    });
+    // HTMX highlighting is now handled server-side via template rendering
 
     // Update selected song row styling without full table reload
     document.body.addEventListener('htmx:afterRequest', function (event) {
@@ -791,23 +846,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const urlParts = url.split('/');
             const songId = urlParts[urlParts.length - 1];
 
+            // Update last refreshed song ID to prevent duplicate refreshes
+            window.lastRefreshedSongId = songId;
+
             // Update row styling after a short delay to allow server to update state
             setTimeout(() => {
                 updateSelectedSongRow(songId);
+                // Update queue highlighting when song is selected
+                if (window.updateQueueCurrentSong) {
+                    window.updateQueueCurrentSong(songId);
+                }
             }, 100);
         }
     });
 
-    // Alternative: Listen for clicks on song rows directly
-    document.body.addEventListener('click', function (event) {
-        const songRow = event.target.closest('tr[data-song-id]');
-        if (songRow && songRow.dataset.songId) {
-            // Update row styling after a short delay to allow server to update state
-            setTimeout(() => {
-                updateSelectedSongRow(songRow.dataset.songId);
-            }, 100);
-        }
-    });
+  
     // Add context menu listener to the document, using event delegation
     document.addEventListener('contextmenu', (event) => {
         const songTableBody = document.getElementById('songTableBody'); // Using getElementById for a more direct selection

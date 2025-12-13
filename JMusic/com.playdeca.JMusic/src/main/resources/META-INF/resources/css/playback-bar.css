@@ -11,8 +11,13 @@
     width: 100%;
     height: 10px; /* Thickness of the track */
     cursor: pointer;
-    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Blue for light mode */
     border-radius: 5px; /* Adjust border-radius for new thickness */
+}
+
+/* Dark mode track styling for Webkit */
+html[data-theme="dark"] #playbackProgressBar::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Webkit */
@@ -22,9 +27,14 @@
     height: 20px; /* Size of the thumb */
     width: 20px; /* Size of the thumb */
     border-radius: 50%;
-    background: #48c78e; /* Bulma success color */
+    background: #3298dc; /* Blue for light mode */
     cursor: pointer;
     margin-top: -5px; /* Center the thumb vertically on the track */
+}
+
+/* Dark mode thumb styling for Webkit */
+html[data-theme="dark"] #playbackProgressBar::-webkit-slider-thumb {
+    background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for Firefox */
@@ -32,8 +42,13 @@
     width: 100%;
     height: 10px;
     cursor: pointer;
-    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Blue for light mode */
     border-radius: 5px;
+}
+
+/* Dark mode track styling for Firefox */
+html[data-theme="dark"] #playbackProgressBar::-moz-range-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Firefox */
@@ -42,8 +57,13 @@
     height: 20px;
     width: 20px;
     border-radius: 50%;
-    background: #48c78e;
+    background: #3298dc; /* Blue for light mode */
     cursor: pointer;
+}
+
+/* Dark mode thumb styling for Firefox */
+html[data-theme="dark"] #playbackProgressBar::-moz-range-thumb {
+    background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for IE/Edge */
@@ -57,8 +77,13 @@
 }
 
 #playbackProgressBar::-ms-fill-lower {
-    background: #48c78e; /* Filled part */
+    background: #3298dc; /* Filled part - Blue for light mode */
     border-radius: 5px;
+}
+
+/* Dark mode IE/Edge fill styling */
+html[data-theme="dark"] #playbackProgressBar::-ms-fill-lower {
+    background: #48c78e; /* Filled part - Green for dark mode */
 }
 
 #playbackProgressBar::-ms-fill-upper {
@@ -71,9 +96,14 @@
     height: 20px;
     width: 20px;
     border-radius: 50%;
-    background: #48c78e;
+    background: #3298dc; /* Blue for light mode */
     cursor: pointer;
     margin-top: 0; /* IE centers thumb automatically */
+}
+
+/* Dark mode thumb styling for IE/Edge */
+html[data-theme="dark"] #playbackProgressBar::-ms-thumb {
+    background: #48c78e; /* Green for dark mode */
 }
 
 /* Thicker Volume Bar */
@@ -89,8 +119,13 @@
     width: 100%;
     height: 10px; /* Thickness of the track */
     cursor: pointer;
-    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Blue for light mode */
     border-radius: 5px; /* Adjust border-radius for new thickness */
+}
+
+/* Dark mode track styling for Webkit */
+html[data-theme="dark"] #volumeProgressBar::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Webkit */
@@ -100,9 +135,14 @@
     height: 20px; /* Size of the thumb */
     width: 20px; /* Size of the thumb */
     border-radius: 50%;
-    background: #48c78e; /* Bulma success color */
+    background: #3298dc; /* Blue for light mode */
     cursor: pointer;
     margin-top: -5px; /* Center the thumb vertically on the track */
+}
+
+/* Dark mode thumb styling for Webkit */
+html[data-theme="dark"] #volumeProgressBar::-webkit-slider-thumb {
+    background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for Firefox */
@@ -110,8 +150,13 @@
     width: 100%;
     height: 10px;
     cursor: pointer;
-    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient */
+    background: linear-gradient(to right, #3298dc var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Blue for light mode */
     border-radius: 5px;
+}
+
+/* Dark mode track styling for Firefox */
+html[data-theme="dark"] #volumeProgressBar::-moz-range-track {
+    background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Firefox */
@@ -120,8 +165,13 @@
     height: 20px;
     width: 20px;
     border-radius: 50%;
-    background: #48c78e;
+    background: #3298dc; /* Blue for light mode */
     cursor: pointer;
+}
+
+/* Dark mode thumb styling for Firefox */
+html[data-theme="dark"] #volumeProgressBar::-moz-range-thumb {
+    background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for IE/Edge */
@@ -135,8 +185,13 @@
 }
 
 #volumeProgressBar::-ms-fill-lower {
-    background: #48c78e; /* Filled part */
+    background: #3298dc; /* Filled part - Blue for light mode */
     border-radius: 5px;
+}
+
+/* Dark mode IE/Edge fill styling */
+html[data-theme="dark"] #volumeProgressBar::-ms-fill-lower {
+    background: #48c78e; /* Filled part - Green for dark mode */
 }
 
 #volumeProgressBar::-ms-fill-upper {
@@ -149,7 +204,12 @@
     height: 20px;
     width: 20px;
     border-radius: 50%;
-    background: #48c78e;
+    background: #3298dc; /* Blue for light mode */
     cursor: pointer;
     margin-top: 0; /* IE centers thumb automatically */
+}
+
+/* Dark mode thumb styling for IE/Edge */
+html[data-theme="dark"] #volumeProgressBar::-ms-thumb {
+    background: #48c78e; /* Green for dark mode */
 }

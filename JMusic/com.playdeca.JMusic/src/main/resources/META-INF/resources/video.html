@@ -11,7 +11,7 @@
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
-        <link rel="stylesheet" href="/css/playback-bar.css"/>
+  
 
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
@@ -20,64 +20,7 @@
 
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
-        <style>
-            .video-entry {
-                padding: 10px;
-                border-bottom: 1px solid #444;
-                cursor: pointer;
-            }
-            .video-entry:hover {
-                background-color: #555;
-            }
-            .video-title {
-                font-weight: bold;
-                color: #fff;
-            }
-            .video-info {
-                font-size: 0.8em;
-                color: #ccc;
-            }
-            .nested-list {
-                margin-left: 15px;
-                border-left: 1px solid #666;
-            }
-            .selected-video-entry {
-                background-color: #00d1b2 !important; /* Bulma's success color */
-                color: #fff !important;
-            }
-             .selected-video-entry .video-title, .selected-video-entry .video-info {
-                color: #fff !important;
-            }
-            #mainVideoCard {
-                position: relative; /* Essential for positioning children absolutely */
-                overflow: hidden; /* Ensures absolutely positioned children don't overflow */
-            }
-            #videoPlaybackBarOverlay {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                width: 100%;
-                z-index: 10;
-                background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%); /* Fading background */
-                transform: translateY(100%); /* Initially hide the bar below the video */
-                transition: transform 0.3s ease-in-out; /* Smooth transition for showing/hiding */
-            }
-            #mainVideoCard:hover #videoPlaybackBarOverlay {
-                transform: translateY(0); /* Show the bar on hover */
-            }
-            /* Make sure video itself doesn't have controls visible if we're making custom ones */
-            #videoPlayer::-webkit-media-controls {
-                display: none !important;
-            } 
-            #videoPlayer {
-                width: 100%;
-                height: auto; /* Maintain aspect ratio */
-                display: block; /* Remove extra space below video */
-                position: relative; /* For z-index in case of other overlays */
-                z-index: 1; /* Ensure video is below the overlay when shown */
-            }
-        </style>
+  
 
     </head>
     <body>
