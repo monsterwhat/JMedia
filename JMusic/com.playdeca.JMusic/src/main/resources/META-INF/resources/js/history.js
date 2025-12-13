@@ -56,6 +56,12 @@ function loadHistoryPage(page = 1, profileIdParam) {
 
                 tbody.innerHTML = data.html; // Replace content with new HTML
 
+                // Re-initialize HTMX on the new content
+                if (window.htmx && window.htmx.process) {
+                    window.htmx.process(tbody);
+                    console.log("[history.js] HTMX re-initialized on new content");
+                }
+
                 totalHistorySize = data.totalHistorySize; // Get totalHistorySize from JSON
                 isFetchingHistory = false;
 
@@ -91,39 +97,6 @@ window.loadHistoryOnFirstClick = () => {
 // -------------------------
 document.addEventListener('DOMContentLoaded', () => {
     const historyTabContent = document.getElementById('historyTabContent');
-    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-
-    // Clear history
-    if (clearHistoryBtn) {
-        clearHistoryBtn.addEventListener('click', () => {
-            if (!confirm('Are you sure you want to clear your entire playback history? This action cannot be undone.')) {
-                return;
-            }
-            
-            const currentProfileId = globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
-            fetch(`/api/music/ui/history/clear/${currentProfileId}`, {
-                method: 'POST',
-                headers: {'Accept': 'application/json'}
-            }).then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json(); // Expecting JSON response from clearHistoryUi
-            })
-                    .then(data => {
-                        const tbody = document.querySelector('#songHistoryTable tbody');
-                        if (tbody) {
-                            tbody.innerHTML = data.html; // Use HTML from response
-                        }
-                        loadHistoryPage(1); // Reload first page after clearing
-                        showToast('History cleared successfully', 'success');
-                    })
-                    .catch(error => {
-                        console.error("[history.js] clearHistoryBtn click: Request failed:", error);
-                        showToast('Failed to clear history', 'error');
-                    });
-        });
-    }
 
     // Expose a global function to refresh the history
     window.refreshHistory = () => {
@@ -131,59 +104,5 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 });
 
-// Global function to handle history actions (play/remove)
-window.handleHistoryAction = (action, id, profileIdParam) => {
-    console.log(`[history.js] handleHistoryAction: ${action} with id ${id}`);
-    const currentProfileId = profileIdParam || globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
-    
-    if (action === 'play') {
-        // Play the song directly by selecting it
-        fetch(`/api/music/playback/select/${currentProfileId}/${id}`, {
-            method: 'POST',
-            headers: {'Accept': 'application/json'}
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            showToast('Now playing from history', 'success');
-            // Refresh queue if visible
-            if (window.refreshQueue) {
-                window.refreshQueue();
-            }
-        })
-        .catch(error => {
-            console.error(`[history.js] Failed to play song:`, error);
-            showToast('Failed to play song', 'error');
-        });
-    } else if (action === 'remove') {
-        // Remove the history entry
-        fetch(`/api/music/ui/history/remove/${currentProfileId}/${id}`, {
-            method: 'POST',
-            headers: {'Accept': 'application/json'}
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            const tbody = document.querySelector('#songHistoryTable tbody');
-            if (tbody) {
-                tbody.innerHTML = data.html; // Update tbody with new HTML
-            }
-            showToast('Removed from history', 'success');
-        })
-        .catch(error => {
-            console.error(`[history.js] handleHistoryAction: Request failed for ${action} with id ${id}:`, error);
-            showToast('Failed to remove from history', 'error');
-        });
-    } else {
-        console.error(`[history.js] handleHistoryAction: Unknown action type: ${action}`);
-        return;
-    }
-};
+// Note: History playback is now handled via HTMX on the row click
+// Individual song removal from history is no longer supported

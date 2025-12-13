@@ -183,7 +183,7 @@ public class PlaybackController {
         }
     }
 
-    public synchronized void selectSong(Long id, Long profileId) {
+  public synchronized void selectSong(Long id, Long profileId) {
         PlaybackState st = getState(profileId);
         Song current = getCurrentSong(profileId);
 
@@ -197,6 +197,14 @@ public class PlaybackController {
                 stopPlaybackTimer(profileId);
             }
         } else {
+            // Save the current song to history before selecting a new one
+            if (st.getCurrentSongId() != null) {
+                Song finishedSong = findSong(st.getCurrentSongId());
+                if (finishedSong != null) {
+                    playbackHistoryService.add(finishedSong, profileId);
+                }
+            }
+
             st.setCurrentSongId(id);
             Song newSong = findSong(id);
             st.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
@@ -358,20 +366,12 @@ public class PlaybackController {
             }
         }
 
-        // Handle RepeatMode.ONE when song ends naturally
+      // Handle RepeatMode.ONE when song ends naturally
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
             st.setCurrentTime(0); // Restart current song
             st.setPlaying(true); // Ensure it keeps playing
             updateState(profileId, st, true); // Persist and broadcast
             return;
-        }
-
-        // Persist the song that just finished playing to history
-        if (st.getCurrentSongId() != null) {
-            Song finishedSong = findSong(st.getCurrentSongId());
-            if (finishedSong != null) {
-                playbackHistoryService.add(finishedSong, profileId);
-            }
         }
 
         Long nextSongId = playbackQueueController.advance(st, forward, profileId);

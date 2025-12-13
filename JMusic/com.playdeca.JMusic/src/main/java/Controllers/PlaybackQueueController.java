@@ -25,15 +25,7 @@ public class PlaybackQueueController {
     @Inject
     private SongService songService;
 
-    private void addSongToHistory(Long songId, Long profileId) {
-        if (songId == null) {
-            return;
-        }
-        Song song = songService.find(songId);
-        if (song != null) {
-            playbackHistoryService.add(song, profileId);
-        }
-    }
+
 
     public void populateCue(PlaybackState state, List<Long> songIds, Long profileId) {
         state.setCue(new ArrayList<>(songIds));
@@ -306,12 +298,11 @@ public void songSelected(Long songId, Long profileId) {
         // Note: History will be added when song starts playing via PlaybackController
     }
 
-    public void skipToQueueIndex(PlaybackState state, int index, Long profileId) {
+  public void skipToQueueIndex(PlaybackState state, int index, Long profileId) {
         List<Long> cue = state.getCue();
         if (cue == null || index < 0 || index >= cue.size()) {
             return;
         }
-        addSongToHistory(state.getCurrentSongId(), profileId); // Add the song we are skipping from
 
         // Create the new truncated cue
         List<Long> newCue = new ArrayList<>(cue.subList(index, cue.size()));
