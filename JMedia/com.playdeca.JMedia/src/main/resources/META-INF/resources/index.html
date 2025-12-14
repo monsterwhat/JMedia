@@ -242,12 +242,12 @@
                             <!-- Create Playlist Modal -->
                             <div id="createPlaylistModal" class="modal" :class="{'is-active': isCreatePlaylistModalOpen}">
                                 <div class="modal-background" @click="isCreatePlaylistModalOpen = false"></div>
-                                <div class="modal-card">
-                                    <header class="modal-card-head">
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head glass-modal-header">
                                         <p class="modal-card-title">Create Playlist</p>
                                         <button class="delete" aria-label="close" @click="isCreatePlaylistModalOpen = false"></button>
                                     </header>
-                                    <section class="modal-card-body">
+                <section class="modal-card-body glass-modal-body">
                                         <div class="field">
                                             <label class="label">Playlist Name</label>
                                             <div class="control">
@@ -261,7 +261,7 @@
                                             </div>
                                         </div>
                                     </section>
-                                    <footer class="modal-card-foot">
+                <footer class="modal-card-foot glass-modal-footer">
                                         <button class="button is-success" id="savePlaylistBtn" @click="savePlaylist()">Save</button>
                                         <button class="button" id="cancelPlaylistBtn" @click="isCreatePlaylistModalOpen = false">Cancel</button>
                                     </footer>

@@ -341,12 +341,12 @@
     <!-- Profile Management Modal -->
     <div id="profileModal" class="modal">
       <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
-      <div class="modal-card">
-        <header class="modal-card-head">
+    <div class="modal-card glass-modal">
+      <header class="modal-card-head glass-modal-header">
           <p class="modal-card-title">Manage Profiles</p>
           <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
         </header>
-        <section class="modal-card-body">
+        <section class="modal-card-body glass-modal-body">
           <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
           <h6 class="title is-6 mt-4">All Profiles:</h6>
           <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
@@ -363,7 +363,7 @@
           </div>
           <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
         </section>
-        <footer class="modal-card-foot">
+        <footer class="modal-card-foot glass-modal-footer">
           <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
         </footer>
       </div>

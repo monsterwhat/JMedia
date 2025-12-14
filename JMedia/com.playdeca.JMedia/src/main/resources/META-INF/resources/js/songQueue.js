@@ -175,6 +175,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial load
     window.refreshQueue();
+    
+    // Listen for queue change events from musicBar.js
+    window.addEventListener('queueChanged', (event) => {
+        console.log("[songQueue.js] Queue changed event received:", event.detail);
+        // Always fetch queue data immediately (HTTP fallback)
+        loadQueuePage(1);
+    });
 });
 
 // Global function to handle queue actions (skip/remove)

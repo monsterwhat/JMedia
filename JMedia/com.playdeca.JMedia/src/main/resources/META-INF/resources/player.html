@@ -11,8 +11,6 @@
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
-    
-  
 
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
@@ -206,8 +204,7 @@
 
         <script src="/js/musicBar.js"></script>
         <script src="/js/mediaSession.js"></script>
-        <script src="/js/navbar.js"></script>
-        <script src="/js/songQueue.js"></script>
+        <script src="/js/navbar.js"></script> 
         <script>
                                         window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
 
@@ -337,10 +334,10 @@
                                             return '#';
                                         }
 
-                                    document.addEventListener('DOMContentLoaded', function () {
+                                        document.addEventListener('DOMContentLoaded', function () {
                                             const songCoverImage = document.getElementById('songCoverImage');
                                             const contextMenu = document.getElementById('contextMenu');
-                                            
+
                                             // Explicitly hide context menu on page load
                                             if (contextMenu) {
                                                 contextMenu.style.display = 'none';
@@ -358,7 +355,7 @@
                                             const whisperConfirmOk = document.getElementById('whisperConfirmOk');
                                             const whisperConfirmCancel = document.getElementById('whisperConfirmCancel');
 
-                                          songCoverImage.addEventListener('contextmenu', function (event) {
+                                            songCoverImage.addEventListener('contextmenu', function (event) {
                                                 event.preventDefault();
                                                 contextMenu.style.display = 'block';
                                                 contextMenu.style.left = event.pageX + 'px';

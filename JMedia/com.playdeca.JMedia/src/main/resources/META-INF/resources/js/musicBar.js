@@ -390,10 +390,16 @@ function handleWSMessage(msg) {
                                 // Update queue count based on current queue length
                                 window.updateQueueCount(state.cue.length);
                             }
-                            // Refresh queue table when queue content actually changed
-                            if (window.refreshQueue && (queueChanged || queueLengthChanged)) {
-                                console.log("[musicBar.js] Song changed and queue content changed, refreshing queue table. queueChanged:", queueChanged, "queueLengthChanged:", queueLengthChanged);
-                                window.refreshQueue();
+                            // Emit queue change event when queue content actually changed
+                            if (queueChanged || queueLengthChanged) {
+                                console.log("[musicBar.js] Queue content changed, emitting queueChanged event. queueChanged:", queueChanged, "queueLengthChanged:", queueLengthChanged);
+                                window.dispatchEvent(new CustomEvent('queueChanged', {
+                                    detail: { 
+                                        queueSize: state.cue?.length || 0,
+                                        queueChanged: queueChanged,
+                                        queueLengthChanged: queueLengthChanged
+                                    }
+                                }));
                             }
                     }
                     }).catch(error => console.error("Error fetching song context:", error));
@@ -418,10 +424,16 @@ function handleWSMessage(msg) {
                         if (window.updateQueueCount && state.cue) {
                             window.updateQueueCount(state.cue.length);
                         }
-                        // Only refresh queue, not the song table
-                        if (window.refreshQueue && queueChanged) {
-                            window.refreshQueue();
-                    }
+                        // Emit queue change event when queue changes
+                        if (queueChanged) {
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: { 
+                                    queueSize: state.cue?.length || 0,
+                                    queueChanged: queueChanged,
+                                    queueLengthChanged: false
+                                }
+                            }));
+                        }
                     }).catch(error => console.error("Error fetching song context:", error));
         }
 
@@ -890,9 +902,14 @@ async function deleteSong(songId) {
             console.log(`Song ${songId} deleted.`);
             showToast('Song deleted successfully', 'success');
             reloadSongTableBody(); // Reload the table to remove the deleted song
-            if (window.refreshQueue) {
-                window.refreshQueue();
-            }
+            // Emit queue change event when song is deleted
+            window.dispatchEvent(new CustomEvent('queueChanged', {
+                detail: { 
+                    queueSize: musicState.cue?.length || 0,
+                    queueChanged: true,
+                    queueLengthChanged: true
+                }
+            }));
         } catch (error) {
             console.error(`Error deleting song ${songId}:`, error);
         }
@@ -1033,10 +1050,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             handler: function () {
                                 console.log(`Song ${currentRightClickedSongId} added to queue.`);
                                 showToast('Song added to queue', 'success');
-                                // Refresh the queue display
-                                if (window.refreshQueue) {
-                                    window.refreshQueue();
-                                }
+                                // Emit queue change event when song is added to queue
+                                window.dispatchEvent(new CustomEvent('queueChanged', {
+                                    detail: { 
+                                        queueSize: musicState.cue?.length || 0,
+                                        queueChanged: true,
+                                        queueLengthChanged: true
+                                    }
+                                }));
                             }
                         });
                     }
