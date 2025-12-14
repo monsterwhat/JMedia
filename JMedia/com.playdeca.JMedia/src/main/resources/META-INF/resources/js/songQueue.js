@@ -59,6 +59,7 @@ let currentPage = 1;
 const queueLimit = 50;
 let totalQueueSize = Infinity;
 let isFetchingQueue = false;
+let hasInitialLoad = false;
 
 // -------------------------
 // Load a page of the queue
@@ -166,7 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expose a global function to refresh the queue
     window.refreshQueue = () => {
-        loadQueuePage(1); // Reset page to load from the beginning
+        if (!hasInitialLoad) {
+            hasInitialLoad = true;
+            loadQueuePage(1); // Reset page to load from the beginning
+        }
     };
 
     // Initial load

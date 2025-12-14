@@ -200,6 +200,36 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     musicState.currentTime = (sameSong || backendTime !== 0) ? (backendTime ?? 0) : 0;
     musicState.duration = currentSong.durationSeconds ?? 0; // Prioritize duration from backend
 
+    // Clear previous song data and image sources before setting new ones
+    try {
+        const songCoverImageEl = document.getElementById('songCoverImage');
+        const prevSongCoverImageEl = document.getElementById('prevSongCoverImage');
+        const nextSongCoverImageEl = document.getElementById('nextSongCoverImage');
+        const faviconEl = document.getElementById('favicon');
+        
+        // Clear image sources
+        if (songCoverImageEl) songCoverImageEl.src = '';
+        if (prevSongCoverImageEl) prevSongCoverImageEl.src = '';
+        if (nextSongCoverImageEl) nextSongCoverImageEl.src = '';
+        if (faviconEl) faviconEl.href = '';
+        
+        // Clear base64 data from previous song objects to free memory
+        if (window.previousSongData) {
+            if (window.previousSongData.currentSong) window.previousSongData.currentSong.artworkBase64 = null;
+            if (window.previousSongData.prevSong) window.previousSongData.prevSong.artworkBase64 = null;
+            if (window.previousSongData.nextSong) window.previousSongData.nextSong.artworkBase64 = null;
+        }
+        
+        // Clear previous song data references
+        window.previousSongData = {
+            currentSong: musicState.currentSongId ? { id: musicState.currentSongId } : null,
+            prevSong: null,
+            nextSong: null
+        };
+    } catch (error) {
+        // Silent cleanup failure - non-critical
+    }
+
     // Update current song cover image
     const songCoverImageEl = document.getElementById('songCoverImage');
     if (songCoverImageEl) {
@@ -239,6 +269,15 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     musicState.hasLyrics = currentSong.lyrics !== null && currentSong.lyrics !== undefined && currentSong.lyrics !== '';
 
     updatePageTitle({name: musicState.songName, artist: musicState.artist});
+    
+    // Clear audio buffer before setting new source
+    try {
+        audio.src = '';
+        audio.load(); // Clear buffer
+    } catch (error) {
+        // Silent cleanup failure - non-critical
+    }
+    
     audio.src = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
     audio.load();
     audio.volume = musicState.volume;
@@ -255,6 +294,16 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
             audio.pause();
         updateMusicBar();
         console.log("[musicBar.js] onloadedmetadata: musicState.duration (final)=", musicState.duration);
+        
+        // Clear current song base64 data after UI is updated to free memory
+        try {
+            if (window.previousSongData && window.previousSongData.currentSong) {
+                window.previousSongData.currentSong.artworkBase64 = null;
+            }
+        } catch (error) {
+            // Silent cleanup failure - non-critical
+        }
+        
         isUpdatingAudioSource = false; // Reset flag after UI update
     };
 }
