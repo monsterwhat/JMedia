@@ -355,10 +355,56 @@
                                             </div>
                                         </div>
 
+                                        <!-- Update Management Section -->
+                                        <div class="mb-3">
+                                            <hr>
+                                            <h6 class="title is-6 mb-3">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-download"></i></span>
+                                                    <span>Update Management</span>
+                                                </span>
+                                            </h6>
+                                            
+                                            <div class="field">
+                                                <label class="label">Current Version</label>
+                                                <div class="control">
+                                                    <input type="text" class="input" id="currentVersionInput" value="0.9.0" disabled style="cursor: not-allowed; opacity: 0.7;">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="switch">
+                                                    <input type="checkbox" id="autoUpdateToggle" checked>
+                                                    <span class="check"></span>
+                                                    <span class="control-label">Auto-check for updates</span>
+                                                </label>
+                                            </div>
+                                            
+                                            <div class="buttons is-flex-wrap-wrap">
+                                                <button id="checkForUpdatesBtn" class="button is-primary is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                        <span>Check for Updates</span>
+                                                    </span>
+                                                </button>
+                                                <button id="viewUpdateDialogBtn" class="button is-info is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-external-link"></i></span>
+                                                        <span>View Update Info</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                            
+                                            <div id="updateStatus" class="mt-2" style="display: none;">
+                                                <!-- Update status will be shown here -->
+                                            </div>
+                                        </div>
 
                                     </div>
                                 </div>
                             </div>
+
+
 
                             <!-- Import Installation & Settings Card -->
                             <div class="column is-one-third" id="importInstallationCardColumn">

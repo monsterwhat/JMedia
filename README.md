@@ -1,4 +1,4 @@
-# 🎵🎬 JMusic  
+# 🎵🎬 JMedia  
 ### A Decentralized, Private, and Efficient Media Streaming Application  
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
@@ -10,10 +10,10 @@
 
 ## 🌐 Overview
 
-**JMusic** is a decentralized, privacy-focused media streaming application built with **Java** and **Quarkus**.  
+**JMedia** is a decentralized, privacy-focused media streaming application built with **Java** and **Quarkus**.  
 It provides a **serverless**, and **user-controlled** experience for managing and streaming your **music and video** libraries.  
 
-Unlike traditional streaming services, JMusic ensures that your data — from your media files to your playback preferences — **remains fully local and private**. It offers a responsive web interface combined with a high-performance backend for seamless playback, media organization, and comprehensive library management.
+Unlike traditional streaming services, JMedia ensures that your data — from your media files to your playback preferences — **remains fully local and private**. It offers a responsive web interface combined with a high-performance backend for seamless playback, media organization, and comprehensive library management.
 
 ---
 
@@ -74,7 +74,7 @@ Unlike traditional streaming services, JMusic ensures that your data — from yo
 
 ## ⚙️ Performance & Efficiency
 
-JMusic is engineered for **maximum performance and minimal resource usage**, targeting **at least 50% greater efficiency** than conventional streaming platforms.  
+JMedia is engineered for **maximum performance and minimal resource usage**, targeting **at least 50% greater efficiency** than conventional streaming platforms.  
 This means:
 - Reduced CPU and memory footprint  
 - Faster response times  
@@ -100,7 +100,7 @@ This means:
 
 ## 🎯 Features Overview
 
-JMusic provides comprehensive media management with separate interfaces for music and video content:
+JMedia provides comprehensive media management with separate interfaces for music and video content:
 
 ### 🎵 **Music Features**
 - Full music library management with metadata extraction
@@ -127,23 +127,23 @@ JMusic provides comprehensive media management with separate interfaces for musi
 - Background service mode with tray icon
 - Library maintenance tools (scan, reload, cleanup)
 
-For a detailed breakdown of all features and their implementation status, see the [Features Overview](https://github.com/monsterwhat/JMusic/blob/main/features.md).
+For a detailed breakdown of all features and their implementation status, see the [Features Overview](https://github.com/monsterwhat/JMedia/blob/main/features.md).
 
 ---
 
 ## 🚀 Installation
 
 ### 🔹 **Prebuilt Executables**
-Download the latest release from the [📦 GitHub Releases](https://github.com/monsterwhat/JMusic/releases) page:
+Download the latest release from the [📦 GitHub Releases](https://github.com/monsterwhat/JMedia/releases) page:
 
 - **Windows:**  
-  Download `JMusic.exe` and run it directly.  
+  Download `JMedia.exe` and run it directly.  
   > ⚠️ **Requires Java 21+** - If you get a Java error, see [JAVA_REQUIRED.md](JAVA_REQUIRED.md) for installation instructions.
 
 - **Cross-Platform (JAR):**  
   Requires **Java 21+**.  
   ```bash
-  java -jar JMusic-runner.jar
+  java -jar JMedia-runner.jar
   ```
   > 💡 Tip: On most systems, you can double-click the `.jar` to launch it.
 
@@ -169,8 +169,8 @@ These builds will run standalone without needing a separate Java installation.
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/monsterwhat/JMusic.git
-   cd JMusic/JMusic/com.playdeca.JMusic
+   git clone https://github.com/monsterwhat/JMedia.git
+   cd JMedia/JMedia/com.playdeca.JMedia
    ```
 
 2. **Run in Development Mode**
@@ -288,7 +288,7 @@ To contribute:
 3. Make your changes and test thoroughly  
 4. Submit a pull request with a clear summary of your changes  
 
-> 🧭 Please ensure your code aligns with JMusic’s principles of **privacy**, **decentralization**, and **efficiency**.
+> 🧭 Please ensure your code aligns with JMedia’s principles of **privacy**, **decentralization**, and **efficiency**.
 
 ---
 

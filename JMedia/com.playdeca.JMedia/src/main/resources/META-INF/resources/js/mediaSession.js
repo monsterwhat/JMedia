@@ -18,7 +18,7 @@ if ('mediaSession' in navigator) {
                 {src: artworkUrl, sizes: '192x192', type: 'image/png'},
                 {src: artworkUrl, sizes: '256x256', type: 'image/png'},
                 {src: artworkUrl, sizes: '384x384', type: 'image/png'},
-                {src: artworkUrl, sizes: '512x512', type: 'image/png'},
+                {src: artworkUrl, sizes: '512x512', type: 'image/png'}
             ]
         });
     };
@@ -73,13 +73,7 @@ if ('mediaSession' in navigator) {
                 setPlaybackTime(seekTime, true);
             }
         });
-
-        // Optional: Skip ad (not relevant for JMusic)
-        // navigator.mediaSession.setActionHandler('skipad', () => { /* ... */ });
-
-        // Optional: Toggle microhpone, camera, picture-in-picture (not relevant for JMusic)
-        // navigator.mediaSession.setActionHandler('togglemicrophone', () => { /* ... */ });
-        // navigator.mediaSession.setActionHandler('togglecamera', () => { /* ... */ });
+ 
         // navigator.mediaSession.setActionHandler('enterpictureinpicture', () => { /* ... */ });
         // navigator.mediaSession.setActionHandler('leavepictureinpicture', () => { /* ... */ });
 

@@ -935,4 +935,186 @@ function playlistViewController() {
 
         }
 
+        // Update Management Functions
+        function checkForUpdates() {
+            const updateStatus = document.getElementById('updateStatus');
+            const checkBtn = document.getElementById('checkForUpdatesBtn');
+            
+            if (updateStatus) {
+                updateStatus.style.display = 'block';
+                updateStatus.innerHTML = '<div class="notification is-info"><i class="pi pi-spin pi-spinner"></i> Checking for updates...</div>';
+            }
+            
+            if (checkBtn) {
+                checkBtn.disabled = true;
+                checkBtn.innerHTML = '<span class="icon-text"><span class="icon"><i class="pi pi-spin pi-spinner"></i></span><span>Checking...</span></span>';
+            }
+            
+            fetch('/api/update/check')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        handleUpdateResponse(data.data);
+                    } else {
+                        showUpdateError(data.message || 'Failed to check for updates');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking for updates:', error);
+                    showUpdateError('Network error while checking for updates');
+                })
+                .finally(() => {
+                    if (checkBtn) {
+                        checkBtn.disabled = false;
+                        checkBtn.innerHTML = '<span class="icon-text"><span class="icon"><i class="pi pi-refresh"></i></span><span>Check for Updates</span></span>';
+                    }
+                });
+        }
+        
+        function handleUpdateResponse(updateInfo) {
+            const updateStatus = document.getElementById('updateStatus');
+            
+            if (updateInfo.updateAvailable) {
+                // Show update available toast
+                showToast('Update Available: click for details', 'info', 10000, () => {
+                    showUpdateDialog();
+                });
+                
+                if (updateStatus) {
+                    updateStatus.innerHTML = `
+                        <div class="notification is-success">
+                            <strong>Update Available!</strong><br>
+                            New version: ${updateInfo.latestRelease.tagName}<br>
+                            <button class="button is-small is-primary mt-2" onclick="showUpdateDialog()">
+                                <span class="icon-text">
+                                    <span class="icon"><i class="pi pi-download"></i></span>
+                                    <span>View Details</span>
+                                </span>
+                            </button>
+                        </div>
+                    `;
+                }
+            } else {
+                if (updateStatus) {
+                    updateStatus.innerHTML = `
+                        <div class="notification is-success">
+                            <strong>You are up to date!</strong><br>
+                            ${updateInfo.message}
+                        </div>
+                    `;
+                }
+                
+                // Auto-hide status after 5 seconds
+                setTimeout(() => {
+                    if (updateStatus) {
+                        updateStatus.style.display = 'none';
+                    }
+                }, 5000);
+            }
+        }
+        
+        function showUpdateError(message) {
+            const updateStatus = document.getElementById('updateStatus');
+            
+            if (updateStatus) {
+                updateStatus.innerHTML = `
+                    <div class="notification is-danger">
+                        <strong>Error</strong><br>
+                        ${message}
+                    </div>
+                `;
+            }
+            
+            showToast('Update check failed: ' + message, 'error');
+        }
+        
+        function showUpdateDialog() {
+            // Open update dialog in new window or modal
+            const updateDialog = window.open('/updateDialog.html', 'updateDialog', 'width=600,height=700,scrollbars=yes,resizable=yes');
+            
+            if (!updateDialog) {
+                // Fallback: navigate to update dialog
+                window.location.href = '/updateDialog.html';
+            }
+        }
+        
+        function toggleAutoUpdate() {
+            const toggle = document.getElementById('autoUpdateToggle');
+            const isEnabled = toggle.checked;
+            
+            fetch('/api/settings/auto-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enabled: isEnabled })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(isEnabled ? 'Auto-update enabled' : 'Auto-update disabled', 'success');
+                } else {
+                    showToast('Failed to update auto-update setting', 'error');
+                    toggle.checked = !isEnabled; // Revert
+                }
+            })
+            .catch(error => {
+                console.error('Error updating auto-update setting:', error);
+                showToast('Network error while updating setting', 'error');
+                toggle.checked = !isEnabled; // Revert
+            });
+        }
+        
+        // Enhanced showToast function to support click handlers
+        function showToast(message, type = 'info', duration = 3000, clickHandler = null) {
+            const toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) return;
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            // Add icon based on type
+            let icon = '';
+            switch(type) {
+                case 'success':
+                    icon = '<i class="pi pi-check toast-icon"></i>';
+                    break;
+                case 'error':
+                    icon = '<i class="pi pi-times toast-icon"></i>';
+                    break;
+                case 'info':
+                default:
+                    icon = '<i class="pi pi-info toast-icon"></i>';
+                    break;
+            }
+            
+            toast.innerHTML = `
+                ${icon}
+                <span class="toast-message">${message}</span>
+            `;
+            
+            // Add click handler if provided
+            if (clickHandler) {
+                toast.style.cursor = 'pointer';
+                toast.addEventListener('click', clickHandler);
+            }
+            
+            toastContainer.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Remove toast after duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, duration);
+        }
+
     });</script>

@@ -1,5 +1,6 @@
 package Controllers;
  
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
@@ -22,6 +23,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import Services.UpdateService;
  
 @ApplicationScoped
 @Startup
@@ -34,6 +36,9 @@ public class DesktopController {
 
     @Inject
     SetupController setupController;
+
+    @Inject
+    UpdateService updateService;
 
     private final AtomicInteger activeClients = new AtomicInteger(0);
     private volatile boolean hasHadClient = false;
@@ -52,6 +57,26 @@ public class DesktopController {
         startTrayIcon();
         startBrowser();
         settings.addLog("Application started.");
+        
+        // Check for updates on startup
+        checkForUpdatesOnStartup();
+    }
+    
+    @PostConstruct
+    public void checkForUpdatesOnStartup() {
+        try {
+            // Run update check asynchronously to avoid blocking startup
+            scheduler.submit(() -> {
+                try {
+                    Thread.sleep(5000); // Wait 5 seconds after startup
+                    updateService.checkForUpdatesAsync();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        } catch (Exception e) {
+            LOG.error("Error scheduling update check", e);
+        }
     }
     
     private boolean isNativeBuild() {

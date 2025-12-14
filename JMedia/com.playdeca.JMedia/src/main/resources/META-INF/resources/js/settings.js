@@ -416,6 +416,101 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("reloadMetadata").onclick = () => showConfirmationDialog("Are you sure you want to reload all song metadata? This might take a while.", window.reloadMetadata);
     document.getElementById("deleteDuplicates").onclick = () => showConfirmationDialog("Are you sure you want to delete duplicate songs? This action cannot be undone.", window.deleteDuplicates);
     document.getElementById("saveImportSettingsBtn").onclick = window.saveImportSettings;
+    
+    // Update button handlers
+    const checkForUpdatesBtn = document.getElementById("checkForUpdatesBtn");
+    if (checkForUpdatesBtn) {
+        checkForUpdatesBtn.onclick = async () => {
+            try {
+                checkForUpdatesBtn.disabled = true;
+                checkForUpdatesBtn.classList.add('is-loading');
+                showToast("Checking for updates...", 'info');
+                
+                const response = await fetch('/api/update/check', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    if (result.data && result.data.updateAvailable) {
+                        showToast(`Update available: ${result.data.latestVersion}`, 'success');
+                        // Update status div with update info
+                        const updateStatus = document.getElementById("updateStatus");
+                        if (updateStatus) {
+                            updateStatus.style.display = 'block';
+                            updateStatus.innerHTML = `
+                                <div class="notification is-success is-light">
+                                    <p class="has-text-weight-semibold">Update Available!</p>
+                                    <p class="is-size-7">Current: ${result.data.currentVersion} → Latest: ${result.data.latestVersion}</p>
+                                    <p class="is-size-7">${result.data.releaseNotes || 'Check GitHub for release notes'}</p>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        showToast("You're using the latest version!", 'success');
+                        const updateStatus = document.getElementById("updateStatus");
+                        if (updateStatus) {
+                            updateStatus.style.display = 'block';
+                            updateStatus.innerHTML = `
+                                <div class="notification is-info is-light">
+                                    <p class="has-text-weight-semibold">Up to Date</p>
+                                    <p class="is-size-7">You're using the latest version of JMedia</p>
+                                </div>
+                            `;
+                        }
+                    }
+                } else {
+                    throw new Error(result.error || 'Failed to check for updates');
+                }
+            } catch (error) {
+                console.error('[Settings] Error checking for updates:', error);
+                showToast("Failed to check for updates: " + error.message, 'error');
+            } finally {
+                checkForUpdatesBtn.disabled = false;
+                checkForUpdatesBtn.classList.remove('is-loading');
+            }
+        };
+    }
+    
+    const viewUpdateDialogBtn = document.getElementById("viewUpdateDialogBtn");
+    if (viewUpdateDialogBtn) {
+        viewUpdateDialogBtn.onclick = () => {
+            // Show update info in the status div
+            const updateStatus = document.getElementById("updateStatus");
+            if (updateStatus) {
+                if (updateStatus.style.display === 'none' || updateStatus.style.display === '') {
+                    updateStatus.style.display = 'block';
+                    updateStatus.innerHTML = `
+                        <div class="notification is-info is-light">
+                            <p class="has-text-weight-semibold mb-2">Update Information</p>
+                            <p class="is-size-7">JMedia checks for updates automatically on startup and daily.</p>
+                            <p class="is-size-7">You can also check manually using the "Check for Updates" button.</p>
+                            <p class="is-size-7 mt-2">Updates are downloaded from GitHub releases.</p>
+                            <p class="is-size-7">You'll need to manually download and install updates.</p>
+                        </div>
+                    `;
+                    viewUpdateDialogBtn.innerHTML = `
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-times"></i></span>
+                            <span>Hide Update Info</span>
+                        </span>
+                    `;
+                } else {
+                    updateStatus.style.display = 'none';
+                    viewUpdateDialogBtn.innerHTML = `
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-external-link"></i></span>
+                            <span>View Update Info</span>
+                        </span>
+                    `;
+                }
+            }
+        };
+    }
     // Save path buttons with toast notifications
     const saveMusicLibraryPathBtn = document.getElementById("saveMusicLibraryPathBtn");
     if (saveMusicLibraryPathBtn) {
@@ -1041,6 +1136,38 @@ document.addEventListener("DOMContentLoaded", () => {
     const runAsServiceToggle = document.getElementById("runAsServiceToggle");
     const runAsServiceModal = document.getElementById("runAsServiceModal");
     const modalCloseButtons = runAsServiceModal ? runAsServiceModal.querySelectorAll('.delete, .button.is-success') : [];
+    
+    // Auto-update toggle functionality
+    const autoUpdateToggle = document.getElementById("autoUpdateToggle");
+    if (autoUpdateToggle) {
+        autoUpdateToggle.addEventListener('change', async () => {
+            try {
+                const res = await fetch(`/api/settings/${window.globalActiveProfileId}/auto-update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ enabled: autoUpdateToggle.checked })
+                });
+                
+                if (res.ok) {
+                    if (autoUpdateToggle.checked) {
+                        showToast("Auto-update enabled", 'success');
+                    } else {
+                        showToast("Auto-update disabled", 'info');
+                    }
+                } else {
+                    throw new Error('Failed to update auto-update setting');
+                }
+            } catch (error) {
+                console.error("[Settings] Failed to toggle auto-update:", error);
+                showToast("Failed to update auto-update setting", 'error');
+                // Revert toggle state if request failed
+                autoUpdateToggle.checked = !autoUpdateToggle.checked;
+            }
+        });
+    }
+    
     if (runAsServiceToggle) {
         runAsServiceToggle.addEventListener('change', async () => {
             try {

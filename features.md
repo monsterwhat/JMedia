@@ -1,4 +1,4 @@
-# 🎵 JMusic — Feature Overview
+# 🎵 JMedia — Feature Overview
 
 | Symbol | Meaning |
 |:--|:--|
@@ -64,7 +64,7 @@
 | Music Folder Path | Display and change music library path. | Desktop / Mobile | Alpha 5 | ✅ |
 | Save Path Button | Save a new library path and clear old one. | Desktop / Mobile | Alpha 5 | ✅ |
 | Reset to Default Path | Reset library to default folder. | Desktop / Mobile | Alpha 5 | ✅ |
-| Run as Service Toggle | Runs JMusic as a background service (does not auto-start). | Desktop / Mobile | Alpha 5 | ✅ |
+| Run as Service Toggle | Runs JMedia as a background service (does not auto-start). | Desktop / Mobile | Alpha 5 | ✅ |
 | Multiple Library Support | Allow user to add/manage multiple music folders. | Desktop / Mobile | Before Beta | 🧩 |
 
 ### Library Maintenance

@@ -30,5 +30,9 @@ public class Settings extends PanacheEntity {
     @JoinColumn(name = "settings_id")
     private List<SettingsLog> logs = new ArrayList<>();
     
+    private String currentVersion = "0.9.0";
+    private String lastUpdateCheck;
+    private Boolean autoUpdateEnabled = true;
+    
     
 }

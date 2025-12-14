@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Update Available - JMedia</title>
+    <link rel="stylesheet" href="/css/bulma.min.css">
+    <link rel="stylesheet" href="/css/custom.css">
+</head>
+<body>
+    <div class="modal is-active" id="updateModal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">
+                    <i class="fas fa-download"></i>
+                    Update Available
+                </p>
+                <button class="delete" aria-label="close" onclick="closeUpdateDialog()"></button>
+            </header>
+            <section class="modal-card-body">
+                <div id="updateContent">
+                    <!-- Content will be populated by JavaScript -->
+                    <div class="has-text-centered">
+                        <div class="loader"></div>
+                        <p>Checking for updates...</p>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-primary" id="downloadButton" style="display: none;">
+                    <i class="fas fa-download"></i>
+                    <span id="downloadButtonText">Download Update</span>
+                </button>
+                <button class="button" onclick="closeUpdateDialog()">Close</button>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        let updateInfo = null;
+
+        function loadUpdateInfo() {
+            fetch('/api/update/check')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data && data.data.updateAvailable) {
+                        updateInfo = data.data;
+                        displayUpdateInfo(updateInfo);
+                    } else {
+                        displayNoUpdate();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking for updates:', error);
+                    displayError('Failed to check for updates. Please try again later.');
+                });
+        }
+
+        function displayUpdateInfo(info) {
+            const content = document.getElementById('updateContent');
+            const downloadButton = document.getElementById('downloadButton');
+            
+            content.innerHTML = `
+                <div class="notification is-info">
+                    <strong>New version available!</strong>
+                </div>
+                
+                <div class="field-group">
+                    <div class="field">
+                        <label class="label">Current Version</label>
+                        <div class="control">
+                            <input type="text" class="input" value="${info.currentVersion || 'Unknown'}" readonly>
+                        </div>
+                    </div>
+                    
+                    <div class="field">
+                        <label class="label">Latest Version</label>
+                        <div class="control">
+                            <input type="text" class="input is-success" value="${info.latestRelease.tagName}" readonly>
+                        </div>
+                    </div>
+                    
+                    <div class="field">
+                        <label class="label">Release Date</label>
+                        <div class="control">
+                            <input type="text" class="input" value="${info.getFormattedReleaseDate()}" readonly>
+                        </div>
+                    </div>
+                    
+                    <div class="field">
+                        <label class="label">Download Size</label>
+                        <div class="control">
+                            <input type="text" class="input" value="${info.getDownloadSize()}" readonly>
+                        </div>
+                    </div>
+                </div>
+                
+                ${info.latestRelease.body ? `
+                <div class="field">
+                    <label class="label">Release Notes</label>
+                    <div class="content">
+                        <div class="box">
+                            <pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(info.latestRelease.body)}</pre>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div class="notification is-warning">
+                    <h4 class="title is-6">Installation Instructions</h4>
+                    <ol>
+                        <li>Download the appropriate file for your system (.exe for Windows, .jar for cross-platform)</li>
+                        <li>Close the current JMedia application</li>
+                        <li>Delete the old JMedia file and shortcut</li>
+                        <li>Run the newly downloaded file</li>
+                    </ol>
+                </div>
+            `;
+            
+            downloadButton.style.display = 'inline-flex';
+            downloadButton.onclick = () => downloadUpdate(info.getDownloadUrl());
+        }
+
+        function displayNoUpdate() {
+            const content = document.getElementById('updateContent');
+            content.innerHTML = `
+                <div class="notification is-success">
+                    <strong>You are using the latest version!</strong>
+                </div>
+                <p>No updates are available at this time.</p>
+            `;
+        }
+
+        function displayError(message) {
+            const content = document.getElementById('updateContent');
+            content.innerHTML = `
+                <div class="notification is-danger">
+                    <strong>Error</strong>
+                </div>
+                <p>${message}</p>
+            `;
+        }
+
+        function downloadUpdate(downloadUrl) {
+            if (downloadUrl) {
+                window.open(downloadUrl, '_blank');
+            } else {
+                alert('Download URL not available. Please visit the GitHub releases page manually.');
+            }
+        }
+
+        function closeUpdateDialog() {
+            // Close the modal and potentially redirect back
+            if (window.opener) {
+                window.close();
+            } else {
+                window.history.back();
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load update info when page loads
+        document.addEventListener('DOMContentLoaded', loadUpdateInfo);
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeUpdateDialog();
+            }
+        });
+    </script>
+</body>
+</html>

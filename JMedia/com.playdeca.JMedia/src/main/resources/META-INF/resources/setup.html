@@ -45,7 +45,7 @@
             </div>
 
             <!-- Steps Container -->
-            <div class="steps-container">
+            <div class="steps-container" style="max-height: calc(100vh - 300px); overflow-y: auto;">
                 <!-- Step 1: Welcome -->
                 <div class="step-content" :class="{ 'active': $store.setup.currentStep === 1 }">
                     <div class="box glass-box welcome-card">
@@ -487,6 +487,39 @@
                                     <div class="notification is-info">
                                         <strong>Service Mode</strong>
                                         <p>JMedia will run as a service and stay accessible from this computer's IP address after browser closes</p>
+                                    </div>
+                                </div>
+
+                                <!-- Stay Up to Date -->
+                                <div class="column is-full">
+                                    <div class="notification is-info is-light">
+                                        <p class="has-text-weight-semibold mb-2">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-sparkles"></i></span>
+                                                <span>Stay Up to Date</span>
+                                            </span>
+                                        </p>
+                                        <p class="is-size-7 mb-3">JMedia automatically checks for updates on startup and daily. You can also manually check for updates using the button in settings.</p>
+                                        
+                                        <div class="content">
+                                            <h6 class="title is-6 mb-2">How Updates Work</h6>
+                                            <ol class="is-size-7">
+                                                <li>Application checks GitHub releases for newer versions</li>
+                                                <li>If an update is found, you'll see a notification</li>
+                                                <li>Click the notification to view release notes and download links</li>
+                                                <li>Download the appropriate file (.exe for Windows, .jar for other platforms)</li>
+                                                <li>Close JMedia, replace the old file, and run the new version</li>
+                                            </ol>
+                                        </div>
+                                        
+                                        <div class="notification is-warning is-light">
+                                            <p class="is-size-7 mb-0">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
+                                                    <span>Note: Updates are not downloaded automatically. You need to manually download and install them.</span>
+                                                </span>
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

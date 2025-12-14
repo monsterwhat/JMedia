@@ -1677,7 +1677,8 @@ body::before {
 .steps-container {
     position: relative;
     width: 100%;
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: calc(100vh - 300px);
 }
 
 .step-content {
