@@ -309,17 +309,14 @@ function handleWSMessage(msg) {
         const newCueLength = state.cue ? state.cue.length : 0;
         const queueChanged = (state.cue && musicState.cue && JSON.stringify(state.cue) !== JSON.stringify(musicState.cue)) ||
                 (state.cue && !musicState.cue) || (!state.cue && musicState.cue);
-        
-        console.log(`[musicBar.js] Queue change detection: oldLength=${oldCueLength}, newLength=${newCueLength}, queueChanged=${queueChanged}`);
-        
+
         // Check if queue length changed (songs removed or added)
         const queueLengthChanged = oldCueLength !== newCueLength;
-        
+
         // Update musicState.cue for future comparisons
         musicState.cue = state.cue;
 
         if (songChanged && state.currentSongId !== window.lastRefreshedSongId) { // Only refresh when song changes AND we haven't refreshed for this song yet
-            console.log(`[musicBar.js] Song changed from ${window.lastRefreshedSongId} to ${state.currentSongId}, updating highlighting`);
             window.lastRefreshedSongId = state.currentSongId;
 
             Promise.all([
@@ -349,7 +346,7 @@ function handleWSMessage(msg) {
                                 console.log("[musicBar.js] Song changed and queue content changed, refreshing queue table. queueChanged:", queueChanged, "queueLengthChanged:", queueLengthChanged);
                                 window.refreshQueue();
                             }
-                        }
+                    }
                     }).catch(error => console.error("Error fetching song context:", error));
         } else if (playChanged || queueChanged) { // Handle play state and queue changes without table refresh
             Promise.all([
@@ -375,15 +372,8 @@ function handleWSMessage(msg) {
                         // Only refresh queue, not the song table
                         if (window.refreshQueue && queueChanged) {
                             window.refreshQueue();
-                        }
+                    }
                     }).catch(error => console.error("Error fetching song context:", error));
-        } else if (playChanged) { // This block is now redundant if playChanged is already in the main if
-// This else if block is now redundant because playChanged is included in the main if condition.
-// However, to maintain the original logic flow for playChanged when songChanged and queueChanged are false,
-// we can keep it, but it will only execute if songChanged and queueChanged are both false.
-// For simplicity and to avoid redundant fetches, the above 'if (songChanged || playChanged || queueChanged)'
-// should cover all necessary updates.
-// I will remove this redundant block.
         }
 
 // If neither song nor play state changed, but time might have drifted, synchronize currentTime
@@ -410,26 +400,26 @@ function handleWSMessage(msg) {
                 audio.currentTime = projectedRemoteTime;
             }
         } else if (message.type === 'history-update') {
-        console.log('[WS] History update received for profile', message.profileId, ', refreshing history table');
-        // Trigger history refresh if the function exists
-        if (window.refreshHistory) {
-            console.log('[WS] Calling refreshHistory function');
-            window.refreshHistory();
-        } else {
-            console.error('[WS] refreshHistory function not available, retrying in 100ms...');
-            // Wait a bit and try again in case history.js hasn't loaded yet
-            setTimeout(() => {
-                if (window.refreshHistory) {
-                    console.log('[WS] Retrying refreshHistory function');
-                    window.refreshHistory();
-                } else {
-                    console.error('[WS] refreshHistory function still not available after retry');
-                }
-            }, 100);
+            console.log('[WS] History update received for profile', message.profileId, ', refreshing history table');
+            // Trigger history refresh if the function exists
+            if (window.refreshHistory) {
+                console.log('[WS] Calling refreshHistory function');
+                window.refreshHistory();
+            } else {
+                console.error('[WS] refreshHistory function not available, retrying in 100ms...');
+                // Wait a bit and try again in case history.js hasn't loaded yet
+                setTimeout(() => {
+                    if (window.refreshHistory) {
+                        console.log('[WS] Retrying refreshHistory function');
+                        window.refreshHistory();
+                    } else {
+                        console.error('[WS] refreshHistory function still not available after retry');
+                    }
+                }, 100);
+            }
         }
-    }
         updateMusicBar();
-        
+
         // Update queue count based on current state
         if (window.updateQueueCount && state.cue) {
             window.updateQueueCount(state.cue.length);
@@ -590,7 +580,7 @@ function bindPlaybackButtons() {
 async function refreshSongTable() {
     const profileId = window.globalActiveProfileId;
     const playlistId = sessionStorage.getItem('currentPlaylistId') || '0';
-    
+
     if (profileId) {
         console.log(`[musicBar.js] Refreshing song table for profile ${profileId}, playlist ${playlistId}`);
         try {
@@ -673,6 +663,17 @@ let currentRightClickedSongId = null; // Global variable to store the ID
 // Function to show the custom context menu
 function showContextMenu(x, y) {
     const contextMenu = document.getElementById('customContextMenu');
+    const removeFromPlaylistMenuItem = document.getElementById('removeFromPlaylistMenuItem');
+    
+    // Check if we're currently in a playlist view
+    const currentPlaylistId = sessionStorage.getItem('currentPlaylistId');
+    const isInPlaylistView = currentPlaylistId && currentPlaylistId !== '0';
+    
+    // Show/hide the "Remove from Playlist" menu item
+    if (removeFromPlaylistMenuItem) {
+        removeFromPlaylistMenuItem.style.display = isInPlaylistView ? 'flex' : 'none';
+    }
+    
     if (contextMenu) {
         contextMenu.style.left = `${x}px`;
         contextMenu.style.top = `${y}px`;
@@ -744,6 +745,37 @@ async function addSongToPlaylist(playlistId, songId) {
     } catch (error) {
         console.error(`Error adding song ${songId} to playlist ${playlistId}:`, error);
         showToast('Failed to add song to playlist', 'error');
+    }
+}
+
+// Function to remove song from current playlist
+async function removeSongFromCurrentPlaylist(songId) {
+    const currentPlaylistId = sessionStorage.getItem('currentPlaylistId');
+    if (!currentPlaylistId || currentPlaylistId === '0') {
+        showToast('No playlist selected', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/music/playlists/${currentPlaylistId}/songs/${songId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        console.log(`Song ${songId} removed from playlist ${currentPlaylistId}`);
+        showToast('Song removed from playlist successfully', 'success');
+        
+        // Refresh the playlist view to show the updated song list
+        if (window.globalActiveProfileId) {
+            htmx.ajax('GET', `/api/music/ui/playlist-view/${window.globalActiveProfileId}`, {
+                target: '#playlistView',
+                swap: 'outerHTML'
+            });
+        }
+    } catch (error) {
+        console.error(`Error removing song ${songId} from playlist ${currentPlaylistId}:`, error);
+        showToast('Failed to remove song from playlist', 'error');
     }
 }
 
@@ -878,7 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-  
+
     // Add context menu listener to the document, using event delegation
     document.addEventListener('contextmenu', (event) => {
         const songTableBody = document.getElementById('songTableBody'); // Using getElementById for a more direct selection
@@ -977,6 +1009,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (action === 'share-song') {
                     console.log('Share clicked for song ID:', currentRightClickedSongId);
                     // TODO: Implement "Share" logic
+                    hideContextMenu();
+                } else if (action === 'remove-from-playlist') {
+                    if (currentRightClickedSongId) {
+                        await removeSongFromCurrentPlaylist(currentRightClickedSongId);
+                    }
                     hideContextMenu();
                 } else {
                     hideContextMenu(); // Hide menu for other clicks within the menu

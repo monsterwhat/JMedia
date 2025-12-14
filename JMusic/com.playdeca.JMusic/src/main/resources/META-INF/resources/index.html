@@ -366,7 +366,7 @@
             </div>
 
             <!-- Hero Foot (Music Bar) -->
-            <div class="hero-foot card glass-box mx-3">
+            <div class="hero-foot card glass-box mx-3 mb-3">
                 <nav class="level is-mobile">
 
                     <!-- LEFT: Song Info -->
@@ -620,6 +620,10 @@ if (newUrl !== targetUrl) {
                     <!-- Playlists will be dynamically loaded here -->
                     <div class="context-menu-item">Loading Playlists...</div>
                 </div>
+            </div>
+            <div class="context-menu-item has-text-warning" id="removeFromPlaylistMenuItem" data-action="remove-from-playlist" style="display: none;">
+                <span class="icon is-small"><i class="pi pi-minus"></i></span>
+                <span>Remove from Playlist</span>
             </div>
             <div class="context-menu-item" id="rescanSongMenuItem" data-action="rescan-song">
                 <span class="icon is-small"><i class="pi pi-sync"></i></span>

@@ -541,8 +541,15 @@ public class SettingsController implements Serializable {
                 // Check if file has changed since last scan (only if both values are set)
                 if (song.getSize() != null && song.getLastModified() != null &&
                     song.getSize() == size && song.getLastModified() == lastModified) {
-                    // File hasn't changed, skip processing
-                    return null;
+                    // File hasn't changed, but in import context we still want to return it
+                    boolean isImportContext = Thread.currentThread().getStackTrace().length > 5;
+                    if (isImportContext) {
+                        addLog("DEBUG: Import context - returning unchanged existing song: " + relativePath);
+                        return song; // Return existing song for import playlist inclusion
+                    } else {
+                        addLog("DEBUG: Skipping unchanged file: " + relativePath);
+                        return null; // Skip processing for regular library scan
+                    }
                 }
             }
             
@@ -810,7 +817,7 @@ public class SettingsController implements Serializable {
             }
         }
         return duration;
-    }
+    } 
 
     // -------------------------------
     // Parallel reloadAllSongsMetadata

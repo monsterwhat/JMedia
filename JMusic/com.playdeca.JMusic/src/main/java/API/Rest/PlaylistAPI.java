@@ -100,6 +100,7 @@ public class PlaylistAPI {
 
     @DELETE
     @Path("/{id}")
+    @Consumes(MediaType.WILDCARD)
     public Response deletePlaylist(@PathParam("id") Long id) {
         try {
             Playlist playlist = playlistService.find(id);

@@ -192,8 +192,7 @@ body {
 }
 
 /* Ensure first column header is properly sized and visible */
-.table th:first-child {
-    width: 5% !important;
+.table th:first-child { 
     min-width: 48px !important;
     text-align: center !important;
     visibility: visible !important;
@@ -207,8 +206,7 @@ body {
 }
 
 /* Ensure first column cells are also properly sized */
-.table td:first-child {
-    width: 5% !important;
+.table td:first-child { 
     min-width: 48px !important;
     text-align: center !important;
     position: relative !important;
@@ -585,13 +583,13 @@ html[data-theme="dark"] #volumeProgressBar::-ms-thumb {
     height: 128px !important; /* 32px * 4 */
 }
 .context-menu {
-    position: absolute;
+    position: fixed;
     background-color: var(--card-background); /* Use theme card background */
     border: 1px solid var(--text-color); /* Use theme text color for border */
     border-radius: 4px;
     padding: 5px 0;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
-    z-index: 1000; /* Ensure it's on top */
+    z-index: 99999; /* Ensure it's on top of everything */
     min-width: 150px;
 }
 

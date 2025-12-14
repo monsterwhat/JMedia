@@ -20,27 +20,32 @@ function togglePlaylistContextMenu(event, playlistId, isGlobal) {
     
     // Toggle current context menu
     if (contextMenu.style.display === 'none') {
+        // Move the context menu to body level to escape stacking context
+        if (contextMenu.parentNode !== document.body) {
+            document.body.appendChild(contextMenu);
+        }
+        
         contextMenu.style.display = 'block';
         
         // Position at mouse cursor
-        let mouseX = event.clientX + window.scrollX;
-        let mouseY = event.clientY + window.scrollY;
+        let mouseX = event.clientX;
+        let mouseY = event.clientY;
         
         // Get menu dimensions after making it visible
         const menuRect = contextMenu.getBoundingClientRect();
         
         // Adjust if menu goes off screen
-        if (mouseX + menuRect.width > window.innerWidth + window.scrollX) {
-            mouseX = window.innerWidth + window.scrollX - menuRect.width - 5;
+        if (mouseX + menuRect.width > window.innerWidth) {
+            mouseX = window.innerWidth - menuRect.width - 5;
         }
-        if (mouseY + menuRect.height > window.innerHeight + window.scrollY) {
-            mouseY = window.innerHeight + window.scrollY - menuRect.height - 5;
+        if (mouseY + menuRect.height > window.innerHeight) {
+            mouseY = window.innerHeight - menuRect.height - 5;
         }
         
         contextMenu.style.position = 'fixed';
         contextMenu.style.top = mouseY + 'px';
         contextMenu.style.left = mouseX + 'px';
-        contextMenu.style.zIndex = '9999';
+        contextMenu.style.zIndex = '99999';
     } else {
         contextMenu.style.display = 'none';
     }
@@ -48,16 +53,13 @@ function togglePlaylistContextMenu(event, playlistId, isGlobal) {
 
 function deletePlaylist(playlistId, playlistName) {
     if (confirm(`Are you sure you want to delete playlist '${playlistName}'?`)) {
-        fetch(`/api/music/playlists/${globalActiveProfileId}`, {
+        fetch(`/api/music/playlists/${playlistId}`, {
             method: 'DELETE'
         })
         .then(response => {
             if (response.ok) {
-                // Remove the playlist row from the DOM
-                const playlistRow = document.querySelector(`[id^="playlist-context-menu-${playlistId}"]`).closest('tr');
-                if (playlistRow) {
-                    playlistRow.remove();
-                }
+                // Reload the playlist list to show updated state
+                location.reload();
                 showToast(`Playlist '${playlistName}' deleted successfully`, 'success');
             } else {
                 console.error('Failed to delete playlist');
@@ -74,7 +76,7 @@ function deletePlaylist(playlistId, playlistName) {
 function togglePlaylistShared(playlistId, currentSharedStatus) {
     const newSharedStatus = !currentSharedStatus;
     
-    fetch(`/api/music/playlists/${globalActiveProfileId}/toggle-shared`, {
+    fetch(`/api/music/playlists/${playlistId}/toggle-shared`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'

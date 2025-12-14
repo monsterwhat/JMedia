@@ -11,6 +11,7 @@ import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.util.List;
 
+
 @ApplicationScoped
 public class PlaylistService {
 
@@ -281,16 +282,28 @@ public class PlaylistService {
         if (playlist != null && songs != null && !songs.isEmpty()) {
             Playlist managedPlaylist = find(playlist.id); // find is access-aware
             if(managedPlaylist != null) {
+                 int initialSize = managedPlaylist.getSongs().size();
+            int addedCount =0;
+            
                 for (Song song : songs) {
                     if (!managedPlaylist.getSongs().contains(song)) {
                         managedPlaylist.getSongs().add(song);
+                        addedCount++;
                     }
                 }
                 em.merge(managedPlaylist);
+                em.flush(); // Force write to database
+            
+            // Verify the final size
+            Playlist verifyPlaylist = find(playlist.id);
+            int finalSize = verifyPlaylist.getSongs().size();
+            
+            System.err.println("DEBUG: Playlist '" + playlist.getName() + "' - Initial: " + initialSize + 
+                ", Added: " + addedCount + ", Expected: " + (initialSize + addedCount) + ", Actual: " + finalSize);
             }
         }
-    }
-
+    } 
+ 
     @Transactional
     public void removeSongFromAllPlaylists(Long songId) {
         if (songId == null) {
