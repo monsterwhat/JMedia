@@ -167,15 +167,15 @@
 
                     <!-- Music controls will be dynamically loaded or managed here -->
 
-                    <!-- CENTER: Controls + Progress -->
+<!-- CENTER: Controls + Progress -->
                     <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
                         <!-- Playback buttons -->
                         <div class="buttons are-large mb-2">
-                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
-                            <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
-                            <button id="playPauseBtn"  title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
-                            <button id="nextBtn"   title="Next"><i id="nextIcon" class="pi pi-step-forward"></i></button>
-                            <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt" style="font-size: 2rem;"></i></button>
+                            <button id="prevBtn" title="Previous"><i class="pi pi-step-backward" style="font-size: 2rem;"></i></button>
+                            <button id="playPauseBtn" class="button" title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="nextBtn" title="Next"><i id="nextIcon" class="pi pi-step-forward" style="font-size: 2rem;"></i></button>
+                            <button id="repeatBtn" title="Repeat"><i id="repeatIcon" class="pi pi-refresh" style="font-size: 2rem;"></i></button>
                         </div>
 
                         <!-- Progress bar and Volume Control -->
@@ -201,10 +201,12 @@
                 </div>
             </div>  
         </section>
+        </section>
 
-        <script src="/js/musicBar.js"></script>
+<script src="/js/musicBar.js"></script>
+        <script src="/js/player.js"></script>
         <script src="/js/mediaSession.js"></script>
-        <script src="/js/navbar.js"></script> 
+        <script src="/js/navbar.js"></script>
         <script>
                                         window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
 

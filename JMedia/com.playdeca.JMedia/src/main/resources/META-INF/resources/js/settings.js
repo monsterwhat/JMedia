@@ -91,17 +91,7 @@ window.setupLogWebSocket = function () {
     window.logWebSocket = socket;
 }
 
-window.refreshSettingsUI = async function () {
-    const res = await fetch(`/api/settings/${window.globalActiveProfileId}`);
-    const json = await res.json();
-    if (res.ok && json.data) {
-        const pathElem = document.getElementById("musicLibraryPath");
-        if (pathElem && json.data.libraryPath)
-            pathElem.textContent = json.data.libraryPath;
-    } else {
-        console.error("[Settings] Failed to refresh settings UI:", json.error);
-    }
-};
+
 
 window.reloadMetadata = async function () {
     const res = await fetch(`/api/settings/${window.globalActiveProfileId}/reloadMetadata`, {method: "POST"});
@@ -157,7 +147,6 @@ window.saveImportSettings = async function () {
 
 
 window.refreshSettingsUI = async function () {
-    console.log("[Settings] refreshSettingsUI called.");
 
     // Check if globalActiveProfileId is available
     if (!window.globalActiveProfileId) {
@@ -230,6 +219,9 @@ function updateMissingComponentsDialog(status) {
     if (!window.installationRequiredDialog || !window.missingComponentsList)
         return;
     const missingComponents = [];
+    if (!status.chocoInstalled) {
+        missingComponents.push('<li><strong>Chocolatey</strong> (Package manager for Windows)</li>');
+    }
     if (!status.pythonInstalled) {
         missingComponents.push('<li><strong>Python ≤3.13.9</strong> (Required for audio processing)</li>');
     }
@@ -265,9 +257,6 @@ function updateMissingComponentsDialog(status) {
 }
 
 function updateComponentStatus(component, isInstalled, button, statusElement) {
-    console.log(`[Settings] Updating ${component} status: ${isInstalled}`);
-    console.log(`[Settings] Button exists:`, !!button);
-    console.log(`[Settings] Status element exists:`, !!statusElement);
     // Update component state
     window.componentStates[component] = isInstalled;
     if (button) {
@@ -301,33 +290,35 @@ function updateComponentStatus(component, isInstalled, button, statusElement) {
 }
 
 function updateInstallationStatusElements(status) {
-    console.log('[Settings] DOM update attempt with status:', status);
     // Update individual status elements
+    const chocoStatusEl = document.getElementById('chocoStatus');
     const pythonStatusEl = document.getElementById('pythonStatus');
     const ffmpegStatusEl = document.getElementById('ffmpegStatus');
     const spotdlStatusEl = document.getElementById('spotdlStatus');
     const whisperStatusEl = document.getElementById('whisperStatus');
-    console.log('[Settings] Found elements:', {
-        pythonStatus: !!pythonStatusEl,
-        ffmpegStatus: !!ffmpegStatusEl,
-        spotdlStatus: !!spotdlStatusEl,
-        whisperStatus: !!whisperStatusEl
-    });
+    
     // If any elements are missing, don't proceed
-    if (!pythonStatusEl || !ffmpegStatusEl || !spotdlStatusEl || !whisperStatusEl) {
-        console.log('[Settings] Some elements not found, skipping update');
+    if (!chocoStatusEl || !pythonStatusEl || !ffmpegStatusEl || !spotdlStatusEl || !whisperStatusEl) {
         return;
     }
 
     // Get button elements
+    const installChocoBtn = document.getElementById("installChocoBtn");
     const installPythonBtn = document.getElementById("installPythonBtn");
     const installFfmpegBtn = document.getElementById("installFfmpegBtn");
     const installSpotdlBtn = document.getElementById("installSpotdlBtn");
     const installWhisperBtn = document.getElementById("installWhisperBtn");
 
+    if (chocoStatusEl) {
+        const isInstalled = Boolean(status.chocoInstalled);
+        const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+        const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+        chocoStatusEl.textContent = newText;
+        chocoStatusEl.className = newClass;
+    }
+
     if (pythonStatusEl) {
         const isInstalled = Boolean(status.pythonInstalled);
-        console.log('[Settings] Updating Python status:', isInstalled, '(raw:', status.pythonInstalled, ')');
         const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
         const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
         pythonStatusEl.textContent = newText;
@@ -336,7 +327,6 @@ function updateInstallationStatusElements(status) {
 
     if (ffmpegStatusEl) {
         const isInstalled = Boolean(status.ffmpegInstalled);
-        console.log('[Settings] Updating FFmpeg status:', isInstalled, '(raw:', status.ffmpegInstalled, ')');
         const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
         const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
         ffmpegStatusEl.textContent = newText;
@@ -345,7 +335,6 @@ function updateInstallationStatusElements(status) {
 
     if (spotdlStatusEl) {
         const isInstalled = Boolean(status.spotdlInstalled);
-        console.log('[Settings] Updating SpotDL status:', isInstalled, '(raw:', status.spotdlInstalled, ')');
         const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
         const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
         spotdlStatusEl.textContent = newText;
@@ -354,7 +343,6 @@ function updateInstallationStatusElements(status) {
 
     if (whisperStatusEl) {
         const isInstalled = Boolean(status.whisperInstalled);
-        console.log('[Settings] Updating Whisper status:', isInstalled, '(raw:', status.whisperInstalled, ')');
         const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
         const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
         whisperStatusEl.textContent = newText;
@@ -362,6 +350,7 @@ function updateInstallationStatusElements(status) {
     }
 
     // Update button states using existing function
+    updateComponentStatus('choco', status.chocoInstalled, installChocoBtn, chocoStatusEl);
     updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatusEl);
     updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatusEl);
     updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatusEl);
@@ -579,18 +568,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 // Individual installation buttons and progress tracking
+    const installChocoBtn = document.getElementById("installChocoBtn");
     const installPythonBtn = document.getElementById("installPythonBtn");
     const installFfmpegBtn = document.getElementById("installFfmpegBtn");
     const installSpotdlBtn = document.getElementById("installSpotdlBtn");
     const installWhisperBtn = document.getElementById("installWhisperBtn");
+    const chocoInstallProgress = document.getElementById("chocoInstallProgress");
     const pythonInstallProgress = document.getElementById("pythonInstallProgress");
     const ffmpegInstallProgress = document.getElementById("ffmpegInstallProgress");
     const spotdlInstallProgress = document.getElementById("spotdlInstallProgress");
     const whisperInstallProgress = document.getElementById("whisperInstallProgress");
+    const chocoProgressContainer = document.getElementById("chocoProgressContainer");
     const pythonProgressContainer = document.getElementById("pythonProgressContainer");
     const ffmpegProgressContainer = document.getElementById("ffmpegProgressContainer");
     const spotdlProgressContainer = document.getElementById("spotdlProgressContainer");
     const whisperProgressContainer = document.getElementById("whisperProgressContainer");
+    const chocoStatus = document.getElementById("chocoStatus");
     const pythonStatus = document.getElementById("pythonStatus");
     const ffmpegStatus = document.getElementById("ffmpegStatus");
     const spotdlStatus = document.getElementById("spotdlStatus");
@@ -601,14 +594,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const whisperInstalledText = document.getElementById("whisperInstalledText");
     // Installation WebSocket for progress updates is now global
 
-    // Component state tracking
-    const componentStates = {
-        python: false,
-        ffmpeg: false,
-        spotdl: false,
-        whisper: false
-    };
+    // Component state tracking - use global object to ensure consistency
+    if (!window.componentStates) {
+        window.componentStates = {
+            choco: false,
+            python: false,
+            ffmpeg: false,
+            spotdl: false,
+            whisper: false
+        };
+    }
     // Setup individual installation button handlers
+    if (installChocoBtn) {
+        installChocoBtn.onclick = () => handleComponentAction('choco', installChocoBtn, chocoInstallProgress, chocoProgressContainer);
+    }
     if (installPythonBtn) {
         installPythonBtn.onclick = () => handleComponentAction('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer);
     }
@@ -627,7 +626,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Handle component install/uninstall action
     async function handleComponentAction(component, button, progressBar, progressContainer) {
-        const isInstalled = componentStates[component];
+        const isInstalled = window.componentStates[component];
         const action = isInstalled ? 'uninstall' : 'install';
         try {
             // Disable button and show loading state
@@ -665,13 +664,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Setup WebSocket for real-time installation updates
     function setupInstallationWebSocket() {
-        window.installationWebSocket = new WebSocket(`ws://${window.location.host}/ws/import-status/${window.globalActiveProfileId}`);
         const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
         window.installationWebSocket = new WebSocket(protocol + location.host + `/ws/import-status/${window.globalActiveProfileId}`);
         window.installationWebSocket.onmessage = function (event) {
             const message = event.data;
             // Handle individual installation completion
-            if (message.includes('[PYTHON_INSTALLATION_FINISHED]')) {
+            if (message.includes('[CHOCO_INSTALLATION_FINISHED]')) {
+                handleActionCompletion('choco', installChocoBtn, chocoInstallProgress, chocoProgressContainer, chocoStatus, true);
+            } else if (message.includes('[PYTHON_INSTALLATION_FINISHED]')) {
                 handleActionCompletion('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer, pythonStatus, true);
             } else if (message.includes('[FFMPEG_INSTALLATION_FINISHED]')) {
                 handleActionCompletion('ffmpeg', installFfmpegBtn, ffmpegInstallProgress, ffmpegProgressContainer, ffmpegStatus, true);
@@ -682,7 +682,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             // Handle individual uninstallation completion
-            if (message.includes('[PYTHON_UNINSTALLATION_FINISHED]')) {
+            if (message.includes('[CHOCO_UNINSTALLATION_FINISHED]')) {
+                handleActionCompletion('choco', installChocoBtn, chocoInstallProgress, chocoProgressContainer, chocoStatus, false);
+            } else if (message.includes('[PYTHON_UNINSTALLATION_FINISHED]')) {
                 handleActionCompletion('python', installPythonBtn, pythonInstallProgress, pythonProgressContainer, pythonStatus, false);
             } else if (message.includes('[FFMPEG_UNINSTALLATION_FINISHED]')) {
                 handleActionCompletion('ffmpeg', installFfmpegBtn, ffmpegInstallProgress, ffmpegProgressContainer, ffmpegStatus, false);
@@ -734,7 +736,7 @@ document.addEventListener("DOMContentLoaded", () => {
         button.disabled = false;
         button.classList.remove('is-loading');
         // Update component state
-        componentStates[component] = isInstall;
+        window.componentStates[component] = isInstall;
         if (isInstall) {
 // Installation completed
             button.classList.remove('is-success');
@@ -778,7 +780,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (statusElement) {
-            const action = isInstalling ? (componentStates[component] ? 'Uninstalling' : 'Installing') : '';
+            const action = isInstalling ? (window.componentStates[component] ? 'Uninstalling' : 'Installing') : '';
             if (action) {
                 statusElement.textContent = `${action}... ${progress}%`;
                 statusElement.classList.add('is-info');
@@ -814,18 +816,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 // Test if settings.js is loading properly
-    console.log('[Settings] === SETTINGS.JS LOADING ===');
-    console.log('[Settings] Window object:', typeof window);
-    console.log('[Settings] Document ready:', document.readyState);
     // Load initial installation status with retry logic (same as setup.js)
     window.loadInstallationStatus = async function (retryCount = 0) {
-        console.log('[Settings] FUNCTION DEFINITION CHECK - loadInstallationStatus called');
         const maxRetries = 20;
         const baseDelay = 100; // 100ms
-
-        console.log(`[Settings] === LOAD INSTALLATION STATUS CALLED === (attempt ${retryCount + 1}/${maxRetries})`);
-        console.log(`[Settings] globalActiveProfileId:`, window.globalActiveProfileId);
-        console.log(`[Settings] document ready:`, document.readyState);
         // Check if globalActiveProfileId is available
         if (!window.globalActiveProfileId) {
             console.warn("[Settings] globalActiveProfileId not available, retrying...");
@@ -836,29 +830,17 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         try {
-            console.log(`[Settings] Attempting to load installation status (attempt ${retryCount + 1}/${maxRetries})`);
             // Check if all required DOM elements are available
             const requiredElements = {
-                installPythonBtn, installFfmpegBtn, installSpotdlBtn, installWhisperBtn,
-                pythonStatus, ffmpegStatus, spotdlStatus, whisperStatus
+                installChocoBtn, installPythonBtn, installFfmpegBtn, installSpotdlBtn, installWhisperBtn,
+                chocoStatus, pythonStatus, ffmpegStatus, spotdlStatus, whisperStatus
             };
             const missingElements = Object.entries(requiredElements)
                     .filter(([key, element]) => !element)
                     .map(([key]) => key);
-            if (missingElements.length > 0) {
-                console.warn(`[Settings] Missing DOM elements: ${missingElements.join(', ')}`);
+            if (missingElements.length >0) {
                 if (retryCount < maxRetries) {
-                    console.log(`[Settings] DOM elements not ready, retrying...`, {
-                        installPythonBtn: !!installPythonBtn,
-                        installFfmpegBtn: !!installFfmpegBtn,
-                        installSpotdlBtn: !!installSpotdlBtn,
-                        installWhisperBtn: !!installWhisperBtn,
-                        pythonStatus: !!pythonStatus,
-                        ffmpegStatus: !!ffmpegStatus,
-                        spotdlStatus: !!spotdlStatus,
-                        whisperStatus: !!whisperStatus
-                    });
-                    setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
+                    setTimeout(() => loadInstallationStatus(retryCount +1), baseDelay);
                     return;
                 } else {
                     console.error('[Settings] Failed to find DOM elements after maximum retries');
@@ -866,7 +848,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
 
-            console.log('[Settings] All required DOM elements found');
             const response = await fetch(`/api/settings/${window.globalActiveProfileId}/install-status`, {
                 method: 'GET',
                 headers: {
@@ -875,22 +856,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 },
                 credentials: 'same-origin'
             });
-            console.log(`[Settings] Installation status response: ${response.status} ${response.statusText}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const result = await response.json();
-            console.log(`[Settings] Installation status response:`, result);
-            console.log(`[Settings] Response status:`, response.status);
-            console.log(`[Settings] Response ok:`, response.ok);
-            console.log(`[Settings] Result structure:`, {
-                hasSuccess: 'success' in result,
-                successValue: result.success,
-                hasData: 'data' in result,
-                dataValue: result.data,
-                allKeys: Object.keys(result)
-            });
             // Handle different response structures (same as setup.js)
             let status = null;
             if (result.success && result.data) {
@@ -913,26 +883,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 throw new Error('Invalid status object returned from API');
             }
 
-            console.log('[Settings] Status data:', status);
-            console.log('[Settings] Individual statuses:', {
-                pythonInstalled: status.pythonInstalled,
-                ffmpegInstalled: status.ffmpegInstalled,
-                spotdlInstalled: status.spotdlInstalled,
-                whisperInstalled: status.whisperInstalled
-            });
+            
             // Update installation status using the same approach as setup.js
             updateInstallationStatusElements(status);
-            console.log('[Settings] Installation status loaded successfully');
             // Use the already parsed 'result' instead of calling response.json() again
-            console.log(`[Settings] Installation status data:`, result);
-            console.log(`[Settings] Data type:`, typeof result);
-            console.log(`[Settings] Data.data:`, result.data);
-            console.log(`[Settings] Data.data type:`, typeof result.data);
             if (result.data) {
                 const status = result.data;
-                console.log(`[Settings] Status object:`, status);
-                console.log(`[Settings] Status.pythonInstalled:`, status.pythonInstalled);
-                console.log(`[Settings] Status keys:`, Object.keys(status));
+                // Update Chocolatey status
+                updateComponentStatus('choco', status.chocoInstalled, installChocoBtn, chocoStatus);
                 // Update Python status
                 updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatus);
                 // Update FFmpeg status
@@ -943,10 +901,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatus);
                 // Update missing components list and dialog visibility
                 updateMissingComponentsDialog(status);
-                console.log('[Settings] Installation status loaded successfully');
             } else {
                 if (retryCount < maxRetries - 1) {
-                    console.log(`[Settings] Retrying in ${baseDelay}ms due to missing elements...`);
                     setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
                     return;
                 } else {
@@ -957,7 +913,6 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error('[Settings] Error loading installation status:', error);
             // Retry logic with linear backoff (same as setup.js)
             if (retryCount < maxRetries - 1) {
-                console.log(`[Settings] Retrying in ${baseDelay}ms...`);
                 setTimeout(() => loadInstallationStatus(retryCount + 1), baseDelay);
             } else {
                 console.error('[Settings] Failed to load installation status after maximum retries');
@@ -967,6 +922,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 // Set default status to show appropriate UI
                 const defaultStatus = {
+                    chocoInstalled: false,
                     pythonInstalled: false,
                     ffmpegInstalled: false, 
                     spotdlInstalled: false,
@@ -975,131 +931,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 updateInstallationStatusElements(defaultStatus);
                 updateMissingComponentsDialog(defaultStatus);
             }
-
-
-            // Manual refresh function for installation status
-            window.refreshInstallationStatus = function () {
-                console.log('[Settings] Manual refresh of installation status requested');
-                window.loadInstallationStatus();
-            };
-            // Update the message to reflect how many are missing
-            const messageElement = installationRequiredDialog.querySelector('strong');
-            if (messageElement) {
-                if (missingComponents.length === 1) {
-                    messageElement.textContent = 'Import feature requires 1 additional installation.';
-                } else {
-                    messageElement.textContent = `Import features require ${missingComponents.length} additional installations.`;
-                }
-            }
-    }
-    }
-
-    // Update individual component status
-    function updateComponentStatus(component, isInstalled, button, statusElement) {
-        console.log(`[Settings] Updating ${component} status: ${isInstalled}`);
-        console.log(`[Settings] Button exists:`, !!button);
-        console.log(`[Settings] Status element exists:`, !!statusElement);
-        // Update component state
-        componentStates[component] = isInstalled;
-        if (button) {
-            button.disabled = false;
-            if (isInstalled) {
-                button.classList.remove('is-success');
-                button.classList.add('is-danger');
-                button.innerHTML = `<i class="pi pi-trash mr-1"></i>Remove`;
-            } else {
-                button.classList.remove('is-danger');
-                button.classList.add('is-success');
-                button.innerHTML = `<i class="pi pi-download mr-1"></i>Install ${component.charAt(0).toUpperCase() + component.slice(1)}`;
-            }
-        } else {
-            console.warn(`[Settings] Button element not found for component: ${component}`);
         }
-
-        if (statusElement) {
-            if (isInstalled) {
-                statusElement.textContent = 'Installed';
-                statusElement.classList.remove('is-info', 'is-warning', 'is-danger');
-                statusElement.classList.add('is-success');
-            } else {
-                statusElement.textContent = 'Not installed';
-                statusElement.classList.remove('is-info', 'is-success', 'is-danger');
-                statusElement.classList.add('is-warning');
-            }
-        } else {
-            console.warn(`[Settings] Status element not found for component: ${component}`);
-        }
-    }
-
-    // Update installation status display (same as setup.js)
-    function updateInstallationStatusElements(status) {
-        console.log('[Settings] DOM update attempt with status:', status);
-        // Update individual status elements
-        const pythonStatus = document.getElementById('pythonStatus');
-        const ffmpegStatus = document.getElementById('ffmpegStatus');
-        const spotdlStatus = document.getElementById('spotdlStatus');
-        const whisperStatus = document.getElementById('whisperStatus');
-        console.log('[Settings] Found elements:', {
-            pythonStatus: !!pythonStatus,
-            ffmpegStatus: !!ffmpegStatus,
-            spotdlStatus: !!spotdlStatus,
-            whisperStatus: !!whisperStatus
-        });
-        // If any elements are missing, don't proceed
-        if (!pythonStatus || !ffmpegStatus || !spotdlStatus || !whisperStatus) {
-            console.log('[Settings] Some elements not found, skipping update');
-            return;
-        }
-
-        if (pythonStatus) {
-            const isInstalled = Boolean(status.pythonInstalled);
-            console.log('[Settings] Updating Python status:', isInstalled, '(raw:', status.pythonInstalled, ')');
-            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
-            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
-            pythonStatus.textContent = newText;
-            pythonStatus.className = newClass;
-        }
-
-        if (ffmpegStatus) {
-            const isInstalled = Boolean(status.ffmpegInstalled);
-            console.log('[Settings] Updating FFmpeg status:', isInstalled, '(raw:', status.ffmpegInstalled, ')');
-            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
-            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
-            ffmpegStatus.textContent = newText;
-            ffmpegStatus.className = newClass;
-        }
-
-        if (spotdlStatus) {
-            const isInstalled = Boolean(status.spotdlInstalled);
-            console.log('[Settings] Updating SpotDL status:', isInstalled, '(raw:', status.spotdlInstalled, ')');
-            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
-            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
-            spotdlStatus.textContent = newText;
-            spotdlStatus.className = newClass;
-        }
-
-        if (whisperStatus) {
-            const isInstalled = Boolean(status.whisperInstalled);
-            console.log('[Settings] Updating Whisper status:', isInstalled, '(raw:', status.whisperInstalled, ')');
-            const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
-            const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
-            whisperStatus.textContent = newText;
-            whisperStatus.className = newClass;
-        }
-
-        // Also update button states using existing function
-        updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatus);
-        updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatus);
-        updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatus);
-        updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatus);
-        // Update missing components list and dialog visibility
-        updateMissingComponentsDialog(status);
     }
 
     // Manual refresh function for installation status
     window.refreshInstallationStatus = function () {
         console.log('[Settings] Manual refresh of installation status requested');
-        loadInstallationStatus();
+        window.loadInstallationStatus();
     };
 
 
@@ -1214,18 +1052,18 @@ document.addEventListener("DOMContentLoaded", () => {
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             // Page is hidden, close WebSocket connections
-            if (logWebSocket) {
-                logWebSocket.close(1000, 'Page hidden');
-                logWebSocket = null;
+            if (window.logWebSocket) {
+                window.logWebSocket.close(1000, 'Page hidden');
+                window.logWebSocket = null;
             }
-            if (installationWebSocket) {
-                installationWebSocket.close(1000, 'Page hidden');
-                installationWebSocket = null;
+            if (window.installationWebSocket) {
+                window.installationWebSocket.close(1000, 'Page hidden');
+                window.installationWebSocket = null;
             }
         } else {
             // Page is visible again, reconnect if needed
             setTimeout(() => {
-                if (!logWebSocket) {
+                if (!window.logWebSocket) {
                     window.setupLogWebSocket();
                 }
             }, 1000);

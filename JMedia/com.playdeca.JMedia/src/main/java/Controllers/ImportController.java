@@ -1,7 +1,7 @@
 package Controllers;
 
-import Services.ImportService;
 import Models.DTOs.ImportInstallationStatus;
+import Services.ImportService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -12,7 +12,7 @@ public class ImportController {
     ImportService importService;
 
     /**
-     * Starts the singleton background import process.
+     * Starts singleton background import process.
      */
     public void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload, Long profileId) {
         importService.startDownload(url, format, downloadThreads, searchThreads, downloadPath, playlistName, queueAfterDownload, profileId);
@@ -20,6 +20,7 @@ public class ImportController {
 
     /**
      * Checks if an import process is currently active.
+     *
      * @return true if an import is running, false otherwise.
      */
     public boolean isImporting() {
@@ -27,19 +28,30 @@ public class ImportController {
     }
 
     /**
-     * Gets the cached output of the current or last import process.
+     * Gets cached output of current or last import process.
+     *
      * @return The entire output log as a single string.
      */
     public String getOutputCache() {
         return importService.getOutputCache();
     }
-
+  
     /**
-     * Gets the installation status of required external tools (Python, SpotDL, FFmpeg).
+     * Gets the installation status of required external tools (Python, SpotDL,
+     * FFmpeg).
+     *
      * @return An object containing the installation status details.
      */
     public ImportInstallationStatus getInstallationStatus() {
         return importService.getInstallationStatus();
+    }
+
+    /**
+     * Installs the platform-specific package manager (Chocolatey on Windows,
+     * apt/yum/dnf/pacman/zypper on Linux, Homebrew/MacPorts on macOS).
+     */
+    public void installPackageManger(Long profileId) throws Exception {
+        importService.installPackageManger(profileId);
     }
 
     /**

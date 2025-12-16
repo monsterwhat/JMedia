@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
         themeToggle.addEventListener('click', () => {
             const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
             localStorage.setItem('darkMode', !isDarkMode);
-            location.reload(); // Reload the page to apply theme changes
+            applyThemePreference(); // Apply theme changes immediately
         });
     }
 });

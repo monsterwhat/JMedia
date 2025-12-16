@@ -68,3 +68,6 @@ nbdist/
 .settings/org.eclipse.m2e.core.prefs
 .factorypath
 .spotdl-cache
+/JMedia-Android/.gradle
+JMedia-Android/java_pid22052.hprof
+JMedia-Android/java_pid23364.hprof

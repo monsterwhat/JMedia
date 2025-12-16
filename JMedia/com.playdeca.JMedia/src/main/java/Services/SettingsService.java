@@ -7,21 +7,37 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
 import java.io.File;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 @ApplicationScoped
 public class SettingsService {
+
+    private static final Logger LOGGER = Logger.getLogger(SettingsService.class.getName());
 
     @PersistenceContext
     private EntityManager em;
 
     private static final int LOG_FLUSH_THRESHOLD = 20;
     private static final long LOG_FLUSH_INTERVAL_MS = 5000;
+    private static final long LOG_CLEAR_INTERVAL_HOURS = 48;
 
     private final List<String> logBuffer = new ArrayList<>();
     private long lastFlushTime = System.currentTimeMillis();
+    private ScheduledExecutorService scheduler;
+
+    @PostConstruct
+    public void init() {
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(this::clearOldLogs, LOG_CLEAR_INTERVAL_HOURS, LOG_CLEAR_INTERVAL_HOURS, TimeUnit.HOURS);
+        LOGGER.info("Log cleanup scheduled to run every " + LOG_CLEAR_INTERVAL_HOURS + " hours");
+    }
 
     @Transactional
     public void save(Settings settings) {
@@ -102,6 +118,27 @@ public class SettingsService {
                 logs.clear();
             }
             em.merge(settings);
+        }
+    }
+
+    @Transactional
+    public void clearOldLogs() {
+        try {
+            Settings settings = getSettingsOrNull();
+            if (settings != null) {
+                List<SettingsLog> logs = settings.getLogs();
+                if (logs != null && !logs.isEmpty()) {
+                    int logCount = logs.size();
+                    for (SettingsLog log : logs) {
+                        em.remove(em.contains(log) ? log : em.merge(log));
+                    }
+                    logs.clear();
+                    em.merge(settings);
+                    LOGGER.info("Cleared " + logCount + " old log entries");
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warning("Failed to clear old logs: " + e.getMessage());
         }
     }
 
@@ -199,5 +236,19 @@ public class SettingsService {
         Settings settings = getOrCreateSettings();
         settings.setActiveProfileId(profile.id);
         em.merge(settings);
+    }
+
+    public void shutdown() {
+        if (scheduler != null && !scheduler.isShutdown()) {
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }

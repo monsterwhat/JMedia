@@ -66,6 +66,23 @@ document.addEventListener('alpine:init', () => {
         },
 
         // Installation functions
+        async installChoco() {
+            this.updateComponentStatus('choco', 'Installing...');
+            try {
+                const response = await fetch(`/api/import/install/choco/${globalActiveProfileId}`, { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    this.updateComponentStatus('choco', '✅ Installed');
+                    // Refresh main status after installation
+                    setTimeout(() => this.checkInstallationStatus(), 1000);
+                } else {
+                    this.updateComponentStatus('choco', '❌ Failed: ' + result.message);
+                }
+            } catch (error) {
+                this.updateComponentStatus('choco', '❌ Error: ' + error.message);
+            }
+        },
+
         async installPython() {
             this.updateComponentStatus('python', 'Installing...');
             try {
@@ -498,6 +515,7 @@ document.addEventListener('alpine:init', () => {
                 
                 console.log('[Setup] Status data:', status);
                 console.log('[Setup] Individual statuses:', {
+                    chocoInstalled: status.chocoInstalled,
                     pythonInstalled: status.pythonInstalled,
                     ffmpegInstalled: status.ffmpegInstalled,
                     spotdlInstalled: status.spotdlInstalled,
@@ -715,12 +733,14 @@ function updateInstallationStatusElements(status) {
     console.log('[Setup] DOM update attempt with status:', status);
     
     // Update individual status elements
+    const chocoStatus = document.getElementById('chocoStatus');
     const pythonStatus = document.getElementById('pythonStatus');
     const ffmpegStatus = document.getElementById('ffmpegStatus');
     const spotdlStatus = document.getElementById('spotdlStatus');
     const whisperStatus = document.getElementById('whisperStatus');
     
     console.log('[Setup] Found elements:', {
+        chocoStatus: !!chocoStatus,
         pythonStatus: !!pythonStatus,
         ffmpegStatus: !!ffmpegStatus,
         spotdlStatus: !!spotdlStatus,
@@ -728,11 +748,21 @@ function updateInstallationStatusElements(status) {
     });
 
     // If any elements are missing, don't proceed
-    if (!pythonStatus || !ffmpegStatus || !spotdlStatus || !whisperStatus) {
+    if (!chocoStatus || !pythonStatus || !ffmpegStatus || !spotdlStatus || !whisperStatus) {
         console.log('[Setup] Some elements not found, skipping update');
         return;
     }
     
+    if (chocoStatus) {
+        const isInstalled = Boolean(status.chocoInstalled);
+        console.log('[Setup] Updating Chocolatey status:', isInstalled, '(raw:', status.chocoInstalled, ')');
+        const newText = isInstalled ? '✅ Installed' : '❌ Not installed';
+        const newClass = isInstalled ? 'help is-size-7 mt-2 has-text-success' : 'help is-size-7 mt-2 has-text-danger';
+        
+        chocoStatus.textContent = newText;
+        chocoStatus.className = newClass;
+    }
+
     if (pythonStatus) {
         const isInstalled = Boolean(status.pythonInstalled);
         console.log('[Setup] Updating Python status:', isInstalled, '(raw:', status.pythonInstalled, ')');
@@ -774,11 +804,24 @@ function updateInstallationStatusElements(status) {
     }
     
     // Update button states (setup only shows Install, not Remove)
+    const installChocoBtn = document.getElementById('installChocoBtn');
     const installPythonBtn = document.getElementById('installPythonBtn');
     const installFfmpegBtn = document.getElementById('installFfmpegBtn');
     const installSpotdlBtn = document.getElementById('installSpotdlBtn');
     const installWhisperBtn = document.getElementById('installWhisperBtn');
     
+    if (installChocoBtn) {
+        if (status.chocoInstalled) {
+            installChocoBtn.textContent = '✅ Chocolatey Installed';
+            installChocoBtn.className = 'button is-success is-rounded is-small';
+            installChocoBtn.disabled = true;
+        } else {
+            installChocoBtn.textContent = 'Install Chocolatey';
+            installChocoBtn.className = 'button is-success is-rounded is-small';
+            installChocoBtn.disabled = false;
+        }
+    }
+
     if (installPythonBtn) {
         if (status.pythonInstalled) {
             installPythonBtn.textContent = '✅ Python Installed';

@@ -151,27 +151,53 @@
 
             <!-- Hero Body (Main content area) -->
             <div class="hero-body m-0 p-0">
-                <div id="mainContent" class="columns p-0 m-0" style="width:100%; overflow-y: auto;">
+                <div id="mainContent" style="width:100%; overflow-y: auto;">
                     <section class="section">
                         <h1 class="title">Settings</h1>
-                        <div class="columns is-multiline"> 
-                            <!-- Library Management Card -->
-                            <div class="column is-one-third">
-                                <div class="card glass-box" style="max-height: calc(100vh - 320px); display: flex; flex-direction: column;">
-                                    <header class="card-header">
-                                        <p class="card-header-title">
-                                            <span class="icon-text">
-                                                <span class="icon"><i class="pi pi-folder-open"></i></span>
-                                                <span>Library Management</span>
-                                            </span>
-                                        </p>
-                                        <button class="card-header-icon" aria-label="more options" id="toggleLibraryManagementBtn">
-                                            <span class="icon">
-                                                <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                            </span>
-                                        </button>
-                                    </header>
-                                    <div class="card-content" id="libraryManagementContent" style="flex: 1; overflow-y: auto;">
+                        
+                        <!-- Tabs Navigation -->
+                        <div class="tabs is-boxed is-fullwidth glass-box" id="settingsTabs">
+                            <ul>
+                                <li class="is-active" data-tab="library-management">
+                                    <a>
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-folder-open"></i></span>
+                                            <span>Library Management</span>
+                                        </span>
+                                    </a>
+                                </li>
+                                <li data-tab="import-installation">
+                                    <a>
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                            <span>Import Installation</span>
+                                        </span>
+                                    </a>
+                                </li>
+                                <li data-tab="device-sync">
+                                    <a>
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-mobile"></i></span>
+                                            <span>Device Sync</span>
+                                        </span>
+                                    </a>
+                                </li>
+                                <li data-tab="logs">
+                                    <a>
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-list"></i></span>
+                                            <span>Logs</span>
+                                        </span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Tab Content -->
+                        <div class="tab-content">
+                            <!-- Library Management Tab -->
+                            <div id="library-management" class="tab-pane is-active glass-box">
+                                <div class="tab-content-inner">
 
                                         <!-- Run as Service -->
                                         <div class="field switch-field mb-5">
@@ -399,30 +425,12 @@
                                                 <!-- Update status will be shown here -->
                                             </div>
                                         </div>
-
-                                    </div>
                                 </div>
                             </div>
 
-
-
-                            <!-- Import Installation & Settings Card -->
-                            <div class="column is-one-third" id="importInstallationCardColumn">
-                                <div class="card glass-box" id="importInstallationCard" style="max-height: calc(100vh - 320px); overflow-y: auto;">
-                                    <header class="card-header">
-                                        <p class="card-header-title">
-                                            <span class="icon-text">
-                                                <span class="icon"><i class="pi pi-download"></i></span>
-                                                <span>Import Installation</span>
-                                            </span>
-                                        </p>
-                                        <button class="card-header-icon" aria-label="more options" id="toggleImportInstallationBtn">
-                                            <span class="icon">
-                                                <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                            </span>
-                                        </button>
-                                    </header>
-                                    <div class="card-content" id="importInstallationContent">
+                            <!-- Import Installation Tab -->
+                            <div id="import-installation" class="tab-pane glass-box">
+                                <div class="tab-content-inner">
                                         <div class="notification is-warning is-light" id="installationRequiredDialog">
                                             <div class="content">
                                                 <p class="has-text-weight-semibold">
@@ -437,13 +445,39 @@
                                                 </ul>
                                                 <div class="notification is-info is-light">
                                                     <p class="is-size-7 mb-0">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-info-circle"></i></span>
-                                                            <span>Note: On Windows, Python and FFmpeg are installed via Chocolatey, then SpotDL and Whisper via pip (Python).</span>
-                                                        </span>
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-info-circle"></i></span>
+                                                        <span>Note: On Windows, Chocolatey is installed first, then Python and FFmpeg via Chocolatey, and SpotDL/Whisper via pip (Python).</span>
+                                                    </span>
                                                     </p>
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        <!-- Chocolatey Installation -->
+                                        <div class="field mb-3">
+                                            <div class="level is-mobile">
+                                                <div class="level-left">
+                                                    <label class="label mb-0">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-box"></i></span>
+                                                            <span>Chocolatey</span>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                                <div class="level-right">
+                                                    <button id="installChocoBtn" class="button is-success is-rounded is-small">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Install Chocolatey</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2" id="chocoProgressContainer" style="display: none;">
+                                                <progress id="chocoInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            </div>
+                                            <p id="chocoStatus" class="help is-size-7 mt-2">Not installed</p>
                                         </div>
 
                                         <!-- Python Installation -->
@@ -616,43 +650,131 @@
                                                 </span>
                                             </button>
                                         </div>
-                                    </div>
                                 </div>
                             </div>
 
-                            <!-- Logs Card -->
-                            <div class="column is-one-third">
-                                <div class="card glass-box" style="max-height: calc(100vh - 320px);">
-                                    <header class="card-header">
-                                        <p class="card-header-title">
-                                            <span class="icon-text">
-                                                <span class="icon"><i class="pi pi-list"></i></span>
-                                                <span>Logs</span>
-                                            </span>
-                                        </p>
-                                        <button class="card-header-icon" aria-label="more options" id="toggleLogsBtn">
-                                            <span class="icon">
-                                                <i class="pi pi-angle-down" aria-hidden="true"></i>
-                                            </span>
-                                        </button>
-                                    </header>
-                                    <div class="card-content" id="logsCardContent">
-                                        <div style="max-height: 200px; overflow-y: auto;" id="logsPanel">
-                                            <!-- JS will populate logs here -->
-                                        </div>
-                                        <div class="buttons mt-3">
-                                            <button id="clearLogs" class="button is-danger is-small">
+                            <!-- Device Sync Tab -->
+                            <div id="device-sync" class="tab-pane glass-box">
+                                <div class="tab-content-inner">
+                                        
+                                        <!-- QR Code Section -->
+                                        <div class="mb-5">
+                                            <h6 class="title is-6 mb-4">
                                                 <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-trash"></i></span>
-                                                    <span>Clear Logs</span>
+                                                    <span class="icon"><i class="pi pi-qrcode"></i></span>
+                                                    <span>Connect New Device</span>
                                                 </span>
-                                            </button>
+                                            </h6>
+                                            
+                                            <div class="has-text-centered mb-4" id="qrCodeContainer">
+                                                <div class="notification is-info is-light">
+                                                    <p class="is-size-7">Click "Generate QR Code" to create a connection code for your mobile device</p>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="buttons is-centered">
+                                                <button id="generateQrCodeBtn" class="button is-primary is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-qrcode"></i></span>
+                                                        <span>Generate QR Code</span>
+                                                    </span>
+                                                </button>
+                                                <button id="refreshQrCodeBtn" class="button is-info is-small" style="display: none;">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                        <span>Refresh</span>
+                                                    </span>
+                                                </button>
+                                            </div>
                                         </div>
 
+                                        <!-- Active Sessions Section -->
+                                        <div class="mb-5">
+                                            <h6 class="title is-6 mb-4">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-users"></i></span>
+                                                    <span>Connected Devices</span>
+                                                </span>
+                                            </h6>
+                                            
+                                            <div id="deviceSessionsList">
+                                                <!-- Device sessions will be populated here -->
+                                                <div class="notification is-warning is-light">
+                                                    <p class="is-size-7">No devices currently connected</p>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="buttons mt-3">
+                                                <button id="refreshSessionsBtn" class="button is-info is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                        <span>Refresh</span>
+                                                    </span>
+                                                </button>
+                                                <button id="cleanupExpiredBtn" class="button is-warning is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-broom"></i></span>
+                                                        <span>Cleanup Expired</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <!-- Sync Settings Section -->
+                                        <div class="mb-3">
+                                            <hr>
+                                            <h6 class="title is-6 mb-3">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-cog"></i></span>
+                                                    <span>Sync Settings</span>
+                                                </span>
+                                            </h6>
+                                            
+                                            <div class="field">
+                                                <label class="switch">
+                                                    <input id="syncMusicToggle" type="checkbox" checked>
+                                                    <span class="check"></span>
+                                                    <span class="control-label">Sync Music Library</span>
+                                                </label>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="switch">
+                                                    <input id="syncVideosToggle" type="checkbox">
+                                                    <span class="check"></span>
+                                                    <span class="control-label">Sync Videos/Movies</span>
+                                                </label>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="switch">
+                                                    <input id="syncPlaylistsToggle" type="checkbox" checked>
+                                                    <span class="check"></span>
+                                                    <span class="control-label">Sync Playlists</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                </div>
+                            </div>
+
+                            <!-- Logs Tab -->
+                            <div id="logs" class="tab-pane glass-box">
+                                <div class="tab-content-inner">
+                                    <div style="max-height: 200px; overflow-y: auto;" id="logsPanel">
+                                        <!-- JS will populate logs here -->
+                                    </div>
+                                    <div class="buttons mt-3">
+                                        <button id="clearLogs" class="button is-danger is-small">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-trash"></i></span>
+                                                <span>Clear Logs</span>
+                                            </span>
+                                        </button>
                                     </div>
                                 </div>
-                            </div>  
-                        </div> 
+                            </div>
+                        </div>
                     </section>
                 </div>
             </div> 
@@ -682,12 +804,12 @@
                     <!-- CENTER: Controls + Progress -->
                     <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
                         <!-- Playback buttons -->
-                        <div class="buttons are-small mb-2">
-                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
-                            <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
+                        <div class="buttons are-medium mb-2">
+                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt" style="font-size: 1.5rem;"></i></button>
+                            <button id="prevBtn" title="Previous"><i class="pi pi-step-backward" style="font-size: 1.5rem;"></i></button>
                             <button id="playPauseBtn" class="button is-rounded is-large" title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
-                            <button id="nextBtn"   title="Next"><i id="nextIcon" class="pi pi-step-forward"></i></button>
-                            <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                            <button id="nextBtn" title="Next"><i id="nextIcon" class="pi pi-step-forward" style="font-size: 1.5rem;"></i></button>
+                            <button id="repeatBtn" title="Repeat"><i id="repeatIcon" class="pi pi-refresh" style="font-size: 1.5rem;"></i></button>
                         </div>
 
                         <!-- Progress bar -->
@@ -734,10 +856,36 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
 
+        <!-- Tab functionality script -->
         <script>
-            // Initialize globalActiveProfileId after other scripts
+            document.addEventListener('DOMContentLoaded', function() {
+                const tabButtons = document.querySelectorAll('#settingsTabs li');
+                const tabPanes = document.querySelectorAll('.tab-pane');
+
+                tabButtons.forEach(button => {
+                    button.addEventListener('click', function() {
+                        const targetTab = this.getAttribute('data-tab');
+                        
+                        // Remove active class from all buttons and panes
+                        tabButtons.forEach(btn => btn.classList.remove('is-active'));
+                        tabPanes.forEach(pane => pane.classList.remove('is-active'));
+                        
+                        // Add active class to clicked button and corresponding pane
+                        this.classList.add('is-active');
+                        const targetPane = document.getElementById(targetTab);
+                        if (targetPane) {
+                            targetPane.classList.add('is-active');
+                        }
+                    });
+                });
+            });
+        </script>
+
+        <script>
+            // Initialize globalActiveProfileId before deviceSync.js
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
         </script>
+        <script src="/js/deviceSync.js"></script>
 
         <script>
                                                         // Toast Notification System
@@ -796,14 +944,9 @@
         <script>
             // Load installation status after DOM is fully loaded and globalActiveProfileId is initialized
             document.addEventListener('DOMContentLoaded', () => {
-                console.log('[Settings] DOMContentLoaded event fired');
-                console.log('[Settings] globalActiveProfileId:', window.globalActiveProfileId);
-
                 // Load installation status once after DOM is ready
                 if (typeof loadInstallationStatus === 'function') {
-                    console.log('[Settings] Loading installation status after DOM ready');
                     setTimeout(() => {
-                        console.log('[Settings] Calling loadInstallationStatus');
                         loadInstallationStatus();
                     }, 100);
                 }

@@ -54,6 +54,14 @@ function throttle(func, delay) {
     };
 }
 
+function debounce(func, delay) {
+    let timeoutId;
+    return function (...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => func.apply(this, args), delay);
+    };
+}
+
 function applyMarqueeEffect(elementId, text) {
     const element = document.getElementById(elementId);
     if (element) {
@@ -70,7 +78,7 @@ function applyMarqueeEffect(elementId, text) {
 }
 
 function updateMusicBar() {
-    const {songName, artist, playing, currentTime, duration, volume, shuffleEnabled, repeatMode} = musicState;
+    const {songName, artist, playing, currentTime, duration, volume, shuffleMode, repeatMode} = musicState;
     const titleEl = document.getElementById('songTitle');
     const artistEl = document.getElementById('songArtist');
     if (titleEl)
@@ -178,9 +186,85 @@ audio.ontimeupdate = () => {
     }
 };
 audio.onended = () => {
-    console.log("[musicBar.js] audio.onended: Song ended, calling /api/music/playback/next.");
     fetch(`/api/music/playback/next/${window.globalActiveProfileId}`, {method: 'POST'});
 };
+// Cache DOM elements to avoid repeated queries
+const domElements = {
+    songCoverImage: null,
+    prevSongCoverImage: null,
+    nextSongCoverImage: null,
+    favicon: null,
+    pageTitle: null,
+    songTitle: null,
+    songArtist: null
+};
+
+// Initialize DOM element cache
+function initializeDOMElements() {
+    domElements.songCoverImage = document.getElementById('songCoverImage');
+    domElements.prevSongCoverImage = document.getElementById('prevSongCoverImage');
+    domElements.nextSongCoverImage = document.getElementById('nextSongCoverImage');
+    domElements.favicon = document.getElementById('favicon');
+    domElements.pageTitle = document.getElementById('pageTitle');
+    domElements.songTitle = document.getElementById('songTitle');
+    domElements.songArtist = document.getElementById('songArtist');
+}
+
+// Optimized image update function
+function updateImages(currentSong, prevSong, nextSong) {
+    const currentArtwork = currentSong.artworkBase64 && currentSong.artworkBase64 !== ''
+            ? `data:image/jpeg;base64,${currentSong.artworkBase64}`
+            : '/logo.png';
+
+    // Update current song image and favicon synchronously
+    if (domElements.songCoverImage) {
+        domElements.songCoverImage.src = currentArtwork;
+    }
+    if (domElements.favicon) {
+        domElements.favicon.href = currentArtwork;
+    }
+
+    // Update prev/next images asynchronously to avoid blocking
+    requestAnimationFrame(() => {
+        if (domElements.prevSongCoverImage) {
+            if (prevSong && prevSong.artworkBase64 && prevSong.artworkBase64 !== '') {
+                domElements.prevSongCoverImage.src = `data:image/jpeg;base64,${prevSong.artworkBase64}`;
+                domElements.prevSongCoverImage.style.display = 'block';
+            } else {
+                domElements.prevSongCoverImage.src = '/logo.png';
+                domElements.prevSongCoverImage.style.display = 'none';
+            }
+        }
+
+        if (domElements.nextSongCoverImage) {
+            if (nextSong && nextSong.artworkBase64 && nextSong.artworkBase64 !== '') {
+                domElements.nextSongCoverImage.src = `data:image/jpeg;base64,${nextSong.artworkBase64}`;
+                domElements.nextSongCoverImage.style.display = 'block';
+            } else {
+                domElements.nextSongCoverImage.src = '/logo.png';
+                domElements.nextSongCoverImage.style.display = 'none';
+            }
+        }
+    });
+}
+
+// Deferred memory cleanup to prevent blocking
+function deferCleanup() {
+    setTimeout(() => {
+        try {
+            if (window.previousSongData) {
+                Object.values(window.previousSongData).forEach(song => {
+                    if (song && song.artworkBase64) {
+                        song.artworkBase64 = null;
+                    }
+                });
+            }
+        } catch (error) {
+            // Silent cleanup failure - non-critical
+        }
+    }, 100); // Defer by 100ms
+}
+
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
     isUpdatingAudioSource = true; // Set flag to true at the beginning
@@ -190,127 +274,137 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
         return;
     }
 
+    // Initialize DOM elements cache if not already done
+    if (!domElements.songCoverImage) {
+        initializeDOMElements();
+    }
+
     const sameSong = String(musicState.currentSongId) === String(currentSong.id);
+    const newAudioSrc = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
+
+    // Update state
     musicState.currentSongId = currentSong.id;
     musicState.songName = currentSong.title ?? "Unknown Title";
-    // Only update artist if it's provided by the currentSong object, otherwise retain current value
     if (currentSong.artist !== null && currentSong.artist !== undefined) {
         musicState.artist = currentSong.artist;
     }
     musicState.currentTime = (sameSong || backendTime !== 0) ? (backendTime ?? 0) : 0;
-    musicState.duration = currentSong.durationSeconds ?? 0; // Prioritize duration from backend
-
-    // Clear previous song data and image sources before setting new ones
-    try {
-        const songCoverImageEl = document.getElementById('songCoverImage');
-        const prevSongCoverImageEl = document.getElementById('prevSongCoverImage');
-        const nextSongCoverImageEl = document.getElementById('nextSongCoverImage');
-        const faviconEl = document.getElementById('favicon');
-        
-        // Clear image sources
-        if (songCoverImageEl) songCoverImageEl.src = '';
-        if (prevSongCoverImageEl) prevSongCoverImageEl.src = '';
-        if (nextSongCoverImageEl) nextSongCoverImageEl.src = '';
-        if (faviconEl) faviconEl.href = '';
-        
-        // Clear base64 data from previous song objects to free memory
-        if (window.previousSongData) {
-            if (window.previousSongData.currentSong) window.previousSongData.currentSong.artworkBase64 = null;
-            if (window.previousSongData.prevSong) window.previousSongData.prevSong.artworkBase64 = null;
-            if (window.previousSongData.nextSong) window.previousSongData.nextSong.artworkBase64 = null;
-        }
-        
-        // Clear previous song data references
-        window.previousSongData = {
-            currentSong: musicState.currentSongId ? { id: musicState.currentSongId } : null,
-            prevSong: null,
-            nextSong: null
-        };
-    } catch (error) {
-        // Silent cleanup failure - non-critical
-    }
-
-    // Update current song cover image
-    const songCoverImageEl = document.getElementById('songCoverImage');
-    if (songCoverImageEl) {
-        songCoverImageEl.src = currentSong.artworkBase64 && currentSong.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 : '/logo.png';
-    }
-
-    // Update previous song cover image
-    const prevSongCoverImageEl = document.getElementById('prevSongCoverImage');
-    if (prevSongCoverImageEl) {
-        if (prevSong && prevSong.artworkBase64 && prevSong.artworkBase64 !== '') {
-            prevSongCoverImageEl.src = 'data:image/jpeg;base64,' + prevSong.artworkBase64;
-            prevSongCoverImageEl.style.display = 'block'; // Show if available
-        } else {
-            prevSongCoverImageEl.src = '/logo.png'; // Default image
-            prevSongCoverImageEl.style.display = 'none'; // Hide if no previous song
-        }
-    }
-
-    // Update next song cover image
-    const nextSongCoverImageEl = document.getElementById('nextSongCoverImage');
-    if (nextSongCoverImageEl) {
-        if (nextSong && nextSong.artworkBase64 && nextSong.artworkBase64 !== '') {
-            nextSongCoverImageEl.src = 'data:image/jpeg;base64,' + nextSong.artworkBase64;
-            nextSongCoverImageEl.style.display = 'block'; // Show if available
-        } else {
-            nextSongCoverImageEl.src = '/logo.png'; // Default image
-            nextSongCoverImageEl.style.display = 'none'; // Hide if no next song
-        }
-    }
-
-    const faviconEl = document.getElementById('favicon');
-    if (faviconEl) {
-        faviconEl.href = currentSong.artworkBase64 && currentSong.artworkBase64 !== '' ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 : '/logo.png';
-    }
-
-    // Update musicState.hasLyrics
+    musicState.duration = currentSong.durationSeconds ?? 0;
     musicState.hasLyrics = currentSong.lyrics !== null && currentSong.lyrics !== undefined && currentSong.lyrics !== '';
 
-    updatePageTitle({name: musicState.songName, artist: musicState.artist});
-    
-    // Clear audio buffer before setting new source
-    try {
-        audio.src = '';
-        audio.load(); // Clear buffer
-    } catch (error) {
-        // Silent cleanup failure - non-critical
-    }
-    
-    audio.src = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
-    audio.load();
-    audio.volume = musicState.volume;
-    audio.onloadedmetadata = () => {
-        console.log("[musicBar.js] onloadedmetadata: audio.duration=", audio.duration);
-        // Only update musicState.duration from audio.duration if it's a valid, non-zero number
-        if (typeof audio.duration === 'number' && !isNaN(audio.duration) && audio.duration > 0) {
-            musicState.duration = audio.duration;
-        }
-        audio.currentTime = musicState.currentTime; // set backend time after duration is known
-        if (play)
-            audio.play().catch(console.error);
-        else // Pause if 'play' is false
-            audio.pause();
-        updateMusicBar();
-        console.log("[musicBar.js] onloadedmetadata: musicState.duration (final)=", musicState.duration);
-        
-        // Clear current song base64 data after UI is updated to free memory
+    // Only update audio source if it actually changed
+    if (audio.src !== newAudioSrc) {
+
+        // Clear audio buffer only when necessary
         try {
-            if (window.previousSongData && window.previousSongData.currentSong) {
-                window.previousSongData.currentSong.artworkBase64 = null;
-            }
+            audio.src = '';
+            audio.load(); // Clear buffer
         } catch (error) {
             // Silent cleanup failure - non-critical
         }
+
+        audio.src = newAudioSrc;
+        audio.load();
+    }
+
+    // Only update volume if it changed
+    if (audio.volume !== musicState.volume) {
+        audio.volume = musicState.volume;
+    }
+
+    // Update images asynchronously to avoid blocking
+    updateImages(currentSong, prevSong, nextSong);
+
+    // Update page title
+    updatePageTitle({name: musicState.songName, artist: musicState.artist});
+
+    // Optimized metadata handling
+    audio.onloadedmetadata = () => {
+
+        // Update duration if valid
+        if (typeof audio.duration === 'number' && !isNaN(audio.duration) && audio.duration > 0) {
+            musicState.duration = audio.duration;
+        }
+
+        // Validate and set current time
+        if (musicState.currentTime >= 0 && musicState.currentTime <= audio.duration) {
+            audio.currentTime = musicState.currentTime;
+        }
+
+        // Handle playback
+        if (play) {
+            audio.play().catch(console.error);
+        } else {
+            audio.pause();
+        }
+
+        // Defer non-critical updates to prevent blocking
+        requestAnimationFrame(() => {
+            updateMusicBar();
+            deferCleanup(); // Move cleanup here
+            isUpdatingAudioSource = false; // Reset flag after UI update
+        });
+
         
-        isUpdatingAudioSource = false; // Reset flag after UI update
     };
 }
 
 
 // ---------------- WebSocket ----------------
 let ws;
+let songContextCache = null;
+let cacheTimestamp = 0;
+const CACHE_DURATION = 1000; // 1 second cache
+
+// Debounced functions to prevent rapid updates
+const debouncedUpdateQueueCount = debounce((count) => {
+    if (window.updateQueueCount) {
+        window.updateQueueCount(count);
+    }
+}, 100);
+
+const debouncedUpdateSelectedSong = debounce((songId) => {
+    updateSelectedSongRow(songId);
+    if (window.updateQueueCurrentSong) {
+        window.updateQueueCurrentSong(songId);
+    }
+}, 50);
+
+// Optimized song context fetching with caching
+async function fetchSongContext(profileId) {
+    const now = Date.now();
+    if (songContextCache && (now - cacheTimestamp) < CACHE_DURATION) {
+        return songContextCache;
+    }
+    const response = await Promise.all([
+        fetch(`/api/music/playback/current/${profileId}`).then(r => r.json()),
+        fetch(`/api/music/playback/previousSong/${profileId}`).then(r => r.json()),
+        fetch(`/api/music/playback/nextSong/${profileId}`).then(r => r.json())
+    ]);
+
+    songContextCache = response;
+    cacheTimestamp = now;
+    return response;
+}
+
+// Optimized queue change detection
+function hasQueueChanged(newCue, oldCue) {
+    if (!newCue && !oldCue)
+        return false;
+    if (!newCue || !oldCue)
+        return true;
+    if (newCue.length !== oldCue.length)
+        return true;
+
+    // Quick check first and last items
+    if (newCue[0] !== oldCue[0] || newCue[newCue.length - 1] !== oldCue[oldCue.length - 1]) {
+        return true;
+    }
+
+    // Only do full comparison if quick checks pass
+    return JSON.stringify(newCue) !== JSON.stringify(oldCue);
+}
+
 function connectWS() {
     if (!window.globalActiveProfileId) {
         console.log('[WS] globalActiveProfileId not available, retrying in 500ms...');
@@ -318,9 +412,12 @@ function connectWS() {
         return;
     }
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${window.globalActiveProfileId}`);
-    ws.onopen = () => console.log('[WS] Connected');
+    ws.onopen = () => {
+        // Clear cache on new connection to ensure fresh data
+        songContextCache = null;
+        cacheTimestamp = 0;
+    };
     ws.onclose = () => {
-        console.log('[WS] Disconnected. Attempting to reconnect...');
         setTimeout(connectWS, 1000); // Reconnect after 1 second
     };
     ws.onerror = e => console.error('[WS] Error', e);
@@ -328,7 +425,6 @@ function connectWS() {
 }
 
 function handleWSMessage(msg) {
-
     let message;
     try {
         message = JSON.parse(msg.data);
@@ -341,6 +437,8 @@ function handleWSMessage(msg) {
         const state = message.payload;
         const songChanged = String(state.currentSongId) !== String(musicState.currentSongId);
         const playChanged = state.playing !== musicState.playing;
+
+        // Update local state immediately
         musicState.currentSongId = state.currentSongId;
         if (state.artist !== null && state.artist !== undefined) {
             musicState.artist = state.artist;
@@ -350,158 +448,114 @@ function handleWSMessage(msg) {
         musicState.duration = state.duration;
         musicState.volume = state.volume;
         audio.volume = state.volume; // Synchronize actual audio volume
+        
+        // Control audio playback based on state
+        if (state.playing && audio.paused) {
+            audio.play().catch(console.error);
+        } else if (!state.playing && !audio.paused) {
+            audio.pause();
+        }
         musicState.shuffleMode = state.shuffleMode;
         musicState.repeatMode = state.repeatMode;
-        // Check if the queue itself has changed (e.g., due to shuffle, or songs added/removed)
-        // Check if the queue has been re-ordered or its length has changed.
-        const oldCueLength = musicState.cue ? musicState.cue.length : 0;
-        const newCueLength = state.cue ? state.cue.length : 0;
-        const queueChanged = (state.cue && musicState.cue && JSON.stringify(state.cue) !== JSON.stringify(musicState.cue)) ||
-                (state.cue && !musicState.cue) || (!state.cue && musicState.cue);
 
-        // Check if queue length changed (songs removed or added)
-        const queueLengthChanged = oldCueLength !== newCueLength;
+        // Optimized queue change detection
+        const queueChanged = hasQueueChanged(state.cue, musicState.cue);
+        const queueLengthChanged = (musicState.cue?.length || 0) !== (state.cue?.length || 0);
 
         // Update musicState.cue for future comparisons
         musicState.cue = state.cue;
 
-        if (songChanged && state.currentSongId !== window.lastRefreshedSongId) { // Only refresh when song changes AND we haven't refreshed for this song yet
+        // Consolidated state update logic
+        const needsSongContext = songChanged || playChanged || queueChanged;
+
+        if (needsSongContext && state.currentSongId !== window.lastRefreshedSongId) {
             window.lastRefreshedSongId = state.currentSongId;
 
-            Promise.all([
-                fetch(`/api/music/playback/current/${window.globalActiveProfileId}`).then(r => r.json()),
-                fetch(`/api/music/playback/previousSong/${window.globalActiveProfileId}`).then(r => r.json()),
-                fetch(`/api/music/playback/nextSong/${window.globalActiveProfileId}`).then(r => r.json())
-            ])
+            fetchSongContext(window.globalActiveProfileId)
                     .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
                         const currentSong = currentSongResponse.data;
                         const prevSong = prevSongResponse.data;
                         const nextSong = nextSongResponse.data;
+
                         if (currentSong) {
                             UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
-                            // Update highlighting without refreshing entire table
-                            updateSelectedSongRow(state.currentSongId);
-                            // Update queue highlighting
-                            if (window.updateQueueCurrentSong) {
-                                window.updateQueueCurrentSong(state.currentSongId);
-                            }
-                            // Update queue count when song changes (song advanced)
-                            if (window.updateQueueCount && state.cue) {
-                                // Update queue count based on current queue length
-                                window.updateQueueCount(state.cue.length);
-                            }
-                            // Emit queue change event when queue content actually changed
-                            if (queueChanged || queueLengthChanged) {
-                                console.log("[musicBar.js] Queue content changed, emitting queueChanged event. queueChanged:", queueChanged, "queueLengthChanged:", queueLengthChanged);
-                                window.dispatchEvent(new CustomEvent('queueChanged', {
-                                    detail: { 
-                                        queueSize: state.cue?.length || 0,
-                                        queueChanged: queueChanged,
-                                        queueLengthChanged: queueLengthChanged
-                                    }
-                                }));
-                            }
-                    }
-                    }).catch(error => console.error("Error fetching song context:", error));
-        } else if (playChanged || queueChanged) { // Handle play state and queue changes without table refresh
-            Promise.all([
-                fetch(`/api/music/playback/current/${window.globalActiveProfileId}`).then(r => r.json()),
-                fetch(`/api/music/playback/previousSong/${window.globalActiveProfileId}`).then(r => r.json()),
-                fetch(`/api/music/playback/nextSong/${window.globalActiveProfileId}`).then(r => r.json())
-            ])
-                    .then(([currentSongResponse, prevSongResponse, nextSongResponse]) => {
-                        const currentSong = currentSongResponse.data;
-                        const prevSong = prevSongResponse.data;
-                        const nextSong = nextSongResponse.data;
-                        if (currentSong) {
-                            UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime ?? 0);
-                            // Update queue highlighting even when queue hasn't changed
-                            if (window.updateQueueCurrentSong) {
-                                window.updateQueueCurrentSong(state.currentSongId);
-                            }
-                        }
-                        // Update queue count when queue changes
-                        if (window.updateQueueCount && state.cue) {
-                            window.updateQueueCount(state.cue.length);
-                        }
-                        // Emit queue change event when queue changes
-                        if (queueChanged) {
-                            window.dispatchEvent(new CustomEvent('queueChanged', {
-                                detail: { 
-                                    queueSize: state.cue?.length || 0,
-                                    queueChanged: queueChanged,
-                                    queueLengthChanged: false
+
+                            // Batch DOM updates using requestAnimationFrame for better performance
+                            requestAnimationFrame(() => {
+                                if (songChanged) {
+                                    debouncedUpdateSelectedSong(state.currentSongId);
                                 }
-                            }));
-                        }
-                    }).catch(error => console.error("Error fetching song context:", error));
+
+                                // Update queue highlighting
+                                if (window.updateQueueCurrentSong) {
+                                    window.updateQueueCurrentSong(state.currentSongId);
+                                }
+
+                                // Update queue count
+                                if (state.cue) {
+                                    debouncedUpdateQueueCount(state.cue.length);
+                                }
+
+                                // Emit queue change event when queue content actually changed
+                                if (queueChanged || queueLengthChanged) {
+                                    window.dispatchEvent(new CustomEvent('queueChanged', {
+                                        detail: {
+                                            queueSize: state.cue?.length || 0,
+                                            queueChanged: queueChanged,
+                                            queueLengthChanged: queueLengthChanged
+                                        }
+                                    }));
+                                }
+                            });
+                    }
+                    })
+                    .catch(error => console.error("Error fetching song context:", error));
         }
 
-// If neither song nor play state changed, but time might have drifted, synchronize currentTime
-
-        if (!songChanged && !playChanged) {
-
-            const clientReceiveTime = Date.now(); // Use Date.now() for epoch-based timestamp
-
-            const serverSendTime = state.lastUpdateTime; // Server's timestamp when state was sent
-
-            // Calculate estimated latency (in milliseconds)
-
+        // Time synchronization only when needed
+        if (!songChanged && !playChanged && !queueChanged) {
+            const clientReceiveTime = Date.now();
+            const serverSendTime = state.lastUpdateTime;
             const estimatedLatencyMs = clientReceiveTime - serverSendTime;
             const estimatedLatencySeconds = estimatedLatencyMs / 1000.0;
-            // Project the server's currentTime to the client's current local time
-
             const currentAudioTime = audio.currentTime;
             const projectedRemoteTime = state.currentTime + estimatedLatencySeconds;
             const timeDifference = Math.abs(currentAudioTime - projectedRemoteTime);
-            // Only adjust if the difference is significant to avoid constant small adjustments
 
-            if (timeDifference > 0.5) { // e.g., if difference is more than 0.5 seconds
-                console.log(`[WS] handleWSMessage: Correcting time. Local: ${currentAudioTime.toFixed(2)}, Server (projected): ${projectedRemoteTime.toFixed(2)}, Diff: ${timeDifference.toFixed(2)}, Latency: ${estimatedLatencyMs.toFixed(2)}ms`);
+            // Only adjust if the difference is significant
+            if (timeDifference > 0.5) {
                 audio.currentTime = projectedRemoteTime;
             }
-        } else if (message.type === 'history-update') {
-            console.log('[WS] History update received for profile', message.profileId, ', refreshing history table');
-            // Trigger history refresh if the function exists
-            if (window.refreshHistory) {
-                console.log('[WS] Calling refreshHistory function');
-                window.refreshHistory();
-            } else {
-                console.error('[WS] refreshHistory function not available, retrying in 100ms...');
-                // Wait a bit and try again in case history.js hasn't loaded yet
-                setTimeout(() => {
-                    if (window.refreshHistory) {
-                        console.log('[WS] Retrying refreshHistory function');
-                        window.refreshHistory();
-                    } else {
-                        console.error('[WS] refreshHistory function still not available after retry');
-                    }
-                }, 100);
-            }
         }
-        updateMusicBar();
-
-        // Update queue count based on current state
-        if (window.updateQueueCount && state.cue) {
-            window.updateQueueCount(state.cue.length);
+    } else if (message.type === 'history-update') {
+        // Trigger history refresh if the function exists
+        if (window.refreshHistory) {
+            window.refreshHistory();
+        } else {
+            // Wait a bit and try again in case history.js hasn't loaded yet
+            setTimeout(() => {
+                if (window.refreshHistory) {
+                    window.refreshHistory();
+                }
+            }, 100);
         }
     }
+
+    // Always update music bar at the end
+    updateMusicBar();
 }
 
 function sendWS(type, payload) {
-    console.log(`[musicBar.js] sendWS: Sending type=${type}, payload=`, payload);
     if (ws && ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({type, payload}));
 }
 
 // ---------------- Controls ----------------
 function setPlaybackTime(newTime, fromClient = false) {
-    console.log(`[musicBar.js] setPlaybackTime called: newTime=${newTime}, fromClient=${fromClient}`);
     musicState.currentTime = newTime;
     audio.currentTime = newTime;
     updateMusicBar();
     if (fromClient) {
-        console.log(`[musicBar.js] setPlaybackTime: Sending seek WS message for newTime=${newTime}`);
         sendWS('seek', {value: newTime});
 }
 }
@@ -510,7 +564,6 @@ function handleSeek(newTime) {
     musicState.currentTime = newTime; // Immediate UI update
     updateMusicBar();
     sendWS('seek', {value: newTime});
-    console.log("[musicBar.js] User manually seeked to sec=", newTime);
 }
 
 function bindTimeSlider() {
@@ -558,38 +611,59 @@ function bindVolumeSlider() {
 }
 
 function bindPlaybackButtons() {
-    document.getElementById('playPauseBtn').onclick = () => {
-        console.log("[musicBar.js] playPauseBtn clicked");
-        apiPost('toggle', window.globalActiveProfileId);
-    };
-    document.getElementById('prevBtn').onclick = () => {
-        console.log("[musicBar.js] prevBtn clicked");
-        apiPost('previous', window.globalActiveProfileId);
-    };
-    document.getElementById('nextBtn').onclick = () => {
-        console.log("[musicBar.js] nextBtn clicked");
-        apiPost('next', window.globalActiveProfileId);
-    };
-    // Add click listeners for previous and next song cover images
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
     const prevSongCoverImage = document.getElementById('prevSongCoverImage');
+    const nextSongCoverImage = document.getElementById('nextSongCoverImage');
+    
+    // Remove existing event listeners by cloning and replacing elements
+    if (playPauseBtn) {
+        const newPlayPauseBtn = playPauseBtn.cloneNode(true);
+        playPauseBtn.parentNode.replaceChild(newPlayPauseBtn, playPauseBtn);
+        newPlayPauseBtn.onclick = () => {
+            // Optimistic UI update - toggle immediately
+            musicState.playing = !musicState.playing;
+            updateMusicBar();
+            
+            // Then send to backend for synchronization
+            apiPost('toggle', window.globalActiveProfileId);
+        };
+    }
+    if (prevBtn) {
+        const newPrevBtn = prevBtn.cloneNode(true);
+        prevBtn.parentNode.replaceChild(newPrevBtn, prevBtn);
+        newPrevBtn.onclick = () => {
+            apiPost('previous', window.globalActiveProfileId);
+        };
+    }
+    if (nextBtn) {
+        const newNextBtn = nextBtn.cloneNode(true);
+        nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
+        newNextBtn.onclick = () => {
+            apiPost('next', window.globalActiveProfileId);
+        };
+    }
+    
+    // Add click listeners for previous and next song cover images
     if (prevSongCoverImage) {
-        prevSongCoverImage.onclick = () => {
-            console.log("[musicBar.js] prevSongCoverImage clicked");
+        const newPrevSongCoverImage = prevSongCoverImage.cloneNode(true);
+        prevSongCoverImage.parentNode.replaceChild(newPrevSongCoverImage, prevSongCoverImage);
+        newPrevSongCoverImage.onclick = () => {
             apiPost('previous', window.globalActiveProfileId);
         };
     }
 
-    const nextSongCoverImage = document.getElementById('nextSongCoverImage');
     if (nextSongCoverImage) {
-        nextSongCoverImage.onclick = () => {
-            console.log("[musicBar.js] nextSongCoverImage clicked");
+        const newNextSongCoverImage = nextSongCoverImage.cloneNode(true);
+        nextSongCoverImage.parentNode.replaceChild(newNextSongCoverImage, nextSongCoverImage);
+        newNextSongCoverImage.onclick = () => {
             apiPost('next', window.globalActiveProfileId);
         };
     }
 
 
     document.getElementById('shuffleBtn').onclick = () => {
-        console.log("[musicBar.js] shuffleBtn clicked");
         // Optimistic UI update
         let currentMode = musicState.shuffleMode;
         let newMode;
@@ -612,7 +686,6 @@ function bindPlaybackButtons() {
         apiPost('shuffle', window.globalActiveProfileId);
     };
     document.getElementById('repeatBtn').onclick = () => {
-        console.log("[musicBar.js] repeatBtn clicked");
         // Optimistic UI update
         let currentMode = musicState.repeatMode;
         let newMode;
@@ -643,7 +716,6 @@ async function refreshSongTable() {
     const playlistId = sessionStorage.getItem('currentPlaylistId') || '0';
 
     if (profileId) {
-        console.log(`[musicBar.js] Refreshing song table for profile ${profileId}, playlist ${playlistId}`);
         try {
             await htmx.ajax('GET', `/api/music/ui/tbody/${profileId}/${playlistId}`, {
                 target: '#songTableBody',
@@ -699,11 +771,11 @@ function applyThemePreference() {
     }
 
     if (isDarkMode === 'true') {
-        document.documentElement.classList.add('is-dark-mode');
+        document.documentElement.setAttribute('data-theme', 'dark');
         themeIcon.classList.remove('pi-sun');
         themeIcon.classList.add('pi-moon');
     } else {
-        document.documentElement.classList.remove('is-dark-mode');
+        document.documentElement.removeAttribute('data-theme');
         themeIcon.classList.remove('pi-moon');
         themeIcon.classList.add('pi-sun');
     }
@@ -725,16 +797,16 @@ let currentRightClickedSongId = null; // Global variable to store the ID
 function showContextMenu(x, y) {
     const contextMenu = document.getElementById('customContextMenu');
     const removeFromPlaylistMenuItem = document.getElementById('removeFromPlaylistMenuItem');
-    
+
     // Check if we're currently in a playlist view
     const currentPlaylistId = sessionStorage.getItem('currentPlaylistId');
     const isInPlaylistView = currentPlaylistId && currentPlaylistId !== '0';
-    
+
     // Show/hide the "Remove from Playlist" menu item
     if (removeFromPlaylistMenuItem) {
         removeFromPlaylistMenuItem.style.display = isInPlaylistView ? 'flex' : 'none';
     }
-    
+
     if (contextMenu) {
         contextMenu.style.left = `${x}px`;
         contextMenu.style.top = `${y}px`;
@@ -816,7 +888,7 @@ async function removeSongFromCurrentPlaylist(songId) {
         showToast('No playlist selected', 'error');
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/music/playlists/${currentPlaylistId}/songs/${songId}`, {
             method: 'DELETE'
@@ -826,7 +898,7 @@ async function removeSongFromCurrentPlaylist(songId) {
         }
         console.log(`Song ${songId} removed from playlist ${currentPlaylistId}`);
         showToast('Song removed from playlist successfully', 'success');
-        
+
         // Refresh the playlist view to show the updated song list
         if (window.globalActiveProfileId) {
             htmx.ajax('GET', `/api/music/ui/playlist-view/${window.globalActiveProfileId}`, {
@@ -843,14 +915,12 @@ async function removeSongFromCurrentPlaylist(songId) {
 // Function to rescan a song
 async function rescanSong(songId) {
     try {
-        console.log(`[musicBar.js] Attempting to rescan song with ID: ${songId}`);
         const response = await fetch(`/api/settings/${window.globalActiveProfileId}/rescan-song/${songId}`, {
             method: 'POST'
         });
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[musicBar.js] Server response (${response.status}): ${errorText}`);
 
             // Parse the error message to provide better user feedback
             let userMessage = "Failed to rescan song.";
@@ -874,7 +944,6 @@ async function rescanSong(songId) {
         }
 
         const result = await response.json();
-        console.log(`Song ${songId} re-scan initiated. Server response:`, result);
 
         // Show success message
         if (result.message) {
@@ -904,7 +973,7 @@ async function deleteSong(songId) {
             reloadSongTableBody(); // Reload the table to remove the deleted song
             // Emit queue change event when song is deleted
             window.dispatchEvent(new CustomEvent('queueChanged', {
-                detail: { 
+                detail: {
                     queueSize: musicState.cue?.length || 0,
                     queueChanged: true,
                     queueLengthChanged: true
@@ -918,7 +987,6 @@ async function deleteSong(songId) {
 
 // Function to reload the song table, preserving search and sort state
 function reloadSongTableBody() {
-    console.log("[musicBar.js] reloadSongTableBody called");
     const songTableBody = document.getElementById('songTableBody');
     if (songTableBody) {
         const playlistId = window.getCurrentPlaylistId ? window.getCurrentPlaylistId() : '0';
@@ -932,57 +1000,231 @@ function reloadSongTableBody() {
             url += `&search=${encodeURIComponent(searchTerm)}`;
         }
 
-        console.log(`[musicBar.js] Reloading song table with URL: ${url}`);
         htmx.ajax('GET', url, {target: '#songTableBody', swap: 'innerHTML'});
-    } else {
-        console.error("[musicBar.js] reloadSongTableBody: #songTableBody element not found.");
     }
 }
 
 // ---------------- Init ----------------
 
-document.addEventListener('DOMContentLoaded', () => {
-
-    bindMusicBarControls();
-    bindImageExpansion();
-    // Initialize Media Session API handlers
-    if ('mediaSession' in navigator && window.setupMediaSessionHandlers) {
-        window.setupMediaSessionHandlers(apiPost, setPlaybackTime, audio);
+// Parallel initialization system
+class InitializationManager {
+    constructor() {
+        this.isInitialized = false;
+        this.initTasks = new Map();
+        this.setupInitTasks();
     }
 
-    connectWS();
+    setupInitTasks() {
+        // Define initialization tasks with their dependencies
+        this.initTasks.set('domElements', {
+            dependencies: [],
+            execute: () => this.initializeDOMElements(),
+            priority: 1
+        });
 
-    // HTMX highlighting is now handled server-side via template rendering
+        this.initTasks.set('profileData', {
+            dependencies: [],
+            execute: () => this.waitForProfileData(),
+            priority: 2
+        });
 
-    // Update selected song row styling without full table reload
-    document.body.addEventListener('htmx:afterRequest', function (event) {
-        const url = event.detail.requestConfig?.url || event.detail.path;
-        if (url && url.includes('/api/music/playback/select/')) {
-            // Extract song ID from the URL
-            const urlParts = url.split('/');
-            const songId = urlParts[urlParts.length - 1];
+        this.initTasks.set('webSocket', {
+            dependencies: ['profileData'],
+            execute: () => this.initializeWebSocket(),
+            priority: 3
+        });
 
-            // Update last refreshed song ID to prevent duplicate refreshes
-            window.lastRefreshedSongId = songId;
+        this.initTasks.set('mediaSession', {
+            dependencies: ['domElements'],
+            execute: () => this.initializeMediaSession(),
+            priority: 4
+        });
 
-            // Update row styling after a short delay to allow server to update state
-            setTimeout(() => {
-                updateSelectedSongRow(songId);
-                // Update queue highlighting when song is selected
-                if (window.updateQueueCurrentSong) {
-                    window.updateQueueCurrentSong(songId);
+        this.initTasks.set('uiBindings', {
+            dependencies: ['domElements'],
+            execute: () => this.initializeUIBindings(),
+            priority: 5
+        });
+    }
+
+    async initializeDOMElements() {
+        initializeDOMElements();
+        return Promise.resolve();
+    }
+
+    async waitForProfileData() {
+        return new Promise((resolve) => {
+            const checkProfile = () => {
+                if (window.globalActiveProfileId) {
+                    resolve();
+                } else {
+                    setTimeout(checkProfile, 50);
                 }
-            }, 100);
+            };
+            checkProfile();
+        });
+    }
+
+    async initializeWebSocket() {
+        connectWS();
+        return Promise.resolve();
+    }
+
+    async initializeMediaSession() {
+        if ('mediaSession' in navigator && window.setupMediaSessionHandlers) {
+            window.setupMediaSessionHandlers(apiPost, setPlaybackTime, audio);
         }
-    });
+        return Promise.resolve();
+    }
 
+    async initializeUIBindings() {
+        bindMusicBarControls();
+        bindImageExpansion();
+        return Promise.resolve();
+    }
 
-    // Add context menu listener to the document, using event delegation
+    async start() {
+        if (this.isInitialized)
+            return;
+
+        // Execute tasks in dependency order, but parallelize where possible
+        const executedTasks = new Set();
+
+        const executeTask = async (taskName) => {
+            if (executedTasks.has(taskName))
+                return;
+
+            const task = this.initTasks.get(taskName);
+            if (!task)
+                return;
+
+            // Wait for dependencies
+            for (const dep of task.dependencies) {
+                if (!executedTasks.has(dep)) {
+                    await executeTask(dep);
+                }
+            }
+
+            // Execute task
+            await task.execute();
+            executedTasks.add(taskName);
+        };
+
+        // Execute all tasks
+        const taskNames = Array.from(this.initTasks.keys())
+                .sort((a, b) => this.initTasks.get(a).priority - this.initTasks.get(b).priority);
+
+        for (const taskName of taskNames) {
+            await executeTask(taskName);
+        }
+
+        this.isInitialized = true;
+
+        // Setup event listeners after all initialization is done
+        this.setupEventListeners();
+    }
+
+    setupEventListeners() {
+        // HTMX highlighting is now handled server-side via template rendering
+        document.body.addEventListener('htmx:afterRequest', function (event) {
+            const url = event.detail.requestConfig?.url || event.detail.path;
+            if (url && url.includes('/api/music/playback/select/')) {
+                // Extract song ID from the URL
+                const urlParts = url.split('/');
+                const songId = urlParts[urlParts.length - 1];
+
+                // Update last refreshed song ID to prevent duplicate refreshes
+                window.lastRefreshedSongId = songId;
+
+                // Update row styling after a short delay to allow server to update state
+                setTimeout(() => {
+                    updateSelectedSongRow(songId);
+                    // Update queue highlighting when song is selected
+                    if (window.updateQueueCurrentSong) {
+                        window.updateQueueCurrentSong(songId);
+                    }
+                }, 100);
+            }
+        });
+    }
+}
+
+// Loading indicator system
+function showLoadingIndicator(message = 'Initializing...') {
+    const existingIndicator = document.getElementById('initLoadingIndicator');
+    if (existingIndicator)
+        return;
+
+    const indicator = document.createElement('div');
+    indicator.id = 'initLoadingIndicator';
+    indicator.className = 'notification is-info is-light';
+    indicator.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+        min-width: 200px;
+        box-shadow: 0 4px 6px rgba(10, 10, 10, 0.1);
+    `;
+    indicator.innerHTML = `
+        <div class="level">
+            <div class="level-left">
+                <div class="level-item">
+                    <span class="icon">
+                        <i class="pi pi-spin pi-spinner"></i>
+                    </span>
+                    <span>${message}</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(indicator);
+}
+
+function updateLoadingIndicator(message) {
+    const indicator = document.getElementById('initLoadingIndicator');
+    if (indicator) {
+        const messageSpan = indicator.querySelector('span:last-child');
+        if (messageSpan) {
+            messageSpan.textContent = message;
+        }
+    }
+}
+
+function hideLoadingIndicator() {
+    const indicator = document.getElementById('initLoadingIndicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+// Create global initialization manager
+const initManager = new InitializationManager();
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Show loading indicator
+    showLoadingIndicator('Loading JMedia...');
+
+    // Start parallel initialization
+    initManager.start()
+            .then(() => {
+                hideLoadingIndicator();
+            })
+            .catch(error => {
+                console.error('[Init] Initialization failed:', error);
+                updateLoadingIndicator('Initialization failed');
+                setTimeout(() => {
+                    hideLoadingIndicator();
+                }, 3000);
+            });
+
+    // Add context menu listener to document, using event delegation
     document.addEventListener('contextmenu', (event) => {
         const songTableBody = document.getElementById('songTableBody'); // Using getElementById for a more direct selection
         const songCoverImage = document.getElementById('songCoverImage');
 
-        // If right-click is within the song table body
+        // If right-click is within song table body
         if (songTableBody && songTableBody.contains(event.target)) {
             event.preventDefault();
             const clickedRow = event.target.closest('tr');
@@ -994,7 +1236,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideContextMenu();
             }
         }
-        // NEW: If right-click is on the song cover image in the player
+        // NEW: If right-click is on song cover image in player
         else if (songCoverImage && songCoverImage.contains(event.target)) {
             event.preventDefault();
 
@@ -1005,107 +1247,190 @@ document.addEventListener('DOMContentLoaded', () => {
                 hideContextMenu();
             }
         } else {
-            hideContextMenu();
+            hideContextMenu(); // Hide menu for clicks outside song table
         }
     });
-    // Hide context menu and sub-menu when clicking anywhere else
+
+    // Add click listener to document to hide context menu when clicking elsewhere
     document.addEventListener('click', (event) => {
         const contextMenu = document.getElementById('customContextMenu');
-        const playlistSubMenu = document.getElementById('playlistSubMenu'); // Get sub-menu
-        if (contextMenu && contextMenu.style.display === 'block' && !contextMenu.contains(event.target)) {
+        if (contextMenu && !contextMenu.contains(event.target)) {
             hideContextMenu();
         }
-        // Also hide sub-menu if it's open and click is outside
-        if (playlistSubMenu && playlistSubMenu.style.display === 'block' && !playlistSubMenu.contains(event.target) && !event.target.closest('#addToPlaylistMenuItem')) {
-            playlistSubMenu.style.display = 'none';
-        }
     });
-    // Add click listeners to context menu items
-    const customContextMenu = document.getElementById('customContextMenu');
-    if (customContextMenu) {
-        customContextMenu.addEventListener('click', async (event) => { // Made async to use await
+
+    // Add click listener to context menu items
+    document.addEventListener('click', (event) => {
+        if (event.target.closest('#customContextMenu')) {
             const menuItem = event.target.closest('.context-menu-item');
             if (menuItem) {
                 const action = menuItem.dataset.action;
-                if (action === 'add-to-playlist') {
-// Toggle visibility of sub-menu
-                    const playlistSubMenu = document.getElementById('playlistSubMenu');
-                    if (playlistSubMenu) {
-                        if (playlistSubMenu.style.display === 'block') {
-                            playlistSubMenu.style.display = 'none';
-                        } else {
-                            playlistSubMenu.style.display = 'block';
-                            await populatePlaylistSubMenu(); // Populate when shown
-                        }
-                    }
-                } else if (action === 'add-to-specific-playlist') {
-                    const playlistId = menuItem.dataset.playlistId;
-                    if (currentRightClickedSongId && playlistId) {
-                        await addSongToPlaylist(playlistId, currentRightClickedSongId);
-                    }
-                    hideContextMenu(); // Hide all menus after adding
-                } else if (action === 'queue-song') {
+                if (action === 'play-next') {
                     if (currentRightClickedSongId) {
-                        htmx.ajax('POST', `/api/music/queue/add/${window.globalActiveProfileId}/${currentRightClickedSongId}`, {
-                            handler: function () {
-                                console.log(`Song ${currentRightClickedSongId} added to queue.`);
-                                showToast('Song added to queue', 'success');
-                                // Emit queue change event when song is added to queue
-                                window.dispatchEvent(new CustomEvent('queueChanged', {
-                                    detail: { 
-                                        queueSize: musicState.cue?.length || 0,
-                                        queueChanged: true,
-                                        queueLengthChanged: true
-                                    }
-                                }));
-                            }
-                        });
-                    }
-                    hideContextMenu(); // Hide all menus after queuing
-                } else if (action === 'rescan-song') {
-                    if (currentRightClickedSongId) {
-                        await rescanSong(currentRightClickedSongId);
+                        apiPost(`queue/add/${currentRightClickedSongId}?playNext=true`);
                     }
                     hideContextMenu();
-                } else if (action === 'delete-song') {
+                } else if (action === 'add-to-playlist') {
                     if (currentRightClickedSongId) {
-                        await deleteSong(currentRightClickedSongId);
+                        window.showAddToPlaylistDialog(currentRightClickedSongId);
                     }
-                    hideContextMenu();
-                } else if (action === 'edit-song') {
-                    console.log('Edit Song clicked for song ID:', currentRightClickedSongId);
-                    // TODO: Implement "Edit Song" logic
                     hideContextMenu();
                 } else if (action === 'share-song') {
-                    console.log('Share clicked for song ID:', currentRightClickedSongId);
                     // TODO: Implement "Share" logic
                     hideContextMenu();
                 } else if (action === 'remove-from-playlist') {
                     if (currentRightClickedSongId) {
-                        await removeSongFromCurrentPlaylist(currentRightClickedSongId);
+                        removeSongFromCurrentPlaylist(currentRightClickedSongId);
                     }
                     hideContextMenu();
                 } else {
-                    hideContextMenu(); // Hide menu for other clicks within the menu
+                    hideContextMenu(); // Hide menu for other clicks within menu
                 }
             }
-        });
-    }
+        }
+    });
 
     applyThemePreference(); // Apply theme on load
 
     const themeToggle = document.getElementById('themeToggle');
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
-            const isDarkMode = document.documentElement.classList.contains('is-dark-mode');
+            const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
             localStorage.setItem('darkMode', !isDarkMode);
-            applyThemePreference(); // Re-apply to update icon and class
+            applyThemePreference(); // Re-apply to update icon and attribute
         });
     }
 
     // Initial call to set lyrics icon visibility
     updateLyricsIconVisibility();
 });
+
+// Add context menu listener to the document, using event delegation
+document.addEventListener('contextmenu', (event) => {
+    const songTableBody = document.getElementById('songTableBody'); // Using getElementById for a more direct selection
+    const songCoverImage = document.getElementById('songCoverImage');
+
+    // If right-click is within the song table body
+    if (songTableBody && songTableBody.contains(event.target)) {
+        event.preventDefault();
+        const clickedRow = event.target.closest('tr');
+
+        if (clickedRow && clickedRow.dataset.songId) {
+            currentRightClickedSongId = clickedRow.dataset.songId;
+            showContextMenu(event.clientX, event.clientY);
+        } else {
+            hideContextMenu();
+        }
+    }
+    // NEW: If right-click is on the song cover image in the player
+    else if (songCoverImage && songCoverImage.contains(event.target)) {
+        event.preventDefault();
+
+        if (musicState.currentSongId) {
+            currentRightClickedSongId = musicState.currentSongId;
+            showContextMenu(event.clientX, event.clientY);
+        } else {
+            hideContextMenu();
+        }
+    } else {
+        hideContextMenu();
+    }
+});
+// Hide context menu and sub-menu when clicking anywhere else
+document.addEventListener('click', (event) => {
+    const contextMenu = document.getElementById('customContextMenu');
+    const playlistSubMenu = document.getElementById('playlistSubMenu'); // Get sub-menu
+    if (contextMenu && contextMenu.style.display === 'block' && !contextMenu.contains(event.target)) {
+        hideContextMenu();
+    }
+    // Also hide sub-menu if it's open and click is outside
+    if (playlistSubMenu && playlistSubMenu.style.display === 'block' && !playlistSubMenu.contains(event.target) && !event.target.closest('#addToPlaylistMenuItem')) {
+        playlistSubMenu.style.display = 'none';
+    }
+});
+// Add click listeners to context menu items
+const customContextMenu = document.getElementById('customContextMenu');
+if (customContextMenu) {
+    customContextMenu.addEventListener('click', async (event) => { // Made async to use await
+        const menuItem = event.target.closest('.context-menu-item');
+        if (menuItem) {
+            const action = menuItem.dataset.action;
+            if (action === 'add-to-playlist') {
+// Toggle visibility of sub-menu
+                const playlistSubMenu = document.getElementById('playlistSubMenu');
+                if (playlistSubMenu) {
+                    if (playlistSubMenu.style.display === 'block') {
+                        playlistSubMenu.style.display = 'none';
+                    } else {
+                        playlistSubMenu.style.display = 'block';
+                        await populatePlaylistSubMenu(); // Populate when shown
+                    }
+                }
+            } else if (action === 'add-to-specific-playlist') {
+                const playlistId = menuItem.dataset.playlistId;
+                if (currentRightClickedSongId && playlistId) {
+                    await addSongToPlaylist(playlistId, currentRightClickedSongId);
+                }
+                hideContextMenu(); // Hide all menus after adding
+            } else if (action === 'queue-song') {
+                if (currentRightClickedSongId) {
+                    htmx.ajax('POST', `/api/music/queue/add/${window.globalActiveProfileId}/${currentRightClickedSongId}`, {
+                        handler: function () {
+                            console.log(`Song ${currentRightClickedSongId} added to queue.`);
+                            showToast('Song added to queue', 'success');
+                            // Emit queue change event when song is added to queue
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: {
+                                    queueSize: musicState.cue?.length || 0,
+                                    queueChanged: true,
+                                    queueLengthChanged: true
+                                }
+                            }));
+                        }
+                    });
+                }
+                hideContextMenu(); // Hide all menus after queuing
+            } else if (action === 'rescan-song') {
+                if (currentRightClickedSongId) {
+                    await rescanSong(currentRightClickedSongId);
+                }
+                hideContextMenu();
+            } else if (action === 'delete-song') {
+                if (currentRightClickedSongId) {
+                    await deleteSong(currentRightClickedSongId);
+                }
+                hideContextMenu();
+            } else if (action === 'edit-song') {
+                // TODO: Implement "Edit Song" logic
+                hideContextMenu();
+            } else if (action === 'share-song') {
+                // TODO: Implement "Share" logic
+                hideContextMenu();
+            } else if (action === 'remove-from-playlist') {
+                if (currentRightClickedSongId) {
+                    await removeSongFromCurrentPlaylist(currentRightClickedSongId);
+                }
+                hideContextMenu();
+            } else {
+                hideContextMenu(); // Hide menu for other clicks within the menu
+            }
+        }
+    });
+}
+
+applyThemePreference(); // Apply theme on load
+
+const themeToggle = document.getElementById('themeToggle');
+if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+        const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
+        localStorage.setItem('darkMode', !isDarkMode);
+        applyThemePreference(); // Re-apply to update icon and attribute
+    });
+}
+
+// Initial call to set lyrics icon visibility
+updateLyricsIconVisibility();
 
 function updateLyricsIconVisibility() {
     const lyricsIcon = document.getElementById('viewLyricsIcon');

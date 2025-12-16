@@ -59,13 +59,10 @@ function loadHistoryPage(page = 1, profileIdParam) {
                 // Re-initialize HTMX on the new content
                 if (window.htmx && window.htmx.process) {
                     window.htmx.process(tbody);
-                    console.log("[history.js] HTMX re-initialized on new content");
                 }
 
                 totalHistorySize = data.totalHistorySize; // Get totalHistorySize from JSON
                 isFetchingHistory = false;
-
-                console.log("[history.js] loadHistoryPage: Request successful. CurrentPage:", currentHistoryPage, "totalHistorySize:", totalHistorySize);
 
                 // Apply marquee effect to new rows
                 const rows = tbody.querySelectorAll('tr');
@@ -100,7 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expose a global function to refresh the history
     window.refreshHistory = () => {
-        console.log('[history.js] refreshHistory called, current page:', currentHistoryPage);
         loadHistoryPage(currentHistoryPage); // Maintain current page
     };
 

@@ -1347,7 +1347,7 @@ body::before {
 .card-content {
     padding: 1rem !important;
     background: rgba(255, 255, 255, 0.15) !important;
-    border-radius: 16px;
+    border-radius: 0;
     margin: 0.5rem;
 }
 
@@ -1996,6 +1996,199 @@ html[data-theme="dark"] .has-text-success {
 /* Navbar item colors */
 .navbar-item {
     color: inherit !important;
+}
+
+/* Tab Styles for Settings */
+.tabs.is-boxed {
+    background: rgba(255, 255, 255, 0.15) !important;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 16px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+
+[data-theme="dark"] .tabs.is-boxed {
+    background: rgba(0, 0, 0, 0.35) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+.tabs ul {
+    border-bottom: none !important;
+    margin: 0;
+    display: flex !important;
+    width: 100% !important;
+}
+
+.tabs li {
+    margin: 0;
+    border: none !important;
+    flex: 1 !important;
+}
+
+.tabs li a {
+    border: none !important;
+    border-radius: 0 !important;
+    color: inherit !important;
+    padding: 1rem 0.5rem;
+    transition: all 0.3s ease;
+    position: relative;
+    background: transparent !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    text-align: center !important;
+}
+
+.tabs li.is-active a {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: #48c78e !important;
+    font-weight: bold !important;
+    border-bottom: 3px solid #48c78e !important;
+}
+
+[data-theme="dark"] .tabs li.is-active a {
+    background: rgba(0, 0, 0, 0.2) !important;
+    color: #48c78e !important;
+}
+
+.tabs li:not(.is-active) a:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="dark"] .tabs li:not(.is-active) a:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Tab Content Styles */
+.tab-content {
+    position: relative;
+    width: 100% !important;
+}
+
+.tab-pane {
+    display: none;
+    animation: fadeIn 0.3s ease-in-out;
+    width: 100% !important;
+    max-height: calc(100vh - 320px);
+    overflow-y: auto;
+}
+
+.tab-pane.is-active {
+    display: block;
+    width: 100% !important;
+}
+
+.tab-content-inner {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-radius: 12px;
+    margin: 0.5rem;
+    padding: 1.5rem !important;
+    width: calc(100% - 1rem) !important;
+}
+
+[data-theme="dark"] .tab-content-inner {
+    background: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Hide any remaining card headers in tab content */
+.tab-pane .card-header {
+    display: none !important;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Remove card headers from tab content since tabs serve as headers */
+.tab-pane .card-header {
+    display: none;
+}
+
+/* Adjust spacing in tab content */
+.tab-pane .field {
+    margin-bottom: 1.5rem;
+}
+
+.tab-pane .title.is-6 {
+    margin-bottom: 1rem;
+}
+
+/* Ensure full width layout */
+#mainContent {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+.section {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* Fix playback bar glass styling */
+.hero-foot.card.glass-box {
+    background: rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 20px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+    color: #333 !important;
+    margin: 0 1rem 1rem 1rem !important;
+}
+
+[data-theme="dark"] .hero-foot.card.glass-box {
+    background: rgba(0, 0, 0, 0.35) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #fff !important;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Ensure playback bar buttons maintain glass styling */
+.hero-foot .button {
+    background: rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    color: #333 !important;
+}
+
+[data-theme="dark"] .hero-foot .button {
+    background: rgba(0, 0, 0, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #fff !important;
+}
+
+/* Fix text colors in playback bar */
+.hero-foot .has-text-success {
+    color: #48c78e !important;
+}
+
+.hero-foot .has-text-white {
+    color: #fff !important;
+}
+
+[data-theme="dark"] .hero-foot .has-text-white {
+    color: #fff !important;
 }
 
 .navbar-item:hover {

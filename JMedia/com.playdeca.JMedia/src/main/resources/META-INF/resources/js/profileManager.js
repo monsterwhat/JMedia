@@ -34,46 +34,48 @@ document.addEventListener('DOMContentLoaded', () => {
     function fetchCurrentProfile() {
         const storedProfileId = getActiveProfileId();
 
-        // If a profile ID is stored in localStorage, try to use it first
-        if (storedProfileId) {
-            fetch(`/api/profiles/${storedProfileId}`) // Fetch the specific profile
-                .then(response => {
-                    if (response.ok) {
-                        return response.json();
-                    }
-                    // If stored profile ID is invalid/not found, fetch the backend's current profile
-                    return fetch('/api/profiles/current').then(res => res.json());
-                })
-                .then(profileData => {
-                    currentProfile = profileData;
-                    // Ensure localStorage reflects the actual current profile from backend
+        // Optimized: Always fetch current profile first, then validate against stored ID
+        return fetch('/api/profiles/current')
+            .then(response => response.json())
+            .then(profileData => {
+                currentProfile = profileData;
+                
+                // Only fetch specific profile if stored ID differs from current
+                if (storedProfileId && storedProfileId !== profileData.id.toString()) {
+                    console.log('[ProfileManager] Stored profile ID differs, fetching specific profile');
+                    return fetch(`/api/profiles/${storedProfileId}`)
+                        .then(response => {
+                            if (response.ok) {
+                                return response.json();
+                            }
+                            // If stored profile is invalid, use current one
+                            console.log('[ProfileManager] Stored profile invalid, using current');
+                            return profileData;
+                        })
+                        .then(specificProfileData => {
+                            currentProfile = specificProfileData;
+                            setActiveProfileId(currentProfile.id);
+                            window.globalActiveProfileId = currentProfile.id;
+                            updateProfileDisplay();
+                            renderProfileList();
+                            return Promise.resolve();
+                        });
+                } else {
+                    // Use current profile directly
                     setActiveProfileId(currentProfile.id);
-                    // Update global variable
                     window.globalActiveProfileId = currentProfile.id;
                     updateProfileDisplay();
                     renderProfileList();
-                })
-                .catch(error => {
-                    console.error('Error fetching current profile (from stored ID or backend):', error);
-                    // Fallback if anything goes wrong
-                    currentProfile = null;
-                    updateProfileDisplay();
-                    renderProfileList();
-                });
-        } else {
-            // No profile ID in localStorage, fetch current from backend
-            fetch('/api/profiles/current')
-                .then(response => response.json())
-                .then(profileData => {
-                    currentProfile = profileData;
-                    setActiveProfileId(currentProfile.id); // Store it for next time
-                    // Update global variable
-                    window.globalActiveProfileId = currentProfile.id;
-                    updateProfileDisplay();
-                    renderProfileList();
-                })
-                .catch(error => console.error('Error fetching current profile:', error));
-        }
+                    return Promise.resolve();
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching current profile:', error);
+                currentProfile = null;
+                updateProfileDisplay();
+                renderProfileList();
+                return Promise.resolve();
+            });
     }
 
     function updateProfileDisplay() {
@@ -257,7 +259,17 @@ function switchProfile(profileId) {
         window.globalActiveProfileId = storedProfileId;
     }
 
-    // Initial fetches (modified to respect localStorage)
-    fetchProfiles();
-    fetchCurrentProfile();
+    // Optimized initialization - fetch profiles and current profile in parallel
+    Promise.all([
+        fetchProfiles(),
+        fetchCurrentProfile()
+    ]).then(() => {
+        console.log('[ProfileManager] Profile initialization complete');
+        // Emit event to notify other scripts that profile is ready
+        document.body.dispatchEvent(new CustomEvent('profileReady', { 
+            detail: { profileId: window.globalActiveProfileId } 
+        }));
+    }).catch(error => {
+        console.error('[ProfileManager] Profile initialization failed:', error);
+    });
 });

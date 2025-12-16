@@ -257,7 +257,7 @@
                                         <ul class="mb-4" id="missingComponentsList">
                                             <!-- Components will be dynamically added here -->
                                         </ul>
-                                        <p class="is-size-7">Note: On Windows, Python and FFmpeg are installed via Chocolatey, then SpotDL and Whisper via pip (Python).</p>
+                                        <p class="is-size-7">Note: On Windows, Chocolatey is installed first, then Python and FFmpeg via Chocolatey, and SpotDL/Whisper via pip (Python).</p>
                                         <div class="mt-3">
                                             <button class="button is-small is-info" @click="$store.setup.checkInstallationStatus()">
                                                 <span class="icon">
@@ -266,6 +266,25 @@
                                                 Refresh Status
                                             </button>
                                         </div>
+                                    </div>
+
+                                    <!-- Chocolatey Installation -->
+                                    <div class="field mb-3">
+                                        <div class="level is-mobile">
+                                            <div class="level-left">
+                                                <label class="label mb-0">Chocolatey</label>
+                                            </div>
+                                            <div class="level-right">
+                                                <button id="installChocoBtn" class="button is-success is-rounded is-small" @click="$store.setup.installChoco()">
+                                                    <i class="pi pi-download mr-1"></i>
+                                                    Install Chocolatey
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2" id="chocoProgressContainer" style="display: none;">
+                                            <progress id="chocoInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                        </div>
+                                        <p id="chocoStatus" class="help is-size-7 mt-2">Not installed</p>
                                     </div>
 
                                     <!-- Python Installation -->

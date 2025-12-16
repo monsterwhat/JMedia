@@ -458,7 +458,8 @@ public class SettingsApi {
             } catch (java.util.concurrent.TimeoutException e) {
                 // Return default status if timeout occurs
                 status = new ImportInstallationStatus(
-                    false, false, false, false,
+                    false, false, false, false, false,
+                    "Status check timed out - Chocolatey may not be available",
                     "Status check timed out - Python may not be available",
                     "Status check timed out - SpotDL status unknown", 
                     "Status check timed out - FFmpeg status unknown",
@@ -467,7 +468,8 @@ public class SettingsApi {
             } catch (Exception e) {
                 // Return default status if any other error occurs
                 status = new ImportInstallationStatus(
-                    false, false, false, false,
+                    false, false, false, false, false,
+                    "Status check failed: " + e.getMessage() + " - Chocolatey may not be available",
                     "Status check failed: " + e.getMessage() + " - Python may not be available",
                     "Status check failed: " + e.getMessage() + " - SpotDL status unknown",
                     "Status check failed: " + e.getMessage() + " - FFmpeg status unknown", 
@@ -476,12 +478,14 @@ public class SettingsApi {
             }
             
             java.util.Map<String, Object> response = new java.util.HashMap<>();
+            response.put("chocoInstalled", status.chocoInstalled);
             response.put("pythonInstalled", status.pythonInstalled);
             response.put("spotdlInstalled", status.spotdlInstalled);
             response.put("ffmpegInstalled", status.ffmpegInstalled);
             response.put("whisperInstalled", status.whisperInstalled);
             response.put("allInstalled", status.isAllInstalled());
             response.put("messages", java.util.List.of(
+                status.chocoMessage,
                 status.pythonMessage,
                 status.spotdlMessage,
                 status.ffmpegMessage,
@@ -492,12 +496,14 @@ public class SettingsApi {
         } catch (Exception e) {
             // Final fallback - always return a response, never throw
             java.util.Map<String, Object> fallbackResponse = new java.util.HashMap<>();
+            fallbackResponse.put("chocoInstalled", false);
             fallbackResponse.put("pythonInstalled", false);
             fallbackResponse.put("spotdlInstalled", false);
             fallbackResponse.put("ffmpegInstalled", false);
             fallbackResponse.put("whisperInstalled", false);
             fallbackResponse.put("allInstalled", false);
             fallbackResponse.put("messages", java.util.List.of(
+                "Critical error checking Chocolatey: " + e.getMessage(),
                 "Critical error checking Python: " + e.getMessage(),
                 "Critical error checking SpotDL: " + e.getMessage(),
                 "Critical error checking FFmpeg: " + e.getMessage(),

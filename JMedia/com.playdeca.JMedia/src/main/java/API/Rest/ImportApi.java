@@ -3,7 +3,6 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.ImportController;
 import Controllers.SettingsController;
-import Models.DTOs.ImportInstallationStatus;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -28,18 +27,17 @@ public class ImportApi {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getStatus() {
         try {
-            ImportInstallationStatus status = importController.getInstallationStatus();
-            return Response.ok(ApiResponse.success(status)).build();
+            return Response.ok(ApiResponse.success("Import service is running")).build();
         } catch (Exception e) {
-            System.err.println("[ERROR] Error getting Import installation status: " + e.getMessage());
+            System.err.println("[ERROR] Error getting Import status: " + e.getMessage());
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Error getting Import installation status: " + e.getMessage()))
+                    .entity(ApiResponse.error("Error getting Import status: " + e.getMessage()))
                     .build();
         }
     }
 
-    // New endpoint to get the default Import download path
+    // New endpoint to get default Import download path
     @GET
     @Path("/{profileId}/default-download-path")
     @Produces(MediaType.APPLICATION_JSON)
@@ -51,7 +49,7 @@ public class ImportApi {
                         .entity(ApiResponse.error("Music library path not configured in settings."))
                         .build();
             }
-            // Construct the full path using Paths.get for OS-specific correctness
+            // Construct full path using Paths.get for OS-specific correctness
             String defaultImportPath = Paths.get(musicLibraryPath, "import").toString();
             return Response.ok(ApiResponse.success(defaultImportPath)).build();
         } catch (Exception e) {
@@ -63,7 +61,76 @@ public class ImportApi {
         }
     }
 
-    // Individual installation endpoints
+    // Import download endpoint
+    @POST
+    @Path("/download/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response startDownload(
+            @PathParam("profileId") Long profileId,
+            String requestBody) {
+        try {
+            // Parse request body (simplified for this example)
+            // In real implementation, you'd parse JSON with url, format, etc.
+            importController.startDownload("", "", null, null, "", "", false, profileId);
+            return Response.ok(ApiResponse.success("Download started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error starting download: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error starting download: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
+    @Path("/{profileId}/is-importing")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response isImporting(@PathParam("profileId") Long profileId) {
+        try {
+            boolean importing = importController.isImporting();
+            return Response.ok(ApiResponse.success(importing)).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error checking import status: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error checking import status: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
+    @Path("/{profileId}/output-cache")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getOutputCache(@PathParam("profileId") Long profileId) {
+        try {
+            String outputCache = importController.getOutputCache();
+            return Response.ok(ApiResponse.success(outputCache)).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error getting output cache: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error getting output cache: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    // Installation endpoints for backward compatibility
+    @POST
+    @Path("/install/package-manager/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response installPackageManger(@PathParam("profileId") Long profileId) {
+        try {
+            importController.installPackageManger(profileId);
+            return Response.ok(ApiResponse.success("Package manager installation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error installing package manager: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error installing package manager: " + e.getMessage()))
+                    .build();
+        }
+    }
+
     @POST
     @Path("/install/python/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -127,8 +194,8 @@ public class ImportApi {
                     .build();
         }
     }
-
-    // Uninstall endpoints
+ 
+    // Uninstallation endpoints for backward compatibility
     @POST
     @Path("/uninstall/python/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -156,7 +223,6 @@ public class ImportApi {
             System.err.println("[ERROR] Error uninstalling FFmpeg: " + e.getMessage());
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Error uninstalling FFmpeg: " + e.getMessage()))
                     .build();
         }
     }

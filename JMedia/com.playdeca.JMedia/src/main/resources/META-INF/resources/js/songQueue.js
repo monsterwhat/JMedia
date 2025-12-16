@@ -93,7 +93,7 @@ function loadQueuePage(page = 1, profileIdParam) { // Added profileIdParam
                 totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
                 isFetchingQueue = false;
 
-                console.log("[songQueue.js] loadQueuePage: Request successful. CurrentPage:", currentPage, "totalQueueSize:", totalQueueSize);
+                
 
                 // Apply marquee effect to new rows
                 const rows = tbody.querySelectorAll('tr');
@@ -178,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Listen for queue change events from musicBar.js
     window.addEventListener('queueChanged', (event) => {
-        console.log("[songQueue.js] Queue changed event received:", event.detail);
         // Always fetch queue data immediately (HTTP fallback)
         loadQueuePage(1);
     });
@@ -186,7 +185,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Global function to handle queue actions (skip/remove)
 window.handleQueueAction = (action, index, profileIdParam) => { // Added profileIdParam
-    console.log(`[songQueue.js] handleQueueAction: ${action} at index ${index}`);
     const currentProfileId = profileIdParam || globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     let url = '';
     if (action === 'skip') {
@@ -194,7 +192,6 @@ window.handleQueueAction = (action, index, profileIdParam) => { // Added profile
     } else if (action === 'remove') {
         url = `/api/music/queue/remove/${currentProfileId}/${index}`;
     } else {
-        console.error(`[songQueue.js] handleQueueAction: Unknown action type: ${action}`);
         return;
     }
 

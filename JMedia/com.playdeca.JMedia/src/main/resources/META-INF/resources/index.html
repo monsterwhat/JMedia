@@ -390,12 +390,12 @@
                     <!-- CENTER: Controls + Progress -->
                     <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
                         <!-- Playback buttons -->
-                        <div class="buttons are-small mb-2">
-                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
-                            <button id="prevBtn"  title="Previous"><i class="pi pi-step-backward"></i></button>
+<div class="buttons are-medium mb-2">
+                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt" style="font-size: 1.5rem;"></i></button>
+                            <button id="prevBtn" title="Previous"><i class="pi pi-step-backward" style="font-size: 1.5rem;"></i></button>
                             <button id="playPauseBtn" class="button is-rounded is-large" title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
-                            <button id="nextBtn"   title="Next"><i class="pi pi-step-forward"></i></button>
-                            <button id="repeatBtn"   title="Repeat"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                            <button id="nextBtn" title="Next"><i class="pi pi-step-forward" style="font-size: 1.5rem;"></i></button>
+                            <button id="repeatBtn" title="Repeat"><i id="repeatIcon" class="pi pi-refresh" style="font-size: 1.5rem;"></i></button>
                         </div>
 
                         <!-- Progress bar -->
@@ -540,30 +540,17 @@ if (subModule === 'ui') {
                                                 // Examples: /api/music/playback/queue-all/0, /api/music/playback/select/123, /api/music/playback/toggle
                                                 const action = parts[4];
 if (action === 'queue-all' || action === 'select') {
-                                                    // Debug logging
-                                                    console.log('[HTMX Debug] Processing select action:', {
-                                                        targetUrl: targetUrl,
-                                                        parts: parts,
-                                                        currentProfileId: currentProfileId,
-                                                        partsLength: parts.length
-                                                    });
-                                                    
                                                     // For /api/music/playback/queue-all/{playlistId}, /api/music/playback/select/{profileId}/{songId}
                                                     // Check if profileId is already correctly placed (parts[5] should be the profileId)
                                                     if (parts.length >= 7 && parts[5] === currentProfileId.toString()) {
                                                         // URL is already /api/music/playback/{action}/{profileId}/{id}, no change needed
                                                         newUrl = targetUrl;
-                                                        console.log('[HTMX Debug] URL already correct:', newUrl);
                                                     } else if (parts.length >= 6) {
                                                         // Transform /api/music/playback/{action}/{id} to /api/music/playback/{action}/{profileId}/{id}
                                                         newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[5]}`;
-                                                        console.log('[HTMX Debug] URL transformed (6 parts):', newUrl);
                                                     } else if (parts.length >= 5) {
                                                         // Transform /api/music/playback/{action}/{id} to /api/music/playback/{action}/{profileId}/{id}
                                                         newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[4]}`;
-                                                        console.log('[HTMX Debug] URL transformed (5 parts):', newUrl);
-                                                    } else {
-                                                        console.log('[HTMX Debug] URL not transformed, insufficient parts');
                                                     }
                                                 }
                                             } else if (subModule === 'queue') {
@@ -599,13 +586,7 @@ if (action === 'queue-all' || action === 'select') {
 
 if (newUrl !== targetUrl) {
                                         // Modify the path in the event detail
-                                        console.log('[HTMX Debug] Final URL change:', {
-                                            original: targetUrl,
-                                            modified: newUrl
-                                        });
                                         event.detail.path = newUrl;
-                                    } else {
-                                        console.log('[HTMX Debug] No URL change needed:', targetUrl);
                                     }
                                 });
         </script>
