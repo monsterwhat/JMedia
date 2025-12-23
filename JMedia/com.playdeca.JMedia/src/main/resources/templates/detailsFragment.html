@@ -1,0 +1,114 @@
+<div class="detail-container">
+    <!-- Poster Section -->
+    <div class="poster-section">
+        <img class="poster-image" 
+             src="{item.thumbnailPath ?: 'https://picsum.photos/400/600?random=' + item.id}" 
+             alt="{item.title ?: item.seriesTitle}">
+        <button class="play-button" onclick="window.selectItem({json:item}, 'play')">
+            <i class="pi pi-play"></i>
+        </button>
+    </div>
+
+    <!-- Info Section -->
+    <div class="info-section">
+        <!-- Title -->
+        <div class="title-section">
+            <h1>{item.title ?: item.seriesTitle}</h1>
+            <div class="meta-info">
+                <div class="meta-item">
+                    <i class="pi pi-calendar"></i>
+                    <span>{item.releaseYear ?: '2024'}</span>
+                </div>
+                {#if item.durationSeconds}
+                <div class="meta-item">
+                    <i class="pi pi-clock"></i>
+                    <span>{formatDuration(item.durationSeconds)}</span>
+                </div>
+                {/if}
+                {#if item.type == 'Episode'}
+                <div class="meta-item">
+                    <i class="pi pi-tv"></i>
+                    <span>S{item.seasonNumber}E{item.episodeNumber}</span>
+                </div>
+                {/if}
+                <div class="meta-item">
+                    <i class="pi pi-tag"></i>
+                    <span>{item.type ?: 'Movie'}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+            <button class="action-btn btn-primary" onclick="window.selectItem({json:item}, 'play')">
+                <i class="pi pi-play"></i> Play Now
+            </button>
+            <button class="action-btn btn-secondary" onclick="window.selectItem({json:item}, 'details')">
+                <i class="pi pi-info-circle"></i> More Info
+            </button>
+            <button class="action-btn btn-secondary" onclick="window.addToWatchlist({json:item})">
+                <i class="pi pi-plus"></i> Watchlist
+            </button>
+        </div>
+
+        <!-- Description -->
+        <div class="description">
+            {item.description ?: 'No description available for this content.'}
+        </div>
+
+        <!-- Additional Information -->
+        <div class="info-grid">
+            <div class="info-card">
+                <h3><i class="pi pi-star"></i> Rating</h3>
+                <p>⭐ 8.5/10</p>
+                <p>Highly rated content</p>
+            </div>
+
+            <div class="info-card">
+                <h3><i class="pi pi-globe"></i> Language</h3>
+                <p>English</p>
+                <p>Original audio with subtitles available</p>
+            </div>
+
+            {#if item.type == 'Episode'}
+            <div class="info-card">
+                <h3><i class="pi pi-list"></i> Episode Info</h3>
+                <p>Season {item.seasonNumber}, Episode {item.episodeNumber}</p>
+                <p>{item.episodeTitle ?: 'Untitled Episode'}</p>
+            </div>
+            {/if}
+
+            <div class="info-card">
+                <h3><i class="pi pi-tags"></i> Tags</h3>
+                <div>
+                    <span class="badge badge-primary">{item.type ?: 'Movie'}</span>
+                    {#if item.type == 'Episode'}
+                    <span class="badge badge-secondary">Series</span>
+                    {/if}
+                    <span class="badge badge-secondary">HD</span>
+                    <span class="badge badge-secondary">5.1 Surround</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Format duration function
+    function formatDuration(seconds) {
+        if (!seconds) return '0m';
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    }
+
+    // Add to watchlist function
+    function addToWatchlist(item) {
+        console.log('Adding to watchlist:', item);
+        // Implementation would depend on your watchlist system
+    }
+
+    // Make functions globally available
+    window.formatDuration = formatDuration;
+    window.addToWatchlist = addToWatchlist;
+</script>

@@ -6,11 +6,9 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.BufferedReader; 
+import java.io.InputStreamReader; 
+import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
 public class WindowsPlatformOperations implements PlatformOperations {
@@ -140,13 +138,26 @@ public class WindowsPlatformOperations implements PlatformOperations {
     
     @Override
     public boolean isFFmpegInstalled() {
+        Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
             pb.redirectErrorStream(true);
-            Process process = pb.start();
-            return process.waitFor() == 0;
+            process = pb.start();
+            
+            // Wait with timeout
+            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return false;
+            }
+            
+            return process.exitValue() == 0;
         } catch (Exception e) {
             return false;
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
     }
     
@@ -335,23 +346,38 @@ public class WindowsPlatformOperations implements PlatformOperations {
     
     @Override
     public void executeCommand(String command, Long profileId) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(command.split(" "));
-        pb.redirectErrorStream(true);
-        
-        Process process = pb.start();
-        
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.trim().isEmpty()) {
-                    broadcast(line.trim() + "\n", profileId);
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command.split(" "));
+            pb.redirectErrorStream(true);
+            
+            process = pb.start();
+            
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        broadcast(line.trim() + "\n", profileId);
+                    }
                 }
             }
-        }
-        
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new Exception("Command failed with exit code: " + exitCode + ": " + command);
+            
+            // Wait for process with timeout to prevent hanging
+            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            if (!finished) {
+                LOGGER.warn("Command process timed out: " + command);
+                process.destroyForcibly();
+                throw new Exception("Command timed out: " + command);
+            }
+            
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                throw new Exception("Command failed with exit code: " + exitCode + ": " + command);
+            }
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
     }
     
@@ -365,17 +391,24 @@ public class WindowsPlatformOperations implements PlatformOperations {
         String[] pythonExecutables = getPythonExecutableVariants();
         
         for (String executable : pythonExecutables) {
+            Process process = null;
             try {
                 ProcessBuilder pb = new ProcessBuilder(executable, "--version");
                 pb.redirectErrorStream(true);
-                Process process = pb.start();
+                process = pb.start();
                 
-                if (process.waitFor() == 0) {
+                // Wait with timeout to prevent hanging
+                boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+                if (finished && process.exitValue() == 0) {
                     LOGGER.info("Found Python executable: {}", executable);
                     return executable;
                 }
             } catch (Exception e) {
                 LOGGER.debug("Python executable {} not available: {}", executable, e.getMessage());
+            } finally {
+                if (process != null && process.isAlive()) {
+                    process.destroyForcibly();
+                }
             }
         }
         

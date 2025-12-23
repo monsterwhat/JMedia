@@ -8,8 +8,10 @@ import Detectors.SubtitleMatcher;
 import Models.Episode;
 import Models.MediaFile;
 import Models.Movie;
+import Models.PendingMedia;
 import Models.Season;
 import Models.Show;
+import Services.MediaPreProcessor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -47,6 +49,9 @@ public class VideoImportService {
     
     @Inject
     SettingsController settingsController;
+    
+    @Inject
+    MediaPreProcessor mediaPreProcessor;
 
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
     private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
@@ -101,15 +106,34 @@ public class VideoImportService {
             settingsController.addLog(stats.toString());
             logSocket.broadcast(stats.toString());
             logSocket.broadcast("[IMPORT_FINISHED]");
-
-        } catch (Exception e) {
-            LOGGER.error("Error during library scan", e);
-            settingsController.addLog("Error during video library scan: " + e.getMessage(), e);
-            logSocket.broadcast("Error during scan: " + e.getMessage());
-        } finally {
+            
+        } catch(IOException e){
+            System.out.println("Error: " + e.getLocalizedMessage());
+        }finally {
             isScanning.set(false);
         }
         return stats;
+    }
+    
+    /**
+     * Automatically processes pending media after scan completes
+     * This should be called separately after the scan transaction completes
+     */
+    @Transactional
+    public void processPendingMediaAfterScan() {
+        try {
+            long pendingCount = PendingMedia.count("status", Models.PendingMedia.ProcessingStatus.PENDING);
+            LOGGER.info("Starting automatic smart processing for {} pending items...", pendingCount);
+            settingsController.addLog("Starting automatic smart name processing for " + pendingCount + " items...");
+            
+            mediaPreProcessor.processPendingMedia();
+            
+            settingsController.addLog("Smart processing completed. Check NamingController for items needing attention.");
+            LOGGER.info("Automatic smart processing completed");
+        } catch (Exception e) {
+            LOGGER.error("Error during automatic smart processing", e);
+            settingsController.addLog("Error during smart processing: " + e.getMessage(), e);
+        } 
     }
 
     private List<Path> collectFiles(Path root) throws IOException {
@@ -153,10 +177,17 @@ public class VideoImportService {
                     mediaFile.width = techMeta.width();
                     mediaFile.height = techMeta.height();
                 }
-                processVideo(mediaFile, file);
             }
             
             mediaFile.persist();
+            
+            // Phase 1: Create pending media for smart processing (after MediaFile is persisted)
+            if ("video".equals(mediaFile.type) && needsProcessing) {
+                PendingMedia pendingMedia = mediaPreProcessor.createPendingMedia(mediaFile, file, root);
+                if (pendingMedia != null) {
+                    LOGGER.debug("Created PendingMedia for smart processing: {}", file.getFileName());
+                }
+            }
 
         } catch (IOException e) {
             LOGGER.error("Error processing file {}", file, e);

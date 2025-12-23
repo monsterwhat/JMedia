@@ -1,0 +1,297 @@
+<div class="player-container">
+    <!-- Video Player -->
+    <div class="video-wrapper">
+        <video id="videoPlayer" controls style="display: none;">
+            Your browser does not support the video tag.
+        </video>
+        
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner">
+                <i class="pi pi-spin pi-spinner"></i>
+            </div>
+            <div class="loading-text">Loading media...</div>
+        </div>
+
+        <!-- Error Overlay -->
+        <div id="errorOverlay" class="error-overlay">
+            <div class="error-icon">
+                <i class="pi pi-exclamation-triangle"></i>
+            </div>
+            <div class="error-text">
+                Unable to load this media. Please check your connection or try a different source.
+            </div>
+        </div>
+    </div>
+
+    <!-- Media Info -->
+    <div id="mediaInfo" class="media-info">
+        <div class="info-title">{item.title ?: item.seriesTitle}</div>
+        <div class="info-meta">
+            {#if item.type == 'Episode'}
+            S{item.seasonNumber}E{item.episodeNumber}: {item.episodeTitle ?: 'Untitled Episode'}
+            {#else}
+            {item.title}
+            {/if}
+            • {item.releaseYear ?: '2024'} • {formatDuration(item.durationSeconds)}
+        </div>
+    </div>
+
+    <!-- Close Button -->
+    <button class="close-button" onclick="window.switchSection('details')">
+        <i class="pi pi-times"></i>
+    </button>
+
+    <!-- Player Controls -->
+    <div class="player-controls">
+        <div class="control-left">
+            <button class="control-btn" onclick="window.togglePlay()" id="playPauseBtn">
+                <i class="pi pi-play"></i>
+            </button>
+            <div class="time-display">
+                <span id="currentTime">0:00</span> / <span id="duration">0:00</span>
+            </div>
+        </div>
+
+        <div class="control-center">
+            <button class="control-btn" onclick="window.skipBackward()">
+                <i class="pi pi-backward"></i>
+            </button>
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-buffer" id="progressBuffer"></div>
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+            <button class="control-btn" onclick="window.skipForward()">
+                <i class="pi pi-forward"></i>
+            </button>
+        </div>
+
+        <div class="control-right">
+            <div class="volume-control">
+                <button class="control-btn" onclick="window.toggleMute()">
+                    <i class="pi pi-volume-up" id="volumeIcon"></i>
+                </button>
+                <div class="volume-slider" id="volumeSlider">
+                    <div class="volume-fill" id="volumeFill"></div>
+                </div>
+            </div>
+            <button class="control-btn" onclick="window.toggleFullscreen()">
+                <i class="pi pi-expand"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let video = null;
+    let isPlaying = false;
+    let isDragging = false;
+
+    // Initialize player
+    function initializePlayer() {
+        video = document.getElementById('videoPlayer');
+        
+        // Set video source
+        const videoUrl = '/api/video/stream/{item.id}';
+        video.src = videoUrl;
+        
+        // Remove loading overlay when ready
+        video.addEventListener('loadeddata', () => {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            video.style.display = 'block';
+            updateTimeDisplay();
+        });
+
+        // Handle errors
+        video.addEventListener('error', () => {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            document.getElementById('errorOverlay').classList.add('show');
+        });
+
+        // Update progress
+        video.addEventListener('timeupdate', updateProgress);
+        video.addEventListener('progress', updateBuffer);
+
+        // Show media info briefly
+        video.addEventListener('play', () => {
+            showMediaInfo();
+            isPlaying = true;
+            updatePlayPauseButton();
+        });
+
+        video.addEventListener('pause', () => {
+            isPlaying = false;
+            updatePlayPauseButton();
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', handleKeyPress);
+
+        // Progress bar clicks
+        document.getElementById('progressBar').addEventListener('click', seekVideo);
+        document.getElementById('volumeSlider').addEventListener('click', setVolume);
+    }
+
+    // Toggle play/pause
+    function togglePlay() {
+        if (!video) return;
+        
+        if (video.paused) {
+            video.play();
+        } else {
+            video.pause();
+        }
+    }
+
+    // Update play/pause button
+    function updatePlayPauseButton() {
+        const btn = document.getElementById('playPauseBtn');
+        btn.innerHTML = isPlaying ? '<i class="pi pi-pause"></i>' : '<i class="pi pi-play"></i>';
+    }
+
+    // Skip forward/backward
+    function skipForward() {
+        if (video) video.currentTime += 10;
+    }
+
+    function skipBackward() {
+        if (video) video.currentTime -= 10;
+    }
+
+    // Seek video
+    function seekVideo(e) {
+        if (!video) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const percent = (e.clientX - rect.left) / rect.width;
+        video.currentTime = percent * video.duration;
+    }
+
+    // Update progress
+    function updateProgress() {
+        if (!video) return;
+        
+        const percent = (video.currentTime / video.duration) * 100;
+        document.getElementById('progressFill').style.width = percent + '%';
+        updateTimeDisplay();
+    }
+
+    // Update buffer
+    function updateBuffer() {
+        if (!video || !video.buffered.length) return;
+        
+        const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+        const percent = (bufferedEnd / video.duration) * 100;
+        document.getElementById('progressBuffer').style.width = percent + '%';
+    }
+
+    // Update time display
+    function updateTimeDisplay() {
+        if (!video) return;
+        
+        document.getElementById('currentTime').textContent = formatTime(video.currentTime);
+        document.getElementById('duration').textContent = formatTime(video.duration || 0);
+    }
+
+    // Format time
+    function formatTime(seconds) {
+        if (!seconds || isNaN(seconds)) return '0:00';
+        
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // Volume controls
+    function toggleMute() {
+        if (!video) return;
+        
+        video.muted = !video.muted;
+        updateVolumeIcon();
+    }
+
+    function setVolume(e) {
+        if (!video) return;
+        
+        const rect = e.currentTarget.getBoundingClientRect();
+        const percent = (e.clientX - rect.left) / rect.width;
+        video.volume = Math.max(0, Math.min(1, percent));
+        document.getElementById('volumeFill').style.width = (video.volume * 100) + '%';
+        updateVolumeIcon();
+    }
+
+    function updateVolumeIcon() {
+        const icon = document.getElementById('volumeIcon');
+        if (video.muted || video.volume === 0) {
+            icon.className = 'pi pi-volume-off';
+        } else if (video.volume < 0.5) {
+            icon.className = 'pi pi-volume-down';
+        } else {
+            icon.className = 'pi pi-volume-up';
+        }
+    }
+
+    // Fullscreen
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    // Show media info
+    function showMediaInfo() {
+        const info = document.getElementById('mediaInfo');
+        info.classList.add('show');
+        setTimeout(() => {
+            info.classList.remove('show');
+        }, 3000);
+    }
+
+    // Keyboard controls
+    function handleKeyPress(e) {
+        if (!video) return;
+        
+        switch(e.key) {
+            case ' ':
+                e.preventDefault();
+                togglePlay();
+                break;
+            case 'ArrowLeft':
+                skipBackward();
+                break;
+            case 'ArrowRight':
+                skipForward();
+                break;
+            case 'f':
+                toggleFullscreen();
+                break;
+            case 'm':
+                toggleMute();
+                break;
+            case 'Escape':
+                window.switchSection('details');
+                break;
+        }
+    }
+
+    // Format duration
+    function formatDuration(seconds) {
+        if (!seconds) return '0m';
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    }
+
+    // Initialize on load
+    document.addEventListener('DOMContentLoaded', initializePlayer);
+
+    // Make functions globally available
+    window.togglePlay = togglePlay;
+    window.skipForward = skipForward;
+    window.skipBackward = skipBackward;
+    window.toggleMute = toggleMute;
+    window.toggleFullscreen = toggleFullscreen;
+</script>

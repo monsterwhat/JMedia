@@ -34,5 +34,12 @@ public class Settings extends PanacheEntity {
     private String lastUpdateCheck;
     private Boolean autoUpdateEnabled = true;
     
+    // Thumbnail processing settings
+    private Integer thumbnailApiDelayMs = 1000;  // Delay between API calls in milliseconds
+    private Integer thumbnailMaxRetries = 3;      // Maximum retry attempts for failed thumbnails
+    private Integer thumbnailProcessingThreads = 2; // Number of thumbnail processing threads
+    private Boolean thumbnailPreferApi = true;   // Prefer API thumbnails over local extraction
+    private Boolean thumbnailRegenerateOnReload = true; // Regenerate all thumbnails during metadata reload
+    
     
 }

@@ -3,7 +3,8 @@ html, body {
     overflow: hidden; /* Prevent scrolling on the main page */
 }
 
-.hero {
+/* Video player specific hero styles */
+.video-player-page .hero {
     height: 100vh; /* full height layout */
     display: flex;
     flex-direction: column;

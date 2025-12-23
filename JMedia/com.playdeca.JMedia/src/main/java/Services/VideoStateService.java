@@ -2,12 +2,16 @@ package Services;
 
 import Models.Profile;
 import Models.VideoState;
+import Services.VideoService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class VideoStateService {
@@ -17,6 +21,9 @@ public class VideoStateService {
 
     @Inject
     SettingsService settingsService;
+    
+    @Inject
+    VideoService videoService;
 
     @Transactional
     public synchronized VideoState getOrCreateState() {
@@ -111,5 +118,92 @@ public class VideoStateService {
 
         em.merge(state);
         em.flush();
+    }
+
+    // ==================== CONTINUE WATCHING ALGORITHM METHODS ====================
+    
+    public List<VideoService.VideoDTO> getContinueWatching(int count) {
+        VideoState currentState = getOrCreateState();
+        if (currentState == null || currentState.getCurrentVideoId() == null) {
+            return List.of();
+        }
+        
+        // Get current video with progress
+        VideoService.VideoDTO currentVideo = videoService.find(currentState.getCurrentVideoId());
+        if (currentVideo != null && isInProgress(currentState)) {
+            return List.of(currentVideo);
+        }
+        
+        // Check recently accessed videos from lastVideos
+        List<VideoService.VideoDTO> continueWatchingVideos = new ArrayList<>();
+        
+        if (currentState.getLastVideos() != null) {
+            for (Long videoId : currentState.getLastVideos()) {
+                if (videoId != null && videoId.equals(currentState.getCurrentVideoId())) {
+                    continue; // Skip current video as it's already handled
+                }
+                
+                VideoService.VideoDTO video = videoService.find(videoId);
+                if (video != null && isInProgress(currentState)) {
+                    continueWatchingVideos.add(video);
+                    if (continueWatchingVideos.size() >= count) {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        return continueWatchingVideos.stream()
+                .limit(count)
+                .collect(Collectors.toList());
+    }
+    
+    public List<VideoService.VideoDTO> getRecentlyAccessed(int count) {
+        VideoState currentState = getOrCreateState();
+        if (currentState == null) {
+            return List.of();
+        }
+        
+        List<VideoService.VideoDTO> recentlyAccessed = new ArrayList<>();
+        
+        // Add current video first
+        if (currentState.getCurrentVideoId() != null) {
+            VideoService.VideoDTO currentVideo = videoService.find(currentState.getCurrentVideoId());
+            if (currentVideo != null) {
+                recentlyAccessed.add(currentVideo);
+            }
+        }
+        
+        // Add from lastVideos
+        if (currentState.getLastVideos() != null) {
+            for (Long videoId : currentState.getLastVideos()) {
+                if (videoId != null && videoId.equals(currentState.getCurrentVideoId())) {
+                    continue; // Skip current video as it's already added
+                }
+                
+                VideoService.VideoDTO video = videoService.find(videoId);
+                if (video != null) {
+                    recentlyAccessed.add(video);
+                    if (recentlyAccessed.size() >= count) {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        return recentlyAccessed.stream()
+                .limit(count)
+                .collect(Collectors.toList());
+    }
+    
+    private boolean isInProgress(VideoState state) {
+        if (state == null || state.getDuration() <= 0) {
+            return false;
+        }
+        
+        double progress = (state.getCurrentTime() / state.getDuration()) * 100.0;
+        
+        // Consider video "in progress" if between 5% and 95% complete
+        return progress >= 5.0 && progress <= 95.0;
     }
 }

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Media Details</title>
+    <link rel="stylesheet" href="/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+    <link rel="stylesheet" href="/css/custom.css"/>
+    
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .detail-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 40px;
+        }
+
+        .poster-section {
+            position: relative;
+        }
+
+        .poster-image {
+            width: 100%;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+
+        .play-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(72,199,116,0.9);
+            border: none;
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .play-button:hover {
+            background: #48c774;
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+
+        .info-section {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .title-section h1 {
+            font-size: 3rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+
+        .meta-info {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #ccc;
+            font-size: 1.1rem;
+        }
+
+        .meta-item i {
+            color: #e50914;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: #48c774;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3abb67;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .description {
+            font-size: 1.2rem;
+            line-height: 1.8;
+            color: #ccc;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .info-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .info-card h3 {
+            color: #e50914;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .info-card p {
+            color: #ccc;
+            line-height: 1.6;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+
+        .badge-primary {
+            background: #48c774;
+            color: white;
+        }
+
+        .badge-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .detail-container {
+                grid-template-columns: 1fr;
+                gap: 20px;
+                padding: 20px;
+            }
+
+            .title-section h1 {
+                font-size: 2rem;
+            }
+
+            .play-button {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="detail-container">
+        <!-- Poster Section -->
+        <div class="poster-section">
+            <img class="poster-image" 
+                 src="{item.thumbnailPath ?: 'https://picsum.photos/400/600?random=' + item.id}" 
+                 alt="{item.title ?: item.seriesTitle}">
+            <button class="play-button" onclick="window.parent.selectItem({json:item}, 'play')">
+                <i class="pi pi-play"></i>
+            </button>
+        </div>
+
+        <!-- Info Section -->
+        <div class="info-section">
+            <!-- Title -->
+            <div class="title-section">
+                <h1>{item.title ?: item.seriesTitle}</h1>
+                <div class="meta-info">
+                    <div class="meta-item">
+                        <i class="pi pi-calendar"></i>
+                        <span>{item.releaseYear ?: '2024'}</span>
+                    </div>
+                    {#if item.durationSeconds}
+                    <div class="meta-item">
+                        <i class="pi pi-clock"></i>
+                        <span>{formatDuration(item.durationSeconds)}</span>
+                    </div>
+                    {/if}
+                    {#if item.type == 'Episode'}
+                    <div class="meta-item">
+                        <i class="pi pi-tv"></i>
+                        <span>S{item.seasonNumber}E{item.episodeNumber}</span>
+                    </div>
+                    {/if}
+                    <div class="meta-item">
+                        <i class="pi pi-tag"></i>
+                        <span>{item.type ?: 'Movie'}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button class="action-btn btn-primary" onclick="window.parent.selectItem({json:item}, 'play')">
+                    <i class="pi pi-play"></i> Play Now
+                </button>
+                <button class="action-btn btn-secondary" onclick="window.parent.selectItem({json:item}, 'details')">
+                    <i class="pi pi-info-circle"></i> More Info
+                </button>
+                <button class="action-btn btn-secondary" onclick="addToWatchlist({json:item})">
+                    <i class="pi pi-plus"></i> Watchlist
+                </button>
+            </div>
+
+            <!-- Description -->
+            <div class="description">
+                {item.description ?: 'No description available for this content.'}
+            </div>
+
+            <!-- Additional Information -->
+            <div class="info-grid">
+                <div class="info-card">
+                    <h3><i class="pi pi-star"></i> Rating</h3>
+                    <p>⭐ 8.5/10</p>
+                    <p>Highly rated content</p>
+                </div>
+
+                <div class="info-card">
+                    <h3><i class="pi pi-globe"></i> Language</h3>
+                    <p>English</p>
+                    <p>Original audio with subtitles available</p>
+                </div>
+
+                {#if item.type == 'Episode'}
+                <div class="info-card">
+                    <h3><i class="pi pi-list"></i> Episode Info</h3>
+                    <p>Season {item.seasonNumber}, Episode {item.episodeNumber}</p>
+                    <p>{item.episodeTitle ?: 'Untitled Episode'}</p>
+                </div>
+                {/if}
+
+                <div class="info-card">
+                    <h3><i class="pi pi-tags"></i> Tags</h3>
+                    <div>
+                        <span class="badge badge-primary">{item.type ?: 'Movie'}</span>
+                        {#if item.type == 'Episode'}
+                        <span class="badge badge-secondary">Series</span>
+                        {/if}
+                        <span class="badge badge-secondary">HD</span>
+                        <span class="badge badge-secondary">5.1 Surround</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Format duration function
+        function formatDuration(seconds) {
+            if (!seconds) return '0m';
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+        }
+
+        // Add to watchlist function
+        function addToWatchlist(item) {
+            console.log('Adding to watchlist:', item);
+            // Implementation would depend on your watchlist system
+        }
+
+        // Make functions globally available
+        window.formatDuration = formatDuration;
+        window.addToWatchlist = addToWatchlist;
+    </script>
+</body>
+</html>

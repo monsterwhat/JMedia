@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Media Carousels</title>
+    <link rel="stylesheet" href="/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+    <link rel="stylesheet" href="/css/custom.css"/>
+    
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Hero Section */
+        .hero {
+            position: relative;
+            min-height: 500px;
+            background: linear-gradient(135deg, rgba(72,199,116,0.3) 0%, rgba(0,0,0,0.8) 100%);
+            border-radius: 16px;
+            margin-bottom: 40px;
+            overflow: hidden;
+        }
+
+        .hero-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-size: cover;
+            background-position: center;
+            filter: blur(2px);
+        }
+
+        .hero-gradient {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.3) 100%);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            padding: 60px;
+            max-width: 800px;
+        }
+
+        .hero-title {
+            font-size: 3.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .hero-description {
+            font-size: 1.3rem;
+            margin-bottom: 30px;
+            color: #ccc;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+
+        .hero-meta {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+            color: #fff;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 20px;
+        }
+
+        .btn-hero {
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+
+        .btn-hero-primary {
+            background: #48c774;
+            color: white;
+        }
+
+        .btn-hero-primary:hover {
+            background: #3abb67;
+        }
+
+        .btn-hero-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-hero-secondary:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Carousel Sections */
+        .carousel-section {
+            margin-bottom: 40px;
+        }
+
+        .carousel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .carousel-title {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .carousel-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .carousel-nav-btn {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .carousel-nav-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .carousel-container {
+            position: relative;
+            overflow-x: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #333 transparent;
+        }
+
+        .carousel-container::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .carousel-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .carousel-container::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        .carousel {
+            display: flex;
+            gap: 20px;
+            padding: 10px 0;
+        }
+
+        .content-card {
+            min-width: 280px;
+            max-width: 280px;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #1a1a1a;
+        }
+
+        .content-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(229,9,20,0.3);
+        }
+
+        .card-image {
+            width: 100%;
+            height: 420px;
+            object-fit: cover;
+        }
+
+        .card-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, transparent 60%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 20px;
+        }
+
+        .content-card:hover .card-overlay {
+            opacity: 1;
+        }
+
+        .play-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 3rem;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .content-card:hover .play-icon {
+            opacity: 1;
+        }
+
+        .card-info {
+            position: relative;
+            z-index: 2;
+        }
+
+        .card-badges {
+            margin-bottom: 10px;
+        }
+
+        .card-badge {
+            background: #48c774;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: white;
+        }
+
+        .card-meta {
+            font-size: 0.9rem;
+            color: #ccc;
+        }
+
+        .continue-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #48c774;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero-content {
+                padding: 30px;
+            }
+
+            .hero-title {
+                font-size: 2.5rem;
+            }
+
+            .content-card {
+                min-width: 240px;
+                max-width: 240px;
+            }
+
+            .card-image {
+                height: 360px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Featured Hero -->
+    {#if featured.size > 0}
+    <div class="hero">
+        <div class="hero-background" style="background-image: url('{featured[0].thumbnailPath ?: 'https://picsum.photos/1920/1080?random=' + featured[0].id}');"></div>
+        <div class="hero-gradient"></div>
+        <div class="hero-content">
+            <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
+            <p class="hero-description">{featured[0].description ?: 'An amazing piece of content that will keep you entertained'}</p>
+            <div class="hero-meta">
+                <span>{featured[0].releaseYear ?: '2024'}</span>
+                <span>•</span>
+                <span class="hero-rating">⭐ Awesome</span>
+                <span>•</span>
+                <span>{formatDuration(featured[0].durationSeconds)}</span>
+                {#if featured[0].type == 'Episode'}
+                <span>•</span>
+                <span>S{featured[0].seasonNumber}E{featured[0].episodeNumber}</span>
+                {/if}
+            </div>
+            <div class="hero-actions">
+                <button class="btn-hero btn-hero-primary" onclick="window.parent.selectItem({json:featured[0]}, 'play')">
+                    <i class="pi pi-play"></i> Play
+                </button>
+                <button class="btn-hero btn-hero-secondary" onclick="window.parent.selectItem({json:featured[0]}, 'details')">
+                    <i class="pi pi-info-circle"></i> More Info
+                </button>
+            </div>
+        </div>
+    </div>
+    {/if}
+
+    <!-- Recently Added Carousel -->
+    {#if newReleases.size > 0}
+    <div class="carousel-section">
+        <div class="carousel-header">
+            <h2 class="carousel-title">
+                <i class="pi pi-sparkles" style="color: #ffd700;"></i>
+                Recently Added
+            </h2>
+            <div class="carousel-actions">
+                <button class="carousel-nav-btn" onclick="scrollCarousel('newReleasesCarousel', -1)">
+                    <i class="pi pi-chevron-left"></i>
+                </button>
+                <button class="carousel-nav-btn" onclick="scrollCarousel('newReleasesCarousel', 1)">
+                    <i class="pi pi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        <div class="carousel-container">
+            <div class="carousel" id="newReleasesCarousel">
+                {#for item in newReleases}
+                <div class="content-card" onclick="window.parent.selectItem({json:item}, 'details')">
+                    <img class="card-image" 
+                         src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id}" 
+                         alt="{item.title ?: item.seriesTitle}">
+                    <div class="play-icon">
+                        <i class="pi pi-play"></i>
+                    </div>
+                    <div class="card-overlay">
+                        <div class="card-info">
+                            <div class="card-badges">
+                                <span class="card-badge">NEW</span>
+                            </div>
+                            <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                            <div class="card-meta">{item.type ?: 'Movie'}</div>
+                        </div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+    {/if}
+
+    <!-- Continue Watching Carousel -->
+    {#if continueWatching.size > 0}
+    <div class="carousel-section">
+        <div class="carousel-header">
+            <h2 class="carousel-title">
+                <i class="pi pi-history" style="color: #ff6b6b;"></i>
+                Continue Watching
+            </h2>
+            <div class="carousel-actions">
+                <button class="carousel-nav-btn" onclick="scrollCarousel('continueWatchingCarousel', -1)">
+                    <i class="pi pi-chevron-left"></i>
+                </button>
+                <button class="carousel-nav-btn" onclick="scrollCarousel('continueWatchingCarousel', 1)">
+                    <i class="pi pi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        <div class="carousel-container">
+            <div class="carousel" id="continueWatchingCarousel">
+                {#for item in continueWatching}
+                <div class="content-card" onclick="window.parent.selectItem({json:item}, 'play')">
+                    <img class="card-image" 
+                         src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 1000}" 
+                         alt="{item.title ?: item.seriesTitle}">
+                    <div class="play-icon">
+                        <i class="pi pi-play"></i>
+                    </div>
+                    <div class="card-overlay">
+                        <div class="card-info">
+                            <div class="card-badges">
+                                <span class="card-badge">CONTINUE</span>
+                            </div>
+                            <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                            <div class="card-meta">{item.type ?: 'Movie'}</div>
+                        </div>
+                    </div>
+                    <div class="continue-progress">
+                        <div class="progress-bar" style="width: 65%;"></div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+    {/if}
+
+    <!-- Trending Now Carousel -->
+    {#if trending.size > 0}
+    <div class="carousel-section">
+        <div class="carousel-header">
+            <h2 class="carousel-title">
+                <i class="pi pi-fire" style="color: #ff9800;"></i>
+                Trending Now
+            </h2>
+            <div class="carousel-actions">
+                <button class="carousel-nav-btn" onclick="scrollCarousel('trendingCarousel', -1)">
+                    <i class="pi pi-chevron-left"></i>
+                </button>
+                <button class="carousel-nav-btn" onclick="scrollCarousel('trendingCarousel', 1)">
+                    <i class="pi pi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        <div class="carousel-container">
+            <div class="carousel" id="trendingCarousel">
+                {#for item in trending}
+                <div class="content-card" onclick="window.parent.selectItem({json:item}, 'details')">
+                    <img class="card-image" 
+                         src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 2000}" 
+                         alt="{item.title ?: item.seriesTitle}">
+                    <div class="play-icon">
+                        <i class="pi pi-play"></i>
+                    </div>
+                    <div class="card-overlay">
+                        <div class="card-info">
+                            <div class="card-badges">
+                                <span class="card-badge">TRENDING</span>
+                            </div>
+                            <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                            <div class="card-meta">{item.type ?: 'Movie'}</div>
+                        </div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+    {/if}
+
+    <!-- Movies Carousel -->
+    {#if movies.size > 0}
+    <div class="carousel-section">
+        <div class="carousel-header">
+            <h2 class="carousel-title">
+                <i class="pi pi-video" style="color: #2196f3;"></i>
+                Movies
+            </h2>
+            <div class="carousel-actions">
+                <button class="carousel-nav-btn" onclick="scrollCarousel('moviesCarousel', -1)">
+                    <i class="pi pi-chevron-left"></i>
+                </button>
+                <button class="carousel-nav-btn" onclick="scrollCarousel('moviesCarousel', 1)">
+                    <i class="pi pi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        <div class="carousel-container">
+            <div class="carousel" id="moviesCarousel">
+                {#for item in movies}
+                <div class="content-card" onclick="window.parent.selectItem({json:item}, 'play')">
+                    <img class="card-image" 
+                         src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 3000}" 
+                         alt="{item.title}">
+                    <div class="play-icon">
+                        <i class="pi pi-play"></i>
+                    </div>
+                    <div class="card-overlay">
+                        <div class="card-info">
+                            <div class="card-badges">
+                                <span class="card-badge">⭐ 8.5+</span>
+                            </div>
+                            <div class="card-title">{item.title}</div>
+                            <div class="card-meta">{formatDuration(item.durationSeconds)}</div>
+                        </div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+    {/if}
+
+    <!-- TV Shows Carousel -->
+    {#if tvShows.size > 0}
+    <div class="carousel-section">
+        <div class="carousel-header">
+            <h2 class="carousel-title">
+                <i class="pi pi-desktop" style="color: #9c27b0;"></i>
+                TV Shows
+            </h2>
+            <div class="carousel-actions">
+                <button class="carousel-nav-btn" onclick="scrollCarousel('tvShowsCarousel', -1)">
+                    <i class="pi pi-chevron-left"></i>
+                </button>
+                <button class="carousel-nav-btn" onclick="scrollCarousel('tvShowsCarousel', 1)">
+                    <i class="pi pi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        <div class="carousel-container">
+            <div class="carousel" id="tvShowsCarousel">
+                {#for item in tvShows}
+                <div class="content-card" onclick="window.parent.selectItem({json:item}, 'details')">
+                    <img class="card-image" 
+                         src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 4000}" 
+                         alt="{item.seriesTitle}">
+                    <div class="play-icon">
+                        <i class="pi pi-play"></i>
+                    </div>
+                    <div class="card-overlay">
+                        <div class="card-info">
+                            <div class="card-badges">
+                                <span class="card-badge">SERIES</span>
+                            </div>
+                            <div class="card-title">{item.seriesTitle}</div>
+                            <div class="card-meta">TV Show</div>
+                        </div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+    {/if}
+
+    <!-- Empty State -->
+    {#if featured.size == 0 && newReleases.size == 0 && continueWatching.size == 0 && trending.size == 0 && movies.size == 0 && tvShows.size == 0}
+    <div class="empty-state">
+        <i class="pi pi-video"></i>
+        <h3>Your library is empty</h3>
+        <p>Start by importing some movies and TV shows to your library.</p>
+        <button class="btn-hero btn-hero-primary" onclick="window.location.href='/import.html'" style="margin-top: 20px;">
+            <i class="pi pi-plus"></i> Import Content
+        </button>
+    </div>
+    {/if}
+
+    <script>
+        // Carousel scrolling function
+        function scrollCarousel(carouselId, direction) {
+            const carousel = document.getElementById(carouselId);
+            if (carousel) {
+                const scrollAmount = 300;
+                carousel.scrollBy({
+                    left: scrollAmount * direction,
+                    behavior: 'smooth'
+                });
+            }
+        }
+
+        // Format duration function
+        function formatDuration(seconds) {
+            if (!seconds) return '0m';
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+        }
+
+        // Make functions globally available
+        window.scrollCarousel = scrollCarousel;
+        window.formatDuration = formatDuration;
+    </script>
+</body>
+</html>
