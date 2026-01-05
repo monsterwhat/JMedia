@@ -71,3 +71,4 @@ nbdist/
 /JMedia-Android/.gradle
 JMedia-Android/java_pid22052.hprof
 JMedia-Android/java_pid23364.hprof
+*.jpg
