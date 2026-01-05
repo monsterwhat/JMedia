@@ -29,6 +29,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+import java.nio.file.Paths;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -52,11 +58,36 @@ public class VideoImportService {
     
     @Inject
     MediaPreProcessor mediaPreProcessor;
+    
+    @Inject
+    VideoEntityCreationService videoEntityCreationService;
 
     private final AtomicBoolean isScanning = new AtomicBoolean(false);
     private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
     
-    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS, r -> {
+        Thread thread = new Thread(r);
+        thread.setName("FileScanner-" + System.currentTimeMillis());
+        thread.setDaemon(true);
+        return thread;
+    });
+    
+    // Stall detection tracking
+    private final AtomicInteger completedTasks = new AtomicInteger(0);
+    private final AtomicInteger pendingTasks = new AtomicInteger(0);
+    private final Map<String, StalledFileInfo> stalledFiles = new ConcurrentHashMap<>();
+    
+    private static class StalledFileInfo {
+        int retryCount;
+        long stallTime;
+        String filePath;
+        
+        StalledFileInfo(String filePath) {
+            this.filePath = filePath;
+            this.retryCount = 0;
+            this.stallTime = System.currentTimeMillis();
+        }
+    }
 
     public static class ScanResult {
         public int total, added, updated, removed, processed;
@@ -69,6 +100,7 @@ public class VideoImportService {
 
 
     public ScanResult scan(Path root, boolean fullScan) {
+        String threadName = Thread.currentThread().getName();
         if (!isScanning.compareAndSet(false, true)) {
             String message = "Scan is already in progress.";
             logSocket.broadcast(message);
@@ -78,41 +110,234 @@ public class VideoImportService {
 
         ScanResult stats = new ScanResult();
         try {
+            LOGGER.info("FileScanner: Starting video library scan in directory: {}", root);
             settingsController.addLog("Starting video library scan...");
             logSocket.broadcast("Starting library scan...");
+            
             List<Path> files = collectFiles(root);
             stats.total = files.size();
+            
+            // Reset tracking for new scan
+            completedTasks.set(0);
+            pendingTasks.set(0);
+            stalledFiles.clear();
+            
+            LOGGER.info("FileScanner: Found {} files to analyze in: {}", stats.total, root);
             String foundMsg = "Found " + stats.total + " files to analyze.";
             settingsController.addLog(foundMsg);
             logSocket.broadcast(foundMsg);
 
+            // Submit files for processing
             for (Path file : files) {
+                String filePath = file.toString();
+                
+                // Check if this file was previously stalled and retried
+                StalledFileInfo stalledInfo = stalledFiles.get(filePath);
+                if (stalledInfo != null && stalledInfo.retryCount >= 1) {
+                    LOGGER.warn("{}: Skipping previously stalled file: {} (already retried)", threadName, filePath);
+                    synchronized (stats) { 
+                        stats.processed++; 
+                    }
+                    continue;
+                }
+                
+                pendingTasks.incrementAndGet();
                 executor.submit(() -> {
                     try {
-                        processFile(file, root, fullScan, stats);
+                        processFileWithLogging(file, root, fullScan, stats, threadName);
                     } catch (Exception e) {
-                        LOGGER.error("Error processing file in executor: {}", file, e);
+                        LOGGER.error("{}: Error processing file in executor: {}", threadName, file, e);
                         settingsController.addLog("Error processing file " + file.getFileName().toString() + ": " + e.getMessage(), e);
-                    }
-                    synchronized (stats) {
-                        stats.processed++;
-                        if (stats.processed % 50 == 0 || stats.processed == stats.total) {
-                            logSocket.broadcast(String.format("Processed %d/%d files...", stats.processed, stats.total));
+                    } finally {
+                        int completed = completedTasks.incrementAndGet();
+                        pendingTasks.decrementAndGet();
+                        
+                        // Remove from stalled tracking if successful
+                        stalledFiles.remove(filePath);
+                        
+                        // Progress logging every 50 tasks
+                        synchronized (stats) {
+                            stats.processed++;
+                            if (stats.processed % 50 == 0 || stats.processed == stats.total) {
+                                String progressMsg = String.format("Processed %d/%d files...", stats.processed, stats.total);
+                                LOGGER.info("{}: {}", threadName, progressMsg);
+                                logSocket.broadcast(progressMsg);
+                            }
                         }
                     }
                 });
             }
             
+            // Stall detection loop
+            long lastProgressTime = System.currentTimeMillis();
+            int lastCompletedCount = 0;
+            final long STALL_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes no progress
+
+            while (completedTasks.get() < files.size()) {
+                try {
+                    Thread.sleep(100);
+                    int currentCompleted = completedTasks.get();
+                    
+                    // Check for stall
+                    if (currentCompleted == lastCompletedCount && 
+                        System.currentTimeMillis() - lastProgressTime > STALL_TIMEOUT_MS) {
+                        
+                        LOGGER.warn("{}: Scan stalled - no progress for 2 minutes", threadName);
+                        
+                        // Identify stuck files and prepare for retry
+                        identifyAndRetryStalledFiles(threadName, executor, root, fullScan, stats);
+                        
+                        // Update progress tracking
+                        lastProgressTime = System.currentTimeMillis();
+                        lastCompletedCount = currentCompleted;
+                    }
+                    
+                    // Update progress tracking
+                    if (currentCompleted > lastCompletedCount) {
+                        lastCompletedCount = currentCompleted;
+                        lastProgressTime = System.currentTimeMillis();
+                    }
+                    
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    LOGGER.warn("{}: Scan interrupted", threadName);
+                    break;
+                }
+            }
+            
+            LOGGER.info("{}: Scan completed. Processed: {}, Added: {}, Updated: {}", 
+                       threadName, stats.processed, stats.added, stats.updated);
             settingsController.addLog(stats.toString());
             logSocket.broadcast(stats.toString());
             logSocket.broadcast("[IMPORT_FINISHED]");
             
         } catch(IOException e){
+            LOGGER.error("{}: IO error during scan: {}", threadName, e.getMessage(), e);
             System.out.println("Error: " + e.getLocalizedMessage());
-        }finally {
+        } finally {
             isScanning.set(false);
         }
         return stats;
+    }
+    
+    /**
+     * Identifies stalled files and submits them for retry
+     */
+    private void identifyAndRetryStalledFiles(String threadName, ExecutorService executor, 
+                                           Path root, boolean fullScan, ScanResult stats) {
+        
+        try {
+            // Find files that are still pending (stuck)
+            List<String> stuckFiles = new ArrayList<>();
+            List<Path> allFiles = collectFiles(root);
+            
+            for (Path file : allFiles) {
+                String filePath = file.toString();
+                StalledFileInfo stalledInfo = stalledFiles.get(filePath);
+                
+                // If file is not in stalled tracking but we're stalled, it's a new stuck file
+                if (stalledInfo == null) {
+                    stuckFiles.add(filePath);
+                    stalledFiles.put(filePath, new StalledFileInfo(filePath));
+                }
+            }
+            
+            if (stuckFiles.isEmpty()) {
+                return; // No new stalled files
+            }
+            
+            LOGGER.info("{}: Identified {} stalled files for retry: {}", threadName, stuckFiles.size(), stuckFiles);
+            
+            // Submit retry tasks
+            for (String filePath : stuckFiles) {
+                StalledFileInfo stalledInfo = stalledFiles.get(filePath);
+                stalledInfo.retryCount++;
+                
+                Path file = Paths.get(filePath);
+                pendingTasks.incrementAndGet();
+                
+                executor.submit(() -> {
+                    try {
+                        LOGGER.info("{}: Retrying stalled file (attempt {}/2): {}",
+                                threadName, stalledInfo.retryCount + 1, filePath);
+                        
+                        processFileWithLogging(file, root, fullScan, stats, threadName);
+                        
+                        LOGGER.info("{}: Retry successful for: {}", threadName, filePath);
+                        
+                    } catch (Exception e) {
+                        LOGGER.error("{}: Retry failed for {}: {}", threadName, filePath, e.getMessage(), e);
+                    } finally {
+                        completedTasks.incrementAndGet();
+                        pendingTasks.decrementAndGet();
+                    }
+                });
+            }
+        } catch (IOException ex) {
+            System.getLogger(VideoImportService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+        }
+    }
+    
+    /**
+     * Process a single file with enhanced logging
+     */
+    @Transactional
+    public void processFileWithLogging(Path file, Path root, boolean fullScan, ScanResult stats, String threadName) {
+        try {
+            String fileName = file.getFileName().toString();
+            String relativePath = root.relativize(file).toString().replace('\\', '/');
+            long size = Files.size(file);
+            long lastModified = Files.getLastModifiedTime(file).toMillis();
+
+            LOGGER.debug("{}: Processing file: {} (size: {}MB)", threadName, fileName, size / (1024 * 1024));
+
+            MediaFile mediaFile = MediaFile.find("path", relativePath).firstResult();
+
+            boolean needsProcessing = true;
+            if (!fullScan && mediaFile != null && mediaFile.size == size && mediaFile.lastModified == lastModified) {
+                needsProcessing = false;
+                LOGGER.debug("{}: Skipping unchanged file: {}", threadName, fileName);
+            }
+
+            if (mediaFile == null) {
+                LOGGER.info("{}: Discovered video file: {} (type: {})", threadName, fileName, getMediaType(file));
+                mediaFile = new MediaFile();
+                mediaFile.path = relativePath;
+                mediaFile.type = getMediaType(file);
+                synchronized(stats) { stats.added++; }
+            } else {
+                LOGGER.debug("{}: Updating existing file: {}", threadName, fileName);
+                synchronized(stats) { stats.updated++; }
+            }
+
+            mediaFile.size = size;
+            mediaFile.lastModified = lastModified;
+            
+            if ("video".equals(mediaFile.type) && needsProcessing) {
+                TechnicalMetadata techMeta = extractTechnicalMetadata(file);
+                if (techMeta != null) {
+                    mediaFile.durationSeconds = techMeta.durationSeconds();
+                    mediaFile.width = techMeta.width();
+                    mediaFile.height = techMeta.height();
+                    LOGGER.debug("{}: Extracted metadata for {}: duration={}s, resolution={}x{}", 
+                                threadName, fileName, techMeta.durationSeconds(), techMeta.width(), techMeta.height());
+                }
+            }
+            
+            mediaFile.persist();
+            
+            // Phase 1: Create pending media for smart processing (after MediaFile is persisted)
+            if ("video".equals(mediaFile.type) && needsProcessing) {
+                PendingMedia pendingMedia = mediaPreProcessor.createPendingMedia(mediaFile, file, root);
+                if (pendingMedia != null) {
+                    LOGGER.debug("{}: Created PendingMedia for smart processing: {}", threadName, fileName);
+                }
+            }
+
+        } catch (IOException e) {
+            LOGGER.error("{}: Error processing file {}", threadName, file, e);
+            settingsController.addLog("IO Error processing file " + file.getFileName().toString() + ": " + e.getMessage(), e);
+        }
     }
     
     /**
@@ -127,6 +352,17 @@ public class VideoImportService {
             settingsController.addLog("Starting automatic smart name processing for " + pendingCount + " items...");
             
             mediaPreProcessor.processPendingMedia();
+            
+            // Process completed pending media into actual Movie/Episode entities
+            try {
+                Thread.sleep(2000); // Give smart processing time to complete
+                videoEntityCreationService.processCompletedPendingMedia();
+                settingsController.addLog("Entity creation completed - created Movie and Episode records");
+                LOGGER.info("Automatic entity creation completed");
+            } catch (Exception e) {
+                LOGGER.error("Error during automatic entity creation", e);
+                settingsController.addLog("Error during entity creation: " + e.getMessage(), e);
+            }
             
             settingsController.addLog("Smart processing completed. Check NamingController for items needing attention.");
             LOGGER.info("Automatic smart processing completed");
@@ -144,56 +380,7 @@ public class VideoImportService {
         }
     }
 
-    @Transactional
-    public void processFile(Path file, Path root, boolean fullScan, ScanResult stats) {
-        try {
-            String relativePath = root.relativize(file).toString().replace('\\', '/');
-            long size = Files.size(file);
-            long lastModified = Files.getLastModifiedTime(file).toMillis();
-
-            MediaFile mediaFile = MediaFile.find("path", relativePath).firstResult();
-
-            boolean needsProcessing = true;
-            if (!fullScan && mediaFile != null && mediaFile.size == size && mediaFile.lastModified == lastModified) {
-                needsProcessing = false;
-            }
-
-            if (mediaFile == null) {
-                mediaFile = new MediaFile();
-                mediaFile.path = relativePath;
-                mediaFile.type = getMediaType(file);
-                synchronized(stats) { stats.added++; }
-            } else {
-                synchronized(stats) { stats.updated++; }
-            }
-
-            mediaFile.size = size;
-            mediaFile.lastModified = lastModified;
-            
-            if ("video".equals(mediaFile.type) && needsProcessing) {
-                TechnicalMetadata techMeta = extractTechnicalMetadata(file);
-                if (techMeta != null) {
-                    mediaFile.durationSeconds = techMeta.durationSeconds();
-                    mediaFile.width = techMeta.width();
-                    mediaFile.height = techMeta.height();
-                }
-            }
-            
-            mediaFile.persist();
-            
-            // Phase 1: Create pending media for smart processing (after MediaFile is persisted)
-            if ("video".equals(mediaFile.type) && needsProcessing) {
-                PendingMedia pendingMedia = mediaPreProcessor.createPendingMedia(mediaFile, file, root);
-                if (pendingMedia != null) {
-                    LOGGER.debug("Created PendingMedia for smart processing: {}", file.getFileName());
-                }
-            }
-
-        } catch (IOException e) {
-            LOGGER.error("Error processing file {}", file, e);
-            settingsController.addLog("IO Error processing file " + file.getFileName().toString() + ": " + e.getMessage(), e);
-        }
-    }
+    // Removed - replaced by processFileWithLogging method above
     
     private TechnicalMetadata extractTechnicalMetadata(Path videoFile) {
         try {

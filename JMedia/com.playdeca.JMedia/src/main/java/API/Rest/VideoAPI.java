@@ -30,6 +30,9 @@ import java.util.List;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.concurrent.ThreadFactory;
+import io.quarkus.arc.Arc;
+import io.quarkus.arc.ManagedContext;
 
 @Path("/api/video")
 public class VideoAPI {
@@ -47,6 +50,16 @@ public class VideoAPI {
 
     @Inject
     ManagedExecutor executor;
+    
+    private static final ThreadFactory scanThreadFactory = r -> {
+        Thread thread = new Thread(r);
+        thread.setName("VideoScanThread-" + System.currentTimeMillis());
+        thread.setDaemon(true);
+        return thread;
+    };
+    
+    @Inject
+    Services.VideoEntityCreationService videoEntityCreationService;
     
     @Inject
     ThumbnailService thumbnailService;
@@ -179,24 +192,68 @@ public class VideoAPI {
     @POST
     @Path("/scan")
     public Response scanVideoLibrary() {
+        // Use managed executor instead of manual thread creation to maintain CDI context
         executor.submit(() -> {
-            String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-            if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                videoImportService.scan(Paths.get(videoLibraryPath), false);
-                
-                // Process smart naming after scan completes
-                try {
-                    // Give scan time to complete and transactions to settle
-                    Thread.sleep(2000);
-                    namingController.processAllPendingMedia();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (Exception e) {
-                    LOG.debug("Error during smart processing: " + e.getMessage());
+            // Activate CDI context for this background thread
+            ManagedContext requestContext = Arc.container().requestContext();
+            if (!requestContext.isActive()) {
+                requestContext.activate();
+            }
+            
+            String threadName = Thread.currentThread().getName();
+            try {
+                String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
+                    LOG.info("{}: Starting background scan of library: {}", threadName, videoLibraryPath);
+                    
+                    // Phase 1: Scan and create MediaFile/PendingMedia records
+                    LOG.info("{}: Phase 1 - Scanning files in: {}", threadName, videoLibraryPath);
+                    videoImportService.scan(Paths.get(videoLibraryPath), false);
+                    LOG.info("{}: Phase 1 completed. File scanning finished", threadName);
+                    
+                    // Phase 2: Smart processing of PendingMedia
+                    try {
+                        // Give scan time to complete and transactions to settle
+                        Thread.sleep(2000);
+                        LOG.info("{}: Phase 2 - Smart processing pending media items", threadName);
+                        namingController.processAllPendingMedia();
+                        LOG.info("{}: Phase 2 completed. Smart processing finished", threadName);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        LOG.warn("{}: Smart processing interrupted", threadName);
+                    } catch (Exception e) {
+                        LOG.error("{}: Error during smart processing: {}", threadName, e.getMessage(), e);
+                    }
+                    
+                    // Phase 3: Entity creation from completed PendingMedia (MISSING PREVIOUSLY)
+                    try {
+                        // Give smart processing time to complete
+                        Thread.sleep(1000);
+                        LOG.info("{}: Phase 3 - Creating entities from completed pending media", threadName);
+                        videoEntityCreationService.processCompletedPendingMedia();
+                        LOG.info("{}: Phase 3 completed. Entity creation finished", threadName);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        LOG.warn("{}: Entity creation interrupted", threadName);
+                    } catch (Exception e) {
+                        LOG.error("{}: Error during entity creation: {}", threadName, e.getMessage(), e);
+                    }
+                    
+                    LOG.info("{}: All phases completed successfully", threadName);
+                } else {
+                    LOG.warn("{}: Video library path is not configured or is blank", threadName);
+                }
+            } catch (Exception e) {
+                LOG.error("{}: Critical error during video library scan: {}", threadName, e.getMessage(), e);
+            } finally {
+                // Deactivate CDI context
+                if (requestContext.isActive()) {
+                    requestContext.deactivate();
                 }
             }
         });
-        return Response.ok(ApiResponse.success("Video library scan started")).build();
+        
+        return Response.ok(ApiResponse.success("Video library scan started in background")).build();
     }
 
     @POST
@@ -269,6 +326,33 @@ public class VideoAPI {
         return Response.ok(ApiResponse.success("Thumbnail regeneration started for all videos")).build();
     }
 
+    @POST
+    @Path("/create-entities")
+    public Response createVideoEntities() {
+        executor.submit(() -> {
+            try {
+                videoEntityCreationService.processCompletedPendingMedia();
+                LOG.info("Video entity creation process completed");
+            } catch (Exception e) {
+                LOG.error("Error during video entity creation", e);
+            }
+        });
+        return Response.ok(ApiResponse.success("Video entity creation started")).build();
+    }
+
+    @GET
+    @Path("/entity-stats")
+    public Response getEntityCreationStats() {
+        try {
+            Services.VideoEntityCreationService.EntityCreationStats stats = videoEntityCreationService.getStats();
+            return Response.ok(ApiResponse.success(stats)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting entity creation stats", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get entity stats: " + e.getMessage())).build();
+        }
+    }
+
     @GET
     @Path("/thumbnail-status")
     public Response getThumbnailProcessingStatus() {
@@ -330,6 +414,16 @@ public class VideoAPI {
                     if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                         // For now, we'll trigger a full scan. In the future, we could implement single file processing
                         videoImportService.scan(java.nio.file.Paths.get(videoLibraryPath), true);
+                        
+                        // Process smart naming after scan completes
+                        try {
+                            Thread.sleep(3000); // Give scan time to complete and transactions to settle
+                            namingController.processAllPendingMedia();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        } catch (Exception e) {
+                            LOG.error("Error during smart processing after metadata reload", e);
+                        }
                     }
                 }
             } catch (Exception e) {

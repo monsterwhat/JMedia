@@ -85,8 +85,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modalCurrentProfileNameSpan) {
             modalCurrentProfileNameSpan.textContent = currentProfile ? currentProfile.name : 'Loading...';
         }
-        // Also update the global Alpine store
-        if (Alpine.store('profile')) {
+        // Also update the global Alpine store if available
+        if (typeof Alpine !== 'undefined' && Alpine.store('profile')) {
             Alpine.store('profile').currentProfile = currentProfile;
         }
     }

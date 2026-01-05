@@ -1,320 +1,655 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title id="pageTitle">JMedia Videos</title>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="JMedia Video Streaming Platform">
+    <title id="pageTitle">JMedia Videos</title>
 
-        <script src="/js/theme-initializer.js"></script>
-        
-        <!-- Alpine.js -->
-        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-        <script>
-            document.addEventListener('alpine:init', () => {
-                Alpine.store('profile', {
-                    currentProfile: null
-                });
-            });
-        </script>
+    <!-- Bulma CSS -->
+    <link rel="stylesheet" href="/css/bulma.min.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+    <link rel="stylesheet" href="/css/custom.css"/>
+    
+    <!-- Critical CSS inline -->
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; }
+        .loading-skeleton { background: linear-gradient(90deg, #444 25%, #666 50%); background-size: 200% 100%; animation: loading 1.5s infinite; }
+        @keyframes loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+        .is-hidden { display: none; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; }
+        .modal.is-active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: var(--card-bg, #1a1a1a); border-radius: 12px; padding: 32px; max-width: 500px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .modal-title { font-size: 1.5rem; font-weight: bold; color: var(--text-primary, #fff); margin: 0; }
+        .modal-close { background: none; border: none; color: var(--text-primary, #fff); font-size: 1.5rem; cursor: pointer; padding: 8px; border-radius: 4px; }
+        .modal-close:hover { background: var(--danger, #dc3545); }
+        .modal-body { color: var(--text-primary, #ccc); }
+        .notification { background: var(--success, #28a745); color: white; padding: 12px; border-radius: 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        .notification.error { background: var(--danger, #dc3545); }
+        .notification.info { background: var(--info, #17a2b8); }
+        .notification.warning { background: var(--warning, #ffc107); }
+        .notification.success { background: var(--success, #28a745); }
+    </style>
 
-        <!-- Bulma CSS -->
-        <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
-        <link rel="stylesheet" href="/css/custom.css"/>
+    <!-- CSS Variables -->
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --primary-hover: #0b5ed7;
+            --success-color: #28a745;
+            --success-hover: #157347;
+            --warning-color: #ffc107;
+            --warning-hover: #e0a800;
+            --danger-color: #dc3545;
+            --danger-hover: #bd2130;
+            --info-color: #17a2b8;
+            --info-hover: #117a8b;
+            
+            --card-bg: rgba(255,255,255,0.1);
+            --card-border: rgba(255,255,255,0.2);
+            --text-primary: #363636;
+            --text-secondary: #6c757d;
+            --text-tertiary: #adb5bd;
+            
+            --background: #0f0f23;
+            --navbar-bg: rgba(15,23,42,0.95);
+            --transition: all 0.3s ease;
+        }
 
-        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+        [data-theme="light"] {
+            --primary-color: #007bff;
+            --primary-hover: #0056b3;
+            --success-color: #28a745;
+            --success-hover: #1e7e34;
+            --warning-color: #ffc107;
+            --warning-hover: #e0a800;
+            --danger-color: #dc3545;
+            --danger-hover: #bd2130;
+            --info-color: #17a2b8;
+            --info-hover: #117a8b;
+            
+            --card-bg: rgba(255,255,255,0.95);
+            --card-border: rgba(0,0,0,0.125);
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --text-tertiary: #adb5bd;
+            
+            --background: #f8f9fa;
+            --navbar-bg: rgba(255,255,255,0.95);
+            --transition: all 0.3s ease;
+        }
+    </style>
+</head>
 
-    </head>
-    <body class="video-page">
+<body class="video-page">
+    <!-- Skip to main content for accessibility -->
+    <a href="#main-content" class="sr-only">Skip to main content</a>
 
-        <!-- Hero layout -->
-        <section class="hero is-fullheight">
+    <!-- Initial Loading Overlay -->
+    <div id="initial-loading" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <span class="loading-text">Initializing JMedia...</span>
+        </div>
+    </div>
 
-            <!-- Hero Head (Navbar) -->
-            <div class="hero-head">
-                <nav class="navbar" role="navigation">
-                    <div class="navbar-brand">
-                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
-                        <a role="button" class="navbar-item" id="themeToggle">
-                            <i class="pi pi-sun" id="themeIcon"></i>
-                        </a>
-                        <a role="button" class="navbar-item" id="playerToggle">
-                            <i class="pi pi-expand" id="playerIcon"></i>
-                        </a>
-                        <a role="button" class="navbar-item" href="/video.html">
-                            <i class="pi pi-video"></i>
-                        </a>
-                        <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
-                            <span aria-hidden="true"></span>
-                            <span aria-hidden="true"></span>
-                            <span aria-hidden="true"></span>
-                        </a>
-                        <a role="button" class="navbar-item is-hidden-desktop is-hidden-mobile" id="sidebarToggle">
-                            <i class="pi pi-bars"></i>
-                        </a>
-                    </div>
-                    <div id="navMenu" class="navbar-menu">
-                        <div class="navbar-start">
-                        </div>
-                        <div class="navbar-item is-expanded" style="justify-content: center;">
-                            <div class="navbar-search-container">
-                                <div class="control has-icons-right" style="flex-grow: 1;">
-                                    <input class="input is-rounded" type="text" placeholder="Search all videos..." name="search" id="globalSearchInput"
-                                           hx-get="/api/video/ui/tbody/{profileId}/0"
-                                           hx-trigger="search, keyup changed delay:500ms from:this"
-                                           hx-target="#videoTableBody"
-                                           hx-swap="innerHTML"
-                                           hx-include="[name='search']"
-                                           hx-indicator="#loadingRow">
-                                    <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
-                                        <i class="pi pi-times"></i>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="navbar-end">
-                            <a class="navbar-item" id="openProfileModalBtn">
-                                <span class="icon"><i class="pi pi-user"></i></span>
-                                <span id="currentProfileName">Loading...</span>
-                            </a>
-                            <a class="navbar-item" href="/settings.html">
-                                <span class="icon"><i class="pi pi-cog"></i></span>
-                                <span>Settings</span>
-                            </a>
-                        </div>
-                    </div>
-                </nav>
+    <!-- Main Navigation -->
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+            <a href="/index.html" class="navbar-item" aria-label="Home">
+                <i class="pi pi-home"></i>
+                <strong>JMedia</strong>
+            </a>
+            
+            <button class="navbar-item theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                <i class="pi pi-sun" id="themeIcon"></i>
+            </button>
+            
+            <a href="/video.html" class="navbar-item is-active" aria-label="Videos">
+                <i class="pi pi-video"></i>
+                <span>Videos</span>
+            </a>
+        </div>
+
+        <div class="navbar-center">
+            <div class="search-container">
+                <input 
+                    type="search" 
+                    id="globalSearchInput"
+                    class="search-input" 
+                    placeholder="Search videos, shows, movies..."
+                    aria-label="Search videos">
+                >
+                <button id="clearSearchIcon" class="search-clear is-hidden" aria-label="Clear search">
+                    <i class="pi pi-times"></i>
+                </button>
             </div>
+        </div>
 
-            <!-- Hero Body (SPA Content) -->
-            <div class="hero-body">
-                <div id="spa-container" class="spa-container">
-                    <!-- Loading State -->
-                    <div id="loading-state" class="loading-overlay" style="display: none;">
-                        <div class="loading-content">
-                            <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
-                            <span class="loading-text">Loading content...</span>
-                        </div>
-                    </div>
-                    
-                    <!-- Content Container -->
-                    <div id="spa-content" class="spa-content">
-                        <!-- Dynamic content will be loaded here -->
-                        <div class="has-text-centered py-4">
-                            <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
-                            <p>Loading video content...</p>
-                        </div>
-                    </div>
+        <div class="navbar-end">
+            <button id="profileButton" class="navbar-item" aria-label="Profile">
+                <i class="pi pi-user"></i>
+                <span id="currentProfileName">Profile</span>
+            </button>
+            <a href="/settings.html" class="navbar-item" aria-label="Settings">
+                <i class="pi pi-cog"></i>
+                <span>Settings</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="main-content" class="main-content">
+        <!-- Loading State -->
+        <div id="loading-state" class="loading-overlay is-hidden">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <span id="loading-text" class="loading-text">Loading content...</span>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" class="error-overlay is-hidden">
+            <div class="error-content">
+                <div class="error-icon">⚠️</div>
+                <h3>Something went wrong</h3>
+                <p id="error-message">An unexpected error occurred.</p>
+                <div class="error-actions">
+                    <button id="retryButton" class="button is-primary">Retry</button>
+                    <button id="dismissButton" class="button is-secondary">Dismiss</button>
                 </div>
             </div>
-        </section>
+        </div>
 
-        <script src="/js/navbar.js"></script>
-        <script src="/js/profileManager.js"></script>
-        <script src="/js/videoContextMenu.js"></script>
-        <script>
-            // Define globalActiveProfileId as a property of the window object
-            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
-        </script>
-        
-        <!-- SPA JavaScript -->
-        <script>
-            class VideoSPA {
-                constructor() {
-                    this.currentSection = 'carousels';
-                    this.currentVideo = null;
-                    this.isLoading = false;
-                    this.sections = {
-                        carousels: '/api/video/ui/carousels-fragment',
-                        details: '/api/video/ui/details-fragment/{videoId}',
-                        playback: '/api/video/ui/playback-fragment'
-                    };
+        <!-- Dynamic Content Container -->
+        <div id="spa-content" class="spa-content">
+            <div class="has-text-centered py-6">
+                <div class="loading-spinner"></div>
+                <p>Loading video content...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Profile Management Modal -->
+    <div id="profileModal" class="modal">
+        <div class="modal-background" onclick="closeProfileModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Manage Profiles</h2>
+                <button class="modal-close" onclick="closeProfileModal()" aria-label="Close">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="profile-section">
+                    <h3>Current Profile</h3>
+                    <div class="current-profile">
+                        <div class="profile-avatar">
+                            <i class="pi pi-user"></i>
+                        </div>
+                        <span id="modalCurrentProfileName">Loading...</span>
+                    </div>
+                </div>
+                
+                <h3>All Profiles</h3>
+                <div id="profileList" class="profile-list"></div>
+                
+                <div class="profile-section">
+                    <div class="create-profile">
+                        <input 
+                            type="text" 
+                            id="newProfileNameInput"
+                            class="input is-fullwidth" 
+                            placeholder="New Profile Name">
+                        >
+                        <button id="createProfileBtn" class="button is-primary">
+                            <i class="pi pi-plus"></i>
+                            <span>Create</span>
+                        </button>
+                    </div>
+                    
+                    <button id="deleteCurrentProfileBtn" class="button is-danger is-fullwidth">
+                        <i class="pi pi-trash"></i>
+                        <span>Delete Current Profile</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button onclick="closeProfileModal()" class="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="/js/htmx.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="/js/theme-initializer.js"></script>
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('profile', {
+                currentProfile: null,
+            });
+        });
+    </script>
+    <script src="/js/navbar.js"></script>
+    <script src="/js/profileManager.js"></script>
+    <script src="/js/videoContextMenu.js"></script>
+    
+    <!-- Simple, Robust SPA JavaScript -->
+    <script>
+        class SimpleVideoSPA {
+            constructor() {
+                this.state = {
+                    currentSection: 'carousels',
+                    isLoading: false,
+                    error: null
+                };
+                
+                this.sections = {
+                    carousels: '/api/video/ui/carousels-fragment',
+                    details: '/api/video/ui/details-fragment/{videoId}',
+                    playback: '/api/video/ui/playback-fragment'
+                };
+                
+                this.loadingMessages = {
+                    carousels: 'Loading featured content...',
+                    details: 'Loading video details...',
+                    playback: 'Starting playback...'
+                };
+            }
+            
+            async init() {
+                // Set up global profile ID
+                window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+                
+                // Set up event listeners
+                this.setupEventListeners();
+                
+                // Load initial content
+                try {
+                    await this.switchSection('carousels');
+                } catch (error) {
+                    console.error('Error loading initial content:', error);
                 }
                 
-                async switchSection(section, params = {}) {
-                    this.showLoading();
-                    const url = this.buildUrl(section, params);
-                    try {
-                        const html = await this.fetchContent(url);
-                        this.updateContent(html);
-                        this.hideLoading(); // Hide loading after successful content update
-                        this.currentSection = section;
-                        this.updateNavState(section);
-                    } catch (error) {
-                        this.handleError(error);
-                    }
-                }
+                // Hide initial loader after delay
+                setTimeout(() => {
+                    this.hideInitialLoader();
+                }, 1000);
+            }
+            
+            setupEventListeners() {
+                // Search functionality
+                const searchInput = document.getElementById('globalSearchInput');
+                const clearIcon = document.getElementById('clearSearchIcon');
                 
-                async selectItem(item, action) {
-                    switch(action) {
-                        case 'play':
-                            await this.playVideo(item);
-                            break;
-                        case 'details':
-                            await this.switchSection('details', {videoId: item.id});
-                            break;
-                        case 'queue-add':
-                            await this.addToQueue(item.id);
-                            break;
-                    }
-                }
-                
-                async playVideo(item) {
-                    // Update playback state via API
-                    await fetch('/api/video/playback/play/' + item.id, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
+                if (searchInput) {
+                    let searchTimeout;
+                    
+                    searchInput.addEventListener('input', (e) => {
+                        clearTimeout(searchTimeout);
+                        const query = e.target.value.trim();
+                        if (query.length >= 2) {
+                            searchTimeout = setTimeout(() => {
+                                this.performSearch(query);
+                            }, 300);
                         }
                     });
-                    // Switch to playback view
-                    await this.switchSection('playback', {videoId: item.id});
-                }
-                
-                async addToQueue(videoId) {
-                    try {
-                        const response = await fetch('/api/video/queue/add/' + videoId, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        if (response.ok) {
-                            console.log('Added to queue:', videoId);
+                    
+                    searchInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape') {
+                            searchInput.value = '';
+                            this.clearSearchResults();
                         }
-                    } catch (error) {
-                        console.error('Failed to add to queue:', error);
-                    }
+                    });
                 }
                 
-                buildUrl(section, params) {
-                    let url = this.sections[section] || section;
-                    for (const [key, value] of Object.entries(params)) {
-                        url = url.replace('{' + key + '}', value);
-                    }
-                    return url;
+                if (clearIcon) {
+                    clearIcon.addEventListener('click', () => {
+                        searchInput.value = '';
+                        this.clearSearchResults();
+                    });
                 }
                 
-                async fetchContent(url) {
+                // Profile modal functionality
+                window.openProfileModal = this.openProfileModal.bind(this);
+                window.closeProfileModal = this.closeProfileModal.bind(this);
+                
+                // Theme toggle
+                window.toggleTheme = this.toggleTheme.bind(this);
+                const themeToggle = document.getElementById('themeToggle');
+                const themeIcon = document.getElementById('themeIcon');
+                
+                if (themeToggle && themeIcon) {
+                    themeToggle.addEventListener('click', window.toggleTheme);
+                }
+                
+                // Profile button
+                const profileButton = document.getElementById('profileButton');
+                if (profileButton) {
+                    profileButton.addEventListener('click', window.openProfileModal);
+                }
+            }
+            
+            async switchSection(section, params = {}) {
+                if (this.state.isLoading) return;
+                
+                this.showLoading(this.loadingMessages[section] || 'Loading...');
+                this.hideError();
+                
+                try {
+                    const url = this.buildUrl(section, params);
                     const response = await fetch(url);
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     }
-                    return await response.text();
-                }
-                
-                updateContent(html) {
-                    const contentDiv = document.getElementById('spa-content');
-                    if (contentDiv) {
-                        contentDiv.innerHTML = html;
-                        
-                        // Execute any scripts in the new content
-                        const scripts = contentDiv.querySelectorAll('script');
-                        scripts.forEach(script => {
-                            const newScript = document.createElement('script');
-                            if (script.src) {
-                                newScript.src = script.src;
-                            } else {
-                                newScript.textContent = script.textContent;
-                            }
-                            document.head.appendChild(newScript);
-                            document.head.removeChild(newScript);
-                        });
-                    }
-                }
-                
-                showLoading() {
-                    this.isLoading = true;
-                    const loadingDiv = document.getElementById('loading-state');
-                    const contentDiv = document.getElementById('spa-content');
-                    if (loadingDiv) loadingDiv.style.display = 'flex';
-                    if (contentDiv) contentDiv.style.opacity = '0.3';
-                }
-                
-                hideLoading() {
-                    this.isLoading = false;
-                    const loadingDiv = document.getElementById('loading-state');
-                    const contentDiv = document.getElementById('spa-content');
-                    if (loadingDiv) loadingDiv.style.display = 'none';
-                    if (contentDiv) contentDiv.style.opacity = '1';
-                }
-                
-                handleError(error) {
-                    console.error('SPA Error:', error);
+                    
+                    const html = await response.text();
+                    this.updateContent(html);
+                    
+                    this.state.currentSection = section;
                     this.hideLoading();
-                    const contentDiv = document.getElementById('spa-content');
-                    if (contentDiv) {
-                        contentDiv.innerHTML = `
-                            <div class="notification is-danger">
-                                <strong>Error:</strong> ${error.message}
-                                <button class="delete" onclick="this.parentElement.remove()"></button>
-                            </div>
-                        `;
-                    }
-                }
-                
-                updateNavState(section) {
-                    // Update navigation active states if needed
-                    // This could be expanded to highlight current section in nav
+                    
+                } catch (error) {
+                    console.error('SPA Error:', error);
+                    this.showError(error.message || 'An unexpected error occurred');
                 }
             }
-
-            // Initialize SPA
-            const videoSPA = new VideoSPA();
-
-            // Global functions for template compatibility
-            window.selectItem = (item, action) => videoSPA.selectItem(item, action);
-            window.switchSection = (section, params) => videoSPA.switchSection(section, params);
-            window.addToWatchlist = (item) => {
-                console.log('Add to watchlist:', item);
-                // Implementation would depend on your watchlist system
-            };
-            window.scrollCarousel = (carouselId, direction) => {
-                const carousel = document.getElementById(carouselId);
-                if (carousel) {
-                    const scrollAmount = 300;
-                    carousel.scrollBy({
-                        left: scrollAmount * direction,
-                        behavior: 'smooth'
+            
+            buildUrl(section, params) {
+                let url = this.sections[section] || section;
+                for (const [key, value] of Object.entries(params)) {
+                    url = url.replace('{' + key + '}', encodeURIComponent(value));
+                }
+                return url;
+            }
+            
+            updateContent(html) {
+                const contentDiv = document.getElementById('spa-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = html;
+                    
+                    // Re-initialize components for new content
+                    this.reinitializeComponents();
+                }
+            }
+            
+            reinitializeComponents() {
+                // Re-initialize context menus and other components
+                if (window.videoContextMenu && typeof window.addContextMenuHandlers === 'function') {
+                    window.addContextMenuHandlers();
+                }
+            }
+            
+            showLoading(message = 'Loading...') {
+                this.state.isLoading = true;
+                const loadingDiv = document.getElementById('loading-state');
+                const loadingText = document.getElementById('loading-text');
+                const contentDiv = document.getElementById('spa-content');
+                
+                if (loadingDiv && loadingText && contentDiv) {
+                    loadingDiv.classList.remove('is-hidden');
+                    loadingText.textContent = message;
+                    contentDiv.style.opacity = '0.3';
+                }
+            }
+            
+            hideLoading() {
+                this.state.isLoading = false;
+                const loadingDiv = document.getElementById('loading-state');
+                const loadingText = document.getElementById('loading-text');
+                const contentDiv = document.getElementById('spa-content');
+                
+                if (loadingDiv && loadingText && contentDiv) {
+                    loadingDiv.classList.add('is-hidden');
+                    loadingText.textContent = 'Loading...';
+                    contentDiv.style.opacity = '1';
+                }
+            }
+            
+            showError(message = 'An error occurred.') {
+                this.state.error = { message };
+                this.hideLoading();
+                
+                const errorDiv = document.getElementById('error-state');
+                const errorMessage = document.getElementById('error-message');
+                const contentDiv = document.getElementById('spa-content');
+                
+                if (errorDiv && errorMessage && contentDiv) {
+                    errorDiv.classList.remove('is-hidden');
+                    errorMessage.textContent = message;
+                    contentDiv.style.opacity = '0.3';
+                }
+            }
+            
+            hideError() {
+                this.state.error = null;
+                
+                const errorDiv = document.getElementById('error-state');
+                const contentDiv = document.getElementById('spa-content');
+                
+                if (errorDiv && contentDiv) {
+                    errorDiv.classList.add('is-hidden');
+                    contentDiv.style.opacity = '1';
+                }
+            }
+            
+            hideInitialLoader() {
+                const loader = document.getElementById('initial-loading');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                    }, 300);
+                }
+            }
+            
+            // Profile modal methods
+            openProfileModal() {
+                const modal = document.getElementById('profileModal');
+                if (modal) {
+                    modal.classList.add('is-active');
+                    this.loadProfiles();
+                    this.loadCurrentProfile();
+                }
+            }
+            
+            closeProfileModal() {
+                const modal = document.getElementById('profileModal');
+                if (modal) {
+                    modal.classList.remove('is-active');
+                }
+            }
+            
+            loadProfiles() {
+                if (window.profileManager && window.profileManager.getProfiles) {
+                    const profileList = document.getElementById('profileList');
+                    const profiles = window.profileManager.getProfiles();
+                    
+                    profileList.innerHTML = '';
+                    
+                    profiles.forEach((profile, index) => {
+                        const profileElement = document.createElement('div');
+                        profileElement.className = 'profile-item';
+                        profileElement.innerHTML = `
+                            <span class="profile-name">${profile.name}</span>
+                            <button class="button is-small" onclick="window.simpleSPA.switchToProfile('${profile.id}')">
+                                Select
+                            </button>
+                        `;
+                        
+                        profileList.appendChild(profileElement);
                     });
                 }
-            };
+            }
+            
+            loadCurrentProfile() {
+                if (window.profileManager && window.profileManager.getCurrentProfile) {
+                    const currentProfile = window.profileManager.getCurrentProfile();
+                    const profileNameSpan = document.getElementById('modalCurrentProfileName');
+                    
+                    if (profileNameSpan && currentProfile) {
+                        profileNameSpan.textContent = currentProfile.name;
+                    }
+                }
+            }
+            
+            switchToProfile(profileId) {
+                if (window.profileManager && window.profileManager.switchToProfile) {
+                    window.profileManager.switchToProfile(profileId);
+                    this.loadProfiles();
+                    this.loadCurrentProfile();
+                }
+            }
+            
+            // Theme toggle
+            toggleTheme() {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                
+                document.documentElement.setAttribute('data-theme', newTheme);
+                
+                const themeIcon = document.getElementById('themeIcon');
+                if (themeIcon) {
+                    themeIcon.className = newTheme === 'dark' ? 'pi pi-sun' : 'pi pi-moon';
+                }
+                
+                localStorage.setItem('theme', newTheme);
+            }
+            
+            // Search functionality
+            async performSearch(query) {
+                try {
+                    this.showLoading('Searching...');
+                    
+                    const response = await fetch(`/api/video/search?q=${encodeURIComponent(query)}&limit=8`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Search failed: ${response.statusText}`);
+                    }
+                    
+                    const results = await response.json();
+                    this.displaySearchResults(results);
+                    
+                } catch (error) {
+                    console.error('Search error:', error);
+                    this.showToast('Search failed. Please try again.', 'error');
+                } finally {
+                    this.hideLoading();
+                }
+            }
+            
+            displaySearchResults(results) {
+                const resultsContainer = document.createElement('div');
+                resultsContainer.className = 'search-results';
+                
+                if (results.length === 0) {
+                    resultsContainer.innerHTML = '<p class="no-results">No results found</p>';
+                } else {
+                    results.forEach(result => {
+                        const resultElement = document.createElement('div');
+                        resultElement.className = 'search-result-item';
+                        resultElement.innerHTML = `
+                            <div class="search-result-info">
+                                <div class="search-result-title">${result.title || result.seriesTitle}</div>
+                                <div class="search-result-meta">${result.type || 'Video'} • ${result.year || ''}</div>
+                            </div>
+                        `;
+                        
+                        resultElement.addEventListener('click', async () => {
+                            window.simpleSPA.clearSearchResults();
+                            await window.simpleSPA.switchSection(result.type === 'Movie' ? 'details' : 'details', {videoId: result.id});
+                        });
+                        
+                        resultsContainer.appendChild(resultElement);
+                    });
+                }
+                
+                // Find or create results container
+                let searchContainer = document.querySelector('.navbar-search-container');
+                if (!searchContainer) {
+                    searchContainer = document.body;
+                }
+                
+                // Replace or append results
+                const existingResults = searchContainer.querySelector('.search-results');
+                if (existingResults) {
+                    searchContainer.replaceChild(resultsContainer, existingResults);
+                } else {
+                    searchContainer.appendChild(resultsContainer);
+                }
+            }
+            
+            clearSearchResults() {
+                const resultsContainer = document.querySelector('.search-results');
+                if (resultsContainer) {
+                    resultsContainer.remove();
+                }
+            }
+            
+            // Toast notifications
+            showToast(message, type = 'info') {
+                const toast = document.createElement('div');
+                toast.className = `toast is-${type}`;
+                toast.innerHTML = `
+                    <div class="toast-content">
+                        <span class="toast-icon">
+                            ${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ️'}
+                        </span>
+                        <span class="toast-message">${message}</span>
+                    </div>
+                `;
+                
+                toast.style.position = 'fixed';
+                toast.style.top = '20px';
+                toast.style.right = '20px';
+                toast.style.zIndex = '9999';
+                toast.style.transition = 'all 0.3s ease';
+                
+                document.getElementById('toast-container').appendChild(toast);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 5000);
+            }
+        }
 
-            // Initialize on page load
-            document.addEventListener('DOMContentLoaded', () => {
-                videoSPA.switchSection('carousels');
-            });
-        </script>
-    
-    <!-- Profile Management Modal -->
-    <div id="profileModal" class="modal">
-      <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
-    <div class="modal-card glass-modal">
-      <header class="modal-card-head glass-modal-header">
-          <p class="modal-card-title">Manage Profiles</p>
-          <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
-        </header>
-        <section class="modal-card-body glass-modal-body">
-          <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
-          <h6 class="title is-6 mt-4">All Profiles:</h6>
-          <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
-            <!-- Profiles will be dynamically loaded here as circular buttons -->
-          </div>
-          <hr>
-          <div class="field has-addons">
-              <div class="control is-expanded">
-                  <input class="input" type="text" id="newProfileNameInput" placeholder="New Profile Name">
-              </div>
-              <div class="control">
-                  <button class="button is-info" id="createProfileBtn">Create</button>
-              </div>
-          </div>
-          <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
-        </section>
-        <footer class="modal-card-foot glass-modal-footer">
-          <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
-        </footer>
-      </div>
-    </div>
+        // Global functions for template compatibility
+        window.selectItem = (item, action) => {
+            simpleSPA.selectItem(item, action);
+        };
+        
+        window.switchSection = async (section, params) => {
+            await simpleSPA.switchSection(section, params);
+        };
+        
+        window.addToWatchlist = (item) => {
+            console.log('Add to watchlist:', item);
+            // Implementation depends on your watchlist system
+        };
+        
+        window.scrollCarousel = (carouselId, direction) => {
+            const carousel = document.getElementById(carouselId);
+            if (carousel) {
+                carousel.scrollBy({
+                    left: 300 * direction,
+                    behavior: 'smooth'
+                });
+            }
+        };
+
+        // Initialize on DOM load
+        document.addEventListener('DOMContentLoaded', () => {
+            simpleSPA = new SimpleVideoSPA();
+            console.log('SimpleVideoSPA initialized successfully');
+        });
+    </script>
 </body>
 </html>

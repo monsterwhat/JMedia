@@ -2,7 +2,10 @@ package API.Rest;
 
 import Controllers.VideoController;
 import Services.VideoService;
+import Services.VideoHistoryService;
+import Services.VideoStateService;
 import io.quarkus.qute.Template;
+import io.quarkus.qute.ValueResolver;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -13,11 +16,16 @@ import jakarta.ws.rs.core.MediaType;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Path("/api/video/ui")
 @Produces(MediaType.TEXT_HTML)
@@ -38,8 +46,20 @@ public class VideoUiApi {
     Template seasonListContent;
     @Inject @io.quarkus.qute.Location("episodeListContent.html")
     Template episodeListContent;
-    @Inject @io.quarkus.qute.Location("videoEntryFragment.html")
+@Inject @io.quarkus.qute.Location("videoEntryFragment.html")
     Template videoEntryFragment;
+
+    @Inject @io.quarkus.qute.Location("carouselsFragment.html")
+    Template carouselsFragment;
+
+    @Inject
+    private VideoHistoryService videoHistoryService;
+
+    @Inject
+    private VideoStateService videoStateService;
+
+    // Jackson ObjectMapper for JSON serialization
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
 
     // Helper functions for Qute templates
@@ -231,7 +251,186 @@ public class VideoUiApi {
     }
     
     // Helper record to pass video and its index to the template/JSON
-    public record VideoWithIndex(VideoService.VideoDTO video, int index) {
+public record VideoWithIndex(VideoService.VideoDTO video, int index) {
 
+    }
+ 
+    
+    // JSON serialization helper for templates
+    private String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    @GET
+    @Path("/carousels-view")
+    @Blocking
+    public String getCarouselsView() {
+        // Get data for carousels using algorithms
+        Map<String, Object> carouselData = getCarouselData();
+
+        return carouselsFragment
+                .data("featured", carouselData.get("featured"))
+                .data("newReleases", carouselData.get("newReleases"))
+                .data("continueWatching", carouselData.get("continueWatching"))
+                .data("trending", carouselData.get("trending"))
+                .data("movies", carouselData.get("movies"))
+                .data("tvShows", carouselData.get("tvShows"))
+                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .data("json", (Function<Object, String>) this::toJson)
+                .render();
+    }
+
+    @GET
+    @Path("/test")
+    @Blocking
+    public String testEndpoint() {
+        return "Video API is working";
+    }
+
+    @GET
+    @Path("/debug")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public String debugEndpoint() {
+        Map<String, Object> debug = new HashMap<>();
+        
+        try {
+            // Count database records
+            debug.put("mediaFiles_count", Models.MediaFile.count());
+            debug.put("movies_count", Models.Movie.count());
+            debug.put("episodes_count", Models.Episode.count());
+            debug.put("shows_count", Models.Show.count());
+            debug.put("seasons_count", Models.Season.count());
+            debug.put("videoHistory_count", Models.VideoHistory.count());
+            debug.put("videoState_count", Models.VideoState.count());
+            
+            // Get actual data for carousels
+            Map<String, Object> carouselData = getCarouselData();
+            debug.put("carousel_featured_size", ((List<?>)carouselData.get("featured")).size());
+            debug.put("carousel_newReleases_size", ((List<?>)carouselData.get("newReleases")).size());
+            debug.put("carousel_continueWatching_size", ((List<?>)carouselData.get("continueWatching")).size());
+            debug.put("carousel_trending_size", ((List<?>)carouselData.get("trending")).size());
+            debug.put("carousel_movies_size", ((List<?>)carouselData.get("movies")).size());
+            debug.put("carousel_tvShows_size", ((List<?>)carouselData.get("tvShows")).size());
+            
+            // Sample some data
+            List<Models.MediaFile> mediaFiles = Models.MediaFile.list("type", "video");
+            debug.put("sample_mediafiles", mediaFiles.stream().limit(5).map(mf -> Map.of(
+                "id", mf.id,
+                "path", mf.path,
+                "type", mf.type,
+                "durationSeconds", mf.durationSeconds,
+                "lastModified", mf.lastModified
+            )).collect(Collectors.toList()));
+            
+            List<Models.Movie> movies = Models.Movie.findAll().page(0, 5).list();
+            debug.put("sample_movies", movies.stream().map(m -> Map.of(
+                "id", m.id,
+                "title", m.title,
+                "releaseYear", m.releaseYear,
+                "videoPath", m.videoPath
+            )).collect(Collectors.toList()));
+            
+            List<Models.Episode> episodes = Models.Episode.findAll().page(0, 5).list();
+            debug.put("sample_episodes", episodes.stream().map(e -> Map.of(
+                "id", e.id,
+                "title", e.title,
+                "seasonNumber", e.seasonNumber,
+                "episodeNumber", e.episodeNumber,
+                "videoPath", e.videoPath
+            )).collect(Collectors.toList()));
+            
+        } catch (Exception e) {
+            debug.put("error", e.getMessage());
+            debug.put("stackTrace", Arrays.toString(e.getStackTrace()));
+        }
+        
+        try {
+            return objectMapper.writeValueAsString(debug);
+        } catch (Exception e) {
+            return "{\"error\": \"Failed to serialize debug info\"}";
+        }
+    }
+
+
+
+    @GET
+    @Path("/carousels-fragment")
+    @Blocking
+    public String getCarouselsFragment() {
+        // Same as view method for consistency
+        return getCarouselsView();
+    }
+
+    /**
+     * Get carousel data using algorithms
+     */
+    private Map<String, Object> getCarouselData() {
+        Map<String, Object> data = new HashMap<>();
+
+        try {
+            // Featured content: Based on trending + new releases
+            List<Long> trendingIds = videoHistoryService.getTrendingVideoIds(30, 5);
+            Map<Long, Integer> playCounts = videoHistoryService.getPlayCountsForVideos(trendingIds, 30);
+            List<VideoService.VideoDTO> featured = videoService.getFeaturedContent(5, playCounts);
+            data.put("featured", featured);
+
+            // New releases: Content added in last 14 days
+            List<VideoService.VideoDTO> newReleases = videoService.getNewReleases(14, 15);
+            data.put("newReleases", newReleases);
+
+            // Continue watching: Partially watched content
+            List<VideoService.VideoDTO> continueWatching = videoStateService.getContinueWatching(10);
+            data.put("continueWatching", continueWatching);
+
+            // Trending: Most watched content in last 7 days
+            List<Long> lastWeekTrending = videoHistoryService.getTrendingVideoIds(7, 15);
+            List<VideoService.VideoDTO> trending = videoService.findByIds(lastWeekTrending);
+            data.put("trending", trending);
+
+            // Movies: Latest movies (20 items)
+            VideoService.PaginatedVideos moviesPaginated = videoService.findPaginatedByMediaType("Movie", 1, 20);
+            data.put("movies", moviesPaginated.videos());
+
+            // TV Shows: Latest episodes by series
+            List<VideoService.VideoDTO> tvShows = videoService.getLatestEpisodesBySeries(15);
+            data.put("tvShows", tvShows);
+            
+            // FALLBACK: If all carousels are empty, provide basic video content
+            boolean allEmpty = featured.isEmpty() && newReleases.isEmpty() && continueWatching.isEmpty() 
+                             && trending.isEmpty() && moviesPaginated.videos().isEmpty() && tvShows.isEmpty();
+            
+            if (allEmpty) {
+                System.out.println("DEBUG: All carousels empty, providing fallback content from all videos");
+                List<VideoService.VideoDTO> allVideos = videoService.findAll();
+                if (!allVideos.isEmpty()) {
+                    // Use some videos as featured
+                    data.put("featured", allVideos.stream().limit(5).collect(Collectors.toList()));
+                    // Use some as new releases
+                    data.put("newReleases", allVideos.stream().skip(5).limit(15).collect(Collectors.toList()));
+                    // Use some as trending
+                    data.put("trending", allVideos.stream().skip(20).limit(15).collect(Collectors.toList()));
+                    // Use all as movies fallback
+                    data.put("movies", allVideos.stream().limit(20).collect(Collectors.toList()));
+                    System.out.println("DEBUG: Provided fallback content - total videos: " + allVideos.size());
+                }
+            }
+
+        } catch (Exception e) {
+            // If any carousel data fails, provide empty lists to avoid template errors
+            System.err.println("Error loading carousel data: " + e.getMessage());
+            data.put("featured", Collections.emptyList());
+            data.put("newReleases", Collections.emptyList());
+            data.put("continueWatching", Collections.emptyList());
+            data.put("trending", Collections.emptyList());
+            data.put("movies", Collections.emptyList());
+            data.put("tvShows", Collections.emptyList());
+        }
+
+        return data;
     }
 }

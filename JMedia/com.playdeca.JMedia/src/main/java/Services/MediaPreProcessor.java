@@ -119,18 +119,74 @@ public class MediaPreProcessor {
     @Transactional
     public void processPendingMedia() {
         List<PendingMedia> pendingList = PendingMedia.findPendingProcessing();
-        LOGGER.info("Starting smart processing for {} pending media items", pendingList.size());
+        LOGGER.info("MediaProcessor: Starting smart processing for {} pending media items", pendingList.size());
+        
+        int processedCount = 0;
+        int successCount = 0;
+        int retryCount = 0;
+        int failedCount = 0;
         
         for (PendingMedia pending : pendingList) {
             try {
-                processSinglePendingMedia(pending);
+                boolean success = processSinglePendingMediaWithRetry(pending);
+                processedCount++;
+                if (success) {
+                    successCount++;
+                } else {
+                    failedCount++;
+                }
+                
+                // Log progress every 50 items
+                if (processedCount % 50 == 0) {
+                    LOGGER.info("MediaProcessor: Processed batch of 50 pending media items ({}/{})", 
+                               processedCount, pendingList.size());
+                }
+                
             } catch (Exception e) {
-                LOGGER.error("Error processing pending media {}: {}", pending.id, e.getMessage(), e);
-                pending.status = ProcessingStatus.FAILED;
-                pending.errorMessage = e.getMessage();
-                pending.persist();
+                LOGGER.error("MediaProcessor: Critical error processing pending media {} (ID: {}): {}", 
+                            pending.originalFilename, pending.id, e.getMessage(), e);
+                failedCount++;
+                processedCount++;
             }
         }
+        
+        LOGGER.info("MediaProcessor: Smart processing completed. Total: {}, Success: {}, Failed: {}, Retries attempted: {}", 
+                   processedCount, successCount, failedCount, retryCount);
+    }
+    
+    /**
+     * Process a single pending media item with retry logic (max 2 retries, skip on 3rd failure)
+     */ 
+    private boolean processSinglePendingMediaWithRetry(PendingMedia pending) {
+        int retryCount = 0;
+        boolean success = false;
+        
+        while (retryCount <= 2 && !success) {
+            try {
+                processSinglePendingMedia(pending);
+                success = true;
+                LOGGER.info("MediaProcessor: Successfully processed: {} (type: {}, confidence: {:.2f})", 
+                           pending.originalFilename, pending.detectedMediaType, pending.confidenceScore);
+                
+            } catch (Exception e) {
+                retryCount++;
+                if (retryCount <= 2) {
+                    LOGGER.warn("MediaProcessor: Retry {}/3 for: {} (full exception: {})", 
+                               retryCount + 1, pending.originalFilename, e.toString(), e);
+                } else {
+                    LOGGER.error("MediaProcessor: Skipping after 3 failures: {} (final exception: {})", 
+                               pending.originalFilename, e.toString(), e);
+                    
+                    // Mark as failed after 3 attempts
+                    pending.status = ProcessingStatus.FAILED;
+                    pending.errorMessage = "Failed after 3 attempts: " + e.getMessage();
+                    pending.processedAt = java.time.LocalDateTime.now();
+                    pending.persist();
+                }
+            }
+        }
+        
+        return success;
     }
     
     /**
@@ -138,7 +194,7 @@ public class MediaPreProcessor {
      */
     @Transactional
     public void processSinglePendingMedia(PendingMedia pending) {
-        LOGGER.info("Processing pending media: {} ({})", pending.originalFilename, pending.id);
+        LOGGER.info("MediaProcessor: Processing pending media: {} ({})", pending.originalFilename, pending.id);
         
         pending.status = ProcessingStatus.PROCESSING;
         pending.persist();
@@ -168,8 +224,8 @@ public class MediaPreProcessor {
         // Determine final status
         if (result.confidence >= 0.8) {
             pending.status = ProcessingStatus.COMPLETED;
-        } else if (result.confidence >= 0.6) {
-            pending.status = ProcessingStatus.COMPLETED; // But will need user review
+        } else if (result.confidence >= 0.5) { // Changed from 0.6 to 0.5 to align with entity creation threshold
+            pending.status = ProcessingStatus.COMPLETED; 
         } else {
             pending.status = ProcessingStatus.USER_CORRECTION_NEEDED;
         }
@@ -177,8 +233,16 @@ public class MediaPreProcessor {
         pending.processedAt = java.time.LocalDateTime.now();
         pending.persist();
         
-        LOGGER.info("Smart processing completed for {}: {} (confidence: {:.2f})", 
-                   pending.originalFilename, pending.status, pending.confidenceScore);
+        if ("episode".equalsIgnoreCase(result.mediaType)) {
+            LOGGER.info("MediaProcessor: Detected Episode: {} S{:02d}E{:02d} (confidence: {:.2f})", 
+                       pending.originalFilename, result.season, result.episode, result.confidence);
+        } else if ("movie".equalsIgnoreCase(result.mediaType)) {
+            LOGGER.info("MediaProcessor: Detected Movie: {} (confidence: {:.2f})", 
+                       pending.originalFilename, result.confidence);
+        } else {
+            LOGGER.info("MediaProcessor: Smart processing completed for {}: {} (confidence: {:.2f})", 
+                       pending.originalFilename, pending.status, result.confidence);
+        }
     }
     
     /**
