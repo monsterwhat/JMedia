@@ -1,0 +1,288 @@
+<div id="videoQueueList" class="video-queue-container">
+    {#if queue.empty}
+        <div class="has-text-centered py-6">
+            <i class="pi pi-list" style="font-size: 3rem; color: #666;"></i>
+            <p class="mt-4">Your video queue is empty.</p>
+            <p class="has-text-grey">Add videos to your queue to watch them later.</p>
+        </div>
+    {#else}
+        <div class="video-queue-list">
+            {#for entry in queue}
+            <div class="video-queue-item" data-video-id="{entry.video.id}" data-queue-index="{entry.index}">
+                <div class="video-queue-thumbnail">
+                    <img src="/api/video/thumbnail/{entry.video.id}" 
+                         alt="{entry.video.title ?: entry.video.seriesTitle}"
+                         loading="lazy"
+                         onerror="this.src='https://picsum.photos/seed/video{entry.video.id}/80/120.jpg'">
+                    <div class="video-queue-play-btn" onclick="playVideo({entry.video.id})">
+                        <i class="pi pi-play"></i>
+                    </div>
+                </div>
+                
+                <div class="video-queue-info">
+                    <div class="video-queue-title">
+                        {#if entry.video.episodeNumber}
+                            <span class="video-queue-episode">S{entry.video.seasonNumber}E{entry.video.episodeNumber}</span>
+                            {entry.video.episodeTitle ?: entry.video.title}
+                        {#else}
+                            {entry.video.title}
+                        {/if}
+                    </div>
+                    {#if entry.video.seriesTitle && entry.video.type == 'Episode'}
+                    <div class="video-queue-series">{entry.video.seriesTitle}</div>
+                    {/if}
+                    
+                    <div class="video-queue-meta">
+                        <span class="video-queue-duration">{formatDuration.apply(entry.video.durationSeconds)}</span>
+                        {#if entry.video.releaseYear}
+                        <span>•</span>
+                        <span>{entry.video.releaseYear}</span>
+                        {/if}
+                        <span class="tag is-info is-light ml-2">#{entry.index + 1}</span>
+                    </div>
+                </div>
+                
+                <div class="video-queue-actions">
+                    <button class="button is-small is-primary" 
+                            onclick="playVideo({entry.video.id})"
+                            title="Play now">
+                        <i class="pi pi-play"></i>
+                    </button>
+                    <button class="button is-small is-info" 
+                            onclick="showVideoDetails({entry.video.id})"
+                            title="Show details">
+                        <i class="pi pi-info-circle"></i>
+                    </button>
+                    <button class="button is-small is-danger" 
+                            onclick="removeFromQueue({entry.index}, {entry.video.id})"
+                            title="Remove from queue">
+                        <i class="pi pi-times"></i>
+                    </button>
+                </div>
+            </div>
+            {/for}
+        </div>
+        
+        {#if totalPages > 1}
+        <div class="video-queue-pagination">
+            <nav class="pagination is-centered" role="navigation" aria-label="Queue pagination">
+                <a class="pagination-previous"
+                   {#if currentPage > 1}
+                       onclick="loadQueuePage({currentPage - 1})"
+                   {#else}
+                       disabled
+                   {/if}>
+                    Previous
+                </a>
+                <a class="pagination-next"
+                   {#if currentPage < totalPages}
+                       onclick="loadQueuePage({currentPage + 1})"
+                   {#else}
+                       disabled
+                   {/if}>
+                    Next
+                </a>
+                <ul class="pagination-list">
+                    {#for p in pageNumbers}
+                        {#if p == -1}
+                            <li><span class="pagination-ellipsis">&hellip;</span></li>
+                        {#else if p == currentPage}
+                            <li><a class="pagination-link is-current" aria-label="Page {p}" aria-current="page">{p}</a></li>
+                        {#else}
+                            <li>
+                                <a class="pagination-link"
+                                   aria-label="Goto page {p}"
+                                   onclick="loadQueuePage({p})">
+                                    {p}
+                                </a>
+                            </li>
+                        {/if}
+                    {/for}
+                </ul>
+            </nav>
+        </div>
+        {/if}
+    {/if}
+</div>
+
+<style>
+.video-queue-container {
+    padding: 20px;
+    background: var(--card-background);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.video-queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: 600px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.video-queue-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--card-header-background);
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.video-queue-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.video-queue-thumbnail {
+    position: relative;
+    width: 80px;
+    height: 120px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.video-queue-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.video-queue-play-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 32px;
+    height: 32px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    cursor: pointer;
+}
+
+.video-queue-thumbnail:hover .video-queue-play-btn {
+    opacity: 1;
+}
+
+.video-queue-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.video-queue-title {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.video-queue-episode {
+    color: var(--primary-color, #3273dc);
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+.video-queue-series {
+    color: var(--text-grey, #666);
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.video-queue-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-grey, #666);
+    font-size: 0.9rem;
+}
+
+.video-queue-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.video-queue-pagination {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .video-queue-container {
+        padding: 12px;
+    }
+    
+    .video-queue-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .video-queue-thumbnail {
+        width: 60px;
+        height: 90px;
+        align-self: center;
+    }
+    
+    .video-queue-actions {
+        flex-direction: row;
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+</style>
+
+<script>
+// Queue management functions
+function loadQueuePage(page) {
+    htmx.ajax('GET', `/api/video/ui/queue-fragment?page=${page}&limit=50`, {
+        target: 'videoQueueList',
+        swap: 'innerHTML'
+    });
+}
+
+function playVideo(videoId) {
+    window.selectItem({id: videoId}, 'play');
+}
+
+function showVideoDetails(videoId) {
+    window.selectItem({id: videoId}, 'details');
+}
+
+function removeFromQueue(index, videoId) {
+    fetch(`/api/video/queue/remove/${videoId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    }).then(response => {
+        if (response.ok) {
+            // Reload the queue
+            loadQueuePage(1);
+        } else {
+            console.error('Failed to remove from queue');
+        }
+    }).catch(error => {
+        console.error('Error removing from queue:', error);
+    });
+}
+</script>

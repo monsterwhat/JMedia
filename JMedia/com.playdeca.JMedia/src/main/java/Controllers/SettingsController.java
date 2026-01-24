@@ -544,10 +544,8 @@ public class SettingsController implements Serializable {
                     // File hasn't changed, but in import context we still want to return it
                     boolean isImportContext = Thread.currentThread().getStackTrace().length > 5;
                     if (isImportContext) {
-                        addLog("DEBUG: Import context - returning unchanged existing song: " + relativePath);
                         return song; // Return existing song for import playlist inclusion
                     } else {
-                        addLog("DEBUG: Skipping unchanged file: " + relativePath);
                         return null; // Skip processing for regular library scan
                     }
                 }

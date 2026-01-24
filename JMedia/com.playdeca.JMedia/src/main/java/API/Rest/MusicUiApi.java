@@ -58,6 +58,10 @@ public class MusicUiApi {
     @Inject
     @io.quarkus.qute.Location("playlistTableBodyFragment.html")
     Template playlistTableBodyFragment;
+    
+    @Inject
+    @io.quarkus.qute.Location("mobilePlaylistTableBodyFragment.html")
+    Template mobilePlaylistTableBodyFragment;
     @Inject
     Template queueFragment;
     @Inject
@@ -73,6 +77,16 @@ public class MusicUiApi {
     
     @Inject
     Template historyFragment;
+    
+    @Inject
+    @io.quarkus.qute.Location("mobilePlaylistFragment.html")
+    Template mobilePlaylistFragment;
+    
+    @Inject
+    Template mobileQueueFragment;
+    
+    @Inject
+    Template mobileHistoryFragment;
 
     private String formatDate(Object date) {
         if (date == null) {
@@ -304,6 +318,17 @@ public class MusicUiApi {
     }
 
     @GET
+    @Path("/mobile-playlists-fragment/{profileId}")
+    @Blocking
+    public String mobilePlaylistsFragment(@PathParam("profileId") Long profileId) {
+        List<Playlist> playlists = getPlaylistsByProfileId(profileId);
+        return mobilePlaylistFragment
+                .data("playlists", playlists)
+                .data("profileId", profileId)
+                .render();
+    }
+
+    @GET
     @Path("/playlist-view/{profileId}/{id}")
     @Blocking
     public String getPlaylistView(
@@ -322,7 +347,7 @@ public class MusicUiApi {
         Playlist playlist = null;
         String name;
         if (playlistId == 0) {
-            // All Songs - always accessible
+            // All Songs - always accessible 
             name = "All Songs";
             playlist = null; // No specific playlist for All Songs
         } else {
@@ -441,6 +466,68 @@ public class MusicUiApi {
         }
     }
 
+    @GET
+    @Path("/mobile-tbody/{profileId}/{id}")
+    @Blocking
+    public String getMobilePlaylistTbody(
+            @PathParam("profileId") Long profileId,
+            @PathParam("id") Long id,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        try {
+            long playlistId = (id == null) ? 0L : id;
+
+            List<Song> paginatedSongs;
+            long totalSongs;
+
+            if (playlistId == 0) {
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                paginatedSongs = result.songs();
+                totalSongs = result.totalCount();
+            } else {
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                paginatedSongs = result.songs();
+                totalSongs = result.totalCount();
+            }
+
+            if (totalSongs == 0) {
+                return "<tr><td colspan='1' class='has-text-centered'>No songs found.</td></tr>";
+            }
+            int totalPages = (int) Math.ceil((double) totalSongs / limit);
+            int currentPage = Math.max(1, Math.min(page, totalPages));
+
+            Song currentSong = playbackController.getCurrentSong(profileId);
+            boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
+
+            List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
+            return mobilePlaylistTableBodyFragment
+                    .data("playlistId", String.valueOf(playlistId))
+                    .data("songs", paginatedSongs)
+                    .data("currentSong", currentSong)
+                    .data("isPlaying", isPlaying)
+                    .data("formatDate", (Function<Object, String>) this::formatDate)
+                    .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                    .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                    .data("limit", limit)
+                    .data("currentPage", currentPage)
+                    .data("totalPages", totalPages)
+                    .data("pageNumbers", pageNumbers)
+                    .data("search", search)
+                    .data("sortBy", sortBy)
+                    .data("sortDirection", sortDirection)
+                    .data("profileId", String.valueOf(profileId))
+                    .render();
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getLocalizedMessage());
+            return null;
+        }
+    }
+
     // Helper record to pass song and its index to the template
     public record SongWithIndex(Song song, int index) {
 
@@ -489,6 +576,42 @@ public class MusicUiApi {
                 .render();
 
         return new QueueFragmentResponse(html, totalQueueSize); // Reverted to return DTO
+    }
+
+    @GET
+    @Path("/mobile-queue-fragment/{profileId}")
+    @Blocking
+    public String getMobileQueueFragment(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+
+        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId);
+        List<Song> queuePage = paginatedQueue.songs();
+        int totalQueueSize = paginatedQueue.totalSize();
+
+        // The template needs the index of each song *within the full queue*.
+        int offset = (page - 1) * limit;
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < queuePage.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(queuePage.get(i), offset + i));
+        }
+
+        int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
+        int currentPage = Math.max(1, Math.min(page, totalPages));
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
+        return mobileQueueFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", offset)
+                .data("limit", limit)
+                .data("totalQueueSize", totalQueueSize)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
     }
 
     @GET
@@ -640,6 +763,43 @@ public class MusicUiApi {
                 .render();
 
         return new HistoryFragmentResponse(html, (int) totalHistorySize);
+    }
+
+    @GET
+    @Path("/mobile-history-fragment/{profileId}")
+    @Blocking
+    public String getMobileHistoryFragment(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+
+        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId);
+        
+        // Get total count for pagination
+        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
+
+        // Create a list of HistoryWithIndex objects
+        List<HistoryWithIndex> historyWithIndex = new ArrayList<>();
+        for (int i = 0; i < historyPage.size(); i++) {
+            historyWithIndex.add(new HistoryWithIndex(historyPage.get(i), i));
+        }
+
+        int totalPages = (int) Math.ceil((double) totalHistorySize / limit);
+        int currentPage = Math.max(1, Math.min(page, totalPages));
+        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+
+        return mobileHistoryFragment
+                .data("history", historyWithIndex)
+                .data("profileId", profileId)
+                .data("offset", (page - 1) * limit)
+                .data("limit", limit)
+                .data("totalHistorySize", (int) totalHistorySize)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDate", (Function<Object, String>) this::formatDate)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
     }
 
     // Note: Individual history removal and clearing are no longer supported

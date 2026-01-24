@@ -95,6 +95,8 @@ public class VideoAPI {
                 if (thumbnailFile.exists()) {
                     return Response.ok(thumbnailFile)
                             .header("Content-Type", "image/jpeg")
+                            .header("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+                            .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
                             .build();
                 }
             }
@@ -106,6 +108,52 @@ public class VideoAPI {
         } catch (Exception e) {
             LOG.error("Error serving thumbnail for video ID: " + videoId, e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GET
+    @Path("/thumbnail/batch")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getBatchThumbnails(@QueryParam("ids") String videoIds) {
+        try {
+            if (videoIds == null || videoIds.isBlank()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Video IDs are required"))
+                        .build();
+            }
+
+            String[] idArray = videoIds.split(",");
+            java.util.List<String> thumbnailUrls = new java.util.ArrayList<>();
+            
+            for (String idStr : idArray) {
+                try {
+                    Long videoId = Long.parseLong(idStr.trim());
+                    VideoService.VideoDTO video = videoService.find(videoId);
+                    
+                    if (video != null) {
+                        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                        if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
+                            String fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path()).toString();
+                            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type());
+                            thumbnailUrls.add(thumbnailUrl != null ? thumbnailUrl : "https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
+                        } else {
+                            thumbnailUrls.add("https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
+                        }
+                    } else {
+                        thumbnailUrls.add("https://picsum.photos/seed/missing" + videoId + "/300/450.jpg");
+                    }
+                } catch (NumberFormatException e) {
+                    thumbnailUrls.add("https://picsum.photos/seed/error" + idStr + "/300/450.jpg");
+                }
+            }
+            
+            return Response.ok(ApiResponse.success(thumbnailUrls)).build();
+            
+        } catch (Exception e) {
+            LOG.error("Error serving batch thumbnails", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to process batch thumbnail request"))
+                    .build();
         }
     }
 

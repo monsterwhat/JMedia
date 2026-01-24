@@ -32,21 +32,65 @@ function updateQueueCount(totalSize) {
 // Expose updateQueueCount globally so other scripts can call it
 window.updateQueueCount = updateQueueCount;
 
+// Race condition mitigation: DOM operation queue for songQueue.js
+let queueDomOperationQueue = [];
+let isProcessingQueueDOMOperations = false;
+
+function processQueueDOMOperations() {
+    if (isProcessingQueueDOMOperations || queueDomOperationQueue.length === 0) {
+        return;
+    }
+    
+    isProcessingQueueDOMOperations = true;
+    
+    const processNext = () => {
+        if (queueDomOperationQueue.length === 0) {
+            isProcessingQueueDOMOperations = false;
+            return;
+        }
+        
+        const operation = queueDomOperationQueue.shift();
+        
+        try {
+            operation.fn();
+        } catch (error) {
+            console.error(`[songQueue] DOM operation failed:`, error);
+        }
+        
+        // Use requestAnimationFrame for smooth DOM updates
+        if (queueDomOperationQueue.length > 0) {
+            requestAnimationFrame(processNext);
+        } else {
+            isProcessingQueueDOMOperations = false;
+        }
+    };
+    
+    processNext();
+}
+
+function scheduleQueueDOMOperation(fn) {
+    queueDomOperationQueue.push({ fn: fn, timestamp: Date.now() });
+    processQueueDOMOperations();
+}
+
 // -------------------------
 // Update queue current song highlighting
 // -------------------------
 function updateQueueCurrentSong(songId) {
-    // Remove current-song-row class from all rows in queue
-    const allRows = document.querySelectorAll('#songQueueTable tr[data-song-id]');
-    allRows.forEach(row => {
-        row.classList.remove('current-song-row');
-    });
+    // Race condition mitigation: schedule DOM updates
+    scheduleQueueDOMOperation(() => {
+        // Remove current-song-row class from all rows in queue
+        const allRows = document.querySelectorAll('#songQueueTable tr[data-song-id]');
+        allRows.forEach(row => {
+            row.classList.remove('current-song-row');
+        });
 
-    // Add current-song-row class to the selected row in queue
-    const selectedRow = document.querySelector(`#songQueueTable tr[data-song-id="${songId}"]`);
-    if (selectedRow) {
-        selectedRow.classList.add('current-song-row');
-    }
+        // Add current-song-row class to the selected row in queue
+        const selectedRow = document.querySelector(`#songQueueTable tr[data-song-id="${songId}"]`);
+        if (selectedRow) {
+            selectedRow.classList.add('current-song-row');
+        }
+    });
 }
 
 // Expose updateQueueCurrentSong globally so musicBar.js can call it
@@ -220,13 +264,13 @@ window.handleQueueAction = (action, index, profileIdParam) => { // Added profile
                 
                 // Show success message based on action
                 if (action === 'skip') {
-                    showToast('Skipped to selected song in queue', 'success');
+                    Toast.success('Skipped to selected song in queue');
                 } else if (action === 'remove') {
-                    showToast('Song removed from queue', 'success');
+                    Toast.success('Song removed from queue');
                 }
             })
             .catch(error => {
                 console.error(`[songQueue.js] handleQueueAction: Request failed for ${action} at index ${index}:`, error);
-                showToast(`Failed to ${action} song from queue`, 'error');
+                Toast.error(`Failed to ${action} song from queue`);
             });
 };

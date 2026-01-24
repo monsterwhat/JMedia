@@ -182,6 +182,14 @@
                                         </span>
                                     </a>
                                 </li>
+<li data-tab="playlist-creator">
+                                    <a>
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-plus-circle"></i></span>
+                                            <span>Playlist Creator</span>
+                                        </span>
+                                    </a>
+                                </li>
                                 <li data-tab="logs">
                                     <a>
                                         <span class="icon-text">
@@ -758,6 +766,90 @@
                                 </div>
                             </div>
 
+<!-- Playlist Creator Tab -->
+                            <div id="playlist-creator" class="tab-pane glass-box">
+                                <div class="tab-content-inner">
+                                    <h6 class="title is-6 mb-4">
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-plus-circle"></i></span>
+                                            <span>Create Playlist from Text</span>
+                                        </span>
+                                    </h6>
+
+                                    <!-- Playlist Information -->
+                                    <div class="field">
+                                        <label class="label">Playlist Name</label>
+                                        <div class="control">
+                                            <input id="playlistNameInput" class="input" type="text" placeholder="Enter playlist name...">
+                                        </div>
+                                    </div>
+
+                                    <div class="field">
+                                        <label class="label">Description (Optional)</label>
+                                        <div class="control">
+                                            <textarea id="playlistDescriptionInput" class="textarea" rows="2" placeholder="Enter playlist description..."></textarea>
+                                        </div>
+                                    </div>
+
+                                    <!-- Text Input -->
+                                    <div class="field">
+                                        <label class="label">Song List</label>
+                                        <div class="control">
+                                            <textarea id="songListTextarea" class="textarea" rows="10" placeholder="Paste your song list here...
+
+Supported formats:
+• Song Name, Album, Artist
+• Song Name - Artist
+• Artist - Song Name
+
+Example:
+Bohemian Rhapsody, A Night at the Opera, Queen
+Stairway to Heaven - Led Zeppelin
+Hotel California - Eagles"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <!-- Action Buttons -->
+                                    <div class="buttons">
+                                        <button id="createPlaylistBtn" class="button is-primary">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-plus"></i></span>
+                                                <span>Create Playlist</span>
+                                            </span>
+                                        </button>
+                                        <button id="clearPlaylistFormBtn" class="button is-light">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-times"></i></span>
+                                                <span>Clear Form</span>
+                                            </span>
+                                        </button>
+                                    </div>
+
+                                    <!-- Results Section -->
+                                    <div id="playlistResults" class="mt-4" style="display: none;">
+                                        <div class="notification">
+                                            <p id="resultsMessage" class="mb-2"></p>
+                                            
+                                            <div id="unmatchedSection" style="display: none;">
+                                                <p class="has-text-weight-semibold mb-2">Unmatched Songs:</p>
+                                                <div id="unmatchedList" class="content" style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px;">
+                                                    <!-- Unmatched songs will be listed here -->
+                                                </div>
+                                            </div>
+
+                                            <div class="buttons mt-3">
+                                                <button id="viewPlaylistBtn" class="button is-info is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-eye"></i></span>
+                                                        <span>View Playlist</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Logs Tab -->
                             <div id="logs" class="tab-pane glass-box">
                                 <div class="tab-content-inner">
@@ -849,9 +941,11 @@
         <!-- Toast Container -->
         <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
 
+        <script src="/js/toast.js"></script>
         <script src="/js/musicBar.js"></script>
         <script src="/js/mediaSession.js"></script>
         <script src="/js/settings.js"></script>
+        <script src="/js/playlist-creator.js"></script>
         <script src="/js/video-settings.js"></script>
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
@@ -888,57 +982,7 @@
         <script src="/js/deviceSync.js"></script>
 
         <script>
-                                                        // Toast Notification System
-                                                        function showToast(message, type = 'info', duration = 3000) {
-                                                            const toastContainer = document.getElementById('toast-container');
-                                                            if (!toastContainer)
-                                                                return;
-
-                                                            const toast = document.createElement('div');
-                                                            toast.className = `toast ${type}`;
-
-                                                            // Add icon based on type
-                                                            let icon = '';
-                                                            switch (type) {
-                                                                case 'success':
-                                                                    icon = '<i class="pi pi-check-circle toast-icon"></i>';
-                                                                    break;
-                                                                case 'error':
-                                                                    icon = '<i class="pi pi-times-circle toast-icon"></i>';
-                                                                    break;
-                                                                case 'warning':
-                                                                    icon = '<i class="pi pi-exclamation-triangle toast-icon"></i>';
-                                                                    break;
-                                                                case 'info':
-                                                                default:
-                                                                    icon = '<i class="pi pi-info-circle toast-icon"></i>';
-                                                                    break;
-                                                            }
-
-                                                            toast.innerHTML = `
-                                                                <div class="toast-content">
-                                                                    ${icon}
-                                                                    <span class="toast-message">${message}</span>
-                                                                </div>
-                                                            `;
-
-                                                            toastContainer.appendChild(toast);
-
-                                                            // Trigger animation
-                                                            setTimeout(() => {
-                                                                toast.classList.add('show');
-                                                            }, 10);
-
-                                                            // Remove toast after duration
-                                                            setTimeout(() => {
-                                                                toast.classList.remove('show');
-                                                                setTimeout(() => {
-                                                                    if (toast.parentNode) {
-                                                                        toast.parentNode.removeChild(toast);
-                                                                    }
-                                                                }, 300);
-                                                            }, duration);
-                                                        }
+                                                        // Toast Notification System now handled by unified toast.js library
         </script>
 
         <script>

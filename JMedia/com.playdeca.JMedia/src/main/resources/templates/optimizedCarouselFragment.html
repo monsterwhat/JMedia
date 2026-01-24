@@ -1,0 +1,679 @@
+<!-- Optimized Streaming Carousel Component (Static Version) -->
+<div class="streaming-carousel-section" id="carousel-{id}">
+
+    <!-- Carousel Header -->
+    <div class="carousel-header">
+        <div class="carousel-title-section">
+            <i :class="iconClass" :style="iconStyle"></i>
+            <h2 class="carousel-title" x-text="title"></h2>
+            {#if badge}
+            <span class="carousel-badge" x-text="badge"></span>
+            {/if}
+        </div>
+        
+        <div class="carousel-controls">
+            <button class="carousel-nav-btn carousel-nav-left" 
+                    @click="scrollLeft()"
+                    :class="{ 'disabled': scrollPosition <= 0 }">
+                <i class="pi pi-chevron-left"></i>
+            </button>
+            <button class="carousel-nav-btn carousel-nav-right" 
+                    @click="scrollRight()"
+                    :class="{ 'disabled': scrollPosition >= maxScroll }">
+                <i class="pi pi-chevron-right"></i>
+            </button>
+            <button class="carousel-expand-btn" @click="expandSection()">
+                <i class="pi pi-expand"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Carousel Container -->
+    <div class="carousel-container">
+        <div class="streaming-carousel" 
+             x-ref="carousel"
+             @scroll="onScroll($event)">
+            
+            {#for item in items}
+            <div class="streaming-card" 
+                 data-video-id="{item.id}"
+                 onclick="handleCardClick({json.apply(item)}, event)"
+                 onmouseenter="preloadThumbnail({item.id})"
+                 onkeydown="if(event.key === 'Enter') handleCardClick({json.apply(item)}, event)"
+                 tabindex="0"
+                 role="button"
+                 aria-label="{item.title ?: item.seriesTitle}">
+                
+                <!-- Card Image -->
+                <div class="card-image-container">
+                    <img class="card-image" 
+                         src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id}" 
+                         alt="{item.title ?: item.seriesTitle}"
+                         loading="lazy"
+                         decoding="async"
+                         x-data="{ loaded: false }"
+                         @load="loaded = true"
+                         :class="{ 'loaded': loaded, 'loading': !loaded }">
+                    
+                    <!-- Loading Skeleton -->
+                    <div class="card-skeleton" x-show="!loaded">
+                        <div class="skeleton-shimmer"></div>
+                    </div>
+                    
+                    <!-- Play Button Overlay -->
+                    <div class="card-play-overlay">
+                        <button class="card-play-btn">
+                            <i class="pi pi-play"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Progress Bar (for continue watching) -->
+                    {#if item.progressPercentage && item.progressPercentage > 0}
+                    <div class="card-progress">
+                        <div class="progress-bar" :style="'width: ' + ({item.progressPercentage} || 0) + '%'"></div>
+                    </div>
+                    {/if}
+                </div>
+                
+                <!-- Card Content -->
+                <div class="card-content">
+                    <div class="card-badges">
+                        {#if item.isNew || item.type == 'Episode' && item.episodeNumber == 1}
+                        <span class="card-badge new-badge">NEW</span>
+                        {/if}
+                        {#if item.type == 'Movie'}
+                        <span class="card-badge movie-badge">MOVIE</span>
+                        {/if}
+                        {#if item.type == 'Episode'}
+                        <span class="card-badge episode-badge">S{item.seasonNumber}E{item.episodeNumber}</span>
+                        {/if}
+                    </div>
+                    
+                    <h3 class="card-title" x-text="{item.title ?: item.seriesTitle}"></h3>
+                    <p class="card-meta">
+                        {#if item.releaseYear}{item.releaseYear} • {/if}
+                        {formatDuration.apply(item.durationSeconds)}
+                        {#if item.rating} • ⭐ {item.rating}{/if}
+                    </p>
+                </div>
+                
+                <!-- Hover Actions -->
+                <div class="card-actions">
+                    <button class="card-action-btn primary" @click.stop="window.selectItem({json.apply(item)}, 'play')">
+                        <i class="pi pi-play"></i>
+                        <span>Play</span>
+                    </button>
+                    <button class="card-action-btn secondary" @click.stop="window.selectItem({json.apply(item)}, 'details')">
+                        <i class="pi pi-info-circle"></i>
+                        <span>Info</span>
+                    </button>
+                    <button class="card-action-btn tertiary" @click.stop="window.addToWatchlist({json.apply(item)})">
+                        <i class="pi pi-plus"></i>
+                    </button>
+                </div>
+            </div>
+            {/for}
+            
+            {#if items.size == 0}
+            <!-- Empty State -->
+            <div class="carousel-empty-state">
+                <i class="pi pi-video"></i>
+                <h3>No content found</h3>
+                <p>Try scanning your library or adjusting filters</p>
+                <button class="btn-scan" onclick="window.scanLibrary()">
+                    <i class="pi pi-sync"></i>
+                    <span>Scan Library</span>
+                </button>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+
+<style>
+.streaming-carousel-section {
+    margin-bottom: 2rem;
+    position: relative;
+    max-width: 90vw;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.carousel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 0 1rem;
+}
+
+.carousel-title-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.carousel-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: white;
+    margin: 0;
+}
+
+.carousel-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.carousel-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.carousel-nav-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+}
+
+.carousel-nav-btn:hover:not(.disabled) {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+.carousel-nav-btn.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.carousel-expand-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.carousel-expand-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.carousel-container {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+.streaming-carousel {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.streaming-carousel::-webkit-scrollbar {
+    height: 8px;
+}
+
+.streaming-carousel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.streaming-carousel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+}
+
+.streaming-carousel::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.streaming-card {
+    flex: 0 0 auto;
+    width: 200px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.streaming-card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    background: rgba(255, 255, 255, 0.1);
+    z-index: 10;
+}
+
+.streaming-card:hover .card-actions {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.card-image-container {
+    position: relative;
+    width: 100%;
+    height: 300px;
+    overflow: hidden;
+}
+
+.card-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    transition: all 0.3s ease;
+    opacity: 0;
+}
+
+.card-image.loaded {
+    opacity: 1;
+}
+
+.card-image.loading {
+    filter: blur(10px);
+}
+
+.streaming-card:hover .card-image {
+    transform: scale(1.1);
+}
+
+.card-skeleton {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.1) 100%);
+    background-size: 200% 100%;
+    animation: skeleton 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.card-play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: all 0.3s ease;
+}
+
+.streaming-card:hover .card-play-overlay {
+    opacity: 1;
+}
+
+.card-play-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: #333;
+    transition: all 0.3s ease;
+}
+
+.card-play-btn:hover {
+    background: white;
+    transform: scale(1.1);
+}
+
+.card-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    transition: width 0.3s ease;
+}
+
+.card-content {
+    padding: 1rem;
+}
+
+.card-badges {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.card-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.new-badge {
+    background: #ff4757;
+    color: white;
+}
+
+.movie-badge {
+    background: #5f27cd;
+    color: white;
+}
+
+.episode-badge {
+    background: #00d2d3;
+    color: white;
+}
+
+.card-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: white;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-meta {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+}
+
+.card-actions {
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s ease;
+}
+
+.card-action-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.card-action-btn.primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.card-action-btn.secondary {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    backdrop-filter: blur(10px);
+}
+
+.card-action-btn.tertiary {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.card-action-btn:hover {
+    transform: translateY(-2px);
+}
+
+.carousel-empty-state {
+    width: 100%;
+    text-align: center;
+    padding: 3rem 1rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.carousel-empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+.carousel-empty-state h3 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: white;
+}
+
+.carousel-empty-state p {
+    margin-bottom: 2rem;
+}
+
+.btn-scan {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.btn-scan:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .streaming-carousel-section {
+        max-width: 85vw;
+    }
+    
+    .streaming-card {
+        width: 180px;
+    }
+}
+
+@media (max-width: 768px) {
+    .streaming-carousel-section {
+        max-width: 90vw;
+        margin-left: auto;
+        margin-right: auto;
+        padding: 0 0.5rem;
+    }
+    
+    .carousel-header {
+        padding: 0 0.5rem;
+    }
+    
+    .carousel-title {
+        font-size: 1.2rem;
+    }
+    
+    .streaming-card {
+        width: 150px;
+    }
+    
+    .card-image-container {
+        height: 225px;
+    }
+    
+    .card-actions {
+        opacity: 1;
+        transform: translateY(0);
+        bottom: 0.5rem;
+        left: 0.5rem;
+        right: 0.5rem;
+    }
+    
+    .card-action-btn {
+        padding: 6px 8px;
+        font-size: 0.7rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .streaming-carousel-section {
+        max-width: 95vw;
+        padding: 0 0.25rem;
+    }
+    
+    .carousel-header {
+        padding: 0 0.25rem;
+    }
+    
+    .streaming-card {
+        width: 120px;
+    }
+    
+    .card-image-container {
+        height: 180px;
+    }
+    
+    .card-content {
+        padding: 0.5rem;
+    }
+    
+    .card-title {
+        font-size: 0.8rem;
+    }
+    
+    .card-meta {
+        font-size: 0.7rem;
+    }
+}
+</style>
+
+<script>
+// Alpine.js data for carousel initialization
+function initStreamingCarousel(title, items, iconClass, iconStyle, badge) {
+    return {
+        title,
+        items,
+        iconClass: iconClass || 'pi pi-video',
+        iconStyle: iconStyle || '',
+        badge: badge || null,
+        
+        scrollLeft() {
+            const carousel = this.$refs.carousel;
+            const scrollAmount = carousel.clientWidth * 0.8;
+            carousel.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+        },
+        
+        scrollRight() {
+            const carousel = this.$refs.carousel;
+            const scrollAmount = carousel.clientWidth * 0.8;
+            carousel.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+        },
+        
+        onScroll(event) {
+            const carousel = event.target;
+            this.scrollPosition = carousel.scrollLeft;
+            this.maxScroll = carousel.scrollWidth - carousel.clientWidth;
+        },
+        
+        handleCardClick(item, event) {
+            // Default action - play video
+            if (!event.target.closest('.card-actions')) {
+                window.selectItem(item, 'play');
+            }
+        },
+        
+        preloadThumbnail(videoId) {
+            // Preload next few thumbnails for better UX
+            const preloadLink = document.createElement('link');
+            preloadLink.rel = 'preload';
+            preloadLink.as = 'image';
+            preloadLink.href = `/api/video/thumbnail/${videoId}`;
+            document.head.appendChild(preloadLink);
+        },
+        
+        expandSection() {
+            // Navigate to full view of this section
+            console.log('Expand section:', this.title);
+        },
+        
+        startAutoScroll() {
+            if (this.autoScrollEnabled && !this.autoScrollInterval) {
+                this.autoScrollInterval = setInterval(() => {
+                    if (!this.isScrolling && this.scrollPosition < this.maxScroll) {
+                        this.scrollPosition = Math.min(this.scrollPosition + 1, this.maxScroll);
+                        this.$refs.carousel.scrollLeft = this.scrollPosition;
+                    } else if (this.scrollPosition >= this.maxScroll) {
+                        this.scrollPosition = 0;
+                        this.$refs.carousel.scrollLeft = 0;
+                    }
+                }, 50);
+            }
+        }
+    };
+}
+
+// Initialize carousels after page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Fix Alpine.js data binding issues
+    window.initCarousels = function() {
+        // Re-initialize any carousels that might have failed to initialize
+        console.log('Re-initializing carousels...');
+    };
+});
+
+// Global functions for card interactions
+window.handleCardClick = function(item, action) {
+    if (action === 'play') {
+        window.selectItem(item, 'play');
+    } else if (action === 'details') {
+        window.selectItem(item, 'details');
+    } else if (action === 'watchlist') {
+        window.addToWatchlist(item);
+    }
+};
+</script>

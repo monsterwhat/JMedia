@@ -18,6 +18,9 @@ let draggingSeconds = false;
 let draggingVolume = false;
 let mySessionId = null; // New global variable to store this client's session ID // New flag
 let isUpdatingAudioSource = false; // New flag to prevent ontimeupdate during audio source changes
+// Race condition mitigation: track active audio operations
+let activeAudioOperation = null;
+let audioOperationSequence = 0;
 
 const volumeExponent = 2; // Moved to global scope
 
@@ -30,9 +33,35 @@ const calculateLinearSliderValue = (exponentialVol) => { // Moved to global scop
     return linearVol * 100;
 };
 audio.volume = musicState.volume;
-// Global API Post function
-const apiPost = (path, profileId) => {
-    const profileIdValue = profileId || window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+// Race condition mitigation: track profile initialization
+let profileInitializationPromise = null;
+
+function waitForProfileId() {
+    if (profileInitializationPromise) {
+        return profileInitializationPromise;
+    }
+    
+    profileInitializationPromise = new Promise((resolve) => {
+        const checkProfile = () => {
+            if (window.globalActiveProfileId && window.globalActiveProfileId !== 'undefined') {
+                resolve(window.globalActiveProfileId);
+            } else {
+                setTimeout(checkProfile, 50);
+            }
+        };
+        checkProfile();
+    });
+    
+    return profileInitializationPromise;
+}
+
+// Race condition mitigation: async API Post function with profile validation
+const apiPost = async (path, profileId) => {
+    // Race condition mitigation: ensure we have a valid profile ID
+    let profileIdValue = profileId;
+    if (!profileIdValue) {
+        profileIdValue = await waitForProfileId();
+    }
     return fetch(`/api/music/playback/${path}/${profileIdValue}`, {method: 'POST'});
 };
 // ---------------- Helpers ----------------
@@ -267,6 +296,14 @@ function deferCleanup() {
 
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
+    // Race condition mitigation: cancel any previous audio operations
+    const operationId = `audio_${++audioOperationSequence}`;
+    
+    if (activeAudioOperation) {
+        console.log(`[musicBar] Canceling previous audio operation ${activeAudioOperation} for ${operationId}`);
+    }
+    activeAudioOperation = operationId;
+    
     isUpdatingAudioSource = true; // Set flag to true at the beginning
 
     if (!currentSong || !currentSong.id) {
@@ -340,9 +377,16 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
 
         // Defer non-critical updates to prevent blocking
         requestAnimationFrame(() => {
-            updateMusicBar();
-            deferCleanup(); // Move cleanup here
-            isUpdatingAudioSource = false; // Reset flag after UI update
+            // Race condition mitigation: check if this operation is still active
+            if (activeAudioOperation === operationId) {
+                updateMusicBar();
+                deferCleanup(); // Move cleanup here
+                isUpdatingAudioSource = false; // Reset flag after UI update
+                activeAudioOperation = null; // Clear active operation
+            } else {
+                console.log(`[musicBar] Ignoring updates for outdated audio operation ${operationId}`);
+                isUpdatingAudioSource = false; // Still reset flag
+            }
         });
 
         
@@ -355,6 +399,10 @@ let ws;
 let songContextCache = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION = 1000; // 1 second cache
+// Race condition mitigation: message queuing system
+let messageQueue = [];
+let isProcessingMessage = false;
+let messageSequenceNumber = 0;
 
 // Debounced functions to prevent rapid updates
 const debouncedUpdateQueueCount = debounce((count) => {
@@ -370,21 +418,53 @@ const debouncedUpdateSelectedSong = debounce((songId) => {
     }
 }, 50);
 
+// Race condition mitigation: track active song context fetch requests
+let activeSongContextRequests = new Map();
+
 // Optimized song context fetching with caching
 async function fetchSongContext(profileId) {
     const now = Date.now();
     if (songContextCache && (now - cacheTimestamp) < CACHE_DURATION) {
         return songContextCache;
     }
-    const response = await Promise.all([
-        fetch(`/api/music/playback/current/${profileId}`).then(r => r.json()),
-        fetch(`/api/music/playback/previousSong/${profileId}`).then(r => r.json()),
-        fetch(`/api/music/playback/nextSong/${profileId}`).then(r => r.json())
-    ]);
+    
+    // Race condition mitigation: unique request ID for tracking
+    const requestId = `songContext_${Date.now()}_${Math.random()}`;
+    
+    // Cancel any previous requests for this profile
+    const previousRequestId = activeSongContextRequests.get(profileId);
+    if (previousRequestId) {
+        console.log(`[musicBar] Canceling previous song context request ${previousRequestId} for ${requestId}`);
+    }
+    activeSongContextRequests.set(profileId, requestId);
 
-    songContextCache = response;
-    cacheTimestamp = now;
-    return response;
+    try {
+        // Race condition mitigation: add request tracking to prevent stale responses
+        const response = await Promise.all([
+            fetch(`/api/music/playback/current/${profileId}?requestId=${requestId}`).then(r => r.json()),
+            fetch(`/api/music/playback/previousSong/${profileId}?requestId=${requestId}`).then(r => r.json()),
+            fetch(`/api/music/playback/nextSong/${profileId}?requestId=${requestId}`).then(r => r.json())
+        ]);
+
+        // Race condition mitigation: check if this response is still valid
+        if (activeSongContextRequests.get(profileId) !== requestId) {
+            console.log(`[musicBar] Ignoring outdated song context response ${requestId}`);
+            return songContextCache; // Return cached data if available
+        }
+
+        songContextCache = response;
+        cacheTimestamp = now;
+        return response;
+    } catch (error) {
+        console.error("[musicBar] Failed to fetch song context:", error);
+        // Return cached data even on error if available
+        return songContextCache || [null, null, null];
+    } finally {
+        // Clean up request tracking
+        if (activeSongContextRequests.get(profileId) === requestId) {
+            activeSongContextRequests.delete(profileId);
+        }
+    }
 }
 
 // Optimized queue change detection
@@ -405,13 +485,12 @@ function hasQueueChanged(newCue, oldCue) {
     return JSON.stringify(newCue) !== JSON.stringify(oldCue);
 }
 
-function connectWS() {
-    if (!window.globalActiveProfileId) {
-        console.log('[WS] globalActiveProfileId not available, retrying in 500ms...');
-        setTimeout(connectWS, 500);
-        return;
-    }
-    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${window.globalActiveProfileId}`);
+async function connectWS() {
+    try {
+        // Race condition mitigation: wait for profile ID to be properly initialized
+        const profileId = await waitForProfileId();
+        console.log(`[WS] Connecting WebSocket for profile: ${profileId}`);
+        ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${profileId}`);
     ws.onopen = () => {
         // Clear cache on new connection to ensure fresh data
         songContextCache = null;
@@ -422,6 +501,11 @@ function connectWS() {
     };
     ws.onerror = e => console.error('[WS] Error', e);
     ws.onmessage = handleWSMessage;
+    } catch (error) {
+        console.error('[WS] Failed to connect WebSocket:', error);
+        // Retry connection after delay on error
+        setTimeout(connectWS, 2000);
+    }
 }
 
 function handleWSMessage(msg) {
@@ -432,7 +516,47 @@ function handleWSMessage(msg) {
         console.error("[musicBar.js] handleWSMessage: Error parsing message:", e);
         return console.error(e);
     }
+    
+    // Race condition mitigation: add sequence number and queue message
+    message.sequenceNumber = messageSequenceNumber++;
+    messageQueue.push(message);
+    processMessageQueue();
+}
 
+// Race condition mitigation: message queue processor
+function processMessageQueue() {
+    if (isProcessingMessage || messageQueue.length === 0) {
+        return;
+    }
+    
+    isProcessingMessage = true;
+    
+    // Process messages in order (FIFO)
+    messageQueue.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+    
+    const processNextMessage = () => {
+        if (messageQueue.length === 0) {
+            isProcessingMessage = false;
+            return;
+        }
+        
+        const message = messageQueue.shift();
+        
+        try {
+            processWSMessageInternal(message);
+        } catch (error) {
+            console.error("[musicBar.js] Error processing queued message:", error);
+        }
+        
+        // Process next message with minimal delay to prevent UI blocking
+        setTimeout(processNextMessage, 0);
+    };
+    
+    processNextMessage();
+}
+
+// Race condition mitigation: actual message processing logic
+function processWSMessageInternal(message) {
     if (message.type === 'state') {
         const state = message.payload;
         const songChanged = String(state.currentSongId) !== String(musicState.currentSongId);
@@ -621,13 +745,29 @@ function bindPlaybackButtons() {
     if (playPauseBtn) {
         const newPlayPauseBtn = playPauseBtn.cloneNode(true);
         playPauseBtn.parentNode.replaceChild(newPlayPauseBtn, playPauseBtn);
-        newPlayPauseBtn.onclick = () => {
-            // Optimistic UI update - toggle immediately
-            musicState.playing = !musicState.playing;
-            updateMusicBar();
+        newPlayPauseBtn.onclick = async () => {
+            // Race condition mitigation: store previous state for rollback
+            const previousPlayingState = musicState.playing;
             
-            // Then send to backend for synchronization
-            apiPost('toggle', window.globalActiveProfileId);
+            // Optimistic UI update - toggle immediately
+            musicState.playing = !previousPlayingState;
+            updateMusicBar();
+
+            try {
+                // Then send to backend for synchronization
+                const response = await apiPost('toggle', window.globalActiveProfileId);
+                
+                // Race condition mitigation: verify response success
+                if (!response.ok) {
+                    throw new Error('Toggle request failed');
+                }
+            } catch (error) {
+                // Race condition mitigation: rollback optimistic update on failure
+                console.error('[musicBar] Play/pause toggle failed, rolling back:', error);
+                musicState.playing = previousPlayingState;
+                updateMusicBar();
+                Toast.error('Failed to toggle playback');
+            }
         };
     }
     if (prevBtn) {
@@ -663,11 +803,13 @@ function bindPlaybackButtons() {
     }
 
 
-    document.getElementById('shuffleBtn').onclick = () => {
+    document.getElementById('shuffleBtn').onclick = async () => {
+        // Race condition mitigation: store previous state for rollback
+        const previousMode = musicState.shuffleMode;
+        
         // Optimistic UI update
-        let currentMode = musicState.shuffleMode;
         let newMode;
-        switch (currentMode) {
+        switch (previousMode) {
             case "OFF":
                 newMode = "SHUFFLE";
                 break;
@@ -682,14 +824,29 @@ function bindPlaybackButtons() {
         musicState.shuffleMode = newMode;
         updateMusicBar(); // Update UI immediately
 
-        // Send request to backend for persistence and synchronization
-        apiPost('shuffle', window.globalActiveProfileId);
+        try {
+            // Send request to backend for persistence and synchronization
+            const response = await apiPost('shuffle', window.globalActiveProfileId);
+            
+            // Race condition mitigation: verify response success
+            if (!response.ok) {
+                throw new Error('Shuffle mode change failed');
+            }
+        } catch (error) {
+            // Race condition mitigation: rollback optimistic update on failure
+            console.error('[musicBar] Shuffle mode change failed, rolling back:', error);
+            musicState.shuffleMode = previousMode;
+            updateMusicBar();
+            Toast.error('Failed to change shuffle mode');
+        }
     };
-    document.getElementById('repeatBtn').onclick = () => {
+    document.getElementById('repeatBtn').onclick = async () => {
+        // Race condition mitigation: store previous state for rollback
+        const previousMode = musicState.repeatMode;
+        
         // Optimistic UI update
-        let currentMode = musicState.repeatMode;
         let newMode;
-        switch (currentMode) {
+        switch (previousMode) {
             case "OFF":
                 newMode = "ONE";
                 break;
@@ -704,8 +861,21 @@ function bindPlaybackButtons() {
         musicState.repeatMode = newMode;
         updateMusicBar(); // Update UI immediately
 
-        // Send request to backend for persistence and synchronization
-        apiPost('repeat', window.globalActiveProfileId);
+        try {
+            // Send request to backend for persistence and synchronization
+            const response = await apiPost('repeat', window.globalActiveProfileId);
+            
+            // Race condition mitigation: verify response success
+            if (!response.ok) {
+                throw new Error('Repeat mode change failed');
+            }
+        } catch (error) {
+            // Race condition mitigation: rollback optimistic update on failure
+            console.error('[musicBar] Repeat mode change failed, rolling back:', error);
+            musicState.repeatMode = previousMode;
+            updateMusicBar();
+            Toast.error('Failed to change repeat mode');
+        }
     };
 }
 
@@ -727,18 +897,81 @@ async function refreshSongTable() {
     }
 }
 
-function updateSelectedSongRow(songId) {
-    // Remove current-song-row class from all rows
-    const allRows = document.querySelectorAll('#songTableBody tr[data-song-id]');
-    allRows.forEach(row => {
-        row.classList.remove('current-song-row');
-    });
+// Race condition mitigation: DOM operation batching
+let domOperationQueue = [];
+let isProcessingDOMOperations = false;
+let domOperationSequence = 0;
 
-    // Add current-song-row class to the selected row
-    const selectedRow = document.querySelector(`#songTableBody tr[data-song-id="${songId}"]`);
-    if (selectedRow) {
-        selectedRow.classList.add('current-song-row');
+function processDOMOperations() {
+    if (isProcessingDOMOperations || domOperationQueue.length === 0) {
+        return;
     }
+    
+    isProcessingDOMOperations = true;
+    
+    const processNext = () => {
+        if (domOperationQueue.length === 0) {
+            isProcessingDOMOperations = false;
+            return;
+        }
+        
+        const operation = domOperationQueue.shift();
+        
+        try {
+            operation.fn();
+        } catch (error) {
+            console.error(`[musicBar] DOM operation ${operation.id} failed:`, error);
+        }
+        
+        // Batch DOM updates using requestAnimationFrame for performance
+        if (domOperationQueue.length > 0) {
+            requestAnimationFrame(processNext);
+        } else {
+            isProcessingDOMOperations = false;
+        }
+    };
+    
+    processNext();
+}
+
+// Race condition mitigation: safe DOM operation scheduling
+function scheduleDOMOperation(fn, priority = 'normal') {
+    const operationId = `dom_${++domOperationSequence}`;
+    
+    const operation = {
+        id: operationId,
+        fn: fn,
+        priority: priority,
+        timestamp: Date.now()
+    };
+    
+    // Insert based on priority (high first, then normal)
+    if (priority === 'high') {
+        domOperationQueue.unshift(operation);
+    } else {
+        domOperationQueue.push(operation);
+    }
+    
+    processDOMOperations();
+    
+    return operationId;
+}
+
+function updateSelectedSongRow(songId) {
+    // Race condition mitigation: batch DOM updates
+    scheduleDOMOperation(() => {
+        // Remove current-song-row class from all rows
+        const allRows = document.querySelectorAll('#songTableBody tr[data-song-id]');
+        allRows.forEach(row => {
+            row.classList.remove('current-song-row');
+        });
+
+        // Add current-song-row class to the selected row
+        const selectedRow = document.querySelector(`#songTableBody tr[data-song-id="${songId}"]`);
+        if (selectedRow) {
+            selectedRow.classList.add('current-song-row');
+        }
+    }, 'normal');
 }
 
 function updatePageTitle(song) {

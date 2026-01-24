@@ -14,6 +14,7 @@ import Services.SongService;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,18 +32,28 @@ public class PlaybackController {
 
     private final Map<Long, PlaybackState> memoryStates = new ConcurrentHashMap<>();
 
-    @Inject PlaybackPersistenceController playbackPersistenceController;
-    @Inject PlaybackQueueController playbackQueueController;
-    @Inject SettingsController currentSettings;
-    @Inject SongService songService;
-    @Inject PlaylistService playlistService;
-    @Inject PlaybackHistoryService playbackHistoryService;
-    @Inject MusicSocket ws;
-    @Inject ProfileService profileService;
+    @Inject
+    PlaybackPersistenceController playbackPersistenceController;
+    @Inject
+    PlaybackQueueController playbackQueueController;
+    @Inject
+    SettingsController currentSettings;
+    @Inject
+    SongService songService;
+    @Inject
+    PlaylistService playlistService;
+    @Inject
+    PlaybackHistoryService playbackHistoryService;
+    @Inject
+    MusicSocket ws;
+    @Inject
+    ProfileService profileService;
 
     private ScheduledExecutorService scheduler;
     private final Map<Long, ScheduledFuture<?>> playbackTasks = new ConcurrentHashMap<>();
-    private static final long PLAYBACK_UPDATE_INTERVAL_MS = 300; // Update every 300ms
+    private final Map<Long, Long> lastBroadcastTime = new ConcurrentHashMap<>();
+    private static final long BROADCAST_THROTTLE_MS = 250; // Max one broadcast every 250ms per profile
+    private static final long PLAYBACK_UPDATE_INTERVAL_MS = 500; // Update every 500ms to prevent stream jumping
 
     private static final Logger LOGGER = Logger.getLogger(PlaybackController.class.getName());
 
@@ -75,9 +86,9 @@ public class PlaybackController {
         }, 0, PLAYBACK_UPDATE_INTERVAL_MS, TimeUnit.MILLISECONDS);
         playbackTasks.put(profileId, task);
         LOGGER.info("Playback timer started for profile: " + profileId);
-    }
+}
 
-    @jakarta.transaction.Transactional // Ensure database operations run in a transaction
+    @Transactional // Ensure database operations run in a transaction
     protected void processPlaybackTick(Long profileId) {
         try {
             PlaybackState st = getState(profileId);
@@ -88,7 +99,7 @@ public class PlaybackController {
                     handleSongEnded(profileId);
                 } else {
                     st.setCurrentTime(newTime);
-                    updateState(profileId, st, true); // Broadcast updated time
+                    broadcastStateIfNecessary(st, profileId); // Use throttled broadcast
                 }
             }
         } catch (Exception e) {
@@ -97,8 +108,19 @@ public class PlaybackController {
         }
     }
 
+    private synchronized void broadcastStateIfNecessary(PlaybackState state, Long profileId) {
+        long now = System.currentTimeMillis();
+        Long lastBroadcast = lastBroadcastTime.get(profileId);
+
+        if (lastBroadcast == null || (now - lastBroadcast) >= BROADCAST_THROTTLE_MS) {
+            updateState(profileId, state, true); // Broadcast state
+            lastBroadcastTime.put(profileId, now);
+        }
+    }
+
     private synchronized void stopPlaybackTimer(Long profileId) {
         ScheduledFuture<?> task = playbackTasks.remove(profileId);
+        lastBroadcastTime.remove(profileId); // Clean up broadcast tracking
         if (task != null && !task.isDone()) {
             task.cancel(false); // Allow current task to complete if running
             LOGGER.info("Playback timer stopped for profile: " + profileId);
@@ -146,7 +168,6 @@ public class PlaybackController {
             memoryStates.put(profileId, currentState);
         }
 
-
         if (newState.getCurrentSongId() != null) {
             Song currentSong = songService.find(newState.getCurrentSongId());
             if (currentSong != null) {
@@ -183,7 +204,7 @@ public class PlaybackController {
         }
     }
 
-  public synchronized void selectSong(Long id, Long profileId) {
+    public synchronized void selectSong(Long id, Long profileId) {
         PlaybackState st = getState(profileId);
         Song current = getCurrentSong(profileId);
 
@@ -368,7 +389,7 @@ public class PlaybackController {
             }
         }
 
-      // Handle RepeatMode.ONE when song ends naturally
+        // Handle RepeatMode.ONE when song ends naturally
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
             st.setCurrentTime(0); // Restart current song
             st.setPlaying(true); // Ensure it keeps playing
@@ -624,47 +645,48 @@ public class PlaybackController {
         return findSong(nextSongId);
     }
 
-        public synchronized void replaceQueueWithPlaylist(Playlist playlist, Long profileId) {
-            PlaybackState st = getState(profileId);
-            populateCueFromPlaylist(st, playlist, profileId);
-            updateState(profileId, st, true); // persist + broadcast
-        }
-    
-        private void populateCueFromPlaylist(PlaybackState st, Playlist playlist, Long profileId) {
-            if (playlist == null) {
-                // Deselect any playlist
-                st.setCurrentPlaylistId(null);
-    
-                List<Long> cue = st.getCue();
-                // If queue is empty, populate with all songs
-                if (cue == null || cue.isEmpty()) {
-                    List<Song> allSongs = getSongs();
-                    List<Long> allSongIds = allSongs.stream().map(s -> s.id).toList();
-                    playbackQueueController.populateCue(st, allSongIds, profileId);
-                }
-    
+    public synchronized void replaceQueueWithPlaylist(Playlist playlist, Long profileId) {
+        PlaybackState st = getState(profileId);
+        populateCueFromPlaylist(st, playlist, profileId);
+        updateState(profileId, st, true); // persist + broadcast
+    }
+
+    private void populateCueFromPlaylist(PlaybackState st, Playlist playlist, Long profileId) {
+        if (playlist == null) {
+            // Deselect any playlist
+            st.setCurrentPlaylistId(null);
+
+            List<Long> cue = st.getCue();
+            // If queue is empty, populate with all songs
+            if (cue == null || cue.isEmpty()) {
+                List<Song> allSongs = getSongs();
+                List<Long> allSongIds = allSongs.stream().map(s -> s.id).toList();
+                playbackQueueController.populateCue(st, allSongIds, profileId);
+            }
+
+        } else {
+            // Set the current playlist normally
+            st.setCurrentPlaylistId(playlist.id);
+
+            // Re-fetch playlist with songs to avoid LazyInitializationException
+            Playlist fullPlaylist = findPlaylistWithSongs(playlist.id);
+
+            if (fullPlaylist == null || fullPlaylist.getSongs() == null || fullPlaylist.getSongs().isEmpty()) {
+                playbackQueueController.clear(st, profileId); // clear queue if no songs
+                updateState(profileId, st, true);
+                return;
+            }
+
+            if (fullPlaylist != null) {
+                List<Long> cue = fullPlaylist.getSongs().stream().map(s -> s.id).toList();
+                playbackQueueController.populateCue(st, cue, profileId);
             } else {
-                // Set the current playlist normally
-                st.setCurrentPlaylistId(playlist.id);
-    
-                // Re-fetch playlist with songs to avoid LazyInitializationException
-                Playlist fullPlaylist = findPlaylistWithSongs(playlist.id);
-    
-                if (fullPlaylist == null || fullPlaylist.getSongs() == null || fullPlaylist.getSongs().isEmpty()) {
-                     playbackQueueController.clear(st, profileId); // clear queue if no songs
-                     updateState(profileId, st, true);
-                     return;
-                }
-    
-                if (fullPlaylist != null) {
-                    List<Long> cue = fullPlaylist.getSongs().stream().map(s -> s.id).toList();
-                    playbackQueueController.populateCue(st, cue, profileId);
-                } else {
-                    // empty playlist → stop playback
-                    playbackQueueController.clear(st, profileId);
-                }
+                // empty playlist → stop playback
+                playbackQueueController.clear(st, profileId);
             }
         }
+    }
+
     // -----------------------------
 // Queue management helpers
 // -----------------------------
@@ -754,7 +776,9 @@ public class PlaybackController {
                 .collect(Collectors.toList());
     }
 
-    public record PaginatedQueue(List<Song> songs, int totalSize) {}
+    public record PaginatedQueue(List<Song> songs, int totalSize) {
+
+    }
 
     public PaginatedQueue getQueuePage(int page, int limit, Long profileId) {
         PlaybackState st = getState(profileId);
@@ -811,5 +835,5 @@ public class PlaybackController {
     public void toggleSongInPlaylist(Long playlistId, Long songId, Long profileId) {
         //TODO should remove the song from a playlist or add it via playlistController -> service
     }
-    
+
 }

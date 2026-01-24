@@ -5,6 +5,8 @@ import Controllers.PlaybackController;
 import Models.Playlist;
 import Models.Profile;
 import Models.Song;
+import Models.DTOs.TextPlaylistRequest;
+import Models.DTOs.TextPlaylistResponse;
 import Services.PlaylistService;
 import Services.ProfileService;
 import Services.SongService;
@@ -16,6 +18,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Arrays;
 
 @Transactional
 @Path("/api/music/playlists")
@@ -189,6 +192,120 @@ public class PlaylistAPI {
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Error updating playlist: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/create-from-text/{profileId}")
+    public Response createPlaylistFromText(@PathParam("profileId") Long profileId, TextPlaylistRequest request) {
+        try {
+            if (request == null || request.getPlaylistName() == null || request.getPlaylistName().isBlank()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Playlist name is required"))
+                        .build();
+            }
+
+            if (request.getTextLines() == null || request.getTextLines().isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Text lines are required"))
+                        .build();
+            }
+
+            Profile profile = profileService.findById(profileId);
+            if (profile == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Profile not found"))
+                        .build();
+            }
+
+            // Create new playlist
+            Playlist playlist = new Playlist();
+            playlist.setName(request.getPlaylistName());
+            playlist.setDescription(request.getDescription());
+            playlist.setProfile(profile);
+            playlist.setIsGlobal(false); // User-specific playlist
+            playlist.setSongs(new ArrayList<>());
+
+            List<String> unmatchedLines = new ArrayList<>();
+            int matchedSongs = 0;
+
+            // Process each line to find songs
+            for (String line : request.getTextLines()) {
+                if (line == null || line.trim().isBlank()) {
+                    continue;
+                }
+
+                String trimmedLine = line.trim();
+                Song foundSong = null;
+
+                // Try different parsing strategies
+                if (trimmedLine.contains(",")) {
+                    // Format: "Song Name, Album, Artist" or "Song Name, Artist"
+                    String[] parts = trimmedLine.split(",", -1);
+                    if (parts.length >= 2) {
+                        String songName = parts[0].trim();
+                        String artist = parts[parts.length - 1].trim(); // Last part is usually artist
+                        foundSong = songService.findByTitleAndArtist(songName, artist);
+                    }
+                } else if (trimmedLine.contains(" - ")) {
+                    // Format: "Song Name - Artist" or "Artist - Song Name"
+                    String[] parts = trimmedLine.split(" - ", -1);
+                    if (parts.length == 2) {
+                        String part1 = parts[0].trim();
+                        String part2 = parts[1].trim();
+                        
+                        // Try both orders
+                        foundSong = songService.findByTitleAndArtist(part1, part2);
+                        if (foundSong == null) {
+                            foundSong = songService.findByTitleAndArtist(part2, part1);
+                        }
+                    }
+                } else {
+                    // Just search by title or artist
+                    foundSong = songService.findByTitleAndArtist(trimmedLine, "");
+                    if (foundSong == null) {
+                        foundSong = songService.findByTitleAndArtist("", trimmedLine);
+                    }
+                }
+
+                if (foundSong != null) {
+                    // Check if song already in playlist to avoid duplicates
+                    final var finalFoundSong = foundSong;
+                    boolean alreadyInPlaylist = playlist.getSongs().stream()
+                            .anyMatch(song -> song.id.equals(finalFoundSong.id));
+                    if (!alreadyInPlaylist) {
+                        playlist.getSongs().add(foundSong);
+                        matchedSongs++;
+                    }
+                } else {
+                    unmatchedLines.add(trimmedLine);
+                }
+            }
+
+            // Save the playlist
+            playlistService.save(playlist);
+
+            // Create response
+            TextPlaylistResponse response = new TextPlaylistResponse();
+            response.setPlaylist(playlist);
+            response.setTotalLines(request.getTextLines().size());
+            response.setMatchedSongs(matchedSongs);
+            response.setUnmatchedLines(unmatchedLines);
+            
+            if (matchedSongs > 0) {
+                response.setMessage(String.format("Playlist '%s' created with %d songs out of %d lines", 
+                    playlist.getName(), matchedSongs, request.getTextLines().size()));
+            } else {
+                response.setMessage(String.format("No matching songs found for playlist '%s'", playlist.getName()));
+            }
+
+            return Response.ok(ApiResponse.success(response)).build();
+
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error creating playlist from text: " + e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error creating playlist from text: " + e.getMessage()))
                     .build();
         }
     }

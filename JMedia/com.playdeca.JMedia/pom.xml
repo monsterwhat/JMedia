@@ -7,7 +7,7 @@
 
     <groupId>com.playdeca.jmedia</groupId>
     <artifactId>JMedia</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -84,7 +84,7 @@
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
-            <version>20250517</version>  
+            <version>20251224</version>  
         </dependency>
         <dependency>
             <groupId>net.jthink</groupId>
@@ -126,7 +126,7 @@
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
-                <version>3.30.3</version>
+                <version>3.30.5</version>
                 <executions>
                     <execution>
                         <goals>

@@ -1,0 +1,73 @@
+{#for s in songs}
+<div class="mobile-song-item" data-song-id="{s.id}" 
+     hx-post="/api/music/playback/select/{profileId}/{s.id}"
+     hx-trigger="click"
+     hx-swap="none"
+     hx-indicator="#loadingRow"
+     data-playlist-id="{playlistId}"
+     style="cursor: pointer;">
+    <!-- Smaller artwork -->
+    <div class="mobile-song-artwork">
+        <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy" alt="Artwork">
+    </div>
+    <!-- Title and artist below image -->
+    <div class="mobile-song-info">
+        <div class="mobile-song-title">{s.title ?: "Unknown Title"}</div>
+        <div class="mobile-song-artist">{s.artist ?: "Unknown Artist"}</div>
+    </div>
+</div>
+{/for}
+
+{#if totalPages > 1}
+<div class="mobile-pagination-simple">
+    <!-- Page info -->
+    <div class="mobile-pagination-info">
+        Page {currentPage} of {totalPages}
+    </div>
+    
+    <!-- Previous/Next buttons -->
+    <div class="mobile-pagination">
+        <button class="mobile-pagination-prev"
+                {#if currentPage > 1}
+                    hx-get="/api/music/ui/mobile-tbody/{profileId}/{playlistId}?page={currentPage - 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+                    hx-target="#mobileSongList"
+                    hx-swap="innerHTML"
+                {#else}
+                    disabled
+                {/if}>
+            <i class="pi pi-chevron-left"></i> Previous
+        </button>
+        
+        <button class="mobile-pagination-next"
+                {#if currentPage < totalPages}
+                    hx-get="/api/music/ui/mobile-tbody/{profileId}/{playlistId}?page={currentPage + 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+                    hx-target="#mobileSongList"
+                    hx-swap="innerHTML"
+                {#else}
+                    disabled
+                {/if}>
+            Next <i class="pi pi-chevron-right"></i>
+        </button>
+    </div>
+    
+    <!-- Page numbers -->
+    {#if totalPages > 2}
+    <div class="mobile-pagination-pages">
+        {#for p in pageNumbers}
+            {#if p == -1}
+                <span class="mobile-pagination-ellipsis">...</span>
+            {#else if p == currentPage}
+                <span class="mobile-pagination-page is-current">{p}</span>
+            {#else}
+                <a class="mobile-pagination-page"
+                   hx-get="/api/music/ui/mobile-tbody/{profileId}/{playlistId}?page={p}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+                   hx-target="#mobileSongList"
+                   hx-swap="innerHTML">
+                    {p}
+                </a>
+            {/if}
+        {/for}
+    </div>
+    {/if}
+</div>
+{/if}

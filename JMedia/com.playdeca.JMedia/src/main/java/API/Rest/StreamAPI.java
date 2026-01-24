@@ -7,6 +7,8 @@ import Models.Song;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
@@ -30,7 +32,7 @@ public class StreamAPI {
     @GET
     @Path("/{profileId}/{id}")
     @Produces({"audio/mpeg", "application/octet-stream"})
-    public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader) {
+    public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader, @Context HttpHeaders headers) {
         try {
             Song song = playbackController.findSong(id);
             if (song == null) {
@@ -72,7 +74,7 @@ public class StreamAPI {
             StreamingOutput stream = out -> {
                 try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
                     raf.seek(trueStart);
-                    byte[] buf = new byte[16 * 1024];
+                    byte[] buf = new byte[calculateOptimalBufferSize(file.length(), headers)];
                     long left = contentLength;
                     int read;
                     while ((read = raf.read(buf)) != -1 && left > 0) {
@@ -105,6 +107,28 @@ public class StreamAPI {
             LOGGER.log(Level.SEVERE, "Error streaming music file", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    /**
+     * Calculates optimal buffer size based on file size and client characteristics
+     */
+    private int calculateOptimalBufferSize(long fileLength, HttpHeaders headers) {
+        // Default to 32KB for modern connections
+        int defaultSize = 32 * 1024;
+        int maxSize = 64 * 1024;
+        
+        // For smaller files, use proportionally smaller buffers
+        if (fileLength < 1024 * 1024) { // < 1MB files
+            return Math.min(16 * 1024, fileLength > 0 ? (int) fileLength : 16 * 1024);
+        }
+        
+        // Detect connection type from User-Agent or headers
+        String userAgent = headers.getHeaderString("User-Agent");
+        if (userAgent != null && (userAgent.contains("Mobile") || userAgent.contains("Android") || userAgent.contains("iPhone"))) {
+            return 16 * 1024; // Smaller for mobile to reduce memory usage
+        }
+        
+        return defaultSize;
     }
 
     private File getMusicFolder() {

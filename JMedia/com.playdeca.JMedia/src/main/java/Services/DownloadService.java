@@ -72,6 +72,15 @@ public class DownloadService {
 
         try {
             installationService.validateInstallation();
+            
+            // Validate yt-dlp installation for YouTube URLs
+            boolean isYouTubeUrl = url.contains("youtube.com") || url.contains("youtu.be");
+            if (isYouTubeUrl) {
+                PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+                if (!platformOps.isYtdlpInstalled()) {
+                    throw new Exception("yt-dlp is not installed. Please install yt-dlp first: " + platformOps.getYtdlpInstallMessage());
+                }
+            }
 
             Path normalizedDownloadPath = Paths.get(downloadPath);
             File downloadDir = normalizedDownloadPath.toFile();
@@ -126,7 +135,15 @@ public class DownloadService {
             PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
 
             if (isYouTubeUrl) {
-                command.add("yt-dlp");
+                // Use python -m yt_dlp since yt-dlp is typically installed as a Python module
+                String pythonExecutable = installationService.findPythonExecutable();
+                if (pythonExecutable != null) {
+                    Collections.addAll(command, pythonExecutable.split(" "));
+                    command.add("-m");
+                    command.add("yt_dlp");
+                } else {
+                    throw new Exception("Python executable not found. Please install Python to use yt-dlp.");
+                }
                 command.add("-x");
                 command.add("--audio-format");
                 command.add(format != null && !format.isEmpty() ? format : "mp3");
@@ -134,22 +151,36 @@ public class DownloadService {
                 command.add(downloadPath.resolve("%(title)s.%(ext)s").toString());
                 command.add(url);
             } else {
-                // Use SpotDL with detected execution method
-                String pythonExecutable = installationService.findPythonExecutable();
-                if (pythonExecutable != null) {
-                    Collections.addAll(command, pythonExecutable.split(" "));
-                    command.add("-m");
-                    command.add("spotdl");
+                // Use SpotDL with platform-specific execution method
+                if (platformOps.shouldUseSpotdlDirectCommand()) {
+                    // Linux with pipx installation - use direct command
+                    String spotdlCommand = platformOps.getSpotdlCommand();
+                    command.add(spotdlCommand);
                 } else {
-                    command.add(platformOps.getSpotdlCommand());
+                    // Windows/macOS or Linux with pip --user - use python -m spotdl
+                    String pythonExecutable = installationService.findPythonExecutable();
+                    if (pythonExecutable != null) {
+                        Collections.addAll(command, pythonExecutable.split(" "));
+                        command.add("-m");
+                        command.add("spotdl");
+                    } else {
+                        command.add(platformOps.getSpotdlCommand());
+                    }
                 }
 
                 command.add(url);
                 command.add("--output");
                 command.add(downloadPath.toString());
 
+                // Use different arguments based on platform
+                boolean isLinux = System.getProperty("os.name").toLowerCase().contains("linux");
+                
                 if (format != null && !format.isEmpty()) {
-                    command.add("--output-format");
+                    if (isLinux) {
+                        command.add("--format");
+                    } else {
+                        command.add("--output-format");
+                    }
                     command.add(format);
                 }
 
@@ -161,7 +192,11 @@ public class DownloadService {
                 }
 
                 if (combinedThreads != null) {
-                    command.add("--download-threads");
+                    if (isLinux) {
+                        command.add("--threads");
+                    } else {
+                        command.add("--download-threads");
+                    }
                     command.add(combinedThreads.toString());
                 }
             }

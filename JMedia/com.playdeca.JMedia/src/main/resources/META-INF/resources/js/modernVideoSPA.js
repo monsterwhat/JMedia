@@ -547,18 +547,22 @@ class ModernVideoSPA {
 
     // Enhanced Toast Notifications
     showToast(message, type = 'info', duration = 5000) {
+        // Use global Toast system for display
+        const toastId = window.showToast ? window.showToast(message, type, duration) : null;
+        
         const toast = {
-            id: Date.now(),
+            id: toastId || Date.now(),
             message,
             type,
             timestamp: Date.now()
         };
 
+        // Maintain state management for tracking notifications
         this.setState(prevState => ({
             notifications: [...prevState.notifications, toast].slice(-5) // Keep only last 5
         }));
 
-        // Auto-remove after duration
+        // Auto-remove from state after duration
         setTimeout(() => {
             this.setState(prevState => ({
                 notifications: prevState.notifications.filter(n => n.id !== toast.id)

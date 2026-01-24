@@ -32,6 +32,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let isDraggingProgressBar = false;
     let isDraggingVolumeBar = false;
     let saveTimeDebounceTimeout;
+    
+    // Race condition mitigation: track active video operations
+    let activeVideoOperation = null;
+    let videoOperationSequence = 0;
 
     // Global variables to store remembered state before actual video object is available
     window.rememberedVideoId = null;
@@ -68,6 +72,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Race condition mitigation: safe localStorage operations for video
+    function safeLocalStorageSet(key, value) {
+        try {
+            localStorage.setItem(key, value);
+        } catch (error) {
+            console.error('[videoBar] Failed to save to localStorage:', error);
+        }
+    }
+    
+    function safeLocalStorageRemove(key) {
+        try {
+            localStorage.removeItem(key);
+        } catch (error) {
+            console.error('[videoBar] Failed to remove from localStorage:', error);
+        }
+    }
+
     // Save playback state to localStorage
     function saveVideoPlaybackState() {
         if (videoPlayer.src && window.currentVideoId) { // Ensure a video is actually loaded and we have its ID
@@ -75,20 +96,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: window.currentVideoId, // window.currentVideoId will be set by playVideo function
                 currentTime: videoPlayer.currentTime
             };
-            localStorage.setItem(LAST_PLAYED_VIDEO_KEY, JSON.stringify(playbackState));
+            safeLocalStorageSet(LAST_PLAYED_VIDEO_KEY, JSON.stringify(playbackState));
         } else {
-            localStorage.removeItem(LAST_PLAYED_VIDEO_KEY); // Clear if no video is playing
+            safeLocalStorageRemove(LAST_PLAYED_VIDEO_KEY); // Clear if no video is playing
         }
     }
 
     // Save volume state to localStorage
     function saveVolumeState() {
-        localStorage.setItem(VOLUME_KEY, videoPlayer.volume.toString());
+        safeLocalStorageSet(VOLUME_KEY, videoPlayer.volume.toString());
     }
     
     // Save playback speed state to localStorage
     function savePlaybackSpeedState(speed) {
-        localStorage.setItem(PLAYBACK_SPEED_KEY, speed.toString());
+        safeLocalStorageSet(PLAYBACK_SPEED_KEY, speed.toString());
     }
 
 
@@ -258,12 +279,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (prevBtn) {
         prevBtn.addEventListener('click', () => {
-            alert('Previous video functionality not yet implemented.');
+            Toast.info('Previous video functionality not yet implemented.');
         });
     }
     if (nextBtn) {
         nextBtn.addEventListener('click', () => {
-            alert('Next video functionality not yet implemented.');
+            Toast.info('Next video functionality not yet implemented.');
         });
     }
 
@@ -406,8 +427,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Export a function to update video info, which the existing playVideo can call
+    // Race condition mitigation: export a function to update video info with operation tracking
     window.updateVideoInfo = (video) => {
+        // Race condition mitigation: cancel any previous video operations
+        const operationId = `video_${++videoOperationSequence}`;
+        
+        if (activeVideoOperation) {
+            console.log(`[videoBar] Canceling previous video operation ${activeVideoOperation} for ${operationId}`);
+        }
+        activeVideoOperation = operationId;
+        
         window.currentVideoId = video.id; // Store current video ID globally accessible
         
         let displayTitle = video.title;
@@ -441,6 +470,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const artistParent = videoCurrentArtistDisplay.parentElement;
         if (artistParent) {
             checkAndApplyMarquee(videoCurrentArtistDisplay, artistParent);
+        }
+        
+        // Race condition mitigation: clear active operation after successful update
+        if (activeVideoOperation === operationId) {
+            activeVideoOperation = null;
         }
     };
 

@@ -1,840 +1,297 @@
-<!-- Enhanced Featured Hero with Accessibility and Performance -->
+<!-- Featured Hero -->
 {#if featured.size > 0}
-<section class="hero-section" aria-label="Featured content">
-    <div class="hero-carousel" role="region" aria-label="Featured content carousel">
-        
-        <!-- Hero Slides -->
-        <div class="hero-slides-container">
-            {#for item in featured}
-            <div class="hero-slide" {#if loop_isFirst}class="is-active"{/if} data-index="{loop.index}">
-                <div class="hero-background" style="background-image: url({item.thumbnailPath ?: 'https://picsum.photos/1920/1080?random=' + item.id})" loading="lazy"></div>
-                <div class="hero-gradient"></div>
-                <div class="hero-content">
-                    <h1 class="hero-title">{item.title ?: item.seriesTitle}</h1>
-                    <p class="hero-description">{item.description ?: 'An amazing piece of content that will keep you entertained'}</p>
-                    <div class="hero-meta">
-                        <span>{item.releaseYear ?: '2024'}</span>
-                        <span aria-hidden="true">•</span>
-                        <span class="hero-rating" aria-label="Highly rated">⭐ Awesome</span>
-                        <span aria-hidden="true">•</span>
-                        <span>{formatDuration.apply(item.durationSeconds)}</span>
-                        {#if item.type == 'Episode'}
-                            <span aria-hidden="true">•</span>
-                            <span>S{item.seasonNumber}E{item.episodeNumber}</span>
-                        {/if}
-                    </div>
-                    <div class="hero-actions">
-                        <button 
-                            class="btn-hero btn-hero-primary" 
-                            onclick="window.selectItem({json.apply(item)}, 'play')"
-                            aria-label="Play {item.title ?: item.seriesTitle}">
-                            <i class="pi pi-play" aria-hidden="true"></i> 
-                            <span>Play</span>
-                        </button>
-                        <button 
-                            class="btn-hero btn-hero-secondary" 
-                            onclick="window.selectItem({json.apply(item)}, 'details')"
-                            aria-label="More info about {item.title ?: item.seriesTitle}">
-                            <i class="pi pi-info-circle" aria-hidden="true"></i> 
-                            <span>More Info</span>
-                        </button>
-                    </div>
-                </div>
+<div class="hero-container">
+    <div class="hero is-fullheight">
+        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: 'https://picsum.photos/1920/1080?random=' + featured[0].id});"></div>
+        <div class="hero-gradient"></div>
+        <div class="hero-content">
+            <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
+            <p class="hero-description">{featured[0].description ?: 'An amazing piece of content that will keep you entertained'}</p>
+            <div class="hero-meta">
+                <span>{featured[0].releaseYear ?: '2024'}</span>
+                <span>•</span>
+                <span class="hero-rating">⭐ Awesome</span>
+                <span>•</span>
+                <span>{formatDuration.apply(featured[0].durationSeconds)}</span>
+                {#if featured[0].type == 'Episode'}
+                <span>•</span>
+                <span>S{featured[0].seasonNumber}E{featured[0].episodeNumber}</span>
+                {/if}
             </div>
-            {/for}
-        </div>
-        
-        <!-- Navigation Indicators -->
-            <div class="hero-indicators" role="tablist">
-            {#for item in featured}
-                <button 
-                    class="hero-indicator {#if loop_isFirst}is-active{/if}" 
-                    data-index="{loop.index}"
-                    onclick="setHeroSlide({loop.index})"
-                    :aria-label="View slide {loop.index + 1} of {featured.size}"
-                    :aria-selected="{loop_isFirst ? 'true' : 'false'}"
-                    role="tab">
-                    <span class="sr-only">Slide {loop.index + 1}</span>
+            <div class="hero-actions">
+                <button class="btn-hero btn-hero-primary" onclick="window.selectItem({json.apply(featured[0])}, 'play')">
+                    <i class="pi pi-play"></i> Play
                 </button>
-            {/for}
+                <button class="btn-hero btn-hero-secondary" onclick="window.selectItem({json.apply(featured[0])}, 'details')">
+                    <i class="pi pi-info-circle"></i> More Info
+                </button>
+            </div>
         </div>
-        
-        <!-- Navigation Arrows -->
-        <button 
-            class="hero-nav hero-nav-prev" 
-            onclick="previousHeroSlide()"
-            aria-label="Previous slide">
-            <i class="pi pi-chevron-left" aria-hidden="true"></i>
-        </button>
-        <button 
-            class="hero-nav hero-nav-next" 
-            onclick="nextHeroSlide()"
-            aria-label="Next slide">
-            <i class="pi pi-chevron-right" aria-hidden="true"></i>
-        </button>
-        
-
     </div>
-</section>
+</div>
 {#else}
-<!-- Enhanced Empty State -->
-<section class="hero-section" aria-label="No featured content">
-    <div class="hero-carousel">
+<!-- Debug: No featured content found -->
+<div class="hero-container">
+    <div class="hero is-fullheight">
         <div class="hero-background" style="background-image: url('https://picsum.photos/1920/1080?random=1');"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">No Featured Content</h1>
-            <p class="hero-description">Your video library appears to be empty. Import some videos to get started!</p>
-            <div class="hero-actions">
-                <button class="btn-hero btn-hero-primary" onclick="window.location.href='/import.html'">
-                    <i class="pi pi-plus" aria-hidden="true"></i> Import Videos
-                </button>
-            </div>
+            <p class="hero-description">Debug: featured array is empty or has size 0</p>
         </div>
     </div>
-</section>
+</div>
 {/if}
 
-<!-- Enhanced Recently Added Carousel -->
+<!-- Recently Added Carousel -->
 {#if newReleases.size > 0}
-<section class="carousel-section" aria-labelledby="newReleasesTitle">
+<div class="carousel-section">
     <div class="carousel-header">
-        <h2 id="newReleasesTitle" class="carousel-title">
-            <i class="pi pi-sparkles" style="color: #ffd700;" aria-hidden="true"></i>
+        <h2 class="carousel-title">
+            <i class="pi pi-sparkles" style="color: #ffd700;"></i>
             Recently Added
         </h2>
-        <div class="carousel-actions" role="group" aria-label="Recently Added navigation">
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('newReleasesCarousel', -1)"
-                aria-label="Scroll Recently Added left">
-                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
             </button>
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('newReleasesCarousel', 1)"
-                aria-label="Scroll Recently Added right">
-                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
-    <div class="carousel-container" role="region" aria-label="Recently Added videos">
-        <div class="carousel enhanced-carousel" id="newReleasesCarousel" x-data="{ 
-            observer: null,
-            setupIntersectionObserver() {
-                this.observer = new IntersectionObserver((entries) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
-                            const img = entry.target.querySelector('.card-image');
-                            if (img && img.dataset.src) {
-                                img.src = img.dataset.src;
-                                img.removeAttribute('data-src');
-                                this.observer.unobserve(entry.target);
-                            }
-                        }
-                    });
-                }, { rootMargin: '50px' });
-                
-                this.$el.querySelectorAll('.content-card').forEach(card => {
-                    this.observer.observe(card);
-                });
-            }
-        }" x-init="setupIntersectionObserver()">
+    <div class="carousel-container">
+        <div class="carousel" id="newReleasesCarousel">
             {#for item in newReleases}
-            <article class="content-card video-card enhanced-card" 
-                     data-video-id="{item.id}" 
-                     onclick="window.selectItem({json.apply(item)}, 'details')"
-                     tabindex="0"
-                     role="button"
-                     aria-label="{item.title ?: item.seriesTitle} - {item.type ?: 'Movie'}">
-                <div class="card-image-container">
-                    <img class="card-image lazy-image" 
-                         data-src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id}"
-                         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect width='300' height='450' fill='%23333'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23666' font-family='sans-serif' font-size='14'%3ELoading...%3C/text%3E%3C/svg%3E"
-                         alt="{item.title ?: item.seriesTitle}"
-                         loading="lazy">
-                    <div class="card-placeholder">
-                        <i class="pi pi-image"></i>
-                    </div>
-                </div>
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')"
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id}" 
+                     alt="{item.title ?: item.seriesTitle}">
                 <div class="play-icon">
-                    <i class="pi pi-play" aria-hidden="true"></i>
+                    <i class="pi pi-play"></i>
                 </div>
                 <div class="card-overlay">
                     <div class="card-info">
                         <div class="card-badges">
-                            <span class="card-badge badge-new">NEW</span>
+                            <span class="card-badge">NEW</span>
                         </div>
-                        <h3 class="card-title">{item.title ?: item.seriesTitle}</h3>
-                        <div class="card-meta">
-                            <span class="card-type">{item.type ?: 'Movie'}</span>
-                            {#if item.durationSeconds}
-                            <span class="card-duration" aria-label="Duration {formatDuration.apply(item.durationSeconds)}">
-                                {formatDuration.apply(item.durationSeconds)}
-                            </span>
-                            {/if}
-                        </div>
+                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                        <div class="card-meta">{item.type ?: 'Movie'}</div>
                     </div>
                 </div>
-            </article>
+            </div>
             {/for}
         </div>
     </div>
-</section>
+</div>
 {/if}
 
-<!-- Enhanced Continue Watching Carousel -->
+<!-- Continue Watching Carousel -->
 {#if continueWatching.size > 0}
-<section class="carousel-section" aria-labelledby="continueWatchingTitle">
+<div class="carousel-section">
     <div class="carousel-header">
-        <h2 id="continueWatchingTitle" class="carousel-title">
-            <i class="pi pi-history" style="color: #ff6b6b;" aria-hidden="true"></i>
+        <h2 class="carousel-title">
+            <i class="pi pi-history" style="color: #ff6b6b;"></i>
             Continue Watching
         </h2>
-        <div class="carousel-actions" role="group" aria-label="Continue Watching navigation">
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('continueWatchingCarousel', -1)"
-                aria-label="Scroll Continue Watching left">
-                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
             </button>
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('continueWatchingCarousel', 1)"
-                aria-label="Scroll Continue Watching right">
-                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
-    <div class="carousel-container" role="region" aria-label="Continue watching videos">
-        <div class="carousel enhanced-carousel" id="continueWatchingCarousel" x-data="{ setupIntersectionObserver() {
-            this.observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target.querySelector('.card-image');
-                        if (img && img.dataset.src) {
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            this.observer.unobserve(entry.target);
-                        }
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            this.$el.querySelectorAll('.content-card').forEach(card => {
-                this.observer.observe(card);
-            });
-        } }" x-init="setupIntersectionObserver()">
+    <div class="carousel-container">
+        <div class="carousel" id="continueWatchingCarousel">
             {#for item in continueWatching}
-            <article class="content-card video-card enhanced-card continue-card" 
-                     data-video-id="{item.id}" 
-                     data-progress="{item.watchProgress ?: 65}"
-                     onclick="window.selectItem({json.apply(item)}, 'play')"
-                     tabindex="0"
-                     role="button"
-                     aria-label="{item.title ?: item.seriesTitle} - {item.type ?: 'Movie'} - Resume from {item.watchProgress ?: 65}%">
-                <div class="card-image-container">
-                    <img class="card-image lazy-image" 
-                         data-src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 1000}"
-                         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect width='300' height='450' fill='%23333'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23666' font-family='sans-serif' font-size='14'%3ELoading...%3C/text%3E%3C/svg%3E"
-                         alt="{item.title ?: item.seriesTitle}"
-                         loading="lazy">
-                    <div class="card-placeholder">
-                        <i class="pi pi-image"></i>
-                    </div>
-                </div>
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')"
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 1000}" 
+                     alt="{item.title ?: item.seriesTitle}">
                 <div class="play-icon">
-                    <i class="pi pi-play" aria-hidden="true"></i>
+                    <i class="pi pi-play"></i>
                 </div>
                 <div class="card-overlay">
                     <div class="card-info">
                         <div class="card-badges">
-                            <span class="card-badge badge-continue">CONTINUE</span>
+                            <span class="card-badge">CONTINUE</span>
                         </div>
-                        <h3 class="card-title">{item.title ?: item.seriesTitle}</h3>
-                        <div class="card-meta">
-                            <span class="card-type">{item.type ?: 'Movie'}</span>
-                            {#if item.durationSeconds}
-                            <span class="card-duration" aria-label="Duration {formatDuration.apply(item.durationSeconds)}">
-                                {formatDuration.apply(item.durationSeconds)}
-                            </span>
-                            {/if}
-                        </div>
+                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                        <div class="card-meta">{item.type ?: 'Movie'}</div>
                     </div>
                 </div>
-                <div class="continue-progress" role="progressbar" 
-                     aria-valuenow="{item.watchProgress ?: 65}" 
-                     aria-valuemin="0" 
-                     aria-valuemax="100"
-                     aria-label="Watched {item.watchProgress ?: 65}%">
-                    <div class="progress-bar" style="width: {item.watchProgress ?: 65}%"></div>
+                <div class="continue-progress">
+                    <div class="progress-bar" style="width: 65%;"></div>
                 </div>
-            </article>
+            </div>
             {/for}
         </div>
     </div>
-</section>
+</div>
 {/if}
 
-<!-- Enhanced Trending Now Carousel -->
+<!-- Trending Now Carousel -->
 {#if trending.size > 0}
-<section class="carousel-section" aria-labelledby="trendingTitle">
+<div class="carousel-section">
     <div class="carousel-header">
-        <h2 id="trendingTitle" class="carousel-title">
-            <i class="pi pi-fire" style="color: #ff9800;" aria-hidden="true"></i>
+        <h2 class="carousel-title">
+            <i class="pi pi-fire" style="color: #ff9800;"></i>
             Trending Now
         </h2>
-        <div class="carousel-actions" role="group" aria-label="Trending Now navigation">
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('trendingCarousel', -1)"
-                aria-label="Scroll Trending Now left">
-                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('trendingCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
             </button>
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('trendingCarousel', 1)"
-                aria-label="Scroll Trending Now right">
-                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('trendingCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
-    <div class="carousel-container" role="region" aria-label="Trending videos">
-        <div class="carousel enhanced-carousel" id="trendingCarousel" x-data="{ setupIntersectionObserver() {
-            this.observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target.querySelector('.card-image');
-                        if (img && img.dataset.src) {
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            this.observer.unobserve(entry.target);
-                        }
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            this.$el.querySelectorAll('.content-card').forEach(card => {
-                this.observer.observe(card);
-            });
-        } }" x-init="setupIntersectionObserver()">
+    <div class="carousel-container">
+        <div class="carousel" id="trendingCarousel">
             {#for item in trending}
-            <article class="content-card video-card enhanced-card trending-card" 
-                     data-video-id="{item.id}" 
-                     data-trending-rank="{loop.index + 1}"
-                     onclick="window.selectItem({json.apply(item)}, 'details')"
-                     tabindex="0"
-                     role="button"
-                     aria-label="{item.title ?: item.seriesTitle} - {item.type ?: 'Movie'} - Trending #{loop.index + 1}">
-                <div class="card-image-container">
-                    <img class="card-image lazy-image" 
-                         data-src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 2000}"
-                         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect width='300' height='450' fill='%23333'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23666' font-family='sans-serif' font-size='14'%3ELoading...%3C/text%3E%3C/svg%3E"
-                         alt="{item.title ?: item.seriesTitle}"
-                         loading="lazy">
-                    <div class="card-placeholder">
-                        <i class="pi pi-image"></i>
-                    </div>
-                    <div class="trending-rank" aria-hidden="true">
-                         <span class="rank-number">{loop.index + 1}</span>
-                    </div>
-                </div>
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')"
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 2000}" 
+                     alt="{item.title ?: item.seriesTitle}">
                 <div class="play-icon">
-                    <i class="pi pi-play" aria-hidden="true"></i>
+                    <i class="pi pi-play"></i>
                 </div>
                 <div class="card-overlay">
                     <div class="card-info">
                         <div class="card-badges">
-                            <span class="card-badge badge-trending">
-                                <i class="pi pi-fire" aria-hidden="true"></i>
-                                TRENDING
-                            </span>
+                            <span class="card-badge">TRENDING</span>
                         </div>
-                        <h3 class="card-title">{item.title ?: item.seriesTitle}</h3>
-                        <div class="card-meta">
-                            <span class="card-type">{item.type ?: 'Movie'}</span>
-                            {#if item.durationSeconds}
-                            <span class="card-duration" aria-label="Duration {formatDuration.apply(item.durationSeconds)}">
-                                {formatDuration.apply(item.durationSeconds)}
-                            </span>
-                            {/if}
-                        </div>
+                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                        <div class="card-meta">{item.type ?: 'Movie'}</div>
                     </div>
                 </div>
-            </article>
+            </div>
             {/for}
         </div>
     </div>
-</section>
+</div>
 {/if}
 
-<!-- Enhanced Movies Carousel -->
+<!-- Movies Carousel -->
 {#if movies.size > 0}
-<section class="carousel-section" aria-labelledby="moviesTitle">
+<div class="carousel-section">
     <div class="carousel-header">
-        <h2 id="moviesTitle" class="carousel-title">
-            <i class="pi pi-video" style="color: #2196f3;" aria-hidden="true"></i>
+        <h2 class="carousel-title">
+            <i class="pi pi-video" style="color: #2196f3;"></i>
             Movies
         </h2>
-        <div class="carousel-actions" role="group" aria-label="Movies navigation">
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('moviesCarousel', -1)"
-                aria-label="Scroll Movies left">
-                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('moviesCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
             </button>
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('moviesCarousel', 1)"
-                aria-label="Scroll Movies right">
-                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('moviesCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
-    <div class="carousel-container" role="region" aria-label="Movies">
-        <div class="carousel enhanced-carousel" id="moviesCarousel" x-data="{ setupIntersectionObserver() {
-            this.observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target.querySelector('.card-image');
-                        if (img && img.dataset.src) {
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            this.observer.unobserve(entry.target);
-                        }
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            this.$el.querySelectorAll('.content-card').forEach(card => {
-                this.observer.observe(card);
-            });
-        } }" x-init="setupIntersectionObserver()">
+    <div class="carousel-container">
+        <div class="carousel" id="moviesCarousel">
             {#for item in movies}
-            <article class="content-card video-card enhanced-card movie-card" 
-                     data-video-id="{item.id}" 
-                     data-rating="{item.rating ?: '8.5'}"
-                     onclick="window.selectItem({json.apply(item)}, 'play')"
-                     tabindex="0"
-                     role="button"
-                     aria-label="{item.title} - Movie - {formatDuration.apply(item.durationSeconds)} - Rating {item.rating ?: '8.5'}">
-                <div class="card-image-container">
-                    <img class="card-image lazy-image" 
-                         data-src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 3000}"
-                         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect width='300' height='450' fill='%23333'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23666' font-family='sans-serif' font-size='14'%3ELoading...%3C/text%3E%3C/svg%3E"
-                         alt="{item.title}"
-                         loading="lazy">
-                    <div class="card-placeholder">
-                        <i class="pi pi-image"></i>
-                    </div>
-                </div>
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')"
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 3000}" 
+                     alt="{item.title}">
                 <div class="play-icon">
-                    <i class="pi pi-play" aria-hidden="true"></i>
+                    <i class="pi pi-play"></i>
                 </div>
                 <div class="card-overlay">
                     <div class="card-info">
                         <div class="card-badges">
-                            <span class="card-badge badge-rating">
-                                <i class="pi pi-star" aria-hidden="true"></i>
-                                {item.rating ?: '8.5'}+
-                            </span>
-                            {#if item.releaseYear}
-                            <span class="card-badge badge-year">{item.releaseYear}</span>
-                            {/if}
+                            <span class="card-badge">⭐ 8.5+</span>
                         </div>
-                        <h3 class="card-title">{item.title}</h3>
-                        <div class="card-meta">
-                            <span class="card-type">Movie</span>
-                            {#if item.durationSeconds}
-                            <span class="card-duration" aria-label="Duration {formatDuration.apply(item.durationSeconds)}">
-                                {formatDuration.apply(item.durationSeconds)}
-                            </span>
-                            {/if}
-                            {#if item.genres && item.genres.size > 0}
-                            <span class="card-genres">{item.genres[0]}</span>
-                            {/if}
-                        </div>
+                        <div class="card-title">{item.title}</div>
+                        <div class="card-meta">{formatDuration.apply(item.durationSeconds)}</div>
                     </div>
                 </div>
-            </article>
+            </div>
             {/for}
         </div>
     </div>
-</section>
+</div>
 {/if}
 
-<!-- Enhanced TV Shows Carousel -->
+<!-- TV Shows Carousel -->
 {#if tvShows.size > 0}
-<section class="carousel-section" aria-labelledby="tvShowsTitle">
+<div class="carousel-section">
     <div class="carousel-header">
-        <h2 id="tvShowsTitle" class="carousel-title">
-            <i class="pi pi-desktop" style="color: #9c27b0;" aria-hidden="true"></i>
+        <h2 class="carousel-title">
+            <i class="pi pi-desktop" style="color: #9c27b0;"></i>
             TV Shows
         </h2>
-        <div class="carousel-actions" role="group" aria-label="TV Shows navigation">
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('tvShowsCarousel', -1)"
-                aria-label="Scroll TV Shows left">
-                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('tvShowsCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
             </button>
-            <button 
-                class="carousel-nav-btn" 
-                onclick="window.scrollCarousel('tvShowsCarousel', 1)"
-                aria-label="Scroll TV Shows right">
-                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('tvShowsCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
-    <div class="carousel-container" role="region" aria-label="TV Shows">
-        <div class="carousel enhanced-carousel" id="tvShowsCarousel" x-data="{ setupIntersectionObserver() {
-            this.observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target.querySelector('.card-image');
-                        if (img && img.dataset.src) {
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            this.observer.unobserve(entry.target);
-                        }
-                    }
-                });
-            }, { rootMargin: '50px' });
-            
-            this.$el.querySelectorAll('.content-card').forEach(card => {
-                this.observer.observe(card);
-            });
-        } }" x-init="setupIntersectionObserver()">
+    <div class="carousel-container">
+        <div class="carousel" id="tvShowsCarousel">
             {#for item in tvShows}
-            <article class="content-card video-card enhanced-card tvshow-card" 
-                     data-video-id="{item.id}" 
-                     data-seasons="{item.totalSeasons ?: 1}"
-                     onclick="window.selectItem({json.apply(item)}, 'details')"
-                     tabindex="0"
-                     role="button"
-                     aria-label="{item.seriesTitle} - TV Show - {item.totalSeasons ?: 1} seasons">
-                <div class="card-image-container">
-                    <img class="card-image lazy-image" 
-                         data-src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 4000}"
-                         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect width='300' height='450' fill='%23333'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23666' font-family='sans-serif' font-size='14'%3ELoading...%3C/text%3E%3C/svg%3E"
-                         alt="{item.seriesTitle}"
-                         loading="lazy">
-                    <div class="card-placeholder">
-                        <i class="pi pi-image"></i>
-                    </div>
-                </div>
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')"
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 4000}" 
+                     alt="{item.seriesTitle}">
                 <div class="play-icon">
-                    <i class="pi pi-play" aria-hidden="true"></i>
+                    <i class="pi pi-play"></i>
                 </div>
                 <div class="card-overlay">
                     <div class="card-info">
                         <div class="card-badges">
-                            <span class="card-badge badge-series">
-                                <i class="pi pi-desktop" aria-hidden="true"></i>
-                                SERIES
-                            </span>
-                            {#if item.totalSeasons}
-                            <span class="card-badge badge-seasons">
-                                {item.totalSeasons} {item.totalSeasons == 1 ? 'Season' : 'Seasons'}
-                            </span>
-                            {/if}
+                            <span class="card-badge">SERIES</span>
                         </div>
-                        <h3 class="card-title">{item.seriesTitle}</h3>
-                        <div class="card-meta">
-                            <span class="card-type">TV Show</span>
-                            {#if item.firstEpisodeYear}
-                            <span class="card-year">{item.firstEpisodeYear}</span>
-                            {/if}
-                            {#if item.totalEpisodes}
-                            <span class="card-episodes">{item.totalEpisodes} Episodes</span>
-                            {/if}
-                        </div>
+                        <div class="card-title">{item.seriesTitle}</div>
+                        <div class="card-meta">TV Show</div>
                     </div>
                 </div>
-            </article>
+            </div>
             {/for}
         </div>
     </div>
-</section>
+</div>
 {/if}
 
-<!-- Enhanced Empty State -->
+<!-- Empty State -->
 {#if featured.size == 0 && newReleases.size == 0 && continueWatching.size == 0 && trending.size == 0 && movies.size == 0 && tvShows.size == 0}
-<section class="empty-state" aria-labelledby="emptyStateTitle">
-    <div class="empty-content">
-        <div class="empty-icon">
-            <i class="pi pi-video"></i>
-        </div>
-        <h2 id="emptyStateTitle" class="empty-title">No Video Content Found</h2>
-        <p class="empty-description">
-            Your video library appears to be empty or not properly processed.
-        </p>
-        <div class="empty-actions">
-            <button class="button is-primary is-medium" onclick="window.location.href='/import.html'">
-                <span class="icon"><i class="pi pi-plus"></i></span>
-                <span>Import Videos</span>
-            </button>
-            <button class="button is-light is-medium" onclick="window.location.href='/settings.html'">
-                <span class="icon"><i class="pi pi-cog"></i></span>
-                <span>Check Settings</span>
-            </button>
-        </div>
-        <div class="empty-help">
-            <details>
-                <summary class="empty-help-toggle">
-                    <i class="pi pi-question-circle"></i>
-                    Need help getting started?
-                </summary>
-                <div class="empty-help-content">
-                    <h4>Troubleshooting Steps:</h4>
-                    <ol>
-                        <li>Ensure your video files are in a supported format (MP4, MKV, AVI, etc.)</li>
-                        <li>Check that your media folders are properly configured in settings</li>
-                        <li>Try running a manual import from the Import page</li>
-                        <li>Check the system logs for any processing errors</li>
-                    </ol>
-                    <p>If you continue to experience issues, please check the documentation or contact support.</p>
-                </div>
-            </details>
-        </div>
-    </div>
-</section>
+<div class="empty-state">
+    <i class="pi pi-video"></i>
+    <h3>No video content found</h3>
+    <p>Your video library appears to be empty or not properly processed.</p>
+</div>
 {/if}
 
-<!-- Enhanced JavaScript for Carousels -->
 <script>
-    // Enhanced carousel scrolling with touch support
+    // Carousel scrolling function
     function scrollCarousel(carouselId, direction) {
         const carousel = document.getElementById(carouselId);
-        if (!carousel) return;
-        
-        const scrollAmount = carousel.classList.contains('enhanced-carousel') ? 320 : 300;
-        const scrollOptions = {
-            left: scrollAmount * direction,
-            behavior: 'smooth'
-        };
-        
-        carousel.scrollBy(scrollOptions);
-        
-        // Track analytics for carousel interaction
-        if (window.gtag) {
-            window.gtag('event', 'carousel_scroll', {
-                'carousel_name': carouselId,
-                'direction': direction > 0 ? 'right' : 'left'
+        if (carousel) {
+            const scrollAmount = 300;
+            carousel.scrollBy({
+                left: scrollAmount * direction,
+                behavior: 'smooth'
             });
         }
     }
 
-    // Enhanced duration formatting
+    // Format duration function
     function formatDuration(seconds) {
-        if (!seconds || seconds < 0) return '0m';
-        
+        if (!seconds) return '0m';
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
-        const remainingSeconds = seconds % 60;
-        
-        if (hours > 0) {
-            return `${hours}h ${minutes}m`;
-        } else if (minutes > 0) {
-            return `${minutes}m ${remainingSeconds > 0 ? remainingSeconds + 's' : ''}`;
-        } else {
-            return `${remainingSeconds}s`;
-        }
+        return hours > 0 ? hours + 'h ' + minutes + 'm' : minutes + 'm';
     }
 
-    // Enhanced lazy loading with error handling
-    function setupLazyLoading() {
-        const imageObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    const card = img.closest('.content-card');
-                    
-                    if (img.dataset.src) {
-                        // Add loading state
-                        card?.classList.add('is-loading');
-                        
-                        // Load image with error handling
-                        img.onload = () => {
-                            card?.classList.remove('is-loading');
-                            card?.classList.add('is-loaded');
-                            imageObserver.unobserve(img);
-                        };
-                        
-                        img.onerror = () => {
-                            card?.classList.remove('is-loading');
-                            card?.classList.add('has-error');
-                            // Use placeholder on error
-                            img.src = `https://picsum.photos/300/450?random=${Date.now()}`;
-                            imageObserver.unobserve(img);
-                        };
-                        
-                        img.src = img.dataset.src;
-                        img.removeAttribute('data-src');
-                    }
-                }
-            });
-        }, {
-            rootMargin: '50px 0px',
-            threshold: 0.1
-        });
-
-        // Observe all lazy images
-        document.querySelectorAll('.lazy-image').forEach(img => {
-            imageObserver.observe(img);
-        });
-    }
-
-    // Keyboard navigation for carousels
-    function setupCarouselKeyboardNavigation() {
-        document.addEventListener('keydown', (e) => {
-            // Only handle keyboard when not typing
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            
-            const focusedElement = document.activeElement;
-            if (!focusedElement || !focusedElement.classList.contains('content-card')) return;
-            
-            const carousel = focusedElement.closest('.carousel');
-            if (!carousel) return;
-            
-            switch(e.key) {
-                case 'ArrowLeft':
-                    e.preventDefault();
-                    focusPreviousCard(carousel, focusedElement);
-                    break;
-                case 'ArrowRight':
-                    e.preventDefault();
-                    focusNextCard(carousel, focusedElement);
-                    break;
-                case 'Enter':
-                case ' ':
-                    e.preventDefault();
-                    focusedElement.click();
-                    break;
-            }
-        });
-    }
-
-    function focusPreviousCard(carousel, currentCard) {
-        const cards = Array.from(carousel.querySelectorAll('.content-card'));
-        const currentIndex = cards.indexOf(currentCard);
-        const previousIndex = currentIndex > 0 ? currentIndex - 1 : cards.length - 1;
-        cards[previousIndex].focus();
-    }
-
-    function focusNextCard(carousel, currentCard) {
-        const cards = Array.from(carousel.querySelectorAll('.content-card'));
-        const currentIndex = cards.indexOf(currentCard);
-        const nextIndex = (currentIndex + 1) % cards.length;
-        cards[nextIndex].focus();
-    }
-
-    // Touch gesture support for mobile
-    function setupTouchGestures() {
-        const carousels = document.querySelectorAll('.enhanced-carousel');
-        
-        carousels.forEach(carousel => {
-            let startX = 0;
-            let startY = 0;
-            let endX = 0;
-            let endY = 0;
-            let isScrolling = false;
-            
-            carousel.addEventListener('touchstart', (e) => {
-                startX = e.touches[0].clientX;
-                startY = e.touches[0].clientY;
-                isScrolling = false;
-            }, { passive: true });
-            
-            carousel.addEventListener('touchmove', (e) => {
-                if (!isScrolling) {
-                    const deltaX = Math.abs(e.touches[0].clientX - startX);
-                    const deltaY = Math.abs(e.touches[0].clientY - startY);
-                    
-                    if (deltaX > deltaY) {
-                        isScrolling = true;
-                    }
-                }
-            }, { passive: true });
-            
-            carousel.addEventListener('touchend', (e) => {
-                if (!isScrolling) return;
-                
-                endX = e.changedTouches[0].clientX;
-                endY = e.changedTouches[0].clientY;
-                
-                const deltaX = endX - startX;
-                const deltaY = endY - startY;
-                
-                // Check if it's a horizontal swipe
-                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-                    const carouselId = carousel.id;
-                    if (deltaX > 0) {
-                        scrollCarousel(carouselId, -1); // Swipe right
-                    } else {
-                        scrollCarousel(carouselId, 1);  // Swipe left
-                    }
-                }
-            }, { passive: true });
-        });
-    }
-
-    // Performance monitoring
-    function setupPerformanceMonitoring() {
-        // Track carousel load times
-        if (window.performance && window.performance.mark) {
-            window.performance.mark('carousel-start');
-            
-            window.addEventListener('load', () => {
-                window.performance.mark('carousel-end');
-                window.performance.measure('carousel-load', 'carousel-start', 'carousel-end');
-                
-                const measure = window.performance.getEntriesByName('carousel-load')[0];
-                if (measure && measure.duration > 1000) {
-                    console.warn('Slow carousel load detected:', measure.duration + 'ms');
-                }
-            });
-        }
-    }
-
-    // Enhanced card interaction feedback
-    function setupCardInteractions() {
-        const cards = document.querySelectorAll('.content-card');
-        
-        cards.forEach(card => {
-            // Add hover sound effect (if audio is available)
-            card.addEventListener('mouseenter', () => {
-                if (window.playHoverSound) {
-                    window.playHoverSound();
-                }
-            });
-            
-            // Add haptic feedback for mobile
-            card.addEventListener('touchstart', () => {
-                if (navigator.vibrate) {
-                    navigator.vibrate(10);
-                }
-            });
-        });
-    }
-
-    // Initialize all enhancements
-    document.addEventListener('DOMContentLoaded', () => {
-        setupLazyLoading();
-        setupCarouselKeyboardNavigation();
-        setupTouchGestures();
-        setupPerformanceMonitoring();
-        setupCardInteractions();
-        
-        // Make functions globally available
-        window.scrollCarousel = scrollCarousel;
-        window.formatDuration = formatDuration;
-    });
-
-    // Cleanup observers on page unload
-    window.addEventListener('beforeunload', () => {
-        if (window.imageObserver) {
-            window.imageObserver.disconnect();
-        }
-    });
+    // Make functions globally available
+    window.scrollCarousel = scrollCarousel;
+    window.formatDuration = formatDuration;
 </script>

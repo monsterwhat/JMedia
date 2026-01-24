@@ -458,21 +458,23 @@ public class SettingsApi {
             } catch (java.util.concurrent.TimeoutException e) {
                 // Return default status if timeout occurs
                 status = new ImportInstallationStatus(
-                    false, false, false, false, false,
+                    false, false, false, false, false, false,
                     "Status check timed out - Chocolatey may not be available",
                     "Status check timed out - Python may not be available",
-                    "Status check timed out - SpotDL status unknown", 
+                    "Status check timed out - SpotDL status unknown",
+                    "Status check timed out - yt-dlp status unknown",
                     "Status check timed out - FFmpeg status unknown",
                     "Status check timed out - Whisper status unknown"
                 );
             } catch (Exception e) {
                 // Return default status if any other error occurs
                 status = new ImportInstallationStatus(
-                    false, false, false, false, false,
+                    false, false, false, false, false, false,
                     "Status check failed: " + e.getMessage() + " - Chocolatey may not be available",
                     "Status check failed: " + e.getMessage() + " - Python may not be available",
                     "Status check failed: " + e.getMessage() + " - SpotDL status unknown",
-                    "Status check failed: " + e.getMessage() + " - FFmpeg status unknown", 
+                    "Status check failed: " + e.getMessage() + " - yt-dlp status unknown",
+                    "Status check failed: " + e.getMessage() + " - FFmpeg status unknown",
                     "Status check failed: " + e.getMessage() + " - Whisper status unknown"
                 );
             }

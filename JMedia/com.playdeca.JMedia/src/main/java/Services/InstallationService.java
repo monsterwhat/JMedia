@@ -34,6 +34,7 @@ public class InstallationService {
             boolean packageManagerInstalled = platformOps.isPackageMangerInstalled();
             boolean pythonInstalled = platformOps.isPythonInstalled();
             boolean spotdlInstalled = platformOps.isSpotdlInstalled();
+            boolean ytdlpInstalled = platformOps.isYtdlpInstalled();
             boolean ffmpegInstalled = platformOps.isFFmpegInstalled();
             boolean whisperInstalled = platformOps.isWhisperInstalled();
             
@@ -46,6 +47,9 @@ public class InstallationService {
             String spotdlMessage = spotdlInstalled ? 
                 "SpotDL found" : 
                 platformOps.getSpotdlInstallMessage();
+            String ytdlpMessage = ytdlpInstalled ? 
+                "yt-dlp found" : 
+                platformOps.getYtdlpInstallMessage();
             String ffmpegMessage = ffmpegInstalled ? 
                 "FFmpeg found" : 
                 platformOps.getFFmpegInstallMessage();
@@ -58,19 +62,21 @@ public class InstallationService {
             LOGGER.info("  Package Manager: {} - {}", packageManagerInstalled ? "INSTALLED" : "NOT INSTALLED", packageManagerMessage);
             LOGGER.info("  Python: {} - {}", pythonInstalled ? "INSTALLED" : "NOT INSTALLED", pythonMessage);
             LOGGER.info("  SpotDL: {} - {}", spotdlInstalled ? "INSTALLED" : "NOT INSTALLED", spotdlMessage);
+            LOGGER.info("  yt-dlp: {} - {}", ytdlpInstalled ? "INSTALLED" : "NOT INSTALLED", ytdlpMessage);
             LOGGER.info("  FFmpeg: {} - {}", ffmpegInstalled ? "INSTALLED" : "NOT INSTALLED", ffmpegMessage);
             LOGGER.info("  Whisper: {} - {}", whisperInstalled ? "INSTALLED" : "NOT INSTALLED", whisperMessage);
             
-            return new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, spotdlInstalled, ffmpegInstalled, whisperInstalled, 
-                    packageManagerMessage, pythonMessage, spotdlMessage, ffmpegMessage, whisperMessage);
+            return new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, whisperInstalled, 
+                    packageManagerMessage, pythonMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, whisperMessage);
             
         } catch (Exception e) {
             LOGGER.error("Critical error during installation status detection", e);
             return new ImportInstallationStatus(
-                    false, false, false, false, false,
+                    false, false, false, false, false, false,
                     "Error checking package manager: " + e.getMessage(),
                     "Error checking Python: " + e.getMessage(),
                     "Error checking SpotDL: " + e.getMessage(),
+                    "Error checking yt-dlp: " + e.getMessage(),
                     "Error checking FFmpeg: " + e.getMessage(),
                     "Error checking Whisper: " + e.getMessage()
             );
@@ -113,9 +119,9 @@ public class InstallationService {
                     platformOps.installSpotdl(profileId);
                 }
 
-                if (!status.whisperInstalled) {
-                    broadcast("Installing Whisper...\n", profileId);
-                    platformOps.installWhisper(profileId);
+                if (!status.ytdlpInstalled) {
+                    broadcast("Installing yt-dlp...\n", profileId);
+                    platformOps.installYtdlp(profileId);
                 }
             }
         }
@@ -178,6 +184,17 @@ public class InstallationService {
     }
 
     /**
+     * Installs yt-dlp.
+     *
+     * @param profileId The profile ID for broadcasting status updates
+     * @throws Exception If installation fails
+     */
+    public void installYtdlp(Long profileId) throws Exception {
+        PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+        platformOps.installYtdlp(profileId);
+    }
+
+    /**
      * Installs Whisper.
      *
      * @param profileId The profile ID for broadcasting status updates
@@ -222,6 +239,17 @@ public class InstallationService {
     }
 
     /**
+     * Uninstalls yt-dlp.
+     *
+     * @param profileId The profile ID for broadcasting status updates
+     * @throws Exception If uninstallation fails
+     */
+    public void uninstallYtdlp(Long profileId) throws Exception {
+        PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+        platformOps.uninstallYtdlp(profileId);
+    }
+
+    /**
      * Uninstalls Whisper.
      *
      * @param profileId The profile ID for broadcasting status updates
@@ -250,6 +278,9 @@ public class InstallationService {
             }
             if (!status.spotdlInstalled) {
                 errorMessage.append("- SpotDL: ").append(status.spotdlMessage).append("\n");
+            }
+            if (!status.ytdlpInstalled) {
+                errorMessage.append("- yt-dlp: ").append(status.ytdlpMessage).append("\n");
             }
             if (!status.ffmpegInstalled) {
                 errorMessage.append("- FFmpeg: ").append(status.ffmpegMessage).append("\n");

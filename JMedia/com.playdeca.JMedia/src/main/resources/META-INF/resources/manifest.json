@@ -1,0 +1,44 @@
+{
+  "name": "JMedia Mobile",
+  "short_name": "JMedia",
+  "description": "Mobile-optimized music media player",
+  "start_url": "/mobile.html",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#48c78e",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.png", 
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["music", "entertainment", "multimedia"],
+  "lang": "en",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "shortcuts": [
+    {
+      "name": "Play All",
+      "short_name": "Play All",
+      "description": "Play all songs in library",
+      "url": "/mobile.html?action=playall",
+      "icons": [{ "src": "/logo.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Queue",
+      "short_name": "Queue", 
+      "description": "View current queue",
+      "url": "/mobile.html#queue",
+      "icons": [{ "src": "/logo.png", "sizes": "96x96" }]
+    }
+  ]
+}

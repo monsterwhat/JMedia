@@ -432,6 +432,8 @@
 
         </section>
 
+        <script src="/js/mobile-redirect.js"></script>
+        <script src="/js/toast.js"></script>
         <script src="/js/musicBar.js"></script>
         <script src="/js/mediaSession.js"></script>
         <script src="/js/playlistBar.js"></script>
@@ -1046,56 +1048,6 @@ function playlistViewController() {
             });
         }
         
-        // Enhanced showToast function to support click handlers
-        function showToast(message, type = 'info', duration = 3000, clickHandler = null) {
-            const toastContainer = document.getElementById('toast-container');
-            if (!toastContainer) return;
-            
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            
-            // Add icon based on type
-            let icon = '';
-            switch(type) {
-                case 'success':
-                    icon = '<i class="pi pi-check toast-icon"></i>';
-                    break;
-                case 'error':
-                    icon = '<i class="pi pi-times toast-icon"></i>';
-                    break;
-                case 'info':
-                default:
-                    icon = '<i class="pi pi-info toast-icon"></i>';
-                    break;
-            }
-            
-            toast.innerHTML = `
-                ${icon}
-                <span class="toast-message">${message}</span>
-            `;
-            
-            // Add click handler if provided
-            if (clickHandler) {
-                toast.style.cursor = 'pointer';
-                toast.addEventListener('click', clickHandler);
-            }
-            
-            toastContainer.appendChild(toast);
-            
-            // Trigger animation
-            setTimeout(() => {
-                toast.classList.add('show');
-            }, 10);
-            
-            // Remove toast after duration
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        toast.parentNode.removeChild(toast);
-                    }
-                }, 300);
-            }, duration);
-        }
+        // Toast functionality now handled by unified toast.js library
 
     });</script>

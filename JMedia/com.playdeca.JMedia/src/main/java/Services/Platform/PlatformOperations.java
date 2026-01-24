@@ -5,23 +5,26 @@ import java.io.IOException;
 
 public interface PlatformOperations {
     
-    // Installation status checks
+// Installation status checks
     boolean isPackageMangerInstalled();
     boolean isPythonInstalled();
     boolean isSpotdlInstalled();
+    boolean isYtdlpInstalled();
     boolean isFFmpegInstalled();
     boolean isWhisperInstalled();
     
-    // Installation methods
+// Installation methods
     void installPackageManger(Long profileId) throws Exception;
     void installPython(Long profileId) throws Exception;
     void installSpotdl(Long profileId) throws Exception;
+    void installYtdlp(Long profileId) throws Exception;
     void installFFmpeg(Long profileId) throws Exception;
     void installWhisper(Long profileId) throws Exception;
     
-    // Uninstallation methods
+// Uninstallation methods
     void uninstallPython(Long profileId) throws Exception;
     void uninstallSpotdl(Long profileId) throws Exception;
+    void uninstallYtdlp(Long profileId) throws Exception;
     void uninstallFFmpeg(Long profileId) throws Exception;
     void uninstallWhisper(Long profileId) throws Exception;
     
@@ -32,11 +35,12 @@ public interface PlatformOperations {
     // Python executable detection
     String findPythonExecutable() throws Exception;
     
-    // Installation status messages
+// Installation status messages
     String getPackageManagerName();
     String getPackageManagerInstallMessage();
     String getPythonInstallMessage();
     String getSpotdlInstallMessage();
+    String getYtdlpInstallMessage();
     String getFFmpegInstallMessage();
     String getWhisperInstallMessage();
     
@@ -44,6 +48,10 @@ public interface PlatformOperations {
     String getSystemPythonCommand();
     String[] getPythonExecutableVariants();
     String getSpotdlCommand();
+    String getYtdlpCommand();
     String getFFmpegCommand();
     String getWhisperCommand();
+    
+    // Execution method detection
+    boolean shouldUseSpotdlDirectCommand();
 }

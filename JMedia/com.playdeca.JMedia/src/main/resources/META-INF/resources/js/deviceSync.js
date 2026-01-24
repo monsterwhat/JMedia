@@ -1,9 +1,24 @@
+// Race condition mitigation: profile initialization helper
+async function waitForProfileId() {
+    return new Promise((resolve) => {
+        const checkProfile = () => {
+            if (window.globalActiveProfileId && window.globalActiveProfileId !== 'undefined') {
+                resolve(window.globalActiveProfileId);
+            } else {
+                setTimeout(checkProfile, 50);
+            }
+        };
+        checkProfile();
+    });
+}
+
 // Device Sync JavaScript functionality
 class DeviceSyncManager {
     constructor() {
         this.currentQrCode = null;
         this.activeSessions = [];
         this.refreshInterval = null;
+        this.isInitializing = false;
         this.init();
     }
 
@@ -46,7 +61,7 @@ class DeviceSyncManager {
             if (window.globalActiveProfileId && window.globalActiveProfileId !== 'undefined') {
                 this.loadActiveSessions();
             } else {
-                showToast('Profile not ready. Please wait a moment.', 'warning');
+                Toast.warning('Profile not ready. Please wait a moment.');
             }
         });
 
@@ -76,8 +91,10 @@ class DeviceSyncManager {
 
     async generateQrCode() {
         try {
-            if (!window.globalActiveProfileId || window.globalActiveProfileId === 'undefined') {
-                showToast('Profile not ready. Please wait a moment and try again.', 'error');
+            // Race condition mitigation: wait for profile ID to be available
+            const profileId = await waitForProfileId();
+            if (!profileId) {
+                Toast.error('Profile not ready. Please wait a moment and try again.');
                 return;
             }
 
@@ -89,7 +106,7 @@ class DeviceSyncManager {
             generateBtn.disabled = true;
             generateBtn.innerHTML = '<span class="icon-text"><span class="icon"><i class="pi pi-spin pi-spinner"></i></span><span>Generating...</span></span>';
 
-            const response = await fetch(`/api/device-sync/${window.globalActiveProfileId}/generate-qr`, {
+            const response = await fetch(`/api/device-sync/${profileId}/generate-qr`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -108,12 +125,12 @@ class DeviceSyncManager {
                 generateBtn.style.display = 'none';
                 refreshBtn.style.display = 'inline-flex';
 
-                showToast('QR code generated successfully!', 'success');
+                Toast.success('QR code generated successfully!');
             }
 
         } catch (error) {
             console.error('Failed to generate QR code:', error);
-            showToast('Failed to generate QR code: ' + error.message, 'error');
+            Toast.error('Failed to generate QR code: ' + error.message);
         } finally {
             const generateBtn = document.getElementById('generateQrCodeBtn');
             generateBtn.disabled = false;
@@ -142,12 +159,21 @@ class DeviceSyncManager {
 
     async loadActiveSessions() {
         try {
-            if (!window.globalActiveProfileId || window.globalActiveProfileId === 'undefined') {
+            // Race condition mitigation: prevent concurrent initialization
+            if (this.isInitializing) {
+                console.warn('[DeviceSync] Already initializing, skipping duplicate request');
+                return;
+            }
+
+            // Race condition mitigation: wait for profile ID
+            const profileId = await waitForProfileId();
+            if (!profileId) {
                 console.warn('[DeviceSync] Profile ID not available, skipping session load');
                 return;
             }
 
-            const url = `/api/device-sync/${window.globalActiveProfileId}/sessions`;
+            this.isInitializing = true;
+            const url = `/api/device-sync/${profileId}/sessions`;
             console.log('[DeviceSync] Loading sessions from URL:', url);
             console.log('[DeviceSync] Full URL:', window.location.origin + url);
             const response = await fetch(url);
@@ -179,9 +205,9 @@ class DeviceSyncManager {
             
             // Show user-friendly error message
             if (error.message.includes('Failed to fetch')) {
-                showToast('Unable to connect to server. Please check if the application is running.', 'error');
+                Toast.error('Unable to connect to server. Please check if the application is running.');
             } else {
-                showToast('Failed to load active sessions: ' + error.message, 'error');
+                Toast.error('Failed to load active sessions: ' + error.message);
             }
             
             // Show empty state with helpful message
@@ -208,6 +234,9 @@ class DeviceSyncManager {
                     </div>
                 `;
             }
+    } finally {
+            // Race condition mitigation: always reset initialization flag
+            this.isInitializing = false;
         }
     }
 
@@ -306,13 +335,13 @@ class DeviceSyncManager {
             if (result.error) {
                 throw new Error(result.error);
             } else {
-                showToast('Device access revoked successfully', 'success');
+                Toast.success('Device access revoked successfully');
                 this.loadActiveSessions(); // Refresh the list
             }
 
         } catch (error) {
             console.error('Failed to revoke session:', error);
-            showToast('Failed to revoke session: ' + error.message, 'error');
+            Toast.error('Failed to revoke session: ' + error.message);
         }
     }
 
@@ -328,13 +357,13 @@ class DeviceSyncManager {
                 throw new Error(result.error);
             } else {
                 const cleanedCount = result.data?.cleanedUpCount || 0;
-                showToast(`Cleaned up ${cleanedCount} expired sessions`, 'success');
+                Toast.success(`Cleaned up ${cleanedCount} expired sessions`);
                 this.loadActiveSessions(); // Refresh the list
             }
 
         } catch (error) {
             console.error('Failed to cleanup expired sessions:', error);
-            showToast('Failed to cleanup expired sessions: ' + error.message, 'error');
+            Toast.error('Failed to cleanup expired sessions: ' + error.message);
         }
     }
 
@@ -350,7 +379,7 @@ class DeviceSyncManager {
             syncPlaylists
         }));
 
-        showToast('Sync settings updated', 'info');
+        Toast.info('Sync settings updated');
     }
 
     loadSyncSettings() {

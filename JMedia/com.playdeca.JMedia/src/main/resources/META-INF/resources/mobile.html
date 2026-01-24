@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#48c78e">
+    <title id="pageTitle">JMedia Mobile</title>
+    
+    <!-- Theme Initializer -->
+    <script src="/js/theme-initializer.js"></script>
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="/css/mobile.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+    
+    <!-- Favicon -->
+    <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+    
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="logo.png">
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json">
+</head>
+<body x-data>
+    <!-- Mobile App Container -->
+    <div class="mobile-app">
+        
+        <!-- Mobile Header -->
+        <header class="mobile-header">
+            <div class="mobile-header-left">
+                <button class="mobile-nav-toggle" id="mobileNavToggle">
+                    <i class="pi pi-bars"></i>
+                </button>
+                <a href="/mobile.html" class="mobile-logo">JMedia</a>
+            </div>
+            <div class="mobile-header-right">
+                <a href="/settings.html" class="mobile-nav-toggle">
+                    <i class="pi pi-cog"></i>
+                </a>
+                <a href="/index.html" class="mobile-nav-toggle" title="Switch to Desktop View">
+                    <i class="pi pi-desktop"></i>
+                </a>
+                <button class="mobile-nav-toggle" id="themeToggle">
+                    <i class="pi pi-sun" id="themeIcon"></i>
+                </button>
+            </div>
+        </header>
+        
+        <!-- Mobile Main Content -->
+        <main class="mobile-main">
+            
+            <!-- Mobile Search -->
+            <div class="mobile-search-container">
+                <input type="text" 
+                       id="mobileSearch" 
+                       class="mobile-search" 
+                       placeholder="Search songs..."
+                       autocomplete="off">
+                <button id="mobileSearchClear" class="mobile-search-clear" style="display: none;">
+                    <i class="pi pi-times"></i>
+                </button>
+            </div>
+            
+            <!-- Mobile Song List -->
+            <div id="mobileSongList" class="mobile-song-list">
+                <div class="mobile-loading">
+                    <div class="mobile-loading-spinner">
+                        <i class="pi pi-spin pi-spinner"></i>
+                    </div>
+                    <p>Loading songs...</p>
+                </div>
+            </div>
+            
+        </main>
+        
+        <!-- Mobile Player -->
+        <div class="mobile-player">
+            <div class="mobile-player-info">
+                <div class="mobile-player-artwork" id="songCoverImageContainer">
+                    <img id="songCoverImage" src="/logo.png" alt="Song Cover" style="display: none;">
+                    <i class="pi pi-music" id="songCoverFallback"></i>
+                </div>
+                <div class="mobile-player-details">
+                    <p id="songTitle" class="mobile-player-title">Loading...</p>
+                    <p id="songArtist" class="mobile-player-artist">Unknown Artist</p>
+                </div>
+                <button id="expandPlayerBtn" class="mobile-expand-btn" title="Expand Player" aria-label="Expand to fullscreen">
+                    <i class="pi pi-expand-up"></i>
+                </button>
+            </div>
+            
+            <div class="mobile-player-controls">
+                <button id="shuffleBtn" class="mobile-btn" title="Shuffle">
+                    <i id="shuffleIcon" class="pi pi-sort-alt"></i>
+                </button>
+                <button id="prevBtn" class="mobile-btn" title="Previous">
+                    <i class="pi pi-step-backward"></i>
+                </button>
+                <button id="playPauseBtn" class="mobile-btn mobile-btn-primary" title="Play/Pause">
+                    <i id="playPauseIcon" class="pi pi-play"></i>
+                </button>
+                <button id="nextBtn" class="mobile-btn" title="Next">
+                    <i class="pi pi-step-forward"></i>
+                </button>
+                <button id="repeatBtn" class="mobile-btn" title="Repeat">
+                    <i id="repeatIcon" class="pi pi-refresh"></i>
+                </button>
+            </div>
+            
+            <div class="mobile-progress-container">
+                <input type="range" 
+                       id="playbackProgressBar" 
+                       name="seconds"
+                       class="mobile-progress" 
+                       min="0" 
+                       max="100" 
+                       value="0">
+                <div class="mobile-progress-time">
+                    <span id="currentTime">0:00</span>
+                    <span id="totalTime">0:00</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Side Panel -->
+        <div class="mobile-side-panel" id="mobileSidePanel">
+            <div class="mobile-side-panel-header">
+                <h3 class="mobile-side-panel-title">Menu</h3>
+                <button class="mobile-side-panel-close" id="mobileSidePanelClose">
+                    <i class="pi pi-times"></i>
+                </button>
+            </div>
+            
+            <!-- Mobile Tabs -->
+            <div class="mobile-tabs">
+                <button class="mobile-tab active" data-tab="playlists" id="playlistsTab">
+                    Playlists
+                </button>
+                <button class="mobile-tab" data-tab="queue" id="queueTab">
+                    Queue
+                </button>
+                <button class="mobile-tab" data-tab="history" id="historyTab">
+                    History
+                </button>
+            </div>
+            
+            <!-- Mobile Tab Contents -->
+            <div class="mobile-tab-content active" id="mobilePlaylistContent">
+                <div class="mobile-loading">
+                    <div class="mobile-loading-spinner">
+                        <i class="pi pi-spin pi-spinner"></i>
+                    </div>
+                    <p>Loading playlists...</p>
+                </div>
+            </div>
+            
+            <div class="mobile-tab-content" id="mobileQueueContent">
+                <div class="mobile-loading">
+                    <div class="mobile-loading-spinner">
+                        <i class="pi pi-spin pi-spinner"></i>
+                    </div>
+                    <p>Loading queue...</p>
+                </div>
+            </div>
+            
+            <div class="mobile-tab-content" id="mobileHistoryContent">
+                <div class="mobile-loading">
+                    <div class="mobile-loading-spinner">
+                        <i class="pi pi-spin pi-spinner"></i>
+                    </div>
+                    <p>Loading history...</p>
+                </div>
+            </div>
+            
+            <!-- Mobile Profile Section -->
+            <div class="mobile-card">
+                <div class="mobile-card-header">
+                    Profile
+                </div>
+                <div class="mobile-card-body">
+                    <div class="mobile-song-item" onclick="openMobileProfileModal()" style="cursor: pointer;">
+                        <div class="mobile-song-artwork">
+                            <i class="pi pi-user"></i>
+                        </div>
+                        <div class="mobile-song-info">
+                            <div class="mobile-song-title" id="currentProfileName">Loading...</div>
+                            <div class="mobile-song-artist">Current Profile</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            
+        </div>
+        
+        <!-- Mobile Side Panel Overlay -->
+        <div class="mobile-side-panel-overlay" id="mobileSidePanelOverlay"></div>
+        
+        <!-- Mobile Profile Management Modal -->
+        <div id="mobileProfileModal" class="mobile-modal">
+            <div class="mobile-modal-overlay" onclick="closeMobileProfileModal()"></div>
+            <div class="mobile-modal-card">
+                <header class="mobile-modal-header">
+                    <h3 class="mobile-modal-title">Manage Profiles</h3>
+                    <button class="mobile-modal-close" onclick="closeMobileProfileModal()">
+                        <i class="pi pi-times"></i>
+                    </button>
+                </header>
+                
+                <div class="mobile-modal-body">
+                    <!-- Current Profile Display -->
+                    <div class="mobile-current-profile">
+                        <div class="mobile-profile-display">
+                            <div class="mobile-profile-avatar">
+                                <i class="pi pi-user"></i>
+                            </div>
+                            <div class="mobile-profile-info">
+                                <div class="mobile-profile-name" id="mobileCurrentProfileName">Loading...</div>
+                                <div class="mobile-profile-status">Current Profile</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Profile List -->
+                    <div class="mobile-profiles-section">
+                        <h4 class="mobile-section-title">Switch Profile</h4>
+                        <div class="mobile-profile-list" id="mobileProfileList">
+                            <!-- Profiles loaded dynamically -->
+                        </div>
+                    </div>
+                    
+                    <!-- Create New Profile -->
+                    <div class="mobile-profiles-section">
+                        <h4 class="mobile-section-title">Create New Profile</h4>
+                        <div class="mobile-profile-create">
+                            <input type="text" 
+                                   class="mobile-input" 
+                                   id="mobileNewProfileNameInput" 
+                                   placeholder="Enter profile name...">
+                            <button class="mobile-btn-block mobile-btn-primary" id="mobileCreateProfileBtn">
+                                <i class="pi pi-plus"></i> Create Profile
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Delete Current Profile -->
+                    <button class="mobile-btn-block mobile-btn-danger" id="mobileDeleteCurrentProfileBtn">
+                        <i class="pi pi-trash"></i> Delete Current Profile
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Audio Player - Required for musicBar.js -->
+        <audio id="audioPlayer" preload="metadata"></audio>
+    <!-- HTMX -->
+    <script src="/js/htmx.min.js"></script>
+    
+    <!-- Load musicBar.js directly since we use same element IDs -->
+    <script src="/js/musicBar.js"></script>
+    
+    <!-- Additional JavaScript files -->
+    <script src="/js/toast.js"></script>
+    <script src="/js/mediaSession.js"></script>
+    
+    <!-- Mobile-specific enhancements -->
+    <script src="/js/mobile.js"></script>
+    
+    <script>
+        // Initialize mobile navigation variables
+        window.mobileStore = {
+            playerVisible: true,
+            sidePanelOpen: false,
+            currentTab: 'playlists',
+            
+            toggleSidePanel() {
+                this.sidePanelOpen = !this.sidePanelOpen;
+                const panel = document.getElementById('mobileSidePanel');
+                const overlay = document.getElementById('mobileSidePanelOverlay');
+                
+                if (this.sidePanelOpen) {
+                    panel.classList.add('active');
+                    overlay.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    panel.classList.remove('active');
+                    overlay.classList.remove('active');
+                    document.body.style.overflow = '';
+                }
+            },
+            
+            switchTab(tab) {
+                this.currentTab = tab;
+                // This will be handled by mobile.js switchMobileTab method
+                if (window.jmediaMobile) {
+                    window.jmediaMobile.switchMobileTab(tab);
+                }
+            }
+        };
+        
+        // Initialize global active profile ID with fallback
+        window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+        
+        // Mobile Profile Management Functions
+        let mobileProfiles = [];
+        let mobileCurrentProfile = null;
+        
+        function openMobileProfileModal() {
+            const modal = document.getElementById('mobileProfileModal');
+            modal.classList.add('is-active');
+            fetchMobileProfiles();
+            fetchMobileCurrentProfile();
+        }
+        
+        function closeMobileProfileModal() {
+            const modal = document.getElementById('mobileProfileModal');
+            modal.classList.remove('is-active');
+        }
+        
+        // Setup mobile profile modal event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            const createBtn = document.getElementById('mobileCreateProfileBtn');
+            const deleteBtn = document.getElementById('mobileDeleteCurrentProfileBtn');
+            const newProfileInput = document.getElementById('mobileNewProfileNameInput');
+            
+            if (createBtn) {
+                createBtn.addEventListener('click', createMobileProfile);
+            }
+            
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', deleteMobileCurrentProfile);
+            }
+            
+            if (newProfileInput) {
+                newProfileInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        createMobileProfile();
+                    }
+                });
+            }
+        });
+        
+        function fetchMobileProfiles() {
+            fetch('/api/profiles')
+                .then(response => response.json())
+                .then(profilesData => {
+                    mobileProfiles = profilesData;
+                    renderMobileProfileList();
+                })
+                .catch(error => console.error('Error fetching profiles:', error));
+        }
+        
+        function fetchMobileCurrentProfile() {
+            fetch('/api/profiles/current')
+                .then(response => response.json())
+                .then(profileData => {
+                    mobileCurrentProfile = profileData;
+                    updateMobileCurrentProfileDisplay();
+                    updateCurrentProfileName(); // Also update main menu
+                })
+                .catch(error => console.error('Error fetching current profile:', error));
+        }
+        
+        function renderMobileProfileList() {
+            const profileList = document.getElementById('mobileProfileList');
+            profileList.innerHTML = '';
+            
+            mobileProfiles.forEach(profile => {
+                const isActive = mobileCurrentProfile && mobileCurrentProfile.id === profile.id;
+                const profileItem = document.createElement('div');
+                profileItem.className = `mobile-profile-item ${isActive ? 'active' : ''}`;
+                profileItem.innerHTML = `
+                    <div class="mobile-profile-item-avatar">
+                        <i class="pi pi-user"></i>
+                    </div>
+                    <div class="mobile-profile-item-name">${profile.name || 'Unnamed Profile'}</div>
+                `;
+                
+                profileItem.onclick = () => switchToMobileProfile(profile.id);
+                profileList.appendChild(profileItem);
+            });
+        }
+        
+        function updateMobileCurrentProfileDisplay() {
+            const nameElement = document.getElementById('mobileCurrentProfileName');
+            if (nameElement && mobileCurrentProfile) {
+                nameElement.textContent = mobileCurrentProfile.name || 'Unnamed Profile';
+            }
+        }
+        
+        function updateCurrentProfileName() {
+            const profileNameElement = document.getElementById('currentProfileName');
+            if (profileNameElement) {
+                if (mobileCurrentProfile && mobileCurrentProfile.name) {
+                    profileNameElement.textContent = mobileCurrentProfile.name;
+                } else {
+                    profileNameElement.textContent = 'Main Profile';
+                }
+            }
+        }
+        
+        function switchToMobileProfile(profileId) {
+            fetch(`/api/profiles/switch/${profileId}`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(profile => {
+                localStorage.setItem('activeProfileId', profileId);
+                window.globalActiveProfileId = profileId;
+                
+                // Update current profile data immediately
+                mobileCurrentProfile = profile;
+                
+                // Update mobile interface with the new profile data
+                updateCurrentProfileName();
+                updateMobileCurrentProfileDisplay();
+                
+                fetchMobileCurrentProfile(); // Refresh profile data in background
+                
+                // Refresh mobile content for new profile
+                if (window.jmediaMobile) {
+                    // Reload current song/player state
+                    fetch(`/api/music/playback/current/${profileId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.data) {
+                                // Update mobile player display
+                                const titleEl = document.getElementById('songTitleMobile');
+                                const artistEl = document.getElementById('songArtistMobile');
+                                const coverEl = document.getElementById('songCoverImage');
+                                const coverFallback = document.getElementById('songCoverFallback');
+                                
+                                if (titleEl) titleEl.textContent = data.data.title || 'Unknown Title';
+                                if (artistEl) artistEl.textContent = data.data.artist || 'Unknown Artist';
+                                
+                                // Update album artwork
+                                if (coverEl && data.data.artwork) {
+                                    coverEl.src = data.data.artwork;
+                                    coverEl.style.display = 'block';
+                                    if (coverFallback) coverFallback.style.display = 'none';
+                                } else if (coverFallback) {
+                                    coverEl.style.display = 'none';
+                                    coverFallback.style.display = 'block';
+                                }
+                            }
+                        })
+                        .catch(error => console.error('Error fetching current song:', error));
+                    
+                    // Reload playlists, queue, and song list for new profile
+                    window.jmediaMobile.loadMobilePlaylists();
+                    window.jmediaMobile.loadMobileQueue();
+                    window.jmediaMobile.loadInitialContent();
+                    
+                    // Refresh current active tab
+                    const activeTab = document.querySelector('.mobile-tab.active');
+                    if (activeTab) {
+                        const tabName = activeTab.dataset.tab || 'playlists';
+                        window.jmediaMobile.switchMobileTab(tabName);
+                    }
+                }
+                closeMobileProfileModal();
+                // Dispatch custom event for other components
+                document.body.dispatchEvent(new CustomEvent('profileSwitched'));
+                showToast(`Switched to profile: ${profile.name}`, 'success');
+            })
+            .catch(error => {
+                console.error('Error switching profile:', error);
+                showToast('Failed to switch profile', 'error');
+            });
+        }
+        
+        function createMobileProfile() {
+            const input = document.getElementById('mobileNewProfileNameInput');
+            const name = input.value.trim();
+            
+            if (!name) {
+                // Show error state
+                input.classList.add('error');
+                return;
+            }
+            
+            fetch('/api/profiles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain'
+                },
+                body: name
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(newProfile => {
+                input.value = '';
+                input.classList.remove('error');
+                fetchMobileProfiles();
+                // Select the new profile
+                switchToMobileProfile(newProfile.id);
+            })
+            .catch(error => {
+                console.error('Error creating profile:', error);
+                input.classList.add('error');
+            });
+        }
+        
+        function deleteMobileCurrentProfile() {
+            if (!mobileCurrentProfile) return;
+            
+            if (confirm(`Are you sure you want to delete profile "${mobileCurrentProfile.name}"? This action cannot be undone.`)) {
+                fetch(`/api/profiles/${mobileCurrentProfile.id}`, {
+                    method: 'DELETE'
+                })
+                .then(response => {
+                    if (response.ok) {
+                        // Switch to first available profile
+                        fetch('/api/profiles')
+                            .then(r => r.json())
+                            .then(profiles => {
+                                if (profiles.length > 0) {
+                                    switchToMobileProfile(profiles[0].id);
+                                } else {
+                                    // No profiles left, reload page
+                                    window.location.reload();
+                                }
+                            });
+                    }
+                })
+                .catch(error => console.error('Error deleting profile:', error));
+            }
+        }
+        
+        // Listen for profile switches
+        document.body.addEventListener('profileSwitched', function() {
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId');
+            updateCurrentProfileName();
+        });
+        
+        // Initialize profile name
+        updateCurrentProfileName();
+        
+        // HTMX request interception for mobile
+        document.body.addEventListener('htmx:configRequest', function (event) {
+            const targetUrl = event.detail.path;
+            
+            if (typeof targetUrl !== 'string' || !targetUrl) {
+                return;
+            }
+            
+            let newUrl = targetUrl;
+            const currentProfileId = window.globalActiveProfileId;
+            
+            // Skip profile-related API calls
+            if (targetUrl.startsWith('/api/profiles')) {
+                return;
+            }
+            
+            // Handle music API calls
+            if (targetUrl.startsWith('/api/music/')) {
+                const parts = targetUrl.split('/');
+                const module = parts[2]; // 'music'
+                
+                if (module === 'music') {
+                    const subModule = parts[3]; // 'ui', 'playback', 'queue', 'playlists'
+                    
+                    if (subModule === 'ui') {
+                        if (parts[4] === 'tbody') {
+                            if (parts[5] === '{profileId}' && parts[6] === '{playlistId}') {
+                                newUrl = `/api/music/ui/tbody/${currentProfileId}/${window.currentPlaylistId || '0'}`;
+                            } else if (parts[5] === '{playlistId}') {
+                                newUrl = `/api/music/ui/tbody/${currentProfileId}`;
+                            } else {
+                                newUrl = targetUrl;
+                            }
+                        } else if (parts[4] === 'playlists-fragment' && parts[5] === '{profileId}') {
+                            newUrl = `/api/music/ui/playlists-fragment/${currentProfileId}`;
+                        } else if (parts[4] === 'playlists-fragment' && parts.length === 5) {
+                            newUrl = `/api/music/ui/playlists-fragment/${currentProfileId}`;
+                        } else if (parts[4] === 'queue-fragment' && parts[5] === '{profileId}') {
+                            newUrl = `/api/music/ui/queue-fragment/${currentProfileId}`;
+                        } else if (parts.length === 4) {
+                            newUrl = `/api/music/ui/${currentProfileId}`;
+                        }
+                    }
+                }
+            }
+            
+            if (newUrl !== targetUrl) {
+                event.detail.path = newUrl;
+            }
+        });
+        
+        // Load initial songs and setup image fallback
+        document.addEventListener('DOMContentLoaded', function() {
+            updateCurrentProfileName();
+            
+            // Setup image fallback for mobile player artwork
+            const songCoverImage = document.getElementById('songCoverImage');
+            const songCoverFallback = document.getElementById('songCoverFallback');
+            
+            if (songCoverImage && songCoverFallback) {
+                // Show fallback initially
+                songCoverFallback.style.display = 'block';
+                songCoverImage.style.display = 'none';
+                
+                // Setup image load/error handling
+                songCoverImage.addEventListener('load', function() {
+                    songCoverImage.style.display = 'block';
+                    songCoverFallback.style.display = 'none';
+                });
+                
+                songCoverImage.addEventListener('error', function() {
+                    songCoverImage.style.display = 'none';
+                    songCoverFallback.style.display = 'block';
+                });
+            }
+            
+            if (window.htmx) {
+                window.htmx.ajax('GET', `/api/music/ui/tbody/${window.globalActiveProfileId}/0`, {
+                    target: document.getElementById('mobileSongList'),
+                    swap: 'innerHTML'
+                });
+            }
+        });
+        
+        // PWA Installation Handler
+        let deferredPrompt;
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Show install button or banner
+            const installBtn = document.createElement('button');
+            installBtn.textContent = 'Install JMedia';
+            installBtn.className = 'mobile-btn-block';
+            installBtn.style.position = 'fixed';
+            installBtn.style.top = '60px';
+            installBtn.style.left = '50%';
+            installBtn.style.transform = 'translateX(-50%)';
+            installBtn.style.zIndex = '1000';
+            
+            installBtn.addEventListener('click', async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    deferredPrompt = null;
+                    
+                    if (outcome === 'accepted') {
+                        installBtn.remove();
+                    }
+                }
+            });
+            
+            document.body.appendChild(installBtn);
+        });
+        
+        // Handle online/offline status
+        window.addEventListener('online', () => {
+            console.log('App is online');
+            // Show online indicator or refresh data
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('App is offline');
+            // Show offline indicator
+        });
+        
+        // Prevent zoom on double tap for mobile
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+        
+        // Toast notification system (fallback if toast.js doesn't work)
+        window.showToast = window.showToast || function(message, type = 'info', duration = 3000) {
+            const toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) return;
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            // Add icon based on type
+            let icon = '';
+            switch(type) {
+                case 'success':
+                    icon = '<i class="pi pi-check toast-icon"></i>';
+                    break;
+                case 'error':
+                    icon = '<i class="pi pi-times toast-icon"></i>';
+                    break;
+                case 'info':
+                default:
+                    icon = '<i class="pi pi-info toast-icon"></i>';
+                    break;
+            }
+            
+            toast.innerHTML = `
+                ${icon}
+                <span class="toast-message">${message}</span>
+            `;
+            
+            toastContainer.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Remove toast after duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, duration);
+        };
+        
+    </script>
+    
+    <style>
+        /* Toast styles for mobile */
+        .toast {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            max-width: 300px;
+            font-size: 14px;
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+        }
+        
+        .toast-icon {
+            font-size: 16px;
+        }
+        
+        .toast.success {
+            background: rgba(72, 199, 142, 0.9);
+        }
+        
+        .toast.error {
+            background: rgba(241, 70, 104, 0.9);
+        }
+        
+        .toast.info {
+            background: rgba(50, 152, 220, 0.9);
+        }
+        
+        .mr-2 {
+            margin-right: 0.5rem;
+        }
+    </style>
+    
+    <!-- Toast Container -->
+    <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
+    
+</body>
+</html>

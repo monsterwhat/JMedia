@@ -3,8 +3,8 @@
     const savedTheme = localStorage.getItem('darkMode');
     if (savedTheme === 'true') {
         document.documentElement.setAttribute('data-theme', 'dark');
-    } else if (savedTheme === 'false') {
-        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', 'light');
     }
 })();
 
@@ -26,7 +26,7 @@ function applyThemePreference() {
         themeIcon.classList.remove('pi-sun');
         themeIcon.classList.add('pi-moon');
     } else {
-        document.documentElement.removeAttribute('data-theme');
+        document.documentElement.setAttribute('data-theme', 'light');
         themeIcon.classList.remove('pi-moon');
         themeIcon.classList.add('pi-sun');
     }
@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
             const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
-            localStorage.setItem('darkMode', !isDarkMode);
+            localStorage.setItem('darkMode', !isDarkMode ? 'true' : 'false');
             applyThemePreference(); // Apply theme changes immediately
         });
     }

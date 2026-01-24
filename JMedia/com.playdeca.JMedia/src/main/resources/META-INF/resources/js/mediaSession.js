@@ -8,19 +8,49 @@ if ('mediaSession' in navigator) {
 
     // Function to update Media Session metadata
     window.updateMediaSessionMetadata = (songName, artist, artworkUrl) => {
-        navigator.mediaSession.metadata = new MediaMetadata({
-            title: songName,
-            artist: artist,
-            album: 'JMedia', // You might want to get the actual album from musicState
-            artwork: [
+        const metadata = {
+            title: songName || 'Unknown Title',
+            artist: artist || 'Unknown Artist',
+            album: 'JMedia' // You might want to get actual album from musicState
+        };
+        
+        // Only add artwork if we have a valid URL
+        if (artworkUrl && artworkUrl.trim() !== '' && artworkUrl !== 'logo.png') {
+            metadata.artwork = [
                 {src: artworkUrl, sizes: '96x96', type: 'image/png'},
                 {src: artworkUrl, sizes: '128x128', type: 'image/png'},
                 {src: artworkUrl, sizes: '192x192', type: 'image/png'},
                 {src: artworkUrl, sizes: '256x256', type: 'image/png'},
                 {src: artworkUrl, sizes: '384x384', type: 'image/png'},
                 {src: artworkUrl, sizes: '512x512', type: 'image/png'}
-            ]
-        });
+            ];
+        } else {
+            // Use default logo as fallback
+            metadata.artwork = [
+                {src: '/logo.png', sizes: '96x96', type: 'image/png'},
+                {src: '/logo.png', sizes: '128x128', type: 'image/png'},
+                {src: '/logo.png', sizes: '192x192', type: 'image/png'},
+                {src: '/logo.png', sizes: '256x256', type: 'image/png'},
+                {src: '/logo.png', sizes: '384x384', type: 'image/png'},
+                {src: '/logo.png', sizes: '512x512', type: 'image/png'}
+            ];
+        }
+        
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata(metadata);
+        } catch (error) {
+            console.warn('[mediaSession.js] Failed to set MediaMetadata:', error);
+            // Fallback without artwork
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: songName || 'Unknown Title',
+                    artist: artist || 'Unknown Artist',
+                    album: 'JMedia'
+                });
+            } catch (fallbackError) {
+                console.warn('[mediaSession.js] Fallback MediaMetadata also failed:', fallbackError);
+            }
+        }
     };
 
     // Function to update Media Session playback state

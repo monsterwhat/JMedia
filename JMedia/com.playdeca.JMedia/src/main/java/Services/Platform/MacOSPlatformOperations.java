@@ -27,7 +27,7 @@ public class MacOSPlatformOperations implements PlatformOperations {
         return isCommandAvailable("python3") || isCommandAvailable("python");
     }
     
-    @Override
+@Override
     public boolean isSpotdlInstalled() {
         try {
             // Try direct command first
@@ -40,6 +40,27 @@ public class MacOSPlatformOperations implements PlatformOperations {
             for (String pythonExecutable : pythonExecutables) {
                 if (isCommandAvailable(pythonExecutable)) {
                     return executeCommandForCheck(pythonExecutable + " -m spotdl --version");
+                }
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return false;
+    }
+    
+    @Override
+    public boolean isYtdlpInstalled() {
+        try {
+            // Try direct command first
+            if (isCommandAvailable("yt-dlp")) {
+                return true;
+            }
+            
+            // Try as Python module with each variant
+            String[] pythonExecutables = getPythonExecutableVariants();
+            for (String pythonExecutable : pythonExecutables) {
+                if (isCommandAvailable(pythonExecutable)) {
+                    return executeCommandForCheck(pythonExecutable + " -m yt_dlp --version");
                 }
             }
         } catch (Exception e) {
@@ -102,7 +123,7 @@ public class MacOSPlatformOperations implements PlatformOperations {
         broadcast("Python installation completed\n", profileId);
     }
     
-    @Override
+@Override
     public void installSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Installing SpotDL via pip...\n", profileId);
@@ -112,6 +133,37 @@ public class MacOSPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL installation completed\n", profileId);
+    }
+    
+    @Override
+    public void installYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Installing yt-dlp...\n", profileId);
+        
+        boolean success = false;
+        
+        // Method 1: Try Homebrew first (preferred for macOS)
+        if (isCommandAvailable("brew")) {
+            try {
+                broadcast("Installing yt-dlp using Homebrew...\n", profileId);
+                executeCommand("brew install yt-dlp", profileId);
+                success = true;
+            } catch (Exception e) {
+                broadcast("Homebrew installation failed, trying pip...\n", profileId);
+            }
+        }
+        
+        // Method 2: Fallback to pip installation
+        if (!success) {
+            String pythonExecutable = findPythonExecutable();
+            executeCommand(pythonExecutable + " -m pip install yt-dlp", profileId);
+            success = true;
+        }
+        
+        if (success) {
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp installation completed\n", profileId);
+        }
     }
     
     @Override
@@ -162,7 +214,7 @@ public class MacOSPlatformOperations implements PlatformOperations {
         broadcast("Python uninstallation completed\n", profileId);
     }
     
-    @Override
+@Override
     public void uninstallSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Uninstalling SpotDL...\n", profileId);
@@ -172,6 +224,33 @@ public class MacOSPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL uninstallation completed\n", profileId);
+    }
+    
+    @Override
+    public void uninstallYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Uninstalling yt-dlp...\n", profileId);
+        
+        boolean success = false;
+        
+        // Try Homebrew first
+        if (isCommandAvailable("brew")) {
+            try {
+                executeCommand("brew uninstall yt-dlp", profileId);
+                success = true;
+            } catch (Exception e) {
+                broadcast("Homebrew uninstallation failed, trying pip...\n", profileId);
+            }
+        }
+        
+        // Fallback to pip uninstallation
+        if (!success) {
+            String pythonExecutable = findPythonExecutable();
+            executeCommand(pythonExecutable + " -m pip uninstall yt-dlp -y", profileId);
+        }
+        
+        broadcastInstallationProgress("ytdlp", 100, false, profileId);
+        broadcast("yt-dlp uninstallation completed\n", profileId);
     }
     
     @Override
@@ -280,9 +359,14 @@ public class MacOSPlatformOperations implements PlatformOperations {
         return "Python is not installed. Please install Python using Homebrew: brew install python";
     }
     
-    @Override
+@Override
     public String getSpotdlInstallMessage() {
         return "SpotDL is not installed. Please install SpotDL using pip: pip install spotdl";
+    }
+    
+    @Override
+    public String getYtdlpInstallMessage() {
+        return "yt-dlp is not installed. Please install yt-dlp using Homebrew: brew install yt-dlp or pip: pip install yt-dlp";
     }
     
     @Override
@@ -305,9 +389,14 @@ public class MacOSPlatformOperations implements PlatformOperations {
         return new String[]{"python3", "python", "python3.13", "python3.12", "python3.11"};
     }
     
-    @Override
+@Override
     public String getSpotdlCommand() {
         return "spotdl";
+    }
+    
+    @Override
+    public String getYtdlpCommand() {
+        return "yt-dlp";
     }
     
     @Override
@@ -318,6 +407,12 @@ public class MacOSPlatformOperations implements PlatformOperations {
     @Override
     public String getWhisperCommand() {
         return "whisper";
+    }
+    
+    @Override
+    public boolean shouldUseSpotdlDirectCommand() {
+        // macOS typically uses python -m spotdl  
+        return false;
     }
     
     private boolean isCommandAvailable(String command) {

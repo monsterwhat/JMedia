@@ -85,8 +85,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modalCurrentProfileNameSpan) {
             modalCurrentProfileNameSpan.textContent = currentProfile ? currentProfile.name : 'Loading...';
         }
-        // Also update the global Alpine store if available
-        if (typeof Alpine !== 'undefined' && Alpine.store('profile')) {
+        // Also update the global Alpine store
+        if (Alpine.store('profile')) {
             Alpine.store('profile').currentProfile = currentProfile;
         }
     }
@@ -167,7 +167,7 @@ function switchProfile(profileId) {
         if (!newProfileNameInput) return;
         const name = newProfileNameInput.value.trim();
         if (!name) {
-            alert('Please enter a profile name.');
+            Toast.warning('Please enter a profile name.');
             return;
         }
         fetch('/api/profiles', {
@@ -180,7 +180,7 @@ function switchProfile(profileId) {
                 newProfileNameInput.value = '';
                 fetchProfiles();
             } else {
-                response.text().then(text => alert(`Error: ${text}`));
+                response.text().then(text => Toast.error(`Error: ${text}`));
             }
         })
         .catch(error => console.error('Error creating profile:', error));
@@ -188,7 +188,7 @@ function switchProfile(profileId) {
 
     function deleteCurrentProfile() {
         if (!currentProfile || currentProfile.isMainProfile) {
-            alert("Cannot delete the main profile.");
+            Toast.warning("Cannot delete the main profile.");
             return;
         }
         if (confirm(`Are you sure you want to delete the profile "${currentProfile.name}"? Playlists and history will be moved to the Main profile.`)) {
@@ -214,7 +214,7 @@ function switchProfile(profileId) {
                             location.reload(); // Reload to reflect changes in other parts of UI
                         }
                     } else {
-                        response.text().then(text => alert(`Error: ${text}`));
+                        response.text().then(text => Toast.error(`Error: ${text}`));
                     }
                 })
                 .catch(error => console.error('Error deleting profile:', error));

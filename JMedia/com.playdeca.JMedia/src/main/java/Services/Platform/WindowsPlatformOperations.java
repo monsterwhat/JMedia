@@ -115,7 +115,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
         }
     }
 
-    @Override
+@Override
     public boolean isSpotdlInstalled() {
         try {
             // Try direct command first
@@ -134,7 +134,28 @@ public class WindowsPlatformOperations implements PlatformOperations {
             return false;
         }
         return false;
-    } 
+    }
+    
+    @Override
+    public boolean isYtdlpInstalled() {
+        try {
+            // Try direct command first
+            if (isCommandAvailable("yt-dlp")) {
+                return true;
+            }
+            
+            // Try as Python module with each Python variant
+            String[] pythonExecutables = getPythonExecutableVariants();
+            for (String pythonExecutable : pythonExecutables) {
+                if (isPythonModuleAvailable(pythonExecutable, "yt_dlp")) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return false;
+    }
     
     @Override
     public boolean isFFmpegInstalled() {
@@ -224,7 +245,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
         }
     }
     
-    @Override
+@Override
     public void installSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Installing SpotDL via pip...\n", profileId);
@@ -235,6 +256,32 @@ public class WindowsPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL installation completed\n", profileId);
+    }
+    
+    @Override
+    public void installYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Installing yt-dlp...\n", profileId);
+        
+        try {
+            // Try Chocolatey first
+            broadcast("Attempting to install yt-dlp via Chocolatey...\n", profileId);
+            String chocoInstallScript = "choco install yt-dlp -y";
+            executePowerShellCommandAsAdmin(chocoInstallScript, profileId);
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp installation completed via Chocolatey\n", profileId);
+        } catch (Exception e) {
+            broadcast("Chocolatey installation failed, trying pip...\n", profileId);
+            broadcastInstallationProgress("ytdlp", 50, true, profileId);
+            
+            // Fallback to pip installation
+            String pythonExecutable = findPythonExecutable();
+            String pipInstallScript = pythonExecutable + " -m pip install yt-dlp";
+            executeCommand(pipInstallScript, profileId);
+            
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp installation completed via pip\n", profileId);
+        }
     }
     
     @Override
@@ -303,7 +350,7 @@ public class WindowsPlatformOperations implements PlatformOperations {
         broadcast("Python uninstallation completed\n", profileId);
     }
     
-    @Override
+@Override
     public void uninstallSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Uninstalling SpotDL...\n", profileId);
@@ -314,6 +361,26 @@ public class WindowsPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL uninstallation completed\n", profileId);
+    }
+    
+    @Override
+    public void uninstallYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Uninstalling yt-dlp...\n", profileId);
+        
+        try {
+            // Try Chocolatey first
+            executeCommand("choco uninstall yt-dlp -y", profileId);
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp uninstallation completed via Chocolatey\n", profileId);
+        } catch (Exception e) {
+            // Fallback to pip uninstallation
+            String pythonExecutable = findPythonExecutable();
+            String pipUninstallScript = pythonExecutable + " -m pip uninstall yt-dlp -y";
+            executeCommand(pipUninstallScript, profileId);
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp uninstallation completed via pip\n", profileId);
+        }
     }
     
     @Override
@@ -430,9 +497,14 @@ public class WindowsPlatformOperations implements PlatformOperations {
         return "Python is not installed or not found in PATH. Please install Python from python.org and ensure it's added to your system's PATH.";
     }
     
-    @Override
+@Override
     public String getSpotdlInstallMessage() {
         return "SpotDL is not installed or not found in PATH. Please install SpotDL (pip install spotdl).";
+    }
+    
+    @Override
+    public String getYtdlpInstallMessage() {
+        return "yt-dlp is not installed or not found in PATH. Please install yt-dlp (pip install yt-dlp or choco install yt-dlp).";
     }
     
     @Override
@@ -455,9 +527,14 @@ public class WindowsPlatformOperations implements PlatformOperations {
         return new String[]{"python", "py", "python3", "python3.13"};
     }
     
-    @Override
+@Override
     public String getSpotdlCommand() {
         return "spotdl";
+    }
+    
+    @Override
+    public String getYtdlpCommand() {
+        return "yt-dlp";
     }
     
     @Override
@@ -468,6 +545,12 @@ public class WindowsPlatformOperations implements PlatformOperations {
     @Override
     public String getWhisperCommand() {
         return "whisper";
+    }
+    
+    @Override
+    public boolean shouldUseSpotdlDirectCommand() {
+        // Windows typically uses python -m spotdl
+        return false;
     }
     
     private void executePowerShellCommand(String command, Long profileId) throws Exception {

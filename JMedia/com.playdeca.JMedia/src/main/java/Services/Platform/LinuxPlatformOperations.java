@@ -32,8 +32,23 @@ public class LinuxPlatformOperations implements PlatformOperations {
     @Override
     public boolean isSpotdlInstalled() {
         try {
+            LOGGER.debug("Checking if SpotDL is installed...");
+            
             // Try direct command first
-            if (isCommandAvailable("spotdl")) {
+            boolean directCommand = isCommandAvailable("spotdl");
+            LOGGER.debug("Direct 'spotdl' command available: {}", directCommand);
+            if (directCommand) {
+                LOGGER.info("SpotDL found via direct command");
+                return true;
+            }
+            
+            // Check pipx installation location (Ubuntu: ~/.local/bin/spotdl)
+            String userHome = System.getProperty("user.home");
+            String pipxSpotdlPath = userHome + "/.local/bin/spotdl";
+            boolean pipxCheck = java.nio.file.Files.exists(java.nio.file.Paths.get(pipxSpotdlPath));
+            LOGGER.debug("Pipx SpotDL path exists: {}", pipxCheck);
+            if (pipxCheck) {
+                LOGGER.info("SpotDL found via pipx installation: {}", pipxSpotdlPath);
                 return true;
             }
             
@@ -41,10 +56,62 @@ public class LinuxPlatformOperations implements PlatformOperations {
             String[] pythonExecutables = getPythonExecutableVariants();
             for (String pythonExecutable : pythonExecutables) {
                 if (isCommandAvailable(pythonExecutable)) {
-                    return executeCommandForCheck(pythonExecutable + " -m spotdl --version");
+                    boolean moduleCheck = executeCommandForCheck(pythonExecutable + " -m spotdl --version");
+                    LOGGER.debug("Python module check for {} -m spotdl: {}", pythonExecutable, moduleCheck);
+                    if (moduleCheck) {
+                        LOGGER.info("SpotDL found via Python module: {} -m spotdl", pythonExecutable);
+                        return true;
+                    }
                 }
             }
+            
+            LOGGER.debug("SpotDL not found through any detection method");
         } catch (Exception e) {
+            LOGGER.error("Error checking SpotDL installation", e);
+            return false;
+        }
+        return false;
+    }
+    
+    @Override
+    public boolean isYtdlpInstalled() {
+        try {
+            LOGGER.debug("Checking if yt-dlp is installed...");
+            
+            // Try direct command first
+            boolean directCommand = isCommandAvailable("yt-dlp");
+            LOGGER.debug("Direct 'yt-dlp' command available: {}", directCommand);
+            if (directCommand) {
+                LOGGER.info("yt-dlp found via direct command");
+                return true;
+            }
+            
+            // Check pipx installation location (Ubuntu: ~/.local/bin/yt-dlp)
+            String userHome = System.getProperty("user.home");
+            String pipxYtdlpPath = userHome + "/.local/bin/yt-dlp";
+            boolean pipxCheck = java.nio.file.Files.exists(java.nio.file.Paths.get(pipxYtdlpPath));
+            LOGGER.debug("Pipx yt-dlp path exists: {}", pipxCheck);
+            if (pipxCheck) {
+                LOGGER.info("yt-dlp found via pipx installation: {}", pipxYtdlpPath);
+                return true;
+            }
+            
+            // Try as Python module with each variant
+            String[] pythonExecutables = getPythonExecutableVariants();
+            for (String pythonExecutable : pythonExecutables) {
+                if (isCommandAvailable(pythonExecutable)) {
+                    boolean moduleCheck = executeCommandForCheck(pythonExecutable + " -m yt_dlp --version");
+                    LOGGER.debug("Python module check for {} -m yt_dlp: {}", pythonExecutable, moduleCheck);
+                    if (moduleCheck) {
+                        LOGGER.info("yt-dlp found via Python module: {} -m yt_dlp", pythonExecutable);
+                        return true;
+                    }
+                }
+            }
+            
+            LOGGER.debug("yt-dlp not found through any detection method");
+        } catch (Exception e) {
+            LOGGER.error("Error checking yt-dlp installation", e);
             return false;
         }
         return false;
@@ -58,14 +125,34 @@ public class LinuxPlatformOperations implements PlatformOperations {
     @Override
     public boolean isWhisperInstalled() {
         try {
+            LOGGER.debug("Checking if Whisper is installed...");
+            
+            // Check pipx installation location (Ubuntu: ~/.local/bin/whisper)
+            String userHome = System.getProperty("user.home");
+            String pipxWhisperPath = userHome + "/.local/bin/whisper";
+            boolean pipxCheck = java.nio.file.Files.exists(java.nio.file.Paths.get(pipxWhisperPath));
+            LOGGER.debug("Pipx Whisper path exists: {}", pipxCheck);
+            if (pipxCheck) {
+                LOGGER.info("Whisper found via pipx installation: {}", pipxWhisperPath);
+                return true;
+            }
+            
             // Try as Python module with each variant
             String[] pythonExecutables = getPythonExecutableVariants();
             for (String pythonExecutable : pythonExecutables) {
                 if (isCommandAvailable(pythonExecutable)) {
-                    return executeCommandForCheck(pythonExecutable + " -m whisper -h");
+                    boolean moduleCheck = executeCommandForCheck(pythonExecutable + " -m whisper -h");
+                    LOGGER.debug("Python module check for {} -m whisper: {}", pythonExecutable, moduleCheck);
+                    if (moduleCheck) {
+                        LOGGER.info("Whisper found via Python module: {} -m whisper", pythonExecutable);
+                        return true;
+                    }
                 }
             }
+            
+            LOGGER.debug("Whisper not found through any detection method");
         } catch (Exception e) {
+            LOGGER.error("Error checking Whisper installation", e);
             return false;
         }
         return false;
@@ -84,7 +171,7 @@ public class LinuxPlatformOperations implements PlatformOperations {
         broadcast("Installing Python using system package manager...\n", profileId);
         
         if (isCommandAvailable("apt")) {
-            executeCommandAsRoot("apt update && apt install -y python3 python3-pip", profileId);
+            executeCommandAsRoot("apt update && apt install -y python3 python3-pip python3-venv python3-full", profileId);
         } else if (isCommandAvailable("yum")) {
             executeCommandAsRoot("yum install -y python3 python3-pip", profileId);
         } else if (isCommandAvailable("dnf")) {
@@ -97,6 +184,31 @@ public class LinuxPlatformOperations implements PlatformOperations {
             throw new Exception("No supported package manager found. Please install Python manually.");
         }
         
+        // Verify pip is working after installation
+        broadcast("Verifying pip installation...\n", profileId);
+        String pythonExecutable = findPythonExecutable();
+        try {
+            executeCommand(pythonExecutable + " -m pip --version", profileId);
+        } catch (Exception e) {
+            broadcast("Pip verification failed, attempting to fix...\n", profileId);
+            // Try to fix pip installation
+            if (isCommandAvailable("apt")) {
+                executeCommandAsRoot("apt install -y python3-distutils python3-setuptools", profileId);
+                executeCommandAsRoot(pythonExecutable + " -m ensurepip --upgrade", profileId);
+            }
+        }
+        
+        // Install pipx for better Python application management (Ubuntu/Debian)
+        if (isCommandAvailable("apt") && !isCommandAvailable("pipx")) {
+            try {
+                broadcast("Installing pipx for better Python application management...\n", profileId);
+                executeCommandAsRoot("apt install -y pipx", profileId);
+                executeCommandAsRoot("pipx ensurepath", profileId);
+            } catch (Exception e) {
+                broadcast("Warning: Could not install pipx, will use alternative installation methods\n", profileId);
+            }
+        }
+        
         broadcastInstallationProgress("python", 100, false, profileId);
         broadcast("Python installation completed\n", profileId);
     }
@@ -104,13 +216,104 @@ public class LinuxPlatformOperations implements PlatformOperations {
     @Override
     public void installSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
-        broadcast("Installing SpotDL via pip...\n", profileId);
+        broadcast("Installing SpotDL...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        executeCommand(pythonExecutable + " -m pip install spotdl", profileId);
         
-        broadcastInstallationProgress("spotdl", 100, false, profileId);
-        broadcast("SpotDL installation completed\n", profileId);
+        // Try different installation methods in order of preference
+        boolean success = false;
+        
+        // Method 1: Try pipx (recommended for system-wide applications)
+        if (isCommandAvailable("pipx")) {
+            try {
+                broadcast("Installing with pipx...\n", profileId);
+                executeCommand("pipx install spotdl", profileId);
+                success = true;
+            } catch (Exception e) {
+                broadcast("pipx installation failed, trying user installation...\n", profileId);
+            }
+        }
+        
+        // Method 2: Try user installation with --user flag
+        if (!success) {
+            try {
+                broadcast("Installing with pip --user...\n", profileId);
+                executeCommand(pythonExecutable + " -m pip install --user spotdl", profileId);
+                success = true;
+            } catch (Exception e) {
+                broadcast("User installation failed\n", profileId);
+            }
+        }
+        
+        if (!success) {
+            throw new Exception("Failed to install SpotDL. Please install pipx or ensure user directory permissions are correct.");
+        }
+        
+        if (success) {
+            broadcastInstallationProgress("spotdl", 100, false, profileId);
+            broadcast("SpotDL installation completed\n", profileId);
+        }
+    }
+    
+    @Override
+    public void installYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Installing yt-dlp...\n", profileId);
+        
+        String pythonExecutable = findPythonExecutable();
+        
+        // Try different installation methods in order of preference
+        boolean success = false;
+        
+        // Method 1: Try system package manager (if available)
+        try {
+            if (isCommandAvailable("apt")) {
+                broadcast("Installing via APT package manager...\n", profileId);
+                executeCommandAsRoot("apt update && apt install -y yt-dlp", profileId);
+                success = true;
+            } else if (isCommandAvailable("dnf")) {
+                broadcast("Installing via DNF package manager...\n", profileId);
+                executeCommandAsRoot("dnf install -y yt-dlp", profileId);
+                success = true;
+            } else if (isCommandAvailable("pacman")) {
+                broadcast("Installing via Pacman package manager...\n", profileId);
+                executeCommandAsRoot("pacman -S --noconfirm yt-dlp", profileId);
+                success = true;
+            }
+        } catch (Exception e) {
+            broadcast("Package manager installation failed, trying pipx...\n", profileId);
+        }
+        
+        // Method 2: Try pipx (recommended for system-wide applications)
+        if (!success && isCommandAvailable("pipx")) {
+            try {
+                broadcast("Installing with pipx...\n", profileId);
+                executeCommand("pipx install yt-dlp", profileId);
+                success = true;
+            } catch (Exception e) {
+                broadcast("pipx installation failed, trying user installation...\n", profileId);
+            }
+        }
+        
+        // Method 3: Try user installation with --user flag
+        if (!success) {
+            try {
+                broadcast("Installing with pip --user...\n", profileId);
+                executeCommand(pythonExecutable + " -m pip install --user yt-dlp", profileId);
+                success = true;
+            } catch (Exception e) {
+                broadcast("User installation failed\n", profileId);
+            }
+        }
+        
+        if (!success) {
+            throw new Exception("Failed to install yt-dlp. Please install manually or ensure user directory permissions are correct.");
+        }
+        
+        if (success) {
+            broadcastInstallationProgress("ytdlp", 100, false, profileId);
+            broadcast("yt-dlp installation completed\n", profileId);
+        }
     }
     
     @Override
@@ -139,10 +342,17 @@ public class LinuxPlatformOperations implements PlatformOperations {
     @Override
     public void installWhisper(Long profileId) throws Exception {
         broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Installing Whisper via pip...\n", profileId);
+        broadcast("Installing Whisper...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        executeCommand(pythonExecutable + " -m pip install openai-whisper", profileId);
+        
+        // Try user installation with --user flag
+        try {
+            broadcast("Installing with pip --user...\n", profileId);
+            executeCommand(pythonExecutable + " -m pip install --user openai-whisper", profileId);
+        } catch (Exception e) {
+            throw new Exception("Failed to install Whisper. Please ensure user directory permissions are correct.");
+        }
         
         broadcastInstallationProgress("whisper", 100, false, profileId);
         broadcast("Whisper installation completed\n", profileId);
@@ -171,7 +381,7 @@ public class LinuxPlatformOperations implements PlatformOperations {
         broadcast("Python uninstallation completed\n", profileId);
     }
     
-    @Override
+@Override
     public void uninstallSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Uninstalling SpotDL...\n", profileId);
@@ -181,6 +391,39 @@ public class LinuxPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("spotdl", 100, false, profileId);
         broadcast("SpotDL uninstallation completed\n", profileId);
+    }
+    
+    @Override
+    public void uninstallYtdlp(Long profileId) throws Exception {
+        broadcastInstallationProgress("ytdlp", 0, true, profileId);
+        broadcast("Uninstalling yt-dlp...\n", profileId);
+        
+        boolean success = false;
+        
+        // Try package manager first
+        try {
+            if (isCommandAvailable("apt")) {
+                executeCommandAsRoot("apt remove -y yt-dlp", profileId);
+                success = true;
+            } else if (isCommandAvailable("dnf")) {
+                executeCommandAsRoot("dnf remove -y yt-dlp", profileId);
+                success = true;
+            } else if (isCommandAvailable("pacman")) {
+                executeCommandAsRoot("pacman -R --noconfirm yt-dlp", profileId);
+                success = true;
+            }
+        } catch (Exception e) {
+            broadcast("Package manager uninstallation failed, trying pip...\n", profileId);
+        }
+        
+        // Fallback to pip uninstallation
+        if (!success) {
+            String pythonExecutable = findPythonExecutable();
+            executeCommand(pythonExecutable + " -m pip uninstall yt-dlp -y", profileId);
+        }
+        
+        broadcastInstallationProgress("ytdlp", 100, false, profileId);
+        broadcast("yt-dlp uninstallation completed\n", profileId);
     }
     
     @Override
@@ -225,18 +468,25 @@ public class LinuxPlatformOperations implements PlatformOperations {
         
         Process process = pb.start();
         
+        StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (!line.trim().isEmpty()) {
-                    broadcast(line.trim() + "\n", profileId);
+                    String lineContent = line.trim() + "\n";
+                    broadcast(lineContent, profileId);
+                    output.append(lineContent);
                 }
             }
         }
         
         int exitCode = process.waitFor();
         if (exitCode != 0) {
-            throw new Exception("Command failed with exit code: " + exitCode + ": " + command);
+            String errorMsg = "Command failed with exit code: " + exitCode + ": " + command;
+            if (output.length() > 0) {
+                errorMsg += "\nOutput: " + output.toString();
+            }
+            throw new Exception(errorMsg);
         }
     }
     
@@ -279,9 +529,14 @@ public class LinuxPlatformOperations implements PlatformOperations {
         return "Python is not installed. Please install Python 3 using your system package manager.";
     }
     
-    @Override
+@Override
     public String getSpotdlInstallMessage() {
         return "SpotDL is not installed. Please install SpotDL using pip: pip install spotdl";
+    }
+    
+    @Override
+    public String getYtdlpInstallMessage() {
+        return "yt-dlp is not installed. Please install yt-dlp using your package manager (apt install yt-dlp) or pip: pip install yt-dlp";
     }
     
     @Override
@@ -306,7 +561,28 @@ public class LinuxPlatformOperations implements PlatformOperations {
     
     @Override
     public String getSpotdlCommand() {
+        // Check for pipx installation first
+        String userHome = System.getProperty("user.home");
+        String pipxSpotdlPath = userHome + "/.local/bin/spotdl";
+        if (java.nio.file.Files.exists(java.nio.file.Paths.get(pipxSpotdlPath))) {
+            return pipxSpotdlPath;
+        }
+        
+        // Fall back to standard command
         return "spotdl";
+    }
+    
+    @Override
+    public String getYtdlpCommand() {
+        // Check for pipx installation first
+        String userHome = System.getProperty("user.home");
+        String pipxYtdlpPath = userHome + "/.local/bin/yt-dlp";
+        if (java.nio.file.Files.exists(java.nio.file.Paths.get(pipxYtdlpPath))) {
+            return pipxYtdlpPath;
+        }
+        
+        // Fall back to standard command
+        return "yt-dlp";
     }
     
     @Override
@@ -319,12 +595,28 @@ public class LinuxPlatformOperations implements PlatformOperations {
         return "whisper";
     }
     
+    @Override
+    public boolean shouldUseSpotdlDirectCommand() {
+        // Check if spotdl is available as direct command (pipx installation)
+        String userHome = System.getProperty("user.home");
+        String pipxSpotdlPath = userHome + "/.local/bin/spotdl";
+        return java.nio.file.Files.exists(java.nio.file.Paths.get(pipxSpotdlPath)) || isCommandAvailable("spotdl");
+    }
+    
     private boolean isCommandAvailable(String command) {
         try {
             ProcessBuilder pb = new ProcessBuilder("which", command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            return process.waitFor() == 0;
+            if (process.waitFor() == 0) {
+                return true;
+            }
+            
+            // For Ubuntu, also check ~/.local/bin (pipx installation location)
+            String userHome = System.getProperty("user.home");
+            String localBinPath = userHome + "/.local/bin/" + command;
+            return java.nio.file.Files.exists(java.nio.file.Paths.get(localBinPath)) && 
+                   java.nio.file.Files.isExecutable(java.nio.file.Paths.get(localBinPath));
         } catch (Exception e) {
             return false;
         }
@@ -332,11 +624,15 @@ public class LinuxPlatformOperations implements PlatformOperations {
     
     private boolean executeCommandForCheck(String command) {
         try {
+            LOGGER.debug("Executing check command: {}", command);
             ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            return process.waitFor() == 0;
+            int exitCode = process.waitFor();
+            LOGGER.debug("Command '{}' exited with code: {}", command, exitCode);
+            return exitCode == 0;
         } catch (Exception e) {
+            LOGGER.debug("Exception executing check command '{}': {}", command, e.getMessage());
             return false;
         }
     }

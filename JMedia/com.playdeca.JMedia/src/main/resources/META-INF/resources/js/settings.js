@@ -5,13 +5,13 @@ window.resetLibrary = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Library reset to:", json.data.libraryPath);
-        showToast("Library reset to default path", 'success');
+        Toast.success("Library reset to default path");
         const pathInputElem = document.getElementById("musicLibraryPathInput");
         if (pathInputElem)
             pathInputElem.value = json.data.libraryPath;
     } else {
         console.error("[Settings] Failed to reset library:", json.error);
-        showToast("Failed to reset library: " + (json.error || "Unknown error"), 'error');
+        Toast.error("Failed to reset library: " + (json.error || "Unknown error"));
     }
 };
 
@@ -22,10 +22,10 @@ window.scanLibrary = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Scan started");
-        showToast("Library scan started", 'success');
+        Toast.success("Library scan started");
     } else {
         console.error("[Settings] Failed to scan library:", json.error);
-        showToast("Failed to scan library: " + (json.error || "Unknown error"), 'error');
+        Toast.error("Failed to scan library: " + (json.error || "Unknown error"));
     }
 };
 
@@ -34,14 +34,14 @@ window.clearLogs = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Logs cleared");
-        showToast("Logs cleared successfully", 'success');
+        Toast.success("Logs cleared successfully");
         const logsPanel = document.getElementById("logsPanel");
         if (logsPanel) {
             logsPanel.innerHTML = "";
         }
     } else {
         console.error("[Settings] Failed to clear logs:", json.error);
-        showToast("Failed to clear logs: " + (json.error || "Unknown error"), 'error');
+        Toast.error("Failed to clear logs: " + (json.error || "Unknown error"));
     }
 };
 
@@ -50,10 +50,10 @@ window.clearSongsDB = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] All songs deleted");
-        showToast("All songs cleared from database", 'success');
+        Toast.success("All songs cleared from database");
     } else {
         console.error("[Settings] Failed to clear songs DB:", json.error);
-        showToast("Failed to clear songs: " + (json.error || "Unknown error"), 'error');
+        Toast.error("Failed to clear songs: " + (json.error || "Unknown error"));
     }
 };
 
@@ -98,10 +98,10 @@ window.reloadMetadata = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Metadata reload started");
-        showToast("Metadata reload started", 'success');
+        Toast.success("Metadata reload started");
     } else {
         console.error("[Settings] Failed to reload metadata:", json.error);
-        showToast("Failed to reload metadata: " + (json.error || "Unknown error"), 'error');
+        Toast.error("Failed to reload metadata: " + (json.error || "Unknown error"));
     }
 };
 
@@ -110,10 +110,10 @@ window.deleteDuplicates = async function () {
     const json = await res.json();
     if (res.ok && json.data) {
         console.log("[Settings] Duplicate deletion started");
-        showToast("Duplicate deletion started", 'success');
+        Toast.success("Duplicate deletion started");
     } else {
         console.error("[Settings] Failed to delete duplicates:", json.error);
-        showToast("Failed to delete duplicates: " + (json.error || "Unknown error"), 'error');
+        Toast.error("Failed to delete duplicates: " + (json.error || "Unknown error"));
     }
 };
 
@@ -138,10 +138,10 @@ window.saveImportSettings = async function () {
 
     if (res.ok) {
         console.log('[Settings] Import settings saved.');
-        showToast('Import settings saved successfully', 'success');
+        Toast.success('Import settings saved successfully');
     } else {
         console.error('[Settings] Failed to save import settings.');
-        showToast('Failed to save import settings', 'error');
+        Toast.error('Failed to save import settings');
     }
 };
 
@@ -194,7 +194,46 @@ window.refreshSettingsUI = async function () {
     }
 };
 
-// Generic function to toggle card content visibility
+// Race condition mitigation: localStorage operation queue
+let localStorageQueue = [];
+let isProcessingLocalStorage = false;
+
+function processLocalStorageQueue() {
+    if (isProcessingLocalStorage || localStorageQueue.length === 0) {
+        return;
+    }
+    
+    isProcessingLocalStorage = true;
+    
+    const processNext = () => {
+        if (localStorageQueue.length === 0) {
+            isProcessingLocalStorage = false;
+            return;
+        }
+        
+        const operation = localStorageQueue.shift();
+        try {
+            operation();
+        } catch (error) {
+            console.error('[Settings] localStorage operation failed:', error);
+        }
+        
+        // Process next operation with minimal delay
+        setTimeout(processNext, 0);
+    };
+    
+    processNext();
+}
+
+// Race condition mitigation: safe localStorage set function
+function safeLocalStorageSet(key, value) {
+    localStorageQueue.push(() => {
+        localStorage.setItem(key, value);
+    });
+    processLocalStorageQueue();
+}
+
+// Generic function to toggle card content visibility with race condition mitigation
 window.toggleCardContent = function (button, contentId) {
     const content = document.getElementById(contentId);
     const icon = button.querySelector('i');
@@ -203,7 +242,8 @@ window.toggleCardContent = function (button, contentId) {
         const isHidden = content.classList.toggle('is-hidden');
         icon.classList.toggle('pi-angle-down');
         icon.classList.toggle('pi-angle-up');
-        localStorage.setItem(`cardState-${contentId}`, isHidden);
+        // Race condition mitigation: use safe localStorage operation
+        safeLocalStorageSet(`cardState-${contentId}`, isHidden);
     }
 };
 
@@ -394,12 +434,12 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
                 const res = await fetch(`/api/settings/clearPlaybackHistory/${window.globalActiveProfileId}`, {method: 'POST'});
                 if (res.ok) {
-                    showToast("Playback history cleared successfully", 'success');
+                    Toast.success("Playback history cleared successfully");
                 } else {
-                    showToast("Failed to clear playback history", 'error');
+                    Toast.error("Failed to clear playback history");
                 }
             } catch (error) {
-                showToast("Error clearing playback history", 'error');
+                Toast.error("Error clearing playback history");
             }
         });
     document.getElementById("reloadMetadata").onclick = () => showConfirmationDialog("Are you sure you want to reload all song metadata? This might take a while.", window.reloadMetadata);
@@ -413,7 +453,7 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
                 checkForUpdatesBtn.disabled = true;
                 checkForUpdatesBtn.classList.add('is-loading');
-                showToast("Checking for updates...", 'info');
+                Toast.info("Checking for updates...");
                 
                 const response = await fetch('/api/update/check', {
                     method: 'GET',
@@ -426,7 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 
                 if (response.ok) {
                     if (result.data && result.data.updateAvailable) {
-                        showToast(`Update available: ${result.data.latestVersion}`, 'success');
+                        Toast.success(`Update available: ${result.data.latestVersion}`);
                         // Update status div with update info
                         const updateStatus = document.getElementById("updateStatus");
                         if (updateStatus) {
@@ -440,7 +480,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             `;
                         }
                     } else {
-                        showToast("You're using the latest version!", 'success');
+                        Toast.success("You're using the latest version!");
                         const updateStatus = document.getElementById("updateStatus");
                         if (updateStatus) {
                             updateStatus.style.display = 'block';
@@ -457,7 +497,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             } catch (error) {
                 console.error('[Settings] Error checking for updates:', error);
-                showToast("Failed to check for updates: " + error.message, 'error');
+                Toast.error("Failed to check for updates: " + error.message);
             } finally {
                 checkForUpdatesBtn.disabled = false;
                 checkForUpdatesBtn.classList.remove('is-loading');
@@ -505,9 +545,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (saveMusicLibraryPathBtn) {
         saveMusicLibraryPathBtn.addEventListener('htmx:afterRequest', function (evt) {
             if (evt.detail.successful) {
-                showToast("Music library path saved successfully", 'success');
+                Toast.success("Music library path saved successfully");
             } else {
-                showToast("Failed to save music library path", 'error');
+                Toast.error("Failed to save music library path");
             }
         });
     }
@@ -535,11 +575,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 } else {
                     console.error("[Settings] No data in response:", json);
-                    showToast("No folder selected", 'info');
+                    Toast.info("No folder selected");
                 }
             } catch (error) {
                 console.error("[Settings] Failed to browse folder:", error);
-                showToast("Failed to browse folder: " + error.message, 'error');
+                Toast.error("Failed to browse folder: " + error.message);
             }
         };
     }
@@ -643,7 +683,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             });
             if (response.ok) {
-                showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} ${action}ation started`, 'info');
+                Toast.info(`${component.charAt(0).toUpperCase() + component.slice(1)} ${action}ation started`);
                 // Setup WebSocket for progress updates if not already connected
                 if (!window.installationWebSocket) {
                     setupInstallationWebSocket();
@@ -654,7 +694,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         } catch (error) {
             console.error(`Error starting ${component} ${action}ation:`, error);
-            showToast(`Failed to start ${component} ${action}ation: ${error.message}`, 'error');
+            Toast.error(`Failed to start ${component} ${action}ation: ${error.message}`);
             // Re-enable button and hide progress bar on error
             button.disabled = false;
             button.classList.remove('is-loading');
@@ -726,7 +766,7 @@ document.addEventListener("DOMContentLoaded", () => {
         };
         installationWebSocket.onerror = function (error) {
             console.error("Installation WebSocket error:", error);
-            showToast("WebSocket connection failed for installation updates", 'error');
+            Toast.error("WebSocket connection failed for installation updates");
         };
     }
 
@@ -748,7 +788,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusElement.classList.add('is-success');
             }
 
-            showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} installed successfully!`, 'success');
+            Toast.success(`${component.charAt(0).toUpperCase() + component.slice(1)} installed successfully!`);
         } else {
 // Uninstallation completed
             button.classList.remove('is-danger');
@@ -760,7 +800,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusElement.classList.remove('is-info');
             }
 
-            showToast(`${component.charAt(0).toUpperCase() + component.slice(1)} removed successfully!`, 'info');
+            Toast.info(`${component.charAt(0).toUpperCase() + component.slice(1)} removed successfully!`);
         }
 
 // Hide progress bar after completion
@@ -805,7 +845,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (response.ok && status && (status.allInstalled || status.isAllInstalled)) {
-                showToast("All components installed successfully! Import functionality is now available.", 'success');
+                Toast.success("All components installed successfully! Import functionality is now available.");
                 setTimeout(() => {
                     location.reload();
                 }, 2000);
@@ -918,7 +958,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 console.error('[Settings] Failed to load installation status after maximum retries');
                 // Show error to user if showToast function is available
                 if (typeof showToast === 'function') {
-                    showToast('Failed to load installation status. Please refresh the page.', 'error', 5000);
+                    Toast.error('Failed to load installation status. Please refresh the page.', { duration: 5000 });
                 }
                 // Set default status to show appropriate UI
                 const defaultStatus = {
@@ -960,17 +1000,22 @@ document.addEventListener("DOMContentLoaded", () => {
             if (this.checked) {
                 videoLibraryOptions.classList.remove('is-hidden');
                 localStorage.setItem('videoLibraryEnabled', 'true');
-                showToast("Video library enabled", 'success');
+                Toast.success("Video library enabled");
             } else {
                 videoLibraryOptions.classList.add('is-hidden');
                 localStorage.setItem('videoLibraryEnabled', 'false');
-                showToast("Video library disabled", 'info');
+                Toast.info("Video library disabled");
             }
         });
     }
 
     window.refreshSettingsUI?.();
     setTimeout(() => window.setupLogWebSocket?.(), 0);
+    
+    // Initialize playlist creator if on playlist-creator tab
+    if (typeof validatePlaylistForm === 'function') {
+        validatePlaylistForm();
+    }
     const runAsServiceToggle = document.getElementById("runAsServiceToggle");
     const runAsServiceModal = document.getElementById("runAsServiceModal");
     const modalCloseButtons = runAsServiceModal ? runAsServiceModal.querySelectorAll('.delete, .button.is-success') : [];
@@ -990,16 +1035,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 
                 if (res.ok) {
                     if (autoUpdateToggle.checked) {
-                        showToast("Auto-update enabled", 'success');
+                        Toast.success("Auto-update enabled");
                     } else {
-                        showToast("Auto-update disabled", 'info');
+                        Toast.info("Auto-update disabled");
                     }
                 } else {
                     throw new Error('Failed to update auto-update setting');
                 }
             } catch (error) {
                 console.error("[Settings] Failed to toggle auto-update:", error);
-                showToast("Failed to update auto-update setting", 'error');
+                Toast.error("Failed to update auto-update setting");
                 // Revert toggle state if request failed
                 autoUpdateToggle.checked = !autoUpdateToggle.checked;
             }
@@ -1018,18 +1063,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (res.ok) {
                     if (runAsServiceToggle.checked) {
                         runAsServiceModal?.classList.add('is-active');
-                        showToast("Run as service enabled", 'success');
+                        Toast.success("Run as service enabled");
                     } else {
-                        showToast("Run as service disabled", 'info');
+                        Toast.info("Run as service disabled");
                     }
                 } else {
-                    showToast("Failed to toggle run as service", 'error');
+Toast.error("Failed to toggle run as service");
                     // Revert the toggle state if request failed
                     runAsServiceToggle.checked = !runAsServiceToggle.checked;
                 }
             } catch (error) {
                 console.error("[Settings] Failed to toggle run as service:", error);
-                showToast("Failed to toggle run as service", 'error');
+                Toast.error("Failed to toggle run as service");
                 // Revert the toggle state if request failed
                 runAsServiceToggle.checked = !runAsServiceToggle.checked;
             }

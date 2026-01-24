@@ -153,7 +153,7 @@ class VideoContextMenu {
 
     async fetchThumbnail() {
         try {
-            this.showNotification('Fetching thumbnail...', 'info');
+            Toast.info('Fetching thumbnail...');
             const response = await fetch(`/api/video/thumbnail/${this.currentVideoId}/fetch`, {
                 method: 'POST',
                 headers: {
@@ -163,21 +163,21 @@ class VideoContextMenu {
             
             const result = await response.json();
             if (response.ok) {
-                this.showNotification('Thumbnail fetch started', 'success');
+                Toast.success('Thumbnail fetch started');
                 // Refresh the thumbnail after a delay
                 setTimeout(() => this.refreshThumbnail(), 2000);
             } else {
-                this.showNotification(result.message || 'Failed to fetch thumbnail', 'error');
+                Toast.error(result.message || 'Failed to fetch thumbnail');
             }
         } catch (error) {
             console.error('Error fetching thumbnail:', error);
-            this.showNotification('Error fetching thumbnail', 'error');
+            Toast.error('Error fetching thumbnail');
         }
     }
 
     async extractThumbnail() {
         try {
-            this.showNotification('Extracting thumbnail...', 'info');
+            Toast.info('Extracting thumbnail...');
             const response = await fetch(`/api/video/thumbnail/${this.currentVideoId}/extract`, {
                 method: 'POST',
                 headers: {
@@ -187,20 +187,20 @@ class VideoContextMenu {
             
             const result = await response.json();
             if (response.ok) {
-                this.showNotification('Thumbnail extracted successfully', 'success');
+                Toast.success('Thumbnail extracted successfully');
                 this.refreshThumbnail();
             } else {
-                this.showNotification(result.message || 'Failed to extract thumbnail', 'error');
+                Toast.error(result.message || 'Failed to extract thumbnail');
             }
         } catch (error) {
             console.error('Error extracting thumbnail:', error);
-            this.showNotification('Error extracting thumbnail', 'error');
+            Toast.error('Error extracting thumbnail');
         }
     }
 
     async uploadThumbnail(file) {
         try {
-            this.showNotification('Upload feature coming soon - please use extract thumbnail for now', 'info');
+            Toast.info('Upload feature coming soon - please use extract thumbnail for now');
             
             // TODO: Implement proper upload when Quarkus multipart support is fully working
             // For now, redirect user to extract thumbnail
@@ -211,7 +211,7 @@ class VideoContextMenu {
             
         } catch (error) {
             console.error('Error uploading thumbnail:', error);
-            this.showNotification('Error uploading thumbnail', 'error');
+            Toast.error('Error uploading thumbnail');
         }
         
         // Reset file input
@@ -220,7 +220,7 @@ class VideoContextMenu {
 
     async reloadMetadata() {
         try {
-            this.showNotification('Reloading metadata...', 'info');
+            Toast.info('Reloading metadata...');
             const response = await fetch(`/api/video/metadata/${this.currentVideoId}/reload`, {
                 method: 'POST',
                 headers: {
@@ -230,17 +230,17 @@ class VideoContextMenu {
             
             const result = await response.json();
             if (response.ok) {
-                this.showNotification('Metadata reload started', 'success');
+                Toast.success('Metadata reload started');
                 // Refresh the page content after a delay
                 setTimeout(() => {
                     window.location.reload();
                 }, 3000);
             } else {
-                this.showNotification(result.message || 'Failed to reload metadata', 'error');
+                Toast.error(result.message || 'Failed to reload metadata');
             }
         } catch (error) {
             console.error('Error reloading metadata:', error);
-            this.showNotification('Error reloading metadata', 'error');
+            Toast.error('Error reloading metadata');
         }
     }
 
@@ -277,63 +277,7 @@ class VideoContextMenu {
         });
     }
 
-    showNotification(message, type = 'info') {
-        // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `video-context-notification is-${type}`;
-        notification.innerHTML = `
-            <div class="notification-content">
-                <i class="pi ${this.getNotificationIcon(type)}"></i>
-                <span>${message}</span>
-            </div>
-        `;
-        
-        // Add styles
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 9999;
-            padding: 12px 16px;
-            border-radius: 6px;
-            background: ${this.getNotificationColor(type)};
-            color: white;
-            font-size: 14px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            max-width: 300px;
-            animation: slideIn 0.3s ease;
-        `;
-        
-        document.body.appendChild(notification);
-        
-        // Remove after 3 seconds
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        }, 3000);
-    }
 
-    getNotificationIcon(type) {
-        switch (type) {
-            case 'success': return 'pi-check';
-            case 'error': return 'pi-times';
-            case 'info': return 'pi-info';
-            default: return 'pi-info';
-        }
-    }
-
-    getNotificationColor(type) {
-        switch (type) {
-            case 'success': return '#48c774';
-            case 'error': return '#ff3860';
-            case 'info': return '#3298dc';
-            default: return '#3298dc';
-        }
-    }
 }
 
 // Initialize the context menu
@@ -543,22 +487,7 @@ contextMenuStyles.textContent = `
         text-align: center;
     }
     
-    @keyframes slideIn {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    
-    .notification-content {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
+
 `;
 
 document.head.appendChild(contextMenuStyles);

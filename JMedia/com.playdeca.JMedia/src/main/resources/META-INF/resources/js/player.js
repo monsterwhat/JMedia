@@ -77,14 +77,34 @@ function updatePlayerSongDetails(song) {
     }
 }
 
+// Race condition mitigation: track active fetch requests
+let activeFetchRequests = new Map();
+
 // Fetch player song context (prev, current, next)
 async function fetchPlayerSongContext(profileId) {
+    // Race condition mitigation: cancel previous outstanding requests
+    const requestId = `player_${Date.now()}_${Math.random()}`;
+    
+    // Cancel any previous requests for this profile
+    const previousRequestId = activeFetchRequests.get(profileId);
+    if (previousRequestId) {
+        console.log(`[Player] Canceling previous request ${previousRequestId} for ${requestId}`);
+    }
+    activeFetchRequests.set(profileId, requestId);
+
     try {
+        // Race condition mitigation: add sequence tracking to ensure proper ordering
         const [currentSongResponse, prevSongResponse, nextSongResponse] = await Promise.all([
-            fetch(`/api/music/playback/current/${profileId}`).then(r => r.json()),
-            fetch(`/api/music/playback/previousSong/${profileId}`).then(r => r.json()),
-            fetch(`/api/music/playback/nextSong/${profileId}`).then(r => r.json())
+            fetch(`/api/music/playback/current/${profileId}?requestId=${requestId}`).then(r => r.json()),
+            fetch(`/api/music/playback/previousSong/${profileId}?requestId=${requestId}`).then(r => r.json()),
+            fetch(`/api/music/playback/nextSong/${profileId}?requestId=${requestId}`).then(r => r.json())
         ]);
+
+        // Race condition mitigation: check if this request is still the most recent
+        if (activeFetchRequests.get(profileId) !== requestId) {
+            console.log(`[Player] Ignoring outdated request ${requestId}`);
+            return;
+        }
 
         const currentSong = currentSongResponse.data;
         const prevSong = prevSongResponse.data;
@@ -96,15 +116,22 @@ async function fetchPlayerSongContext(profileId) {
         }
     } catch (error) {
         console.error('[Player] Failed to fetch song context:', error);
+    } finally {
+        // Clean up request tracking
+        if (activeFetchRequests.get(profileId) === requestId) {
+            activeFetchRequests.delete(profileId);
+        }
     }
 }
 
 // Override UpdateAudioSource for player page
 const originalUpdateAudioSource = window.UpdateAudioSource;
 window.UpdateAudioSource = function(currentSong, prevSong = null, nextSong = null, play = false, backendTime = 0) {
-    // Call original function for core functionality
-    if (originalUpdateAudioSource) {
-        originalUpdateAudioSource(currentSong, prevSong, nextSong, play, backendTime);
+    // Call original sequential function for core functionality
+    if (window.UpdateAudioSourceSequentially) {
+        window.UpdateAudioSourceSequentially(currentSong, prevSong, nextSong, play, backendTime);
+    } else if (originalUpdateAudioSource) {
+        originalUpdateAudioSource(currentSong, prevSong, nextSong, backendTime);
     }
     
     // Update player-specific elements

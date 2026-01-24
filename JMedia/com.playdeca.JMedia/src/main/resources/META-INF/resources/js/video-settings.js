@@ -23,11 +23,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 } else {
                     console.error("[Settings] No data in response:", json);
-                    showToast("No folder selected", 'info');
+                    Toast.info("No folder selected");
                 }
             } catch (error) {
                 console.error("[Settings] Failed to browse video folder:", error);
-                showToast("Failed to browse video folder: " + error.message, 'error');
+                Toast.error("Failed to browse video folder: " + error.message);
             }
         };
     }
@@ -36,9 +36,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if(saveVideoLibraryPathBtn) {
         saveVideoLibraryPathBtn.addEventListener('htmx:afterRequest', function(evt) {
             if (evt.detail.successful) {
-                showToast("Video library path saved successfully", 'success');
+                Toast.success("Video library path saved successfully");
             } else {
-                showToast("Failed to save video library path", 'error');
+                Toast.error("Failed to save video library path");
             }
         });
     }
@@ -47,9 +47,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (scanVideoLibraryBtn) {
         scanVideoLibraryBtn.addEventListener('htmx:afterRequest', function (evt) {
             if (evt.detail.successful) {
-                showToast("Video library scan started", 'success');
+                Toast.success("Video library scan started");
             } else {
-                showToast("Failed to start video library scan", 'error');
+                Toast.error("Failed to start video library scan");
             }
         });
     }
@@ -58,9 +58,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (reloadVideoMetadataBtn) {
         reloadVideoMetadataBtn.addEventListener('htmx:afterRequest', function (evt) {
             if (evt.detail.successful) {
-                showToast("Video metadata reload started", 'success');
+                Toast.success("Video metadata reload started");
             } else {
-                showToast("Failed to start video metadata reload", 'error');
+                Toast.error("Failed to start video metadata reload");
             }
         });
     }
@@ -78,12 +78,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                     const result = await response.json();
                     if (response.ok) {
-                        showToast(result.data || "Video database reset successfully", 'success');
+                        Toast.success(result.data || "Video database reset successfully");
                     } else {
-                        showToast("Error resetting video database: " + (result.error || "Unknown error"), 'error');
+                        Toast.error("Error resetting video database: " + (result.error || "Unknown error"));
                     }
                 } catch (error) {
-                    showToast("An unexpected error occurred while resetting the video database: " + error.message, 'error');
+                    Toast.error("An unexpected error occurred while resetting the video database: " + error.message);
                 }
             }
         });
