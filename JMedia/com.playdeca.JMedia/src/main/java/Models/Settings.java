@@ -41,5 +41,7 @@ public class Settings extends PanacheEntity {
     private Boolean thumbnailPreferApi = true;   // Prefer API thumbnails over local extraction
     private Boolean thumbnailRegenerateOnReload = true; // Regenerate all thumbnails during metadata reload
     
-    
+    // Cookies file path for yt-dlp on Linux
+    private String cookiesFilePath;
+     
 }

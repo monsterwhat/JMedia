@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title id="pageTitle">JMedia Home</title>
+
+        <script src="/js/theme-initializer.js"></script>
+
+        <!-- Bulma CSS -->
+      <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/css/custom.css"/>
+        <style>
+            .glass-box .card-content {
+                padding: 0 0.5rem 0.5rem 0.5rem !important;
+                margin: 0 !important;
+            }
+        </style>
+  
+
+        <!-- HTMX -->
+        <script src="/js/htmx.min.js"></script>
+        <!-- Alpine.js -->
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('profile', {
+                    currentProfile: null,
+                });
+                
+                // Check if setup is needed
+                Alpine.store('setup', {
+                    async checkSetupStatus() {
+                        try {
+                            const response = await fetch('/api/setup/status');
+                            const result = await response.json();
+                            
+                            if (result.success && result.data.isFirstTimeSetup) {
+                                // Redirect to setup page
+                                window.location.href = '/setup.html';
+                            }
+                        } catch (error) {
+                            console.error('Error checking setup status:', error);
+                        }
+                    }
+                });
+                
+                // Check setup status on page load
+                Alpine.store('setup').checkSetupStatus();
+            });
+        </script>
+
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+ 
+    </head>
+    <body x-data>
+
+        <audio id="audioPlayer" preload="metadata"></audio>
+
+        <!-- Hero layout -->
+        <section class="hero is-fullheight">
+
+            <!-- Hero Head (Navbar) -->
+            <div class="hero-head">
+                <nav class="navbar" role="navigation">
+                    <div class="navbar-brand">
+                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
+<a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                            <span aria-hidden="true"></span>
+                        </a>
+                        <a role="button" class="navbar-item" id="playerToggle">
+                            <i class="pi pi-expand" id="playerIcon"></i>
+                        </a>
+                        <a role="button" class="navbar-item" href="/video.html">
+                            <i class="pi pi-video"></i>
+                        </a>
+                        <a role="button" class="navbar-item" id="themeToggle">
+                            <i class="pi pi-sun" id="themeIcon"></i>
+                        </a>
+                        <a role="button" class="navbar-item is-hidden-desktop is-hidden-mobile" id="sidebarToggle">
+                            <i class="pi pi-bars"></i>
+                        </a>
+                    </div>
+                    <div id="navMenu" class="navbar-menu">
+                        <div class="navbar-start">
+                        </div>
+                        <div class="navbar-item is-expanded" style="justify-content: center;">
+                            <div class="navbar-search-container">
+                                <div class="control has-icons-right" style="flex-grow: 1;">
+                                    <input class="input is-rounded" type="text" placeholder="Search all songs..." name="search" id="globalSearchInput"
+                                           hx-get="/api/music/ui/tbody/{profileId}/0"
+                                           hx-trigger="search, keyup changed delay:500ms from:this"
+                                           hx-target="#songTableBody"
+                                           hx-swap="innerHTML"
+                                           hx-include="[name='search']"
+                                           hx-indicator="#loadingRow">
+                                    <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
+                                        <i class="pi pi-times"></i>
+                                    </span>
+                                </div>
+                                <div id="globalSearchDropdown" class="dropdown-menu" role="menu" style="display: none;">
+                                    <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
+                                        <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+                                    </div>
+<div class="dropdown-content"
+                                         id="searchSuggestionsDropdown"
+                                         hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                                         hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                                         hx-target="this"
+                                         hx-swap="innerHTML"
+                                         hx-indicator="#globalSearchDropdownLoadingIndicator">
+                                        <!-- Suggestions will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="navbar-end">
+                            <a class="navbar-item" id="openProfileModalBtn">
+                                <span class="icon"><i class="pi pi-user"></i></span>
+                                <span id="currentProfileName">Loading...</span>
+                            </a>
+                            <a class="navbar-item" href="/settings.html">
+                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                <span>Settings</span>
+                            </a>
+                            <a class="navbar-item" href="/import.html">
+                                <span class="icon"><i class="pi pi-download"></i></span>
+                                <span>Import</span>
+                            </a>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+
+            <!-- Hero Body (Main content area) -->
+            <div class="hero-body p-0">
+
+                <div class="columns p-0 m-0" style="width:100%;">
+
+                    <!-- Playlist Sidebar -->
+                    <div class="column is-3 is-full-mobile" id="playlistSidebar" 
+                         x-data="{ 
+                         activeTab: 'playlists', 
+                         isCreatePlaylistModalOpen: false,
+                         newPlaylist: { name: '', description: '' },
+                         async savePlaylist() {
+                         if (!this.newPlaylist.name) return alert('Please enter a name');
+                         const response = await fetch('/api/music/playlists', {
+                         method: 'POST',
+                         headers: {'Content-Type': 'application/json'},
+                         body: JSON.stringify(this.newPlaylist)
+                         });
+                         const json = await response.json();
+                         if (response.ok && json.data) {
+                         this.isCreatePlaylistModalOpen = false;
+                         this.newPlaylist.name = '';
+                         this.newPlaylist.description = '';
+                         htmx.trigger('#sidebarPlaylistList', 'load'); // Use HTMX trigger to refresh list
+                         } else {
+                         alert('Failed to create playlist: ' + (json.error || 'Unknown error'));
+                         }
+                         }
+                         }">
+                        <div class="card glass-box">
+                            <header class="card-header">
+                                <div class="tabs is-fullwidth">
+                                    <ul>
+                                        <li :class="{ 'is-active': activeTab === 'playlists' }">
+                                            <a @click="activeTab = 'playlists'">Playlists</a>
+                                        </li>
+                                      <li :class="{ 'is-active': activeTab === 'queue' }">
+                                            <a @click="activeTab = 'queue'">Song Queue <span id="queueCount" class="tag is-info is-light ml-2">0</span></a>
+                                        </li>
+                                        <li :class="{ 'is-active': activeTab === 'history' }">
+                                            <a @click="activeTab = 'history'; loadHistoryOnFirstClick()">History</a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </header>
+                            <div class="card-content p-0 m-0" style="height: calc(100vh - 320px); overflow-y: scroll;">
+                                <div id="playlistsTabContent" x-show="activeTab === 'playlists'" >
+                                    <button id="createPlaylistBtn" class="button is-primary is-fullwidth" @click="isCreatePlaylistModalOpen = true">
+                                        <i class="pi pi-plus"></i> Create Playlist
+                                    </button> 
+                                    <div id="sidebarPlaylistList"
+                                         :hx-get="'/api/music/ui/playlists-fragment/' + globalActiveProfileId"
+                                         hx-trigger="load, delete-playlist from:body"
+                                         hx-swap="innerHTML">                                        <!-- dynamically populated -->
+                                    </div>                                
+                                </div> 
+                                <div id="queueTabContent" x-show="activeTab === 'queue'" >
+                                    <div id="songQueueContainer">
+                                         <table id="songQueueTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
+                                         <thead>
+                                                <tr>
+                                                    <th></th>
+                                                    <th></th>
+                                                    <th class="has-text-weight-semibold">Title / Artist</th>
+                                                    <th class="has-text-weight-semibold" style="width:20%;">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="songQueueTableBody">
+                                                <tr id="queueLoadingIndicator" class="htmx-indicator">
+                                                    <td colspan="3" class="has-text-centered py-4">
+                                                        <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                                        <p>Loading queue...</p>
+                                                    </td>
+                                                </tr>
+                                                <!-- Queue populated via JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                  <button id="clearQueueBtn" class="button is-danger is-fullwidth mt-2">Clear Queue</button>
+                                </div>
+                                <div id="historyTabContent" x-show="activeTab === 'history'" >
+                                    <div id="songHistoryContainer">
+                                         <table id="songHistoryTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
+                                         <thead>
+                                                <tr>
+                                                    <th></th>
+                                                    <th></th>
+                                                    <th class="has-text-weight-semibold">Title / Artist</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="songHistoryTableBody">
+                                                <tr id="historyLoadingIndicator" class="htmx-indicator">
+                                                    <td colspan="3" class="has-text-centered py-4">
+                                                        <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                                        <p>Loading history...</p>
+                                                    </td>
+                                                </tr>
+                                                <!-- History populated via JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Create Playlist Modal -->
+                            <div id="createPlaylistModal" class="modal" :class="{'is-active': isCreatePlaylistModalOpen}">
+                                <div class="modal-background" @click="isCreatePlaylistModalOpen = false"></div>
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head glass-modal-header">
+                                        <p class="modal-card-title">Create Playlist</p>
+                                        <button class="delete" aria-label="close" @click="isCreatePlaylistModalOpen = false"></button>
+                                    </header>
+                <section class="modal-card-body glass-modal-body">
+                                        <div class="field">
+                                            <label class="label">Playlist Name</label>
+                                            <div class="control">
+                                                <input class="input" type="text" id="newPlaylistName" placeholder="Enter playlist name" x-model="newPlaylist.name">
+                                            </div>
+                                        </div>
+                                        <div class="field">
+                                            <label class="label">Description</label>
+                                            <div class="control">
+                                                <textarea class="textarea" id="newPlaylistDescription" placeholder="Enter description (optional)" x-model="newPlaylist.description"></textarea>
+                                            </div>
+                                        </div>
+                                    </section>
+                <footer class="modal-card-foot glass-modal-footer">
+                                        <button class="button is-success" id="savePlaylistBtn" @click="savePlaylist()">Save</button>
+                                        <button class="button" id="cancelPlaylistBtn" @click="isCreatePlaylistModalOpen = false">Cancel</button>
+                                    </footer>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Add to Playlist Modal -->
+                        <div id="addToPlaylistModal" class="modal">
+                            <div class="modal-background" onclick="document.getElementById('addToPlaylistModal').classList.remove('is-active')"></div>
+                            <div id="addToPlaylistModalContent">
+                                <!-- Content will be loaded here via HTMX -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Playlist View -->
+                    <div class="column is-9 is-full-mobile" id="playlistView" x-data="playlistViewController()">
+                        <div id="mainPlaylistCard" class="card glass-box" data-playlist-id="0">
+                            <header class="card-header">
+                                <p id="playlistTitle" class="card-header-title is-4">All Songs</p>
+                                <button class="has-text-success ml-2" hx-trigger="click" hx-swap="none" hx-on::click="fetch('/api/music/playback/queue-all/'+globalActiveProfileId+'/0', {method: 'POST'}).then(() => { htmx.ajax('GET','/api/music/ui/queue-fragment/'+globalActiveProfileId,{target:'#songQueueTable tbody', swap:'innerHTML'}); htmx.ajax('GET','/api/music/ui/songs-fragment/'+globalActiveProfileId,{target:'#songTable tbody', swap:'innerHTML'}); if (window.refreshQueue) { window.refreshQueue(); } });">
+                                    <i class="pi pi-play"></i>
+                                </button>
+                                <button class="card-header-icon" aria-label="more options" id="toggleAllSongsBtn">
+                                    <span class="icon">
+                                        <i class="pi pi-angle-down" aria-hidden="true"></i>
+                                    </span>
+                                </button>
+                            </header>
+                            <div class="card-header">
+                                <div class="field has-addons" style="width:100%">
+                                    <div class="control is-expanded">
+                                        <input class="input is-rounded" type="text" placeholder="Search songs..." name="search"
+                                               x-model="playlistSearchQuery"
+                                               hx-get="/api/music/ui/tbody/{profileId}/{playlistId}"
+                                               hx-trigger="keyup changed delay:500ms, search"
+                                               hx-target="#songTableBody"
+                                               hx-swap="innerHTML"
+                                               hx-include="[name='search']"
+                                               hx-indicator="#loadingRow"
+                                               :hx-vals="JSON.stringify({sortBy: sortField, sortDirection: sortDirection})">
+                                    </div>
+                                    <div class="control">
+                                        <button class="button is-info is-rounded"
+                                                @click="playlistSearchQuery = ''; htmx.trigger($el.parentElement.previousElementSibling.querySelector('input'), 'search')">
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-content m-0 p-0" style="max-height: calc(100vh - 420px); overflow-y: auto;" id="allSongsContent">
+                                <div id="allSongsForPlaylistContainer" style="display: none;">
+                                    <div id="allSongsForPlaylist">
+                                        <!-- Content for all songs in a specific playlist will be loaded here -->
+                                    </div>
+                                </div>
+                                <div id="songListContainer" >
+                                    <table id="songTable" class="table is-fullwidth is-hoverable has-text-weight-semibold">
+                                         <thead>
+                                             <tr>
+                                                 <th></th>
+                                                 <th></th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('title')" data-sort-by-temp="title">
+                                                     Title <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('artist')" data-sort-by-temp="artist">
+                                                     Artist <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('dateAdded')" data-sort-by-temp="dateadded">
+                                                     Date Added <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold sortable-header" @click="toggleSortAndFetch('duration')" data-sort-by-temp="duration">
+                                                     Duration <i class="pi pi-sort"></i>
+                                                 </th>
+                                                 <th class="has-text-weight-semibold">Action</th>
+                                             </tr>
+                                         </thead>
+                                        <tr id="loadingRow" class="htmx-indicator is-hidden">
+                                            <td colspan="6" class="has-text-centered py-4">
+                                                <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                                                <p>Loading songs...</p>
+                                            </td>
+                                        </tr>
+<tbody x-init="$el.setAttribute('hx-get', `/api/music/ui/tbody/${window.globalActiveProfileId}/0?page=1&limit=50&sortBy=title&sortDirection=asc`); htmx.process($el)"
+                                               hx-trigger="load"
+                                               hx-swap="innerHTML"
+                                               hx-include="[name='search']"
+                                               id="songTableBody">                                            <!-- Songs populated via HTMX -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>  
+                    <div id="autoFetchContainer" class="has-text-centered py-4 is-hidden">
+                        <p class="mb-3">No songs found. Would you like to auto fetch?</p>
+                        <button class="button is-primary" id="autoFetchBtn">Auto Fetch</button>
+                        <div id="spotdlWarningMessage" class="notification is-warning is-hidden mt-3"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hero Foot (Music Bar) -->
+            <div class="hero-foot card glass-box mx-3 mb-3">
+                <nav class="level is-mobile">
+
+                    <!-- LEFT: Song Info -->
+                    <div class="level-left is-hidden-mobile">
+                        <div class="level-item is-flex is-align-items-center">
+                            <div class="image-container mr-3">
+                                <figure class="image is-96x96">
+                                    <img id="songCoverImage" src="/logo.png" alt="Song Cover">
+                                </figure>
+                                <button id="expandImageBtn">
+                                    <span class="icon is-small"><i class="pi pi-expand"></i></span>
+                                </button>
+                            </div>
+                            <div>
+                                <p id="songTitle" class="has-text-weight-semibold is-size-6">Loading...</p>
+                                <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CENTER: Controls + Progress -->
+                    <div class="level-item has-text-centered is-flex is-flex-direction-column is-align-items-center" style="width: 100%; flex-grow: 1; flex-shrink: 1;">
+                        <!-- Playback buttons -->
+<div class="buttons are-medium mb-2">
+                            <button id="shuffleBtn" title="Shuffle"><i id="shuffleIcon" class="pi pi-sort-alt" style="font-size: 1.5rem;"></i></button>
+                            <button id="prevBtn" title="Previous"><i class="pi pi-step-backward" style="font-size: 1.5rem;"></i></button>
+                            <button id="playPauseBtn" class="button is-rounded is-large" title="Play/Pause"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="nextBtn" title="Next"><i class="pi pi-step-forward" style="font-size: 1.5rem;"></i></button>
+                            <button id="repeatBtn" title="Repeat"><i id="repeatIcon" class="pi pi-refresh" style="font-size: 1.5rem;"></i></button>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div class="is-flex is-align-items-center is-justify-content-center" style="width: 100%;">
+                            <span id="currentTime" class="has-text-success has-text-weight-semibold is-size-6 mr-2">0:00</span>
+                            <input type="range" min="0" max="100" value="0"
+                                   style="width:100%"
+                                   name="seconds" id="playbackProgressBar"/>
+                            <span id="totalTime" class="has-text-success has-text-weight-semibold is-size-6 ml-2">0:00</span>
+                        </div>
+
+                        <!-- Song Info for mobile -->
+                        <div class="is-hidden-desktop mt-2" style="width: 100%;">
+                            <div style="overflow: hidden;">
+                                <p id="songTitleMobile" class="has-text-weight-semibold is-size-6 marquee">Loading...</p>
+                            </div>
+                            <div style="overflow: hidden;">
+                                <p id="songArtistMobile" class="has-text-success is-size-7 marquee">Unknown Artist</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT: Volume -->
+                    <div class="level-right is-hidden-mobile">
+                        <div class="level-item">
+                            <div class="is-flex is-align-items-center">
+                                <i class="pi pi-volume-up mr-2"></i>
+                                <input style="width: 80%" type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                            </div>
+                        </div>
+                    </div> 
+                </nav>
+            </div>
+
+        </section>
+
+        <script src="/js/mobile-redirect.js"></script>
+        <script src="/js/toast.js"></script>
+        <script src="/js/musicBar.js"></script>
+        <script src="/js/mediaSession.js"></script>
+        <script src="/js/playlistBar.js"></script>
+        <script src="/js/navbar.js"></script>
+        <script src="/js/songQueue.js"></script>
+        <script src="/js/history.js"></script>
+        <script src="/js/import.js"></script>
+        <script src="/js/profileManager.js"></script>
+
+        <script>
+window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1'; // Default to '1' (Main profile) if not set
+                                    
+
+                                // Listen for profile switches from profileManager.js
+                                document.body.addEventListener('profileSwitched', (event) => {
+                                    // Update globalActiveProfileId from localStorage (should already be updated by profileManager.js)
+                                    window.globalActiveProfileId = localStorage.getItem('activeProfileId');
+                                    console.log('Profile switched event received. New globalActiveProfileId:', window.globalActiveProfileId);
+                                    // Note: profileManager.js already calls location.reload(), so no need to reload again
+                                });
+
+                                // Set dynamic URLs for HTMX elements that need profileId
+                                function updateHmxUrls() {
+                                    const searchSuggestionsDropdown = document.getElementById('searchSuggestionsDropdown');
+                                    if (searchSuggestionsDropdown) {
+                                        searchSuggestionsDropdown.setAttribute('hx-post', `/api/music/ui/search-suggestions/${window.globalActiveProfileId}`);
+                                    }
+                                }
+
+                                // Update URLs initially and when profile switches
+                                updateHmxUrls();
+                                document.body.addEventListener('profileSwitched', updateHmxUrls);
+
+// HTMX request interception to inject profileId into URLs
+                                document.body.addEventListener('htmx:configRequest', function (event) {
+                                    const targetUrl = event.detail.path;
+
+                                    // ADD THIS CHECK: Ensure targetUrl is a string before proceeding
+                                    if (typeof targetUrl !== 'string' || !targetUrl) {
+                                        return; // Exit the function if targetUrl is invalid
+                                    }
+
+                                    let newUrl = targetUrl; // Initialize newUrl with targetUrl
+                                    const currentProfileId = globalActiveProfileId; // Get the currently active profile ID
+
+                                    // Skip profile-related API calls that handle profile creation/deletion/switching directly
+                                    // These already include the necessary profile IDs or operate globally.
+                                    if (targetUrl.startsWith('/api/profiles')) {
+                                        // For example, /api/profiles (GET all), /api/profiles/{id} (DELETE), /api/profiles (POST create)
+                                        // /api/profiles/current, /api/profiles/switch/{id} are handled by profileManager.js or don't need globalActiveProfileId injected here.
+                                        return;
+                                    }
+
+                                    // All other API calls related to music or settings that need profileId
+                                    if (targetUrl.startsWith('/api/music/') || targetUrl.startsWith('/api/settings/')) {
+                                        const parts = targetUrl.split('/');
+                                        const module = parts[2]; // 'music' or 'settings'
+
+                                        if (module === 'music') {
+                                            const subModule = parts[3]; // e.g., 'ui', 'playback', 'queue', 'playlists'
+
+if (subModule === 'ui') {
+// Pattern: /api/music/ui/{profileId}/...
+                                                // Examples: /api/music/ui/playlists-fragment, /api/music/ui/tbody/{profileId}/0, /api/music/ui/search-suggestions/{profileId}
+                                                // Special case for search-suggestions: /api/music/ui/search-suggestions -> /api/music/ui/search-suggestions/{profileId}
+                                                if (parts[4] === 'search-suggestions') {
+                                                    newUrl = `/api/music/ui/search-suggestions/${currentProfileId}`;
+} else if (parts[4] === 'tbody') {
+                                                    if (parts[5] === '{profileId}' && parts[6] === '{playlistId}') {
+                                                        // Special case for tbody: /api/music/ui/tbody/{profileId}/{playlistId} -> /api/music/ui/tbody/{currentProfileId}/{currentPlaylistId}
+                                                        newUrl = `/api/music/ui/tbody/${currentProfileId}/${window.currentPlaylistId || '0'}`;
+                                                    } else if (parts[5] === '{playlistId}') {
+                                                        // Legacy case for tbody: /api/music/ui/tbody/{playlistId} -> /api/music/ui/tbody/{currentProfileId}
+                                                        newUrl = `/api/music/ui/tbody/${currentProfileId}`;
+                                                    } else {
+                                                        // Handle case where placeholders are already replaced or different format
+                                                        newUrl = targetUrl;
+                                                    }
+                                                } else if (parts[4] === 'tbody' && parts[5] === '{playlistId}') {
+                                                    // Legacy case for tbody: /api/music/ui/tbody/{playlistId} -> /api/music/ui/tbody/{currentProfileId}
+                                                    newUrl = `/api/music/ui/tbody/${currentProfileId}`;
+} else if (parts[4] === 'playlists-fragment' && parts[5] === '{profileId}') {
+                                                    // Special case for playlists-fragment: /api/music/ui/playlists-fragment/{profileId} -> /api/music/ui/playlists-fragment/{currentProfileId}
+                                                    newUrl = `/api/music/ui/playlists-fragment/${currentProfileId}`;
+                                                } else if (parts[4] === 'playlists-fragment' && parts.length === 5) {
+                                                    // If playlists-fragment has no profileId, add it: /api/music/ui/playlists-fragment -> /api/music/ui/playlists-fragment/{currentProfileId}
+                                                    newUrl = `/api/music/ui/playlists-fragment/${currentProfileId}`;
+                                                } else if (parts[4] === 'playlist-view' && parts[5] === '{profileId}') {
+                                                    // Special case for playlist-view: /api/music/ui/playlist-view/{profileId} -> /api/music/ui/playlist-view/{currentProfileId}
+                                                    newUrl = `/api/music/ui/playlist-view/${currentProfileId}`;
+                                                } else if (parts[4] === 'playlist-view' && parts.length >= 6) {
+                                                    // Handle playlist-view with both profileId and playlistId: /api/music/ui/playlist-view/{profileId}/{playlistId}
+                                                    // Keep the playlistId but replace profileId with currentProfileId
+                                                    newUrl = `/api/music/ui/playlist-view/${currentProfileId}/${parts[6] || '0'}`;
+                                                } else if (parts[4] === 'queue-fragment' && parts[5] === '{profileId}') {
+                                                    // Special case for queue-fragment: /api/music/ui/queue-fragment/{profileId} -> /api/music/ui/queue-fragment/{currentProfileId}
+                                                    newUrl = `/api/music/ui/queue-fragment/${currentProfileId}`;
+                                                } else if (parts[4] === 'add-to-playlist-dialog' && parts[5] === '{profileId}') {
+                                                    // Special case for add-to-playlist-dialog: /api/music/ui/add-to-playlist-dialog/{profileId} -> /api/music/ui/add-to-playlist-dialog/{currentProfileId}
+                                                    newUrl = `/api/music/ui/add-to-playlist-dialog/${currentProfileId}`;
+} else if (parts.length === 4) { // Only modify if it's just /api/music/ui without any sub-path
+                                                    newUrl = `/api/music/ui/${currentProfileId}`;
+                                                }
+                                            } else if (subModule === 'playback') {
+                                                // Pattern: /api/music/playback/{action}/{profileId}/{id?}
+                                                // Examples: /api/music/playback/queue-all/0, /api/music/playback/select/123, /api/music/playback/toggle
+                                                const action = parts[4];
+if (action === 'queue-all' || action === 'select') {
+                                                    // For /api/music/playback/queue-all/{playlistId}, /api/music/playback/select/{profileId}/{songId}
+                                                    // Check if profileId is already correctly placed (parts[5] should be the profileId)
+                                                    if (parts.length >= 7 && parts[5] === currentProfileId.toString()) {
+                                                        // URL is already /api/music/playback/{action}/{profileId}/{id}, no change needed
+                                                        newUrl = targetUrl;
+                                                    } else if (parts.length >= 6) {
+                                                        // Transform /api/music/playback/{action}/{id} to /api/music/playback/{action}/{profileId}/{id}
+                                                        newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[5]}`;
+                                                    } else if (parts.length >= 5) {
+                                                        // Transform /api/music/playback/{action}/{id} to /api/music/playback/{action}/{profileId}/{id}
+                                                        newUrl = `/api/music/playback/${action}/${currentProfileId}/${parts[4]}`;
+                                                    }
+                                                }
+                                            } else if (subModule === 'queue') {
+                                                // Pattern: /api/music/queue/{profileId}/{action}/{id?}
+                                                // Examples: /api/music/queue/add/{songId}, /api/music/queue/skip-to/{index}, /api/music/queue/clear
+                                                const action = parts[4];
+                                                if (action === 'add' || action === 'skip-to' || action === 'remove') {
+                                                    // /api/music/queue/{action}/{songId/index} -> /api/music/queue/{action}/{profileId}/{songId/index}
+                                                    newUrl = `/api/music/queue/${action}/${currentProfileId}/${parts[5]}`;
+                                                } else if (action === 'clear') {
+                                                    // /api/music/queue/clear -> /api/music/queue/clear/{profileId}
+                                                    newUrl = `/api/music/queue/clear/${currentProfileId}`;
+                                                } else if (parts.length === 4) { // This is likely /api/music/queue (GET current queue for profile)
+                                                    newUrl = `/api/music/queue/${currentProfileId}`;
+                                                }
+                                            } else if (subModule === 'playlists') {
+                                                // Pattern: /api/music/playlists/{playlistId}/songs/{songId}/toggle/{profileId}
+                                                // Only handles the specific toggle case where profileId is at the end.
+                                                // Other playlist APIs (create, delete, get playlists themselves) might be global or handled differently.
+                                                if (parts.length >= 7 && parts[6] === 'toggle') { // Check if it's the toggle action
+                                                    if (parts.length < 8 || parts[7] !== currentProfileId) { // Check if profileId is not appended
+                                                        newUrl = `${targetUrl}/${currentProfileId}`;
+                                                    }
+                                                }
+                                            }
+                                        } else if (module === 'settings' && parts[3] === 'clearPlaybackHistory') {
+                                            // Pattern: /api/settings/clearPlaybackHistory/{profileId}
+                                            if (parts.length < 5 || parts[4] !== currentProfileId) { // If profileId is not appended
+                                                newUrl = `${targetUrl}/${currentProfileId}`;
+                                            }
+                                        }
+                                    }
+
+if (newUrl !== targetUrl) {
+                                        // Modify the path in the event detail
+                                        event.detail.path = newUrl;
+                                    }
+                                });
+        </script>
+
+        <!-- Custom Context Menu -->
+        <div id="customContextMenu" class="context-menu" style="display: none;">
+            <div class="context-menu-item" id="editSongMenuItem" data-action="edit-song" data-disabled="true">Edit Song</div>
+            <div class="context-menu-item" id="queueSongMenuItem" data-action="queue-song">Queue Song</div>
+            <div class="context-menu-item has-submenu" id="addToPlaylistMenuItem" data-action="add-to-playlist">
+                Add to Playlist
+                <div class="submenu" id="playlistSubMenu" style="display: none;">
+                    <!-- Playlists will be dynamically loaded here -->
+                    <div class="context-menu-item">Loading Playlists...</div>
+                </div>
+            </div>
+            <div class="context-menu-item has-text-warning" id="removeFromPlaylistMenuItem" data-action="remove-from-playlist" style="display: none;">
+                <span class="icon is-small"><i class="pi pi-minus"></i></span>
+                <span>Remove from Playlist</span>
+            </div>
+            <div class="context-menu-item" id="rescanSongMenuItem" data-action="rescan-song">
+                <span class="icon is-small"><i class="pi pi-sync"></i></span>
+                <span>Re-Scan</span>
+            </div>
+            <div class="context-menu-item" id="updateMetadataMenuItem" data-action="update-metadata">
+                <span class="icon is-small"><i class="pi pi-palette"></i></span>
+                <span>Update Metadata</span>
+            </div>
+            <div class="context-menu-item has-text-danger" id="deleteSongMenuItem" data-action="delete-song">
+                <span class="icon is-small"><i class="pi pi-trash"></i></span>
+                <span>Delete</span>
+            </div>
+            <div class="context-menu-item has-text-danger" id="shareMenuItem" data-action="share-song" data-disabled="true">
+                <span class="icon is-small"><i class="pi pi-share-alt"></i></span>
+                <span>Share</span>
+            </div>
+</div>
+        
+        <!-- Toast Notifications Container -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
+        
+        <script src="/js/playlistBodyHelper.js"></script>
+        
+        <!-- Toast system is handled by toast.js -->
+
+        <!-- Profile Management Modal -->
+        <div id="profileModal" class="modal">
+            <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">Manage Profiles</p>
+                    <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
+                </header>
+                <section class="modal-card-body">
+                    <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
+                    <h6 class="title is-6 mt-4">All Profiles:</h6>
+                    <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
+                        <!-- Profiles will be dynamically loaded here as circular buttons -->
+                    </div>
+                    <hr>
+                    <div class="field has-addons">
+                        <div class="control is-expanded">
+                            <input class="input" type="text" id="newProfileNameInput" placeholder="New Profile Name">
+                        </div>
+                        <div class="control">
+                            <button class="button is-info" id="createProfileBtn">Create</button>
+                        </div>
+                    </div>
+                    <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
+                </section>
+                <footer class="modal-card-foot">
+                    <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
+                </footer>
+            </div>
+        </div>
+        <!-- Lyrics Modal -->
+
+        <div id="lyricsModal" class="modal">
+
+            <div class="modal-background" onclick="document.getElementById('lyricsModal').classList.remove('is-active')"></div>
+
+            <div class="modal-card">
+
+                <header class="modal-card-head">
+
+                    <p class="modal-card-title">Lyrics</p>
+
+                    <button class="delete" aria-label="close" onclick="document.getElementById('lyricsModal').classList.remove('is-active')"></button>
+
+                </header>
+
+                <section class="modal-card-body">
+
+                    <pre id="lyricsModalBody" style="white-write-file;"></pre>
+
+                </section>
+
+                <footer class="modal-card-foot">
+
+                    <button class="button" onclick="document.getElementById('lyricsModal').classList.remove('is-active')">Close</button>
+
+                </footer>
+
+            </div>
+
+        </div>
+ 
+
+    </body>
+
+</html>
+
+<script>
+function playlistViewController() {
+        return {
+            sortField: 'title',
+            sortDirection: 'asc',
+            playlistId: '0',
+            profileId: globalActiveProfileId,
+            playlistSearchQuery: '',
+            init() {
+                this.playlistId = this.$el.querySelector('#mainPlaylistCard').dataset.playlistId || '0';
+                this.profileId = globalActiveProfileId;
+                window.currentPlaylistId = this.playlistId;
+                
+
+                this.updateSortIcons();
+
+                // Re-apply icons after HTMX swaps the table body
+                htmx.on(this.$el, 'htmx:afterSwap', (evt) => {
+                    if (evt.detail.target.id === 'songTableBody') {
+                        this.updateSortIcons();
+                    }
+                });
+            },
+            toggleSortAndFetch(field) {
+                if (this.sortField === field) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortField = field;
+                    this.sortDirection = 'asc';
+                }
+                this.updateSortIcons(); // Give immediate feedback
+
+// Manually trigger the HTMX request with the new sort parameters
+                htmx.ajax('GET', `/api/music/ui/tbody/${globalActiveProfileId}/${this.playlistId}`, {
+                    target: '#songTableBody',
+                    swap: 'innerHTML',
+                    values: {
+                        sortBy: this.sortField,
+                        sortDirection: this.sortDirection,
+                        search: this.getCurrentSearchTerm()
+                    },
+                    indicator: '#loadingRow'
+                });
+            },
+            updateSortIcons() {
+                this.$el.querySelectorAll('.sortable-header').forEach(header => {
+                    const icon = header.querySelector('i');
+                    const field = header.dataset.sortByTemp;
+
+                    if (icon && field) {
+                        icon.className = 'pi '; // Reset classes
+                        if (field === this.sortField) {
+                            icon.classList.add(this.sortDirection === 'asc' ? 'pi-sort-up' : 'pi-sort-down');
+                        } else {
+                            icon.classList.add('pi-sort');
+                        }
+                    }
+                });
+            },
+            getCurrentSearchTerm() {
+                const searchInput = this.$el.querySelector('input[name="search"]');
+                return searchInput ? searchInput.value : '';
+            }
+        };
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        function setupGlobalSearchListeners() {
+            const autoFetchBtn = document.getElementById('autoFetchBtn');
+            if (autoFetchBtn) {
+                autoFetchBtn.removeEventListener('click', handleAutoFetch); // Prevent duplicate listeners
+                autoFetchBtn.addEventListener('click', handleAutoFetch);
+            }
+        }
+
+        function handleClearGlobalSearch() {
+            const globalSearchInput = document.getElementById('globalSearchInput');
+            if (globalSearchInput) {
+                globalSearchInput.value = '';
+// Manually trigger the htmx request for the main table
+                htmx.ajax('GET', `/api/music/ui/tbody/${globalActiveProfileId}/0`, {
+                    target: '#songTableBody',
+                    swap: 'innerHTML',
+                    values: {search: ''} // Ensure search term is empty
+                });
+                // Hide the dropdown
+                const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+                if (globalSearchDropdown) {
+                    globalSearchDropdown.style.display = 'none';
+                }
+            }
+        }
+
+        function handleAutoFetch() {
+            const globalSearchInput = document.getElementById('globalSearchInput');
+            if (globalSearchInput && window.startImportFromSearch) {
+                window.startImportFromSearch(globalSearchInput.value);
+            } else {
+                console.error("Global search input or startImportFromSearch function not found.");
+            }
+        }
+
+        setupGlobalSearchListeners();
+
+        document.body.addEventListener('click', function (event) {
+            if (event.target.closest('#clearSearchIcon')) {
+                handleClearGlobalSearch();
+            }
+        });
+
+        const globalSearchInput = document.getElementById('globalSearchInput');
+        const globalSearchDropdown = document.getElementById('globalSearchDropdown');
+
+        function showDropdown() {
+            const query = globalSearchInput.value.trim();
+            console.log(`[Debug] showDropdown called. Query: "${query}"`);
+            if (query !== '') {
+                // Let htmx handle the request, just make sure dropdown is visible to show results
+                globalSearchDropdown.style.display = 'block';
+            } else {
+                globalSearchDropdown.style.display = 'none';
+            }
+        }
+
+        function hideDropdown() {
+            setTimeout(() => {
+                if (!globalSearchInput.matches(':focus')) {
+                    globalSearchDropdown.style.display = 'none';
+                }
+            }, 150);
+        }
+
+        if (globalSearchInput && globalSearchDropdown) {
+            globalSearchInput.addEventListener('keyup', showDropdown);
+            globalSearchInput.addEventListener('blur', hideDropdown);
+            globalSearchInput.addEventListener('focus', showDropdown);
+            globalSearchDropdown.addEventListener('mousedown', (event) => event.preventDefault());
+        }
+
+        document.body.addEventListener('htmx:afterSwap', function (event) {
+            if (event.detail.target.id === 'songTableBody') {
+                const songTableBody = document.getElementById('songTableBody');
+                const autoFetchContainer = document.getElementById('autoFetchContainer');
+                const currentGlobalSearchInput = document.querySelector('input[name="globalSearch"]');
+                const songRows = Array.from(songTableBody.children).filter(child => child.tagName === 'TR' && !child.classList.contains('htmx-indicator'));
+                if (songRows.length === 0 && currentGlobalSearchInput && currentGlobalSearchInput.value.trim() !== '') {
+                    if (autoFetchContainer)
+                        autoFetchContainer.classList.remove('is-hidden');
+                } else {
+                    if (autoFetchContainer)
+                        autoFetchContainer.classList.add('is-hidden');
+                }
+            } else if (event.detail.target.classList.contains('dropdown-content')) {
+                console.log("[Debug] Dropdown content swapped. Re-evaluating visibility.");
+                showDropdown();
+            }
+        });
+
+        // Handle incoming search query from other pages
+
+        const urlParams = new URLSearchParams(window.location.search);
+
+        const searchQuery = urlParams.get('q');
+
+        if (searchQuery && globalSearchInput) {
+
+            globalSearchInput.value = decodeURIComponent(searchQuery);
+
+            htmx.trigger(globalSearchInput, 'search'); // Trigger the HTMX search
+
+            // Optionally, remove the query parameter from the URL to clean it up
+
+            history.replaceState(null, '', window.location.pathname);
+
+        }
+
+        // Update Management Functions
+        function checkForUpdates() {
+            const updateStatus = document.getElementById('updateStatus');
+            const checkBtn = document.getElementById('checkForUpdatesBtn');
+            
+            if (updateStatus) {
+                updateStatus.style.display = 'block';
+                updateStatus.innerHTML = '<div class="notification is-info"><i class="pi pi-spin pi-spinner"></i> Checking for updates...</div>';
+            }
+            
+            if (checkBtn) {
+                checkBtn.disabled = true;
+                checkBtn.innerHTML = '<span class="icon-text"><span class="icon"><i class="pi pi-spin pi-spinner"></i></span><span>Checking...</span></span>';
+            }
+            
+            fetch('/api/update/check')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        handleUpdateResponse(data.data);
+                    } else {
+                        showUpdateError(data.message || 'Failed to check for updates');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking for updates:', error);
+                    showUpdateError('Network error while checking for updates');
+                })
+                .finally(() => {
+                    if (checkBtn) {
+                        checkBtn.disabled = false;
+                        checkBtn.innerHTML = '<span class="icon-text"><span class="icon"><i class="pi pi-refresh"></i></span><span>Check for Updates</span></span>';
+                    }
+                });
+        }
+        
+        function handleUpdateResponse(updateInfo) {
+            const updateStatus = document.getElementById('updateStatus');
+            
+            if (updateInfo.updateAvailable) {
+                // Show update available toast
+                showToast('Update Available: click for details', 'info', 10000, () => {
+                    showUpdateDialog();
+                });
+                
+                if (updateStatus) {
+                    updateStatus.innerHTML = `
+                        <div class="notification is-success">
+                            <strong>Update Available!</strong><br>
+                            New version: ${updateInfo.latestRelease.tagName}<br>
+                            <button class="button is-small is-primary mt-2" onclick="showUpdateDialog()">
+                                <span class="icon-text">
+                                    <span class="icon"><i class="pi pi-download"></i></span>
+                                    <span>View Details</span>
+                                </span>
+                            </button>
+                        </div>
+                    `;
+                }
+            } else {
+                if (updateStatus) {
+                    updateStatus.innerHTML = `
+                        <div class="notification is-success">
+                            <strong>You are up to date!</strong><br>
+                            ${updateInfo.message}
+                        </div>
+                    `;
+                }
+                
+                // Auto-hide status after 5 seconds
+                setTimeout(() => {
+                    if (updateStatus) {
+                        updateStatus.style.display = 'none';
+                    }
+                }, 5000);
+            }
+        }
+        
+        function showUpdateError(message) {
+            const updateStatus = document.getElementById('updateStatus');
+            
+            if (updateStatus) {
+                updateStatus.innerHTML = `
+                    <div class="notification is-danger">
+                        <strong>Error</strong><br>
+                        ${message}
+                    </div>
+                `;
+            }
+            
+            showToast('Update check failed: ' + message, 'error');
+        }
+        
+        function showUpdateDialog() {
+            // Open update dialog in new window or modal
+            const updateDialog = window.open('/updateDialog.html', 'updateDialog', 'width=600,height=700,scrollbars=yes,resizable=yes');
+            
+            if (!updateDialog) {
+                // Fallback: navigate to update dialog
+                window.location.href = '/updateDialog.html';
+            }
+        }
+        
+        function toggleAutoUpdate() {
+            const toggle = document.getElementById('autoUpdateToggle');
+            const isEnabled = toggle.checked;
+            
+            fetch('/api/settings/auto-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ enabled: isEnabled })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(isEnabled ? 'Auto-update enabled' : 'Auto-update disabled', 'success');
+                } else {
+                    showToast('Failed to update auto-update setting', 'error');
+                    toggle.checked = !isEnabled; // Revert
+                }
+            })
+            .catch(error => {
+                console.error('Error updating auto-update setting:', error);
+                showToast('Network error while updating setting', 'error');
+                toggle.checked = !isEnabled; // Revert
+            });
+        }
+        
+        // Toast functionality now handled by unified toast.js library
+
+    });</script>

@@ -468,4 +468,16 @@ public class SongService {
         // Delete the song
         delete(songToDelete);
     }
+
+    /**
+     * Gets a list of distinct genres from all songs
+     * @return List of genre names sorted alphabetically
+     */
+    @Transactional
+    public List<String> getDistinctGenres() {
+        return em.createQuery(
+            "SELECT DISTINCT s.genre FROM Song s WHERE s.genre IS NOT NULL AND s.genre != '' ORDER BY s.genre", 
+            String.class)
+            .getResultList();
+    }
 }

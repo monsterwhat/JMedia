@@ -1,0 +1,214 @@
+/* JMedia Enhanced CSS - Mobile.css base with desktop enhancements */
+
+/* Desktop Search Container */
+.desktop-search-container {
+    display: none;
+    flex-grow: 1;
+    max-width: 400px;
+    margin: 0 1rem;
+}
+
+.desktop-search {
+    width: 100%;
+}
+
+/* Desktop Table View */
+.desktop-table-view {
+    display: none;
+}
+
+.desktop-table-view .card {
+    background: var(--mobile-surface);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px var(--mobile-shadow);
+    margin-bottom: 1rem;
+}
+
+.desktop-table-view .card-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--mobile-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.desktop-table-view .card-header-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--mobile-text);
+    margin: 0;
+}
+
+.desktop-table-view .card-content {
+    padding: 0;
+}
+
+.desktop-table-view .table {
+    background-color: transparent;
+    color: var(--mobile-text);
+}
+
+.desktop-table-view .table.is-striped tbody tr:not(.is-selected):nth-child(odd) {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.desktop-table-view .table.is-striped tbody tr:not(.is-selected):nth-child(even) {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.desktop-table-view .table.is-hoverable tbody tr:not(.is-selected):hover {
+    background-color: var(--mobile-border);
+}
+
+.desktop-table-view .table th,
+.desktop-table-view .table td {
+    color: var(--mobile-text);
+    padding: 0.5rem 0.75rem;
+}
+
+.desktop-table-view .table th {
+    font-weight: 600;
+}
+
+.sortable-header {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.sortable-header:hover {
+    background-color: var(--mobile-border);
+}
+
+/* Responsive Utility Classes */
+.desktop-only {
+    display: none;
+}
+
+.mobile-only {
+    display: block;
+}
+
+.desktop-hidden {
+    display: block;
+}
+
+@media (min-width: 768px) {
+    /* Show desktop elements */
+    .desktop-only {
+        display: block;
+        flex: unset;
+    }
+    
+    .desktop-hidden {
+        display: none;
+    }
+    
+    /* Hide mobile elements */
+    .mobile-only {
+        display: none;
+    }
+    
+    /* Show desktop search */
+    .desktop-search-container {
+        display: block;
+    }
+    
+    /* Show desktop table view */
+    .desktop-table-view {
+        display: block;
+    }
+    
+    /* Hide mobile search */
+    .mobile-search-container {
+        display: none;
+    }
+    
+    /* Hide mobile song list (show table instead) */
+    .mobile-song-list {
+        display: none;
+    }
+}
+
+/* Enhanced button styles */
+.desktop-hidden {
+    display: block;
+}
+
+.mr-2 {
+    margin-right: 0.5rem;
+}
+
+.field.has-addons {
+    display: flex;
+    align-items: stretch;
+}
+
+.control.is-expanded {
+    flex-grow: 1;
+}
+
+/* Loading indicator for desktop */
+.loading-indicator {
+    display: table-row;
+}
+
+.is-hidden {
+    display: none;
+}
+
+.has-text-centered {
+    text-align: center;
+}
+
+.py-4 {
+    padding: 1rem 0;
+}
+
+.is-4 {
+    font-size: 1.25rem;
+}
+
+.is-fullwidth {
+    width: 100%;
+}
+
+.is-hoverable {
+    /* Inherited from mobile.css */
+}
+
+.has-text-weight-semibold {
+    font-weight: 600;
+}
+
+.has-text-success {
+    color: var(--mobile-primary);
+}
+
+/* Enhanced responsive behavior */
+@media (min-width: 768px) {
+    .mobile-main {
+        height: calc(100vh - 140px); /* Adjust for desktop layout */
+    }
+}
+
+/* Dark theme adjustments for desktop */
+[data-theme="dark"] .desktop-table-view .card {
+    background: var(--mobile-surface);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .desktop-table-view .table {
+    color: var(--mobile-text);
+}
+
+[data-theme="dark"] .desktop-table-view .table.is-striped tbody tr:not(.is-selected):nth-child(odd) {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .desktop-table-view .table.is-striped tbody tr:not(.is-selected):nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .desktop-table-view .table.is-hoverable tbody tr:not(.is-selected):hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}

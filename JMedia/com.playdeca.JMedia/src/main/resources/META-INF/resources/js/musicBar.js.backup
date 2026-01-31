@@ -1,40 +1,4 @@
-let audio = null;
-let audioElementReady = false;
-
-// Initialize audio element with retry logic
-function initializeAudioElement() {
-    audio = document.getElementById('audioPlayer');
-
-    // SAFETY: Verify audio element exists
-    if (!audio) {
-        console.error('[CRITICAL] audioPlayer element not found in DOM!');
-        // Try to find it again after DOM is loaded
-        setTimeout(() => {
-            const audioRetry = document.getElementById('audioPlayer');
-            if (audioRetry) {
-                console.log('[musicBar] audioPlayer element found after delay');
-                // Replace the audio reference
-                audio = audioRetry;
-                window.audio = audioRetry;
-                audioElementReady = true;
-                console.log('[musicBar] Audio element initialized successfully');
-            } else {
-                console.error('[CRITICAL] audioPlayer element still not found after delay!');
-            }
-        }, 1000);
-    } else {
-        console.log('[musicBar] audioPlayer element found successfully');
-        window.audio = audio; // Make it globally accessible
-        audioElementReady = true;
-    }
-}
-
-// Initialize immediately and also on DOMContentLoaded
-initializeAudioElement();
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeAudioElement);
-}
-
+const audio = document.getElementById('audioPlayer');
 // ---------------- State ----------------
 const musicState = {
     currentSongId: null,
@@ -188,8 +152,8 @@ const calculateLinearSliderValue = (exponentialVol) => { // Moved to global scop
     return linearVol * 100;
 };
 // ---------------- Local Action Tracking System ----------------
-const recentLocalActions = {playPause: []};
-const ACTION_TRACKING_CONFIG = {playPauseTimeout: 3000};
+const recentLocalActions = { playPause: [] };
+const ACTION_TRACKING_CONFIG = { playPauseTimeout: 3000 };
 
 function recordLocalAction(actionType) {
     const now = Date.now();
@@ -208,19 +172,19 @@ function shouldSkipWebSocketMessage(actionType, messagePayload) {
     if (!actions || actions.length === 0) {
         return false;
     }
-
+    
     const now = Date.now();
     const timeout = ACTION_TRACKING_CONFIG[actionType.toLowerCase() + 'Timeout'] || 3000;
-
+    
     // Find most recent action within timeout window
     const mostRecentAction = Math.max(...actions);
     const timeSinceAction = now - mostRecentAction;
-
+    
     if (timeSinceAction < timeout) {
         log(`Skipping WebSocket ${actionType} message - ${timeSinceAction}ms since local action`);
         return true;
     }
-
+    
     // Clean up old actions
     recentLocalActions[actionType] = actions.filter(timestamp => (now - timestamp) < timeout);
     return false;
@@ -240,16 +204,16 @@ function updateSongContextCache(current, previous, next, profileId) {
 
 function getCachedSongContext(direction, profileId) {
     // Check if cache is valid for current profile
-    if (!songContextCache || songContextCache.profileId !== profileId ||
-            Date.now() - songContextCache.lastUpdated > 30000) { // 30s stale
+    if (!songContextCache || songContextCache.profileId !== profileId || 
+        Date.now() - songContextCache.lastUpdated > 30000) { // 30s stale
         console.log('[musicBar] Cache invalid or missing - profile:', profileId, 'cache:', songContextCache);
         return null;
     }
-
-    const cachedSong = direction === 'next' ? songContextCache.nextSong :
-            direction === 'previous' ? songContextCache.previousSong :
-            songContextCache.currentSong;
-
+    
+    const cachedSong = direction === 'next' ? songContextCache.nextSong : 
+                         direction === 'previous' ? songContextCache.previousSong : 
+                         songContextCache.currentSong;
+    
     console.log('[musicBar] getCachedSongContext(', direction, ') →', cachedSong ? JSON.stringify(cachedSong) : 'null');
     return cachedSong;
 }
@@ -579,26 +543,9 @@ window.UpdateAudioSourceSequentially = UpdateAudioSourceSequentially;
 
 // ---------------- Update Audio Source ----------------
 function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0) {
-    // SAFETY: Ensure audio element is ready
-    if (!audio || !audioElementReady) {
-        console.error('[musicBar] Audio element not ready, reinitializing...');
-        initializeAudioElement();
-
-        // Retry after a short delay if still not ready
-        setTimeout(() => {
-            if (audio && audioElementReady) {
-                UpdateAudioSource(currentSong, prevSong, nextSong, play, backendTime);
-            } else {
-                console.error('[musicBar] Audio element still not ready after retry');
-            }
-        }, 500);
-        return;
-    }
-
     // Guard: avoid overlapping song switches across this profile
     const pidLock = window.globalActiveProfileId || 'default';
     if (isSwitchingSongByProfile[pidLock]) {
-        console.log('[musicBar] Song switch already in progress, skipping');
         return;
     }
     isSwitchingSongByProfile[pidLock] = true;
@@ -612,14 +559,6 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
 
     isUpdatingAudioSource = true; // Set flag to true at the beginning
 
-
-    console.log('[musicBar] UpdateAudioSource called with:', {
-        currentSongId: currentSong?.id,
-        songTitle: currentSong?.title,
-        play: play,
-        backendTime: backendTime,
-        profileId: window.globalActiveProfileId
-    });
     if (!currentSong || !currentSong.id) {
         isUpdatingAudioSource = false; // Reset flag if no current song
         isSwitchingSongByProfile[pidLock] = false;
@@ -657,10 +596,8 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
             // Silent cleanup failure - non-critical
         }
 
-        console.log('[musicBar] Setting audio src to:', newAudioSrc);
         audio.src = newAudioSrc;
         audio.load();
-        console.log('[musicBar] Audio src set, audio.readyState:', audio.readyState);
     } else if (sameSong && play) {
         // Fast resume for same song - no source change needed
         if (audio.paused) {
@@ -700,12 +637,10 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
 
     // Optimized metadata handling
     audio.onloadedmetadata = () => {
-        console.log('[musicBar] Audio metadata loaded, duration:', audio.duration, 'readyState:', audio.readyState);
 
         // Update duration if valid
         if (typeof audio.duration === 'number' && !isNaN(audio.duration) && audio.duration > 0) {
             musicState.duration = audio.duration;
-            console.log('[musicBar] Duration updated:', musicState.duration);
         }
 
         // Validate and set current time
@@ -715,14 +650,8 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
 
         // Handle playback
         if (play) {
-            console.log('[musicBar] Attempting to play audio...');
-            audio.play().then(() => {
-                console.log('[musicBar] Audio play successful');
-            }).catch(error => {
-                console.error('[musicBar] Audio play failed:', error);
-            });
+            audio.play().catch(console.error);
         } else {
-            console.log('[musicBar] Pausing audio...');
             audio.pause();
         }
 
@@ -755,7 +684,7 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
         isSwitchingSongByProfile[pidLock] = false;
         isUpdatingAudioSource = false;
         activeAudioOperation = null;
-}
+    }
 }
 
 
@@ -794,7 +723,7 @@ async function fetchSongContext(profileId) {
 
 
 
-    try {
+try {
         const response = await Promise.all([
             fetch(`/api/music/playback/current/${profileId}`).then(r => r.json()),
             fetch(`/api/music/playback/previousSong/${profileId}`).then(r => r.json()),
@@ -807,8 +736,8 @@ async function fetchSongContext(profileId) {
             cacheTimestamp = now;
             updateSongContextCache(response.current, response.prevSong, response.nextSong, profileId);
         }
-
-        return response;
+        
+return response;
     } catch (error) {
         console.error("[musicBar] Failed to fetch song context:", error);
         // Return cached data even on error if available
@@ -861,11 +790,11 @@ async function connectWS() {
                                 if (payload && typeof payload === 'object' && payload.timestamp) {
                                     // Get localStorage state for age comparison
                                     const savedState = JSON.parse(localStorage.getItem('playbackState') || '{}');
-
+                                    
                                     if (savedState.timestamp) {
                                         const localStorageAge = Date.now() - savedState.timestamp;
                                         const websocketAge = Date.now() - payload.timestamp;
-
+                                        
                                         // Only use WebSocket state if it's newer than localStorage
                                         if (websocketAge < localStorageAge) {
                                             console.log('WebSocket state is newer - overriding localStorage');
@@ -958,8 +887,7 @@ function processMessageQueue() {
 
 // Race condition mitigation: actual message processing logic
 function processWSMessageInternal(message) {
-
-    if (message.type === 'state') {
+if (message.type === 'state') {
         const state = message.payload;
         const songChanged = String(state.currentSongId) !== String(musicState.currentSongId);
         const playChanged = state.playing !== musicState.playing;
@@ -994,7 +922,7 @@ function processWSMessageInternal(message) {
         // Control audio playback based on state with preroll buffering
         if (state.playing && audio.paused) {
             const pauseDuration = pauseStartTime ? (Date.now() - pauseStartTime) : Infinity;
-            if (pauseDuration < BUFFER_WARM_DURATION) {
+if (pauseDuration < BUFFER_WARM_DURATION) {
                 // Fast resume - buffer should still be warm
                 // Only play if not already playing by user (prevent double-play)
                 if (audio.paused) {
@@ -1008,7 +936,7 @@ function processWSMessageInternal(message) {
                 }
             }
             pauseStartTime = null;
-        } else if (!state.playing && !audio.paused) {
+} else if (!state.playing && !audio.paused) {
             // Only pause if not already paused by user (prevent double-pause)
             pauseStartTime = Date.now(); // Track pause start time
             audio.pause();
@@ -1035,13 +963,6 @@ function processWSMessageInternal(message) {
         // Consolidated state update logic
         const needsSongContext = songChanged || playChanged || queueChanged;
 
-        // SAFETY: Reset any stuck song switching flags
-        const pidLock = window.globalActiveProfileId || 'default';
-        if (isSwitchingSongByProfile[pidLock]) {
-            console.warn('[musicBar] Clearing stuck song switching flag for profile:' + pidLock);
-            isSwitchingSongByProfile[pidLock] = false;
-        }
-
         if (needsSongContext && state.currentSongId !== window.lastRefreshedSongId) {
             window.lastRefreshedSongId = state.currentSongId;
 
@@ -1057,42 +978,19 @@ function processWSMessageInternal(message) {
                         const nextSong = nextSongResponse?.data;
 
                         if (currentSong) {
-
-                            // CRITICAL FIX: Actually update audio source when song changes
-                            if (songChanged) {
-                                console.log('[musicBar] Song changed via WebSocket - updating audio source:');
-                                console.log({
-                                    from: musicState.currentSongId,
-                                    to: currentSong.id,
-                                    playing: state.playing,
-                                    currentTime: state.currentTime,
-                                    currentSongTitle: currentSong.title,
-                                    currentSongArtist: currentSong.artist
-                                });
-
-                                // Update the audio source with the new song
-                                try {
-                                    UpdateAudioSource(currentSong, prevSong, nextSong, state.playing, state.currentTime);
-                                    console.log('[musicBar] UpdateAudioSource called successfully');
-                                } catch (error) {
-                                    console.error('[musicBar] Error calling UpdateAudioSource:', error);
-                                }
-                            } else {
-                                console.log('[musicBar] Song unchanged, skipping UpdateAudioSource call');
-                            }
                             // Update cache for immediate next/previous use
                             if (currentSong && prevSong && nextSong) {
                                 // Validate cache data matches current state before updating
                                 const currentSongId = window.lastRefreshedSongId || musicState.currentSongId;
                                 const isCurrentValid = String(currentSong.id) === String(currentSongId);
-
+                                
                                 console.log('[musicBar] Warming song context cache - validation:', {
                                     currentSongId: currentSongId,
                                     fetchedCurrentId: currentSong.id,
                                     isValid: isCurrentValid,
-                                    response: {current: currentSong, prevSong: prevSong, nextSong: nextSong}
+                                    response: { current: currentSong, prevSong: prevSong, nextSong: nextSong }
                                 });
-
+                                
                                 // Only update cache if data is valid
                                 if (isCurrentValid) {
                                     updateSongContextCache(currentSong, prevSong, nextSong, window.globalActiveProfileId);
@@ -1124,23 +1022,23 @@ function processWSMessageInternal(message) {
                         }
                     })
                     .catch(error => console.error("Error fetching song context:", error));
-        } else if (message.type === 'history-update') {
-            // Trigger history refresh if the function exists
-            if (window.refreshHistory) {
-                window.refreshHistory();
-            } else {
-                // Wait a bit and try again in case history.js hasn't loaded yet
-                setTimeout(() => {
-                    if (window.refreshHistory) {
-                        window.refreshHistory();
-                    }
-                }, 100);
-            }
+        } 
+    } else if (message.type === 'history-update') {
+        // Trigger history refresh if the function exists
+        if (window.refreshHistory) {
+            window.refreshHistory();
+        } else {
+            // Wait a bit and try again in case history.js hasn't loaded yet
+            setTimeout(() => {
+                if (window.refreshHistory) {
+                    window.refreshHistory();
+                }
+            }, 100);
         }
-
-        // Always update music bar at the end
-        updateMusicBar();
     }
+
+    // Always update music bar at the end
+    updateMusicBar();
 }
 
 function sendWS(type, payload) {
@@ -1231,10 +1129,10 @@ function bindPlaybackButtons() {
     if (playPauseBtn) {
         const newPlayPauseBtn = playPauseBtn.cloneNode(true);
         playPauseBtn.parentNode.replaceChild(newPlayPauseBtn, playPauseBtn);
-        newPlayPauseBtn.onclick = async () => {
+newPlayPauseBtn.onclick = async () => {
             // Record local action BEFORE optimistic update
             recordLocalAction('playPause');
-
+            
             // Race condition mitigation: store previous state for rollback
             const previousPlayingState = musicState.playing;
 
@@ -1262,7 +1160,7 @@ function bindPlaybackButtons() {
                 }
             } catch (error) {
                 // Race condition mitigation: rollback optimistic update on failure
-                console.error('[musicBar] Play/pause toggle failed, rolling back:', error);
+console.error('[musicBar] Play/pause toggle failed, rolling back:', error);
                 musicState.playing = previousPlayingState;
                 updateMusicBar();
                 if (window.showToast) {
@@ -1275,36 +1173,14 @@ function bindPlaybackButtons() {
         const newPrevBtn = prevBtn.cloneNode(true);
         prevBtn.parentNode.replaceChild(newPrevBtn, prevBtn);
         newPrevBtn.onclick = () => {
-            // Immediate optimistic feedback
-            if (window.showToast) {
-                window.showToast('Previous song!', 'success', 2000);
-            }
-            
-            // Background API call with error handling
-            apiPost('previous', window.globalActiveProfileId)
-                .catch(error => {
-                    if (window.showToast) {
-                        window.showToast('Failed to go to previous song', 'error');
-                    }
-                });
+            apiPost('previous', window.globalActiveProfileId);
         };
     }
     if (nextBtn) {
         const newNextBtn = nextBtn.cloneNode(true);
         nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
         newNextBtn.onclick = () => {
-            // Immediate optimistic feedback
-            if (window.showToast) {
-                window.showToast('Next song!', 'success', 2000);
-            }
-            
-            // Background API call with error handling
-            apiPost('next', window.globalActiveProfileId)
-                .catch(error => {
-                    if (window.showToast) {
-                        window.showToast('Failed to go to next song', 'error');
-                    }
-                });
+            apiPost('next', window.globalActiveProfileId);
         };
     }
 
@@ -1312,38 +1188,16 @@ function bindPlaybackButtons() {
     if (prevSongCoverImage) {
         const newPrevSongCoverImage = prevSongCoverImage.cloneNode(true);
         prevSongCoverImage.parentNode.replaceChild(newPrevSongCoverImage, prevSongCoverImage);
-        newPrevSongCoverImage.onclick = () => {
-            // Immediate optimistic feedback
-            if (window.showToast) {
-                window.showToast('Previous song!', 'success', 2000);
-            }
-            
-            // Background API call with error handling
-            apiPost('previous', window.globalActiveProfileId)
-                .catch(error => {
-                    if (window.showToast) {
-                        window.showToast('Failed to go to previous song', 'error');
-                    }
-                });
+newPrevSongCoverImage.onclick = () => {
+            apiPost('previous', window.globalActiveProfileId);
         };
     }
 
     if (nextSongCoverImage) {
         const newNextSongCoverImage = nextSongCoverImage.cloneNode(true);
         nextSongCoverImage.parentNode.replaceChild(newNextSongCoverImage, nextSongCoverImage);
-        newNextSongCoverImage.onclick = () => {
-            // Immediate optimistic feedback
-            if (window.showToast) {
-                window.showToast('Next song!', 'success', 2000);
-            }
-            
-            // Background API call with error handling
-            apiPost('next', window.globalActiveProfileId)
-                .catch(error => {
-                    if (window.showToast) {
-                        window.showToast('Failed to go to next song', 'error');
-                    }
-                });
+newNextSongCoverImage.onclick = () => {
+            apiPost('next', window.globalActiveProfileId);
         };
     }
 
@@ -2338,7 +2192,7 @@ if (customContextMenu) {
                 if (currentRightClickedSongId) {
                     htmx.ajax('POST', `/api/music/queue/add/${window.globalActiveProfileId}/${currentRightClickedSongId}`, {
                         handler: function () {
-                            console.log(`Song ${currentRightClickedSongId} added to queue.`);
+console.log(`Song ${currentRightClickedSongId} added to queue.`);
                             if (window.showToast) {
                                 window.showToast('Song added to queue', 'success');
                             }
@@ -2454,24 +2308,3 @@ if (!syncTimer) {
 // Make critical functions globally available for mobile.js compatibility
 window.addSongToPlaylist = addSongToPlaylist;
 window.removeSongFromCurrentPlaylist = removeSongFromCurrentPlaylist;
-function ensureAudioElementReady() {
-    const audioElement = document.getElementById('audioPlayer');
-    if (!audioElement) {
-        console.error('[CRITICAL] audioPlayer element not found!');
-        return false;
-    }
-
-    // Make sure audio element is properly configured
-    audioElement.preload = 'auto';
-    window.audio = audioElement;
-    console.log('[musicBar] Audio element verified and ready');
-    return true;
-}
-
-// Call safety check immediately
-ensureAudioElementReady();
-
-// Also call after DOM is ready in case script runs early
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', ensureAudioElementReady);
-}

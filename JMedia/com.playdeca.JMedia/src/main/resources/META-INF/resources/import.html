@@ -20,7 +20,7 @@
             // Define globalActiveProfileId as a property of the window object
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
         </script>
-        <audio id="audioPlayer" preload="metadata"></audio>
+        <audio id="audioPlayer" preload="auto"></audio>
 
         <section class="hero is-fullheight">
             <div class="hero-head">
@@ -126,14 +126,23 @@
                                         <label class="label" for="spotdlUrl">
                                             <span class="icon-text">
                                                 <span class="icon"><i class="pi pi-music"></i></span>
-                                                <span>Song</span>
+                                                <span>Songs</span>
                                             </span>
                                         </label>
                                         <div class="control">
-                                            <input class="input is-medium" type="text" id="spotdlUrl" 
-                                                   placeholder="Enter a song name or a Spotify or YouTube URL (playlists work)">
+                                            <textarea class="textarea is-medium" id="spotdlUrl" 
+                                                      placeholder="Single song: 'Song Title' or 'Artist - Title'
+                      
+Multi-line list:
+Max Sinàl,KingCrowney,Liv East - Intentions
+Jend - I Know
+NO CIGAR - Cool
+Darius,WAYNE SNOW - Night Birds
+Good Luck - Look at U
+
+Or enter Spotify/YouTube URLs (playlists work)"></textarea>
                                         </div>
-                                        <p class="help is-size-7">Supports individual songs, albums, and playlists from Spotify or YouTube</p>
+                                        <p class="help is-size-7">Single songs, albums, playlists, or multi-line song lists. Song lists support multiple artists separated by commas. Each line is treated as a separate song.</p>
                                     </div>
 
                                     <div class="field">
@@ -175,6 +184,51 @@
                                             </div>
                                         </div>
                                         <p class="help is-size-7">Add downloaded songs to an existing playlist or create a new one</p>
+                                    </div>
+
+                                    <!-- Cookies Upload Section (Linux Only) -->
+                                    <div class="field" x-data="{ isLinux: navigator.userAgent.toLowerCase().includes('linux') }" x-show="isLinux">
+                                        <label class="label">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-cookie"></i></span>
+                                                <span>YouTube Cookies (Linux Only)</span>
+                                            </span>
+                                        </label>
+                                        <div class="card has-background-dark">
+                                            <div class="card-content p-4">
+                                                <div class="field">
+                                                    <div class="control">
+                                                        <textarea class="textarea has-background-black has-text-white" 
+                                                                  id="cookiesContent" rows="6" 
+                                                                  placeholder="Paste your cookies.txt content here for YouTube downloads that require authentication...
+Format: Netscape cookie format or HTTP request headers
+This enables downloading age-restricted or region-restricted content."></textarea>
+                                                    </div>
+                                                    <p class="help is-size-7 has-text-warning">For Linux servers only. Enables downloading restricted YouTube content using cookies.</p>
+                                                </div>
+                                                <div class="field is-grouped">
+                                                    <div class="control">
+                                                        <button class="button is-info is-medium" id="uploadCookiesBtn">
+                                                            <span class="icon-text">
+                                                                <span class="icon"><i class="pi pi-upload"></i></span>
+                                                                <span>Save Cookies</span>
+                                                            </span>
+                                                        </button>
+                                                    </div>
+                                                    <div class="control">
+                                                        <button class="button is-danger is-medium" id="deleteCookiesBtn">
+                                                            <span class="icon-text">
+                                                                <span class="icon"><i class="pi pi-trash"></i></span>
+                                                                <span>Delete</span>
+                                                            </span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div id="cookiesStatus" class="notification is-hidden">
+                                                    <!-- Cookies status will be shown here -->
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div class="field is-grouped">
@@ -311,6 +365,150 @@
             // Update URLs initially and when profile switches
             updateHmxUrls();
             document.body.addEventListener('profileSwitched', updateHmxUrls);
+
+            // Cookies Management Functions
+            function updateCookiesStatus() {
+                const profileId = window.globalActiveProfileId;
+                fetch(`/api/settings/${profileId}/cookies-status`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const status = data.data;
+                            const statusDiv = document.getElementById('cookiesStatus');
+                            const deleteBtn = document.getElementById('deleteCookiesBtn');
+                            const uploadBtn = document.getElementById('uploadCookiesBtn');
+                            
+                            if (status.configured && status.exists) {
+                                statusDiv.className = 'notification is-success is-size-7';
+                                statusDiv.innerHTML = `
+                                    <span class="icon-text">
+                                        <span class="icon"><i class="pi pi-check-circle"></i></span>
+                                        <span>Cookies file configured and accessible</span>
+                                    </span>
+                                    <br>
+                                    <small>Path: ${status.path}</small>
+                                    <br>
+                                    <small>Last modified: ${status.lastModified || 'Unknown'}</small>
+                                `;
+                                deleteBtn.disabled = false;
+                                uploadBtn.textContent = 'Update Cookies';
+                            } else {
+                                statusDiv.className = 'notification is-warning is-size-7';
+                                statusDiv.innerHTML = `
+                                    <span class="icon-text">
+                                        <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
+                                        <span>No cookies file configured</span>
+                                    </span>
+                                `;
+                                deleteBtn.disabled = true;
+                                uploadBtn.innerHTML = `
+                                    <span class="icon-text">
+                                        <span class="icon"><i class="pi pi-upload"></i>
+                                        <span>Save Cookies</span>
+                                    </span>
+                                `;
+                            }
+                            
+                            statusDiv.classList.remove('is-hidden');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error checking cookies status:', error);
+                    });
+            }
+
+            function uploadCookies() {
+                const profileId = window.globalActiveProfileId;
+                const cookiesContent = document.getElementById('cookiesContent').value.trim();
+                
+                if (!cookiesContent) {
+                    showToast('Please enter cookies content', 'warning');
+                    return;
+                }
+
+                const uploadBtn = document.getElementById('uploadCookiesBtn');
+                const originalText = uploadBtn.innerHTML;
+                uploadBtn.disabled = true;
+                uploadBtn.innerHTML = '<span class="icon"><i class="pi pi-spin pi-spinner"></i></span> Saving...';
+
+                fetch(`/api/settings/${profileId}/upload-cookies`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ cookiesContent: cookiesContent })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('Cookies file saved successfully', 'success');
+                        document.getElementById('cookiesContent').value = '';
+                        updateCookiesStatus();
+                    } else {
+                        showToast('Failed to save cookies: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error uploading cookies:', error);
+                    showToast('Error uploading cookies', 'error');
+                })
+                .finally(() => {
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = originalText;
+                });
+            }
+
+            function deleteCookies() {
+                if (!confirm('Are you sure you want to delete the cookies file?')) {
+                    return;
+                }
+
+                const profileId = window.globalActiveProfileId;
+                const deleteBtn = document.getElementById('deleteCookiesBtn');
+                const originalText = deleteBtn.innerHTML;
+                deleteBtn.disabled = true;
+                deleteBtn.innerHTML = '<span class="icon"><i class="pi pi-spin pi-spinner"></i></span> Deleting...';
+
+                fetch(`/api/settings/${profileId}/cookies`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('Cookies file deleted successfully', 'success');
+                        updateCookiesStatus();
+                    } else {
+                        showToast('Failed to delete cookies: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting cookies:', error);
+                    showToast('Error deleting cookies', 'error');
+                })
+                .finally(() => {
+                    deleteBtn.disabled = false;
+                    deleteBtn.innerHTML = originalText;
+                });
+            }
+
+            // Event listeners for cookies functionality
+            document.addEventListener('DOMContentLoaded', function() {
+                const uploadBtn = document.getElementById('uploadCookiesBtn');
+                const deleteBtn = document.getElementById('deleteCookiesBtn');
+                
+                if (uploadBtn) {
+                    uploadBtn.addEventListener('click', uploadCookies);
+                }
+                
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', deleteCookies);
+                }
+                
+                // Initial cookies status check (only if on Linux)
+                if (navigator.userAgent.toLowerCase().includes('linux')) {
+                    updateCookiesStatus();
+                }
+            });
 
             // HTMX request interception to inject profileId into URLs
             document.body.addEventListener('htmx:beforeRequest', function (event) {

@@ -3,6 +3,8 @@
 // This file will handle the Media Session API integration.
 // It assumes musicState, audio, apiPost, and setPlaybackTime are available from musicBar.js
 
+
+
 if ('mediaSession' in navigator) {
     console.log("[mediaSession.js] Media Session API supported.");
 

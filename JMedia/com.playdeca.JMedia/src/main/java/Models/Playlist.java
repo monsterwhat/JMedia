@@ -20,13 +20,13 @@ public class Playlist extends PanacheEntity {
     private String description;
     
     @Column(length = 2048)
-    private String originalLink; // Store original playlist link from import
+    public String originalLink; // Store original playlist link from import
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "profile_id")
     private Profile profile;
     
-    private Boolean isGlobal = true; // Global playlists accessible to all profiles
+    public Boolean isGlobal = true; // Global playlists accessible to all profiles
 
     @JsonIgnore
     @ToString.Exclude

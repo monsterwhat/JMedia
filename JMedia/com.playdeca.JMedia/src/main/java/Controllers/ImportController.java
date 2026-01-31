@@ -5,6 +5,8 @@ import Services.ImportService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import java.util.List;
+
 @ApplicationScoped
 public class ImportController {
 
@@ -16,6 +18,13 @@ public class ImportController {
      */
     public void startDownload(String url, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload, Long profileId) {
         importService.startDownload(url, format, downloadThreads, searchThreads, downloadPath, playlistName, queueAfterDownload, profileId);
+    }
+
+    /**
+     * Starts background import process for multiple songs/URLs.
+     */
+    public void startDownloads(List<String> urls, String format, Integer downloadThreads, Integer searchThreads, String downloadPath, String playlistName, boolean queueAfterDownload, Long profileId) {
+        importService.startDownloads(urls, format, downloadThreads, searchThreads, downloadPath, playlistName, queueAfterDownload, profileId);
     }
 
     /**

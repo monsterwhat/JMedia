@@ -86,7 +86,7 @@ public class PlaybackController {
         }, 0, PLAYBACK_UPDATE_INTERVAL_MS, TimeUnit.MILLISECONDS);
         playbackTasks.put(profileId, task);
         LOGGER.info("Playback timer started for profile: " + profileId);
-}
+    }
 
     @Transactional // Ensure database operations run in a transaction
     protected void processPlaybackTick(Long profileId) {
@@ -187,6 +187,8 @@ public class PlaybackController {
             newState.setCurrentTime(currentState.getCurrentTime());
         }
 
+         
+        newState.setServerTime(System.currentTimeMillis());
         if (newState.getCue() == null) {
             newState.setCue(new ArrayList<>());
         }
@@ -511,17 +513,20 @@ public class PlaybackController {
         updateState(profileId, st, true);
     }
 
+    @Transactional
     public synchronized void handleSongEnded(Long profileId) {
         currentSettings.addLog("Song ended naturally.");
         System.out.println("Song Ended");
         advanceSong(true, true, profileId); // Automatic advance due to song end
     }
 
+    @Transactional
     public synchronized void togglePlay(Long profileId) {
         currentSettings.addLog("Playback toggled.");
         System.out.println("Toggle");
         PlaybackState state = getState(profileId);
         playbackQueueController.togglePlay(state, profileId);
+
         if (state.isPlaying()) {
             startPlaybackTimer(profileId);
         } else {
@@ -533,6 +538,7 @@ public class PlaybackController {
     /**
      * Cycles through shuffle modes: OFF, SHUFFLE, SMART_SHUFFLE
      */
+    @Transactional
     public synchronized void toggleShuffle(Long profileId) {
         PlaybackState state = getState(profileId);
         PlaybackState.ShuffleMode currentMode = state.getShuffleMode();
@@ -565,6 +571,7 @@ public class PlaybackController {
     /**
      * Cycles through repeat modes: OFF, ONE, ALL.
      */
+    @Transactional
     public synchronized void toggleRepeat(Long profileId) {
         PlaybackState state = getState(profileId);
         playbackQueueController.toggleRepeat(state, profileId);
@@ -575,7 +582,14 @@ public class PlaybackController {
     /**
      * Sets the playback volume (0.0 - 1.0) and persists state
      */
+    @Transactional
     public synchronized void changeVolume(float level, Long profileId) {
+        // Normalize volume to [0.0, 1.0]
+        if (level < 0f || Float.isNaN(level)) {
+            level = 0f;
+        } else if (level > 1f) {
+            level = 1f;
+        }
         PlaybackState st = getState(profileId);
         playbackQueueController.changeVolume(st, level, profileId);
         updateState(profileId, st, true);
@@ -584,6 +598,7 @@ public class PlaybackController {
     /**
      * Sets the playback position in seconds and persists state
      */
+    @Transactional
     public synchronized void setSeconds(double seconds, Long profileId) {
         System.out.println("[PlaybackController] setSeconds called with: " + seconds + " for profile: " + profileId);
         PlaybackState st = getState(profileId);

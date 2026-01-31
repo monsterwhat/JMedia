@@ -35,13 +35,19 @@ class DeviceSyncManager {
             console.log('[DeviceSync] Profile ready event received:', event.detail.profileId);
             // Only load if we're on the settings page and device sync section is visible
             if (document.getElementById('deviceSyncContent')) {
-                this.loadActiveSessions();
+                this.loadActiveSessions().catch(error => {
+                    console.error('[DeviceSync] Failed to load sessions on profile ready:', error);
+                });
             }
         });
         
         // Also check if profile is already available
         if (window.globalActiveProfileId && window.globalActiveProfileId !== 'undefined' && document.getElementById('deviceSyncContent')) {
-            setTimeout(() => this.loadActiveSessions(), 500);
+            setTimeout(() => {
+                this.loadActiveSessions().catch(error => {
+                    console.error('[DeviceSync] Failed to load sessions on delayed load:', error);
+                });
+            }, 500);
         }
     }
 

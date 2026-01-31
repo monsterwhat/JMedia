@@ -1761,6 +1761,21 @@ html[data-theme="dark"] #volumeProgressBar::-ms-thumb {
     color: #3298dc !important;
 }
 
+.toast-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    margin-left: auto;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.toast-close:hover {
+    opacity: 1;
+}
+
 /* Fix for playlist sidebar buttons to be full width */
 #sidebarPlaylistListContainer .table td {
     padding: 0.25rem;

@@ -29,13 +29,14 @@ public class PlaybackState extends PanacheEntity {
     private Long currentPlaylistId;
     private String songName;
     private String artistName;
-    private double currentTime;
-    private double duration; // Added duration field
+    private double currentTime; 
+    private long serverTime;
+    private double duration;  
     private float volume;
     @Enumerated(EnumType.STRING)
-    private ShuffleMode shuffleMode = ShuffleMode.OFF;
-    private long lastUpdateTime; // Timestamp of the last state update on the server
-
+    private ShuffleMode shuffleMode = ShuffleMode.OFF; 
+    private long lastUpdateTime;  
+     
 
     @ElementCollection(fetch = FetchType.EAGER)
     private List<Long> cue = new ArrayList<>();
@@ -55,12 +56,12 @@ public class PlaybackState extends PanacheEntity {
         OFF,
         SHUFFLE,
         SMART_SHUFFLE
-    }
-
+    } 
+    
     public enum RepeatMode {
         OFF, // no repeat
         ONE, // repeat current song
-        ALL        // repeat playlist
+        ALL  // repeat playlist
     }
-
+ 
 }

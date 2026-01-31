@@ -1,6 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Models.PlaybackState;
 import Controllers.PlaybackController;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -36,6 +37,13 @@ public class PlaybackAPI {
     public Response getNextSong(@PathParam("profileId") Long profileId) {
         var next = playbackController.getNextSong(profileId);
         return Response.ok(ApiResponse.success(next)).build();
+    }
+
+    @GET
+    @Path("/state/{profileId}")
+    public Response getState(@PathParam("profileId") Long profileId) {
+        PlaybackState state = playbackController.getState(profileId);
+        return Response.ok(ApiResponse.success(state)).build();
     }
 
     @POST

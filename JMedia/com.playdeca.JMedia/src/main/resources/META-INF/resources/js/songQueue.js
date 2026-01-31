@@ -213,7 +213,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.refreshQueue = () => {
         if (!hasInitialLoad) {
             hasInitialLoad = true;
-            loadQueuePage(1); // Reset page to load from the beginning
+            try {
+                loadQueuePage(1); // Reset page to load from the beginning
+            } catch (error) {
+                console.error('[songQueue] Failed to refresh queue:', error);
+                hasInitialLoad = false; // Reset flag on error
+            }
         }
     };
 
@@ -223,7 +228,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listen for queue change events from musicBar.js
     window.addEventListener('queueChanged', (event) => {
         // Always fetch queue data immediately (HTTP fallback)
-        loadQueuePage(1);
+        try {
+            loadQueuePage(1);
+        } catch (error) {
+            console.error('[songQueue] Failed to load queue on change event:', error);
+        }
     });
 });
 

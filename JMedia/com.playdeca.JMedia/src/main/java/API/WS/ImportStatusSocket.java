@@ -13,6 +13,7 @@ import jakarta.websocket.server.ServerEndpoint;
 
 import jakarta.websocket.server.PathParam; // Added import
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -94,8 +95,20 @@ public class ImportStatusSocket {
                     session.getAsyncRemote().sendText("ERROR: Profile ID not found for your session. Cannot start import.");
                     return;
                 }
-                importController.startDownload(
-                        request.url,
+                
+                // Handle backward compatibility: if urls is null, use single url
+                List<String> urlsToProcess = request.urls;
+                if (urlsToProcess == null || urlsToProcess.isEmpty()) {
+                    if (request.url != null && !request.url.trim().isEmpty()) {
+                        urlsToProcess = List.of(request.url);
+                    } else {
+                        session.getAsyncRemote().sendText("ERROR: No URLs provided for import.");
+                        return;
+                    }
+                }
+                
+                importController.startDownloads(
+                        urlsToProcess,
                         request.format,
                         request.downloadThreads,
                         request.searchThreads,
@@ -128,7 +141,8 @@ public class ImportStatusSocket {
     private static class ImportRequest {
 
         public String type;
-        public String url;
+        public String url; // For backward compatibility
+        public List<String> urls; // New field for multiple URLs/songs
         public String format;
         public Integer downloadThreads;
         public Integer searchThreads;

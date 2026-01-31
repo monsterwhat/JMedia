@@ -45,7 +45,7 @@ public class MusicUiApi {
 
     @Inject
     private ProfileService profileService;
-    
+
     @Inject
     Services.PlaybackHistoryService playbackHistoryService;
 
@@ -58,7 +58,7 @@ public class MusicUiApi {
     @Inject
     @io.quarkus.qute.Location("playlistTableBodyFragment.html")
     Template playlistTableBodyFragment;
-    
+
     @Inject
     @io.quarkus.qute.Location("mobilePlaylistTableBodyFragment.html")
     Template mobilePlaylistTableBodyFragment;
@@ -71,20 +71,20 @@ public class MusicUiApi {
 
     @Inject
     Template searchResultsView;
-    
+
     @Inject
     Template allSongsFragment;
-    
+
     @Inject
     Template historyFragment;
-    
+
     @Inject
     @io.quarkus.qute.Location("mobilePlaylistFragment.html")
     Template mobilePlaylistFragment;
-    
+
     @Inject
     Template mobileQueueFragment;
-    
+
     @Inject
     Template mobileHistoryFragment;
 
@@ -148,6 +148,7 @@ public class MusicUiApi {
     // -------------------------
     // DTO for queue fragment response
     public record QueueFragmentResponse(String html, int totalQueueSize) {
+
     }
 
     // DTO for history fragment response
@@ -342,7 +343,7 @@ public class MusicUiApi {
 
         long playlistId = id == null ? 0L : id;
         System.out.println("DEBUG: Rendering playlist view with profileId=" + profileId + ", playlistId=" + playlistId);
-        
+
         // For playlist view, we need to check if the user has access to this specific playlist
         Playlist playlist = null;
         String name;
@@ -532,7 +533,7 @@ public class MusicUiApi {
     public record SongWithIndex(Song song, int index) {
 
     }
-    
+
     // Helper record to pass history entry and its index to the template
     public record HistoryWithIndex(Models.PlaybackHistory history, int index) {
 
@@ -687,23 +688,23 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
-        
+
         SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
         List<Song> songs = result.songs();
         long totalSongs = result.totalCount();
-        
+
         if (totalSongs == 0) {
             return "<tr><td colspan='6' class='has-text-centered'>No songs found.</td></tr>";
         }
-        
+
         int totalPages = (int) Math.ceil((double) totalSongs / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages));
-        
+
         Song currentSong = playbackController.getCurrentSong(profileId);
         boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
-        
+
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
-        
+
         return allSongsFragment
                 .data("songs", songs)
                 .data("currentSong", currentSong)
@@ -735,7 +736,7 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
         List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId);
-        
+
         // Get total count for pagination
         long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
 
@@ -774,7 +775,7 @@ public class MusicUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
         List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId);
-        
+
         // Get total count for pagination
         long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
 
@@ -804,7 +805,6 @@ public class MusicUiApi {
 
     // Note: Individual history removal and clearing are no longer supported
 // History is now read-only, similar to recently played lists in other music apps
-
     private List<Playlist> getPlaylistsByProfileId(Long profileId) {
         if (profileId == null) {
             return new java.util.ArrayList<>();
@@ -822,5 +822,13 @@ public class MusicUiApi {
             System.err.println("DEBUG: Playlist ID=" + p.id + ", Name=" + p.getName() + ", Global=" + p.getIsGlobal() + ", Profile=" + (p.getProfile() != null ? p.getProfile().id : null));
         }
         return playlists;
+    }
+
+    @GET
+    @Path("/genres")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getDistinctGenres() {
+        List<String> genres = songService.getDistinctGenres();
+        return Response.ok(genres).build();
     }
 }

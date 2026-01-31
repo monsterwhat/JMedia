@@ -89,7 +89,7 @@ public class MusicSocket {
 
     private void sendCurrentState(Session session, Long profileId) {
         PlaybackState state = playbackController.getState(profileId);
-        if (state != null && state.getCurrentSongId() != null) {
+        if (state != null) {
             try {
                 ObjectNode message = mapper.createObjectNode();
                 message.put("type", "state");
@@ -112,7 +112,7 @@ public class MusicSocket {
         });
     }
 
-  public void broadcastAll(PlaybackState stateToBroadcast, Long profileId) {
+    public void broadcastAll(PlaybackState stateToBroadcast, Long profileId) {
         if (stateToBroadcast == null) {
             System.out.println("[MusicSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
             return;

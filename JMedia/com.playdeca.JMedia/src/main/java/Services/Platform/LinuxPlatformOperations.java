@@ -603,6 +603,51 @@ public class LinuxPlatformOperations implements PlatformOperations {
         return java.nio.file.Files.exists(java.nio.file.Paths.get(pipxSpotdlPath)) || isCommandAvailable("spotdl");
     }
     
+    /**
+     * Get the path where cookies.txt file should be stored
+     */
+    public String getCookiesStoragePath() {
+        String userHome = System.getProperty("user.home");
+        String jmediaDir = userHome + "/.jmedia";
+        return jmediaDir + "/cookies.txt";
+    }
+    
+    /**
+     * Validate cookies file format and content
+     */
+    public boolean validateCookiesFile(String cookiesPath) {
+        try {
+            java.nio.file.Path path = java.nio.file.Paths.get(cookiesPath);
+            if (!java.nio.file.Files.exists(path) || !java.nio.file.Files.isRegularFile(path)) {
+                return false;
+            }
+            
+            // Basic validation: check if file contains typical Netscape cookie format
+            String content = java.nio.file.Files.readString(path);
+            if (content.trim().isEmpty()) {
+                return false;
+            }
+            
+            // Check for at least one line with cookie-like structure
+            String[] lines = content.split("\\r?\\n");
+            for (String line : lines) {
+                line = line.trim();
+                if (!line.startsWith("#") && !line.isEmpty()) {
+                    // A basic check for tab-separated cookie format
+                    String[] parts = line.split("\\t");
+                    if (parts.length >= 7) {
+                        return true; // Found at least one valid cookie line
+                    }
+                }
+            }
+            
+            return false; // No valid cookie format found
+        } catch (Exception e) {
+            LOGGER.debug("Error validating cookies file: " + e.getMessage());
+            return false;
+        }
+    }
+    
     private boolean isCommandAvailable(String command) {
         try {
             ProcessBuilder pb = new ProcessBuilder("which", command);

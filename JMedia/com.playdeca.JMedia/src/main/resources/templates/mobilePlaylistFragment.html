@@ -26,4 +26,12 @@
         <i class="pi pi-chevron-right"></i>
     </div>
     {/for}
+    
+    {#if playlists.isEmpty()}
+    <div class="mobile-empty-state">
+        <i class="pi pi-folder-open" style="font-size: 48px; color: #ccc;"></i>
+        <p>No playlists found</p>
+        <p style="font-size: 12px; color: #999;">Create your first playlist to get started</p>
+    </div>
+    {/if}
 </div>

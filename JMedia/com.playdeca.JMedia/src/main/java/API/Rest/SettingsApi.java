@@ -525,6 +525,151 @@ public class SettingsApi {
         boolean isInstalled = settingsController.getImportService().getInstallationStatus().isAllInstalled();
         return Response.ok(ApiResponse.success(isInstalled)).build();
     }
+
+    // -----------------------------
+    // COOKIES MANAGEMENT
+    // -----------------------------
+    @POST
+    @Path("/{profileId}/upload-cookies")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request) {
+        try {
+            // Check if running on Linux
+            if (!System.getProperty("os.name").toLowerCase().contains("linux")) {
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity(ApiResponse.error("Cookies upload is only supported on Linux systems"))
+                        .build();
+            }
+
+            String cookiesContent = request.get("cookiesContent");
+            if (cookiesContent == null || cookiesContent.trim().isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("No cookies content provided"))
+                        .build();
+            }
+
+            // Get storage path from platform operations
+            Services.Platform.LinuxPlatformOperations linuxOps = new Services.Platform.LinuxPlatformOperations();
+            String cookiesStoragePath = linuxOps.getCookiesStoragePath();
+
+            // Ensure directory exists
+            java.nio.file.Path cookiesDir = java.nio.file.Paths.get(cookiesStoragePath).getParent();
+            if (!java.nio.file.Files.exists(cookiesDir)) {
+                java.nio.file.Files.createDirectories(cookiesDir);
+            }
+
+            // Save the file
+            java.nio.file.Files.writeString(java.nio.file.Paths.get(cookiesStoragePath), cookiesContent);
+
+            // Validate cookies file
+            if (!linuxOps.validateCookiesFile(cookiesStoragePath)) {
+                java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(cookiesStoragePath));
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Invalid cookies file format"))
+                        .build();
+            }
+
+            // Set file permissions to 600 (read/write for owner only)
+            java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesStoragePath);
+            try {
+                java.nio.file.attribute.PosixFileAttributeView attrs = java.nio.file.Files.getFileAttributeView(cookiesPath, java.nio.file.attribute.PosixFileAttributeView.class);
+                if (attrs != null) {
+                    attrs.setPermissions(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+                }
+            } catch (Exception e) {
+                // Continue even if permission setting fails
+                settingsController.addLog("Warning: Could not set secure permissions on cookies file: " + e.getMessage());
+            }
+
+            // Update settings
+            Settings settings = settingsController.getOrCreateSettings();
+            settings.setCookiesFilePath(cookiesStoragePath);
+            settingsService.save(settings);
+
+            settingsController.addLog("Cookies file uploaded successfully: " + cookiesStoragePath);
+
+            return Response.ok(ApiResponse.success("Cookies file uploaded successfully")).build();
+
+        } catch (Exception e) {
+            settingsController.addLog("Failed to upload cookies file: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to upload cookies file: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
+    @Path("/{profileId}/cookies-status")
+    @Transactional
+    public Response getCookiesStatus(@PathParam("profileId") Long profileId) {
+        try {
+            Settings settings = settingsController.getOrCreateSettings();
+            String cookiesFilePath = settings.getCookiesFilePath();
+            
+            java.util.Map<String, Object> status = new java.util.HashMap<>();
+            
+            if (cookiesFilePath != null && !cookiesFilePath.isBlank()) {
+                java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesFilePath);
+                status.put("configured", true);
+                status.put("exists", java.nio.file.Files.exists(cookiesPath));
+                status.put("path", cookiesFilePath);
+                
+                if (java.nio.file.Files.exists(cookiesPath)) {
+                    try {
+                        java.nio.file.attribute.BasicFileAttributes attrs = java.nio.file.Files.readAttributes(cookiesPath, java.nio.file.attribute.BasicFileAttributes.class);
+                        status.put("lastModified", attrs.lastModifiedTime().toString());
+                        status.put("size", attrs.size());
+                    } catch (Exception e) {
+                        status.put("readable", false);
+                    }
+                }
+            } else {
+                status.put("configured", false);
+                status.put("exists", false);
+            }
+            
+            status.put("isLinux", System.getProperty("os.name").toLowerCase().contains("linux"));
+            
+            return Response.ok(ApiResponse.success(status)).build();
+            
+        } catch (Exception e) {
+            settingsController.addLog("Failed to get cookies status: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get cookies status: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @DELETE
+    @Path("/{profileId}/cookies")
+    @Transactional
+    public Response deleteCookies(@PathParam("profileId") Long profileId) {
+        try {
+            Settings settings = settingsController.getOrCreateSettings();
+            String cookiesFilePath = settings.getCookiesFilePath();
+            
+            if (cookiesFilePath != null && !cookiesFilePath.isBlank()) {
+                java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesFilePath);
+                if (java.nio.file.Files.exists(cookiesPath)) {
+                    java.nio.file.Files.delete(cookiesPath);
+                    settingsController.addLog("Cookies file deleted: " + cookiesFilePath);
+                }
+            }
+            
+            // Clear the path from settings
+            settings.setCookiesFilePath(null);
+            settingsService.save(settings);
+            
+            return Response.ok(ApiResponse.success("Cookies file deleted successfully")).build();
+            
+        } catch (Exception e) {
+            settingsController.addLog("Failed to delete cookies file: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to delete cookies file: " + e.getMessage()))
+                    .build();
+        }
+    }
    
   
 }

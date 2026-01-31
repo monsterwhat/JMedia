@@ -107,13 +107,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Expose a global function for starting import from search
     window.startImportFromSearch = (searchQuery) => {
         clearWarning();
-        const url = searchQuery; // Use the search query as the URL for import
+        const urls = [searchQuery]; // Use the search query as a single URL for import
         const format = importSettings.outputFormat || 'mp3';
         const downloadThreads = importSettings.downloadThreads || 4;
         const searchThreads = importSettings.searchThreads || 4;
         const currentDownloadPath = downloadFolderInput ? downloadFolderInput.value : ''; // Get from input if exists
 
-        if (!url) {
+        if (!searchQuery) {
             displayWarning('Please enter a search query for Auto Find.');
             return;
         }
@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
             const message = {
                 type: 'start-import',
-                url,
+                urls,
                 format,
                 downloadThreads,
                 searchThreads,
@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (downloadBtn) {
             downloadBtn.addEventListener('click', () => {
                 clearWarning();
-                const url = spotdlUrlInput.value;
+                const rawInput = spotdlUrlInput.value;
                 const format = importSettings.outputFormat || 'mp3';
                 const downloadThreads = importSettings.downloadThreads || 4;
                 const searchThreads = importSettings.searchThreads || 4;
@@ -241,8 +241,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const selectedPlaylist = playlistSelect.value;
                 const newPlaylistName = newPlaylistNameInput.value.trim();
 
-                if (!url) {
-                    displayWarning('Please enter a Spotify or YouTube URL.');
+                if (!rawInput || !rawInput.trim()) {
+                    displayWarning('Please enter song(s), URLs, or a song list.');
                     return;
                 }
                 if (!downloadPath) {
@@ -260,6 +260,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     playlistNameToSend = newPlaylistName;
                 }
 
+                // Parse the input to determine if it's a song list or single item
+                const urls = parseSongInput(rawInput);
+
                 // Clear output and disable button immediately
                 spotdlOutputTextarea.value = '';
                 downloadBtn.disabled = true;
@@ -267,7 +270,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
                     const message = {
                         type: 'start-import',
-                        url,
+                        urls,
                         format,
                         downloadThreads,
                         searchThreads,
@@ -281,6 +284,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     downloadBtn.disabled = false;
                 }
             });
+        }
+
+        // Helper function to parse song input
+        function parseSongInput(input) {
+            if (!input || !input.trim()) {
+                return [];
+            }
+
+            // Split by lines and remove empty lines
+            const lines = input.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+
+            // If only one line, treat as single item (could be a URL, search query, or single song)
+            if (lines.length === 1) {
+                return [lines[0]];
+            }
+
+            // Multiple lines - check if first line is a URL and others are metadata
+            // For now, treat any multi-line input as a song list
+            // In the future, we could detect playlist formats
+            return lines;
         }
 
         // External App Warning Logic
