@@ -20,26 +20,26 @@ class JMediaMobile {
         if (window.htmx) {
             // Use current sort direction if not provided
             const direction = sortDirection || this.currentSortDirection;
-            
+
             // Build query parameters
             const params = new URLSearchParams({
                 search: search,
                 sortBy: sortBy,
                 sortDirection: direction
             });
-            
+
             // Add genre filters if any
             if (genres && genres.length > 0) {
                 params.set('genres', genres.join(','));
             }
-            
+
             const url = `/api/music/ui/mobile-tbody/${window.globalActiveProfileId || '1'}/0?${params.toString()}`;
-            
+
             window.htmx.ajax('GET', url, {
                 target: document.getElementById('mobileSongList'),
                 swap: 'innerHTML'
             });
-        }
+    }
     }
 
     setupElements() {
@@ -126,7 +126,7 @@ class JMediaMobile {
 
         // Sort direction toggle
         this.setupSortEventListeners();
- 
+
         // Profile switch event - handled by global musicBar.js
         document.body.addEventListener('profileSwitched', () => {
             // Profile management handled globally
@@ -183,11 +183,11 @@ class JMediaMobile {
     applySortWithCurrentDirection() {
         const checkedSortOption = document.querySelector('input[name="sortBy"]:checked');
         const sortBy = checkedSortOption ? checkedSortOption.value : 'dateAdded';
-        
+
         // Get current search term and genres
         const currentSearch = this.searchInput ? this.searchInput.value : '';
         let currentGenres = [];
-        
+
         if (window.mobileFilterSortMenu) {
             const filters = window.mobileFilterSortMenu.getCurrentFilters();
             currentGenres = filters.genres;
@@ -214,6 +214,8 @@ class JMediaMobile {
     }
 
     switchMobileTab(tabName) {
+        console.log('[MOBILE] Switching to tab:', tabName);
+        
         // Update tab buttons
         this.tabButtons.forEach(tab => {
             tab.classList.remove('active');
@@ -231,14 +233,18 @@ class JMediaMobile {
         const targetContent = document.getElementById('mobile' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Content');
         if (targetContent) {
             targetContent.classList.add('active');
+            console.log('[MOBILE] Tab content activated:', targetContent.id);
         }
 
         // Load content using existing HTMX endpoints
         if (tabName === 'playlists') {
+            console.log('[MOBILE] Loading playlists content');
             this.loadMobilePlaylists();
         } else if (tabName === 'queue') {
+            console.log('[MOBILE] Loading queue content');
             this.loadMobileQueue();
         } else if (tabName === 'history') {
+            console.log('[MOBILE] Loading history content');
             this.loadMobileHistory();
         }
     }
@@ -246,11 +252,111 @@ class JMediaMobile {
     // Content loading methods using mobile-specific HTMX endpoints
     loadMobilePlaylists() {
         if (window.htmx) {
+            const target = document.getElementById('mobilePlaylistList');
+            console.log('[MOBILE] Loading playlists for profile:', window.globalActiveProfileId || '1');
+            console.log('[MOBILE] Target element found:', !!target);
+            
             window.htmx.ajax('GET', `/api/music/ui/mobile-playlists-fragment/${window.globalActiveProfileId || '1'}`, {
-                target: document.getElementById('mobilePlaylistContent'),
+                target: target,
                 swap: 'innerHTML'
+            }).then(() => {
+                console.log('[MOBILE] HTMX request completed');
+                setTimeout(() => {
+                    console.log('[MOBILE] Target HTML after load:', target.innerHTML.substring(0, 200));
+                    // Fallback to JSON if HTMX result is empty
+                    if (target.innerHTML.trim() === '') {
+                        console.log('[MOBILE] HTMX result empty, falling back to JSON');
+                        this.loadMobilePlaylistsJSON();
+                    }
+                }, 100);
+            }).catch(err => {
+                console.error('[MOBILE] HTMX request failed, falling back to JSON:', err);
+                this.loadMobilePlaylistsJSON();
             });
         }
+    }
+
+    loadMobilePlaylistsJSON() {
+        const target = document.getElementById('mobilePlaylistList');
+        if (!target) return;
+
+        // Show loading state
+        target.innerHTML = `
+            <div class="mobile-loading">
+                <div class="mobile-loading-spinner">
+                    <i class="pi pi-spin pi-spinner"></i>
+                </div>
+                <p>Loading playlists...</p>
+            </div>
+        `;
+
+        fetch(`/api/music/playlists/${window.globalActiveProfileId || '1'}`)
+            .then(response => response.json())
+            .then(data => {
+                const playlists = data.data || data;
+                this.renderMobilePlaylistsJSON(playlists, target);
+            })
+            .catch(error => {
+                console.error('[MOBILE] JSON playlist loading failed:', error);
+                target.innerHTML = `
+                    <div class="mobile-empty-state">
+                        <i class="pi pi-exclamation-triangle" style="font-size: 48px; color: #ff6b6b;"></i>
+                        <p>Error loading playlists</p>
+                        <p style="font-size: 12px; color: #999;">Please try again</p>
+                    </div>
+                `;
+            });
+    }
+
+    renderMobilePlaylistsJSON(playlists, target) {
+        let html = '';
+
+        // All Songs option
+        html += `
+            <div class="mobile-playlist-item"
+                 hx-get="/api/music/ui/mobile-tbody/${window.globalActiveProfileId || '1'}/0"
+                 hx-target="#mobileSongList"
+                 hx-swap="innerHTML"
+                 data-playlist-id="0">
+                <div class="mobile-playlist-info">
+                    <div class="mobile-playlist-name">All Songs</div>
+                </div>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+        `;
+
+        // User playlists
+        if (playlists && playlists.length > 0) {
+            playlists.forEach(playlist => {
+                html += `
+                    <div class="mobile-playlist-item" 
+                         hx-get="/api/music/ui/mobile-tbody/${window.globalActiveProfileId || '1'}/${playlist.id}"
+                         hx-target="#mobileSongList"
+                         hx-swap="innerHTML"
+                         data-playlist-id="${playlist.id}">
+                        <div class="mobile-playlist-info">
+                            <div class="mobile-playlist-name">${playlist.name || 'Unnamed Playlist'}</div>
+                            ${playlist.isGlobal ? '<span class="tag is-info is-small"><i class="pi pi-globe"></i></span>' : ''}
+                        </div>
+                        <i class="pi pi-chevron-right"></i>
+                    </div>
+                `;
+            });
+        }
+
+        // Empty state
+        if (!playlists || playlists.length === 0) {
+            html += `
+                <div class="mobile-empty-state">
+                    <i class="pi pi-folder-open" style="font-size: 48px; color: #ccc;"></i>
+                    <p>No playlists found</p>
+                    <p style="font-size: 12px; color: #999;">Create your first playlist to get started</p>
+                </div>
+            `;
+        }
+
+        target.innerHTML = html;
+        console.log('[MOBILE] JSON playlists rendered successfully');
     }
 
     loadMobileQueue() {
@@ -325,7 +431,7 @@ class JMediaMobile {
                 // Get current filters from filter menu if available
                 let currentSort = 'dateAdded';
                 let currentGenres = [];
-                
+
                 if (window.mobileFilterSortMenu) {
                     const filters = window.mobileFilterSortMenu.getCurrentFilters();
                     currentSort = filters.sortBy;
@@ -337,7 +443,7 @@ class JMediaMobile {
                 }
 
                 this.loadInitialContent(query, currentSort, currentGenres, this.currentSortDirection);
-                
+
                 // Add click handlers to loaded songs (delayed to wait for HTMX completion)
                 setTimeout(() => {
                     const songItems = document.querySelectorAll('.mobile-song-item');
@@ -349,7 +455,7 @@ class JMediaMobile {
                                 e.stopPropagation();
                                 return;
                             }
-                            
+
                             const songId = item.dataset.songId;
                             const profileId = window.globalActiveProfileId || '1';
                             if (songId && window.apiPost) {
@@ -366,11 +472,11 @@ class JMediaMobile {
         if (this.searchInput) {
             this.searchInput.value = '';
             this.searchClear.style.display = 'none';
-            
+
             // Get current filters and reload content with empty search
             let currentSort = 'dateAdded';
             let currentGenres = [];
-            
+
             if (window.mobileFilterSortMenu) {
                 const filters = window.mobileFilterSortMenu.getCurrentFilters();
                 currentSort = filters.sortBy;
@@ -380,7 +486,7 @@ class JMediaMobile {
                 const checkedSortOption = document.querySelector('input[name="sortBy"]:checked');
                 currentSort = checkedSortOption ? checkedSortOption.value : 'dateAdded';
             }
-            
+
             this.loadInitialContent('', currentSort, currentGenres, this.currentSortDirection);
         }
     }
@@ -468,44 +574,53 @@ class JMediaMobile {
         const nameInput = modal?.querySelector('#newPlaylistName');
         const playlistName = nameInput?.value.trim();
         if (!playlistName) {
-            if (window.showToast) window.showToast('Playlist name cannot be empty', 'error');
+            if (window.showToast)
+                window.showToast('Playlist name cannot be empty', 'error');
             return;
         }
         const profileId = window.globalActiveProfileId || '1';
 
         fetch('/api/music/playlists/', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: playlistName, profileId })
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: playlistName, profileId})
         })
-        .then(res => {
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            return res.json();
-        })
-        .then(data => {
-            const newPlaylist = data.data || data;
-            const newId = newPlaylist.id;
-            if (!newId) throw new Error('Playlist creation succeeded but no ID returned');
-            const modal = document.querySelector('.mobile-modal[data-song-id]');
-            const songId = modal?.dataset?.songId;
-            if (!songId) throw new Error('Song ID missing from modal when adding new playlist');
-            return this.addSongToPlaylistHandler(newId, songId);
-        })
-        .then(() => {
-            if (window.showToast) window.showToast('Playlist created and song added', 'success');
-            const modal = document.querySelector('.mobile-modal[data-song-id]');
-            if (modal) modal.remove();
-            const nameInput = document.getElementById('newPlaylistName');
-            if (nameInput) nameInput.value = '';
-        })
-        .catch(err => {
-            console.error(err);
-            if (err.message.includes('Song ID missing')) {
-                if (window.showToast) window.showToast('UI error: Please try again', 'error');
-            } else {
-                if (window.showToast) window.showToast('Failed to create playlist', 'error');
-            }
-        });
+                .then(res => {
+                    if (!res.ok)
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.json();
+                })
+                .then(data => {
+                    const newPlaylist = data.data || data;
+                    const newId = newPlaylist.id;
+                    if (!newId)
+                        throw new Error('Playlist creation succeeded but no ID returned');
+                    const modal = document.querySelector('.mobile-modal[data-song-id]');
+                    const songId = modal?.dataset?.songId;
+                    if (!songId)
+                        throw new Error('Song ID missing from modal when adding new playlist');
+                    return this.addSongToPlaylistHandler(newId, songId);
+                })
+                .then(() => {
+                    if (window.showToast)
+                        window.showToast('Playlist created and song added', 'success');
+                    const modal = document.querySelector('.mobile-modal[data-song-id]');
+                    if (modal)
+                        modal.remove();
+                    const nameInput = document.getElementById('newPlaylistName');
+                    if (nameInput)
+                        nameInput.value = '';
+                })
+                .catch(err => {
+                    console.error(err);
+                    if (err.message.includes('Song ID missing')) {
+                        if (window.showToast)
+                            window.showToast('UI error: Please try again', 'error');
+                    } else {
+                        if (window.showToast)
+                            window.showToast('Failed to create playlist', 'error');
+                    }
+                });
     }
 
 }
@@ -517,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.initManager.start().then(() => {
             window.jmediaMobile = new JMediaMobile();
             console.log('[JMediaMobile] Mobile enhancements initialized');
-                    });
+        });
     } else {
         // Fallback for older initialization
         setTimeout(() => {
@@ -560,7 +675,7 @@ class MobileContextMenu {
 
         // Global click to close (desktop)
         document.body.addEventListener('click', this.handleOutsideClick.bind(this));
-        
+
         // Only handle touch events on backdrop for mobile (not global)
         const backdrop = document.querySelector('.mobile-context-backdrop');
         if (backdrop) {
@@ -659,8 +774,6 @@ class MobileContextMenu {
         }
     }
 
-    
-
     cancelTouch(e) {
         if (this.timerId) {
             clearTimeout(this.timerId);
@@ -672,10 +785,11 @@ class MobileContextMenu {
             this.activeElement.classList.remove('long-press-active');
         }
 
-        // If menu was just opened, prevent the touchend from triggering song click
+// If menu was just opened, prevent the touchend from triggering song click
         if (this.menuJustOpened && e) {
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
         }
     }
 
@@ -702,20 +816,21 @@ class MobileContextMenu {
             backdrop.style.pointerEvents = 'auto';
         }
 
-        // For mobile, prevent the touch from propagating to underlying elements
+// For mobile, prevent the touch from propagating to underlying elements
         if (!isDesktop && this.activeElement) {
             // Add a flag to prevent song click handler
             this.menuJustOpened = true;
             setTimeout(() => {
                 this.menuJustOpened = false;
-            }, 100);
+            }, 300);
         }
 
         console.log('[MobileContextMenu] Menu shown for song ID:', songId, 'Desktop:', isDesktop);
     }
 
     positionMenuAtCursor(menu) {
-        if (!this.mousePosition) return;
+        if (!this.mousePosition)
+            return;
 
         // Reset any positioning
         menu.style.position = 'fixed';
@@ -739,8 +854,10 @@ class MobileContextMenu {
         if (y + menuHeight > window.innerHeight) {
             y = window.innerHeight - menuHeight - 10;
         }
-        if (x < 10) x = 10;
-        if (y < 10) y = 10;
+        if (x < 10)
+            x = 10;
+        if (y < 10)
+            y = 10;
 
         // Apply positioning
         menu.style.left = x + 'px';
@@ -799,9 +916,9 @@ class MobileContextMenu {
         switch (action) {
             case 'queue':
                 // Use REST API to match desktop behavior
-if (window.htmx) {
+                if (window.htmx) {
                     htmx.ajax('POST', `/api/music/queue/add/${window.globalActiveProfileId}/${songId}`, {
-                        handler: function() {
+                        handler: function () {
                             console.log(`Song ${songId} added to queue.`);
                             if (window.showToast) {
                                 window.showToast('Song added to queue', 'success');
@@ -822,18 +939,29 @@ if (window.htmx) {
                 this.openPlaylistSubmenu(songId);
                 break;
             case 'rescan':
-                if (rescanSong) {
-                    rescanSong(songId);
+                if (window.rescanSong) {
+                    window.rescanSong(songId);
                 } else {
-                    console.warn('[MobileContextMenu] rescanSong function not available');
+                    // Wait for musicBar-new.js functions to be forced available
+                    let attempts = 0;
+                    const waitForRescan = setInterval(() => {
+                        attempts++;
+                        if (window.rescanSong) {
+                            clearInterval(waitForRescan);
+                            window.rescanSong(songId);
+                        } else if (attempts > 10) {
+                            clearInterval(waitForRescan);
+                            console.error('[MobileContextMenu] rescanSong function still not available after waiting');
+                        }
+                    }, 50);
                 }
                 break;
             case 'update':
                 this.updateMetadata(songId);
                 break;
             case 'delete':
-                if (deleteSong) {
-                    deleteSong(songId);
+                if (window.deleteSong) {
+                    window.deleteSong(songId);
                 } else {
                     console.warn('[MobileContextMenu] deleteSong function not available');
                 }
@@ -914,13 +1042,13 @@ if (window.htmx) {
                     </button>
                 </header>
                 <div class="mobile-modal-body">
-                    ${playlists.length===0?`
+                    ${playlists.length === 0 ? `
                     <div class="mobile-empty-state" style="text-align:center; padding:20px; margin-bottom:15px;">
                         <i class="pi pi-folder-open" style="font-size:48px;color:#ccc;"></i>
                         <p>No playlists found</p>
                         <p style="font-size:12px;color:#999;">Create your first playlist to get started</p>
                     </div>
-                    `:`
+                    ` : `
                     <div class="mobile-playlist-selection" style="margin-bottom:15px;">
                         ${playlists.map(playlist => `
                             <div class="mobile-playlist-option" data-playlist-id="${playlist.id}">
@@ -948,7 +1076,7 @@ if (window.htmx) {
             </div>
         `;
 
-                modal.querySelectorAll('.mobile-playlist-option').forEach(option => {
+        modal.querySelectorAll('.mobile-playlist-option').forEach(option => {
             option.addEventListener('click', () => {
                 const playlistId = option.dataset.playlistId;
                 this.addSongToPlaylistHandler(playlistId, songId);
@@ -1168,7 +1296,8 @@ class MobileFilterSortMenu {
 
     populateGenreOptions() {
         const container = document.getElementById('genreFilterOptions');
-        if (!container) return;
+        if (!container)
+            return;
 
         // Clear existing genre options (keep "All Genres")
         const allGenresLabel = container.querySelector('label');
@@ -1200,7 +1329,8 @@ class MobileFilterSortMenu {
     showMoreGenres() {
         const container = document.getElementById('genreFilterOptions');
         const showMoreBtn = document.getElementById('showMoreGenres');
-        if (!container || !showMoreBtn) return;
+        if (!container || !showMoreBtn)
+            return;
 
         // Add remaining genres
         const remainingGenres = this.genres.slice(10);
@@ -1218,7 +1348,8 @@ class MobileFilterSortMenu {
 
     showMenu() {
         const menu = document.getElementById('mobileFilterSortMenu');
-        if (!menu) return;
+        if (!menu)
+            return;
 
         menu.setAttribute('aria-hidden', 'false');
         this.isVisible = true;
@@ -1230,7 +1361,8 @@ class MobileFilterSortMenu {
 
     hideMenu() {
         const menu = document.getElementById('mobileFilterSortMenu');
-        if (!menu) return;
+        if (!menu)
+            return;
 
         menu.setAttribute('aria-hidden', 'true');
         this.isVisible = false;
@@ -1266,8 +1398,8 @@ class MobileFilterSortMenu {
         // Get selected genres
         const selectedGenreCheckboxes = document.querySelectorAll('input[name="genre"]:checked');
         this.filteredGenres = Array.from(selectedGenreCheckboxes)
-            .map(cb => cb.value)
-            .filter(value => value !== ''); // Remove "All Genres"
+                .map(cb => cb.value)
+                .filter(value => value !== ''); // Remove "All Genres"
 
         // Update filter button appearance
         this.updateFilterButton();
@@ -1281,21 +1413,22 @@ class MobileFilterSortMenu {
     resetFilters() {
         this.currentSort = 'dateAdded';
         this.filteredGenres = [];
-        
+
         // Update UI
         this.loadCurrentState();
         this.updateFilterButton();
         this.applyToSongList();
-        
+
         this.hideMenu();
     }
 
     updateFilterButton() {
         const filterBtn = document.getElementById('mobileFilterSort');
-        if (!filterBtn) return;
+        if (!filterBtn)
+            return;
 
         const hasActiveFilters = this.filteredGenres.length > 0 || this.currentSort !== 'dateAdded';
-        
+
         if (hasActiveFilters) {
             filterBtn.classList.add('active');
             // Add a small indicator badge
@@ -1331,12 +1464,10 @@ class MobileFilterSortMenu {
             // Update the search parameters
             const searchInput = document.getElementById('mobileSearch');
             const searchValue = searchInput ? searchInput.value : '';
-            
+
             window.jmediaMobile.loadInitialContent(searchValue, this.currentSort, this.filteredGenres);
         }
     }
-
-    
 
     getCurrentFilters() {
         return {

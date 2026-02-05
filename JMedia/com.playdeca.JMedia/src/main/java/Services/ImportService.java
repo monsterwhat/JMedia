@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -526,5 +527,23 @@ public class ImportService {
         // Fallback to fuzzy matching
         List<Song> allSongs = songService.findAll();
         return metadataService.findBestMatch(searchArtist, searchTitle, allSongs);
+    }
+    
+    @PreDestroy
+    public void shutdown() {
+        if (importExecutor != null && !importExecutor.isShutdown()) {
+            LOGGER.info("Shutting down ImportService executor");
+            importExecutor.shutdown();
+            try {
+                if (!importExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    LOGGER.warn("ImportService executor did not terminate gracefully, forcing shutdown");
+                    importExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                LOGGER.error("Interrupted while waiting for ImportService executor to terminate");
+                importExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }

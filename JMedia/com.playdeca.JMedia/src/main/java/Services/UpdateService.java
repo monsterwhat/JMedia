@@ -87,7 +87,7 @@ public class UpdateService {
             });
     }
     
-    @Scheduled(cron = "0 0 0 * * ?") // Every day at midnight
+    @Scheduled(every = "24h") // Every 24 hours
     public void scheduledUpdateCheck() {
         Settings settings = settingsService.getOrCreateSettings();
         if (settings.getAutoUpdateEnabled()) {

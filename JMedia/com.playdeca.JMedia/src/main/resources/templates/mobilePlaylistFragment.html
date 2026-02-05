@@ -1,37 +1,35 @@
-<div class="mobile-playlist-list">
-    <!-- All Songs option -->
-    <div class="mobile-playlist-item"
-         hx-get="/api/music/ui/mobile-tbody/{profileId}/0"
-         hx-target="#mobileSongList"
-         hx-swap="innerHTML"
-         data-playlist-id="0">
-        <div class="mobile-playlist-info">
-            <div class="mobile-playlist-name">All Songs</div>
-        </div>
-        <i class="pi pi-chevron-right"></i>
+<!-- All Songs option -->
+<div class="mobile-playlist-item"
+     hx-get="/api/music/ui/mobile-tbody/{profileId}/0"
+     hx-target="#mobileSongList"
+     hx-swap="innerHTML"
+     data-playlist-id="0">
+    <div class="mobile-playlist-info">
+        <div class="mobile-playlist-name">All Songs</div>
     </div>
-    
-    {#for p in playlists}
-    <div class="mobile-playlist-item" 
-         hx-get="/api/music/ui/mobile-tbody/{profileId}/{p.id}"
-         hx-target="#mobileSongList"
-         hx-swap="innerHTML"
-         data-playlist-id="{p.id}">
-        <div class="mobile-playlist-info">
-            <div class="mobile-playlist-name">{p.name ?: 'Unnamed Playlist'}</div>
-            {#if p.isGlobal}
-            <span class="tag is-info is-small"><i class="pi pi-globe"></i></span>
-            {/if}
-        </div>
-        <i class="pi pi-chevron-right"></i>
-    </div>
-    {/for}
-    
-    {#if playlists.isEmpty()}
-    <div class="mobile-empty-state">
-        <i class="pi pi-folder-open" style="font-size: 48px; color: #ccc;"></i>
-        <p>No playlists found</p>
-        <p style="font-size: 12px; color: #999;">Create your first playlist to get started</p>
-    </div>
-    {/if}
+    <i class="pi pi-chevron-right"></i>
 </div>
+
+{#for p in playlists}
+<div class="mobile-playlist-item" 
+     hx-get="/api/music/ui/mobile-tbody/{profileId}/{p.id}"
+     hx-target="#mobileSongList"
+     hx-swap="innerHTML"
+     data-playlist-id="{p.id}">
+    <div class="mobile-playlist-info">
+        <div class="mobile-playlist-name">{p.name ?: 'Unnamed Playlist'}</div>
+        {#if p.isGlobal}
+        <span class="tag is-info is-small"><i class="pi pi-globe"></i></span>
+        {/if}
+    </div>
+    <i class="pi pi-chevron-right"></i>
+</div>
+{/for}
+
+{#if playlists.isEmpty()}
+<div class="mobile-empty-state">
+    <i class="pi pi-folder-open" style="font-size: 48px; color: #ccc;"></i>
+    <p>No playlists found</p>
+    <p style="font-size: 12px; color: #999;">Create your first playlist to get started</p>
+</div>
+{/if}

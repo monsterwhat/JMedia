@@ -259,9 +259,72 @@
         <audio id="audioPlayer" preload="auto"></audio>
     <!-- HTMX -->
     <script src="/js/htmx.min.js"></script>
+    <script src="/js/songCache.js"></script>
     
-    <!-- Load musicBar.js directly since we use same element IDs -->
-    <script src="/js/musicBar.js"></script>
+    <!-- Load musicBar-new.js for updated rescanSong function -->
+    <script src="/js/musicBar-new.js"></script>
+    
+    <!-- Force musicBar-new.js functions to be available -->
+    <script>
+        // Wait a moment for musicBar-new.js to potentially load, then force define functions
+        setTimeout(() => {
+            // Force rescanSong to use musicBar-new.js implementation or create compatible one
+            if (!window.rescanSong) {
+                console.warn('[Mobile] musicBar-new.js rescanSong not found, forcing compatible implementation');
+                window.rescanSong = function(songId) {
+                    // Use same implementation as musicBar-new.js would
+                    console.log('[musicBar] rescanSong called for song: ' + songId);
+                    if (window.Helpers && window.WebSocketManager) {
+                        // musicBar-new.js style - use Helpers and WebSocket
+                        window.Helpers.log('[musicBar] rescanSong called for song: ' + songId);
+                        window.WebSocketManager.send('rescanLibrary', {});
+                    } else {
+                        // Direct WebSocket if available
+                        if (window.WebSocketManager) {
+                            window.WebSocketManager.send('rescanLibrary', {});
+                        } else {
+                            console.error('[Mobile] Neither Helpers nor WebSocketManager available');
+                        }
+                    }
+                };
+            }
+            
+            // Force deleteSong to use musicBar-new.js implementation or create compatible one  
+            if (!window.deleteSong) {
+                console.warn('[Mobile] musicBar-new.js deleteSong not found, forcing compatible implementation');
+                window.deleteSong = function(songId) {
+                    // Use same implementation as musicBar-new.js would
+                    console.log('[musicBar] deleteSong called for song: ' + songId);
+                    if (window.Helpers) {
+                        window.Helpers.log('[musicBar] deleteSong called for song: ' + songId);
+                    }
+                    // Use HTTP API to delete the song
+                    const profileId = window.globalActiveProfileId || '1';
+                    fetch(`/api/music/songs/${profileId}/${songId}`, { method: 'DELETE' })
+                        .then(response => {
+                            if (response.ok) {
+                                // Refresh the song list
+                                if (window.jmediaMobile) {
+                                    window.jmediaMobile.loadInitialContent();
+                                }
+                                showToast('Song deleted successfully', 'success');
+                            } else {
+                                throw new Error('Failed to delete song');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Failed to delete song:', error);
+                            showToast('Failed to delete song', 'error');
+                        });
+                };
+            }
+            
+            console.log('[Mobile] Forced functions status:', {
+                rescanSong: typeof window.rescanSong,
+                deleteSong: typeof window.deleteSong
+            });
+        }, 100);
+    </script>
     
     <!-- Additional JavaScript files -->
     <script src="/js/toast.js"></script>

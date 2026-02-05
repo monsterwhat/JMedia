@@ -157,6 +157,66 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Helper function to identify song list targets
+function isSongListTarget(event) {
+    const targetId = event.detail.target.id;
+    return targetId === 'songTableBody' || targetId === 'mobileSongList';
+}
+
+// Song list caching functionality
+document.addEventListener('htmx:beforeRequest', function(event) {
+    // Show cached content immediately before making request
+    if (isSongListTarget(event) && window.songCache) {
+        const url = event.detail.requestConfig.path;
+        const cached = window.songCache.loadPage(url);
+        if (cached) {
+            event.detail.target.innerHTML = cached.html;
+        }
+    }
+});
+
+document.addEventListener('htmx:afterRequest', function(event) {
+    // Update cache with fresh response and update DOM
+    if (isSongListTarget(event) && event.detail.successful && window.songCache) {
+        const url = event.detail.requestConfig.path;
+        const freshHtml = event.detail.xhr.response;
+        
+        // Update cache
+        window.songCache.savePage(url, freshHtml);
+        
+        // Update DOM with fresh content
+        event.detail.target.innerHTML = freshHtml;
+    }
+});
+
+document.addEventListener('htmx:responseError', function(event) {
+    // Use cached content for failed requests
+    if (isSongListTarget(event) && window.songCache) {
+        const url = event.detail.requestConfig.path;
+        const cachedPage = window.songCache.loadPage(url);
+        if (cachedPage) {
+            event.detail.target.innerHTML = cachedPage.html;
+            if (window.showToast) {
+                window.showToast('Showing cached content (offline)', 'info');
+            }
+        }
+    }
+});
+
+document.addEventListener('htmx:timeout', function(event) {
+    // Use cached content for timeout scenarios
+    if (isSongListTarget(event) && window.songCache) {
+        const url = event.detail.requestConfig.path;
+        const cachedPage = window.songCache.loadPage(url);
+        if (cachedPage) {
+            event.detail.target.innerHTML = cachedPage.html;
+            if (window.showToast) {
+                window.showToast('Showing cached content (timeout)', 'info');
+            }
+        }
+    }
+});
+
 // Export functions for global access
 window.updatePlayerImages = updatePlayerImages;
 window.updatePlayerSongDetails = updatePlayerSongDetails;

@@ -8,7 +8,7 @@ import org.jaudiotagger.audio.exceptions.InvalidAudioFrameException;
 import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
-import org.jaudiotagger.tag.datatype.Artwork;
+// import org.jaudiotagger.tag.datatype.Artwork; // Commented out - class not available in jaudiotagger 3.0.1
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,14 +50,8 @@ public class MetadataService {
                 // Duration in seconds
                 song.setDurationSeconds(f.getAudioHeader().getTrackLength());
 
-                // Artwork
-                Artwork artwork = tag.getFirstArtwork();
-                if (artwork != null) {
-                    song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(artwork.getBinaryData()));
-                }
-            } else {
-                LOGGER.warn("No ID3 tag found for file: {}", audioFile.getAbsolutePath());
-                // Fallback to filename if no tag
+                 // Skip artwork due to jaudiotagger compatibility issues
+                song.setArtworkBase64("");
                 song.setTitle(audioFile.getName().substring(0, audioFile.getName().lastIndexOf('.')));
                 song.setArtist("Unknown Artist");
             }

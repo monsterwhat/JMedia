@@ -56,13 +56,18 @@ public class PlaybackStateService {
         return state;
     }
 
-    private PlaybackState createDefaultState(Profile profile) {
+private PlaybackState createDefaultState(Profile profile) {
         PlaybackState state = new PlaybackState();
         state.setProfile(profile);
         state.setVolume(0.8f);
         state.setCue(new ArrayList<>());
         state.setLastSongs(new ArrayList<>());
+        state.setOriginalCue(new ArrayList<>());
+        state.setSecondaryCue(new ArrayList<>());
+        state.setSecondaryOriginalCue(new ArrayList<>());
         state.setCueIndex(-1);
+        state.setSecondaryCueIndex(-1);
+        state.setUsingSecondaryQueue(false);
         return state;
     }
 
@@ -85,11 +90,15 @@ public class PlaybackStateService {
         existingState.setVolume(newState.getVolume());
         existingState.setShuffleMode(newState.getShuffleMode());
         existingState.setLastUpdateTime(newState.getLastUpdateTime());
-        // Create new instances of the collections to avoid shared references
+// Create new instances of the collections to avoid shared references
         existingState.setCue(new ArrayList<>(newState.getCue()));
         existingState.setLastSongs(new ArrayList<>(newState.getLastSongs()));
         existingState.setOriginalCue(new ArrayList<>(newState.getOriginalCue()));
+        existingState.setSecondaryCue(new ArrayList<>(newState.getSecondaryCue()));
+        existingState.setSecondaryOriginalCue(new ArrayList<>(newState.getSecondaryOriginalCue()));
         existingState.setCueIndex(newState.getCueIndex());
+        existingState.setSecondaryCueIndex(newState.getSecondaryCueIndex());
+        existingState.setUsingSecondaryQueue(newState.isUsingSecondaryQueue());
         existingState.setRepeatMode(newState.getRepeatMode());
 
         em.merge(existingState);
@@ -113,11 +122,15 @@ public class PlaybackStateService {
         state.setVolume(defaultState.getVolume());
         state.setShuffleMode(defaultState.getShuffleMode());
         state.setLastUpdateTime(defaultState.getLastUpdateTime());
-        // Create new instances of the collections to avoid shared references
+// Create new instances of the collections to avoid shared references
         state.setCue(new ArrayList<>(defaultState.getCue()));
         state.setLastSongs(new ArrayList<>(defaultState.getLastSongs()));
         state.setOriginalCue(new ArrayList<>(defaultState.getOriginalCue()));
+        state.setSecondaryCue(new ArrayList<>(defaultState.getSecondaryCue()));
+        state.setSecondaryOriginalCue(new ArrayList<>(defaultState.getSecondaryOriginalCue()));
         state.setCueIndex(defaultState.getCueIndex());
+        state.setSecondaryCueIndex(defaultState.getSecondaryCueIndex());
+        state.setUsingSecondaryQueue(defaultState.isUsingSecondaryQueue());
         state.setRepeatMode(defaultState.getRepeatMode());
 
         em.merge(state);

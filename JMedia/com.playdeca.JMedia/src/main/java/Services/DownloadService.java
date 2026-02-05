@@ -23,6 +23,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 import java.nio.file.Files;
 import Models.Settings;
 
@@ -720,6 +721,24 @@ public class DownloadService {
 
         public StringBuilder getOutputCache() {
             return outputCache;
+        }
+    }
+    
+    @PreDestroy
+    public void shutdown() {
+        if (downloadExecutor != null && !downloadExecutor.isShutdown()) {
+            LOGGER.info("Shutting down DownloadService executor");
+            downloadExecutor.shutdown();
+            try {
+                if (!downloadExecutor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    LOGGER.warn("DownloadService executor did not terminate gracefully, forcing shutdown");
+                    downloadExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                LOGGER.error("Interrupted while waiting for DownloadService executor to terminate");
+                downloadExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

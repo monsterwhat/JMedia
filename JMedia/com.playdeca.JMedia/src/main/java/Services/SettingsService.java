@@ -14,6 +14,7 @@ import java.io.File;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 import java.util.logging.Logger;
 
 @ApplicationScoped
@@ -246,6 +247,24 @@ public class SettingsService {
                     scheduler.shutdownNow();
                 }
             } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+    
+    @PreDestroy
+    public void shutdownScheduler() {
+        if (scheduler != null && !scheduler.isShutdown()) {
+            LOGGER.info("Shutting down SettingsService scheduler");
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                     System.err.println("SettingsService scheduler did not terminate gracefully, forcing shutdown");
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                LOGGER.warning("Interrupted while waiting for SettingsService scheduler to terminate");
                 scheduler.shutdownNow();
                 Thread.currentThread().interrupt();
             }

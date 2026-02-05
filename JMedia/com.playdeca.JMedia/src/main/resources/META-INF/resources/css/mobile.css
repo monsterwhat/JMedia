@@ -1697,12 +1697,14 @@ body {
     background: rgba(0, 0, 0, 0.3);
     z-index: 1100;
     pointer-events: auto;
-    transition: opacity 0.25s ease;
-    display: none;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    opacity: 0;
+    visibility: hidden;
 }
 
 .mobile-context-menu[aria-hidden="false"] .mobile-context-backdrop {
-    display: block;
+    opacity: 1;
+    visibility: visible;
 }
 
 .mobile-context-list {

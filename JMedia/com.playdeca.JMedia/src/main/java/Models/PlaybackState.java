@@ -52,6 +52,16 @@ public class PlaybackState extends PanacheEntity {
     @Enumerated(EnumType.STRING)
     private RepeatMode repeatMode = RepeatMode.OFF;
 
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<Long> secondaryCue = new ArrayList<>();
+
+    private int secondaryCueIndex = -1;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<Long> secondaryOriginalCue = new ArrayList<>();
+
+    private boolean usingSecondaryQueue = false;
+
     public enum ShuffleMode {
         OFF,
         SHUFFLE,

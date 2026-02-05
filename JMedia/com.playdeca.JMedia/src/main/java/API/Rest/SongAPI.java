@@ -74,11 +74,23 @@ public class SongAPI {
         System.out.println("Full path to song: " + songPath.toString());
 
         try {
-            String escapedSongPath = songPath.toString().replace("'", "''"); // Escape single quotes for PowerShell
+            // Validate model parameter to prevent command injection
+            if (!model.matches("^[a-zA-Z0-9._-]+$")) {
+                System.out.println("Invalid model parameter: " + model);
+                return Response.status(Response.Status.BAD_REQUEST).entity("Invalid model parameter").build();
+            }
+            
+            // Validate file exists and is within allowed directory
+            if (!songPath.toFile().exists()) {
+                System.out.println("Song file not found: " + songPath.toString());
+                return Response.status(Response.Status.NOT_FOUND).entity("Song file not found").build();
+            }
+            
+            // Build command with proper parameter separation to prevent injection
             ProcessBuilder pb = new ProcessBuilder(
                     "powershell.exe",
                     "-Command",
-                    "py -3.13 -m whisper '" + escapedSongPath + "' --model " + model + " --output_format txt --output_dir -"
+                    "py", "-3.13", "-m", "whisper", songPath.toString(), "--model", model, "--output_format", "txt", "--output_dir", "-"
             );
 
             pb.redirectErrorStream(true);

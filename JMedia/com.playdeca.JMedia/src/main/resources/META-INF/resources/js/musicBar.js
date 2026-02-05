@@ -632,7 +632,27 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
     }
 
     const sameSong = String(musicState.currentSongId) === String(currentSong.id);
-    const newAudioSrc = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
+    
+    // Validate required parameters before creating URL
+    const profileId = window.globalActiveProfileId || '1';
+    const songId = currentSong.id;
+    
+    if (!songId) {
+        console.error('[musicBar] Critical error: currentSong.id is missing:', currentSong);
+        isUpdatingAudioSource = false;
+        isSwitchingSongByProfile[pidLock] = false;
+        activeAudioOperation = null;
+        return;
+    }
+    
+    const newAudioSrc = `/api/music/stream/${profileId}/${songId}`;
+    
+    console.log('[musicBar] Audio source validation:', {
+        profileId: profileId,
+        songId: songId,
+        fullUrl: newAudioSrc,
+        currentSongTitle: currentSong.title
+    });
 
     // Update state
     musicState.currentSongId = currentSong.id;
@@ -661,6 +681,21 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
         audio.src = newAudioSrc;
         audio.load();
         console.log('[musicBar] Audio src set, audio.readyState:', audio.readyState);
+        
+        // Add error handling for invalid audio sources
+        audio.addEventListener('error', function(e) {
+            console.error('[musicBar] Audio loading error:', {
+                src: audio.src,
+                error: e,
+                errorCode: audio.error ? audio.error.code : 'unknown',
+                errorMessage: audio.error ? audio.error.message : 'unknown'
+            });
+            
+            // Check if we got HTML instead of audio
+            if (audio.src && (audio.src.includes('index.html') || audio.src.includes('.html'))) {
+                console.error('[musicBar] ERROR: audio.src contains HTML - wrong URL format!');
+            }
+        }, { once: true });
     } else if (sameSong && play) {
         // Fast resume for same song - no source change needed
         if (audio.paused) {
@@ -716,10 +751,33 @@ function UpdateAudioSource(currentSong, prevSong = null, nextSong = null, play =
         // Handle playback
         if (play) {
             console.log('[musicBar] Attempting to play audio...');
+            
+            // Validate audio source before attempting to play
+            if (!audio.src || audio.src.includes('.html') || audio.src.includes('index.html')) {
+                console.error('[musicBar] CRITICAL: Invalid audio source detected:', audio.src);
+                console.error('[musicBar] Skipping playback due to invalid source');
+                isSwitchingSongByProfile[pidLock] = false;
+                isUpdatingAudioSource = false;
+                activeAudioOperation = null;
+                return;
+            }
+            
             audio.play().then(() => {
                 console.log('[musicBar] Audio play successful');
             }).catch(error => {
                 console.error('[musicBar] Audio play failed:', error);
+                console.error('[musicBar] Audio details:', {
+                    src: audio.src,
+                    readyState: audio.readyState,
+                    networkState: audio.networkState,
+                    error: audio.error
+                });
+                
+                // If we get a decoder error, it means we got HTML instead of audio
+                if (error.name === 'NotSupportedError' || error.message.includes('No decoders')) {
+                    console.error('[musicBar] CONFIRMED: Got HTML instead of audio file!');
+                    console.error('[musicBar] Check API endpoint:', newAudioSrc);
+                }
             });
         } else {
             console.log('[musicBar] Pausing audio...');
@@ -1696,6 +1754,10 @@ async function addSongToPlaylist(playlistId, songId) {
         if (window.showToast) {
             window.showToast('Song added to playlist successfully', 'success');
         }
+        // Clear cache after playlist modification
+        if (window.songCache) {
+            window.songCache.clearAll();
+        }
     } catch (error) {
         console.error(`Error adding song ${songId} to playlist ${playlistId}:`, error);
         if (window.showToast) {
@@ -1732,6 +1794,10 @@ async function removeSongFromCurrentPlaylist(songId) {
                 target: '#playlistView',
                 swap: 'outerHTML'
             });
+        }
+        // Clear cache after playlist modification
+        if (window.songCache) {
+            window.songCache.clearAll();
         }
     } catch (error) {
         console.error(`Error removing song ${songId} from playlist ${currentPlaylistId}:`, error);
@@ -1788,6 +1854,10 @@ async function rescanSong(songId) {
         }
 
         reloadSongTableBody(); // Reload the table to show potential updates
+        // Clear cache after song rescan
+        if (window.songCache) {
+            window.songCache.clearAll();
+        }
     } catch (error) {
         console.error(`Error initiating re-scan for song ${songId}:`, error);
     }
@@ -1808,6 +1878,10 @@ async function deleteSong(songId) {
                 window.showToast('Song deleted successfully', 'success');
             }
             reloadSongTableBody(); // Reload the table to remove the deleted song
+            // Clear cache after song deletion
+            if (window.songCache) {
+                window.songCache.clearAll();
+            }
             // Emit queue change event when song is deleted
             window.dispatchEvent(new CustomEvent('queueChanged', {
                 detail: {
@@ -2212,8 +2286,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.showToast(`✅ Successfully updated metadata for song ID ${songId}`, 'success');
                     }
 
-                    // Refresh the song in UI
+                    // Refresh song in UI
                     refreshSongInTable(songId);
+                    // Clear cache after metadata update
+                    if (window.songCache) {
+                        window.songCache.clearAll();
+                    }
                 } else {
                     if (window.showToast) {
                         window.showToast(`⚠️ ${result.message}`, 'warning');

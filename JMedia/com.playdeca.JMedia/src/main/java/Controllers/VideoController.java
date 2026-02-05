@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -328,5 +329,26 @@ public class VideoController {
     // A simplified history mechanism would be needed. The VideoHistoryService must be updated.
     public List<VideoHistory> getHistory() {
         return videoHistoryService.getHistory(1, 100);
+    }
+    
+    @PreDestroy
+    public void shutdown() {
+        if (playbackTask != null) {
+            playbackTask.cancel(true);
+        }
+        if (scheduler != null && !scheduler.isShutdown()) {
+            LOGGER.info("Shutting down VideoController scheduler");
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    LOGGER.warning("VideoController scheduler did not terminate gracefully, forcing shutdown");
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                LOGGER.warning("Interrupted while waiting for VideoController scheduler to terminate");
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }

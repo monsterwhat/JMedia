@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>musicBar Modular Test</title>
+</head>
+<body>
+    <h1>musicBar Modular System Test</h1>
+    <div id="test-results">
+        <h2>Module Loading Status:</h2>
+        <div id="module-status"></div>
+        
+        <h2>Global API Availability:</h2>
+        <div id="api-status"></div>
+        
+        <h2>Functionality Test:</h2>
+        <div id="functionality-test"></div>
+    </div>
+
+    <!-- Load modules in correct order -->
+    <script src="js/musicBar/utils/Helpers.js"></script>
+    <script src="js/musicBar/core/DeviceManager.js"></script>
+    <script src="js/musicBar/utils/ActionTracker.js"></script>
+    <script src="js/musicBar/core/SynchronizationManager.js"></script>
+    <script src="js/musicBar/core/StateManager.js"></script>
+    <script src="js/musicBar/data/StatePersistence.js"></script>
+    <script src="js/musicBar/core/AudioEngine.js"></script>
+    <script src="js/musicBar/core/WebSocketManager.js"></script>
+    <script src="js/musicBar/controls/PlaybackController.js"></script>
+    <script src="js/musicBar/controls/VolumeController.js"></script>
+    <script src="js/musicBar/controls/TimeController.js"></script>
+    <script src="js/musicBar/ui/UIUpdater.js"></script>
+    <script src="js/musicBar/ui/EventBindings.js"></script>
+    <script src="js/musicBar/ui/ImageManager.js"></script>
+    <script src="js/musicBar/data/SongContextCache.js"></script>
+    <script src="js/musicBar/data/QueueManager.js"></script>
+    <script src="js/musicBar.js"></script>
+
+    <script>
+        function updateStatus() {
+            document.getElementById('module-status').innerHTML = 
+                '✅ Helpers: ' + (typeof window.Helpers !== 'undefined') + '<br>' +
+                '✅ DeviceManager: ' + (typeof window.DeviceManager !== 'undefined') + '<br>' +
+                '✅ SynchronizationManager: ' + (typeof window.SynchronizationManager !== 'undefined') + '<br>' +
+                '✅ StateManager: ' + (typeof window.StateManager !== 'undefined') + '<br>' +
+                '✅ StatePersistence: ' + (typeof window.StatePersistence !== 'undefined') + '<br>' +
+                '✅ AudioEngine: ' + (typeof window.AudioEngine !== 'undefined') + '<br>' +
+                '✅ WebSocketManager: ' + (typeof window.WebSocketManager !== 'undefined') + '<br>' +
+                '✅ ActionTracker: ' + (typeof window.ActionTracker !== 'undefined') + '<br>' +
+                '✅ PlaybackController: ' + (typeof window.PlaybackController !== 'undefined') + '<br>' +
+                '✅ VolumeController: ' + (typeof window.VolumeController !== 'undefined') + '<br>' +
+                '✅ TimeController: ' + (typeof window.TimeController !== 'undefined') + '<br>' +
+                '✅ UIUpdater: ' + (typeof window.UIUpdater !== 'undefined') + '<br>' +
+                '✅ EventBindings: ' + (typeof window.EventBindings !== 'undefined') + '<br>' +
+                '✅ ImageManager: ' + (typeof window.ImageManager !== 'undefined') + '<br>' +
+                '✅ SongContextCache: ' + (typeof window.SongContextCache !== 'undefined') + '<br>' +
+                '✅ QueueManager: ' + (typeof window.QueueManager !== 'undefined');
+        }
+        
+        function updateAPIStatus() {
+            const apiTests = [
+                { name: 'window.musicState', available: typeof window.musicState !== 'undefined' },
+                { name: 'window.audio', available: typeof window.audio !== 'undefined' },
+                { name: 'window.sendWS', available: typeof window.sendWS === 'function' },
+                { name: 'window.UpdateAudioSource', available: typeof window.UpdateAudioSource === 'function' },
+                { name: 'window.UpdateAudioSourceSequentially', available: typeof window.UpdateAudioSourceSequentially === 'function' },
+                { name: 'window.setPlaybackTime', available: typeof window.setPlaybackTime === 'function' },
+                { name: 'window.addSongToPlaylist', available: typeof window.addSongToPlaylist === 'function' },
+                { name: 'window.rescanSong', available: typeof window.rescanSong === 'function' }
+            ];
+            
+            const apiStatus = apiTests.map(test => 
+                `<span class="${test.available ? 'success' : 'error'}">${test.name}: ${test.available ? '✅' : '❌'}</span>`
+            ).join('<br>');
+            
+            document.getElementById('api-status').innerHTML = apiStatus;
+        }
+        
+        function testFunctionality() {
+            let tests = [];
+            
+            // Test state management
+            if (window.StateManager) {
+                const state = window.StateManager.getState();
+                tests.push(`✅ StateManager.getState(): ${JSON.stringify(state)}`);
+                tests.push(`✅ StateManager.updateState(): Available`);
+            } else {
+                tests.push('❌ StateManager not available');
+            }
+            
+            // Test audio controls
+            if (window.AudioEngine) {
+                tests.push(`✅ AudioEngine methods available: ${Object.getOwnPropertyNames(window.AudioEngine).filter(name => name !== 'init').length}`);
+            } else {
+                tests.push('❌ AudioEngine not available');
+            }
+            
+            // Test WebSocket
+            if (window.WebSocketManager) {
+                tests.push(`✅ WebSocketManager available: ${Object.getOwnPropertyNames(window.WebSocketManager).filter(name => name !== 'init').length}`);
+            } else {
+                tests.push('❌ WebSocketManager not available');
+            }
+            
+            // Test UI updates
+            if (window.UIUpdater) {
+                tests.push(`✅ UIUpdater available: ${Object.getOwnPropertyNames(window.UIUpdater).filter(name => name !== 'init').length}`);
+            } else {
+                tests.push('❌ UIUpdater not available');
+            }
+            
+            document.getElementById('functionality-test').innerHTML = tests.join('<br>');
+        }
+        
+        function runTests() {
+            updateStatus();
+            testFunctionality();
+            
+            setTimeout(() => {
+                updateAPIStatus();
+                
+                // Test basic functionality
+                if (window.musicState && window.sendWS) {
+                    try {
+                        // Test WebSocket communication
+                        window.sendWS('testMessage', { test: true });
+                        window.Helpers.log('✅ Test WebSocket message sent');
+                        
+                        // Test state update
+                        if (window.StateManager) {
+                            window.StateManager.updateState({ testField: 'testValue' }, 'test');
+                            window.Helpers.log('✅ State update test passed');
+                        }
+                        
+                    } catch (error) {
+                        window.Helpers.log('❌ Test failed:', error);
+                    }
+                } else {
+                    window.Helpers.log('❌ Cannot test - APIs not available');
+                }
+            }, 1000);
+        }
+        
+        // Start tests after a short delay to ensure modules are loaded
+        setTimeout(runTests, 500);
+    </script>
+</body>
+</html>

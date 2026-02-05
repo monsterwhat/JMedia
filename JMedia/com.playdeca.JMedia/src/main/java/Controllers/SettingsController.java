@@ -39,7 +39,7 @@ import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jaudiotagger.tag.TagException;
-import org.jaudiotagger.tag.datatype.Artwork;
+import org.jaudiotagger.tag.images.Artwork;
 
 @ApplicationScoped
 public class SettingsController implements Serializable {

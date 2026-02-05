@@ -40,7 +40,34 @@ public class StreamAPI {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
             String songPath = song.getPath();
-            File file = new File(getMusicFolder(), songPath);
+            
+            // Validate and sanitize the path to prevent directory traversal
+            if (songPath == null || songPath.trim().isEmpty()) {
+                LOGGER.warning("Invalid song path: null or empty");
+                return Response.status(Response.Status.BAD_REQUEST).build();
+            }
+            
+            // Normalize the path and remove any directory traversal attempts
+            String normalizedSongPath = songPath.replace("..", "").replace("//", "/");
+            // Remove any leading slashes to prevent absolute paths
+            normalizedSongPath = normalizedSongPath.replaceFirst("^[/\\\\]+", "");
+            
+            File musicFolder = getMusicFolder();
+            File file = new File(musicFolder, normalizedSongPath);
+            
+            // Additional security check: ensure the resolved file is within the music folder
+            try {
+                File canonicalMusicFolder = musicFolder.getCanonicalFile();
+                File canonicalFile = file.getCanonicalFile();
+                
+                if (!canonicalFile.toPath().startsWith(canonicalMusicFolder.toPath())) {
+                    LOGGER.warning("Path traversal attempt detected: " + songPath + " resolves to " + canonicalFile.getAbsolutePath());
+                    return Response.status(Response.Status.FORBIDDEN).build();
+                }
+            } catch (IOException e) {
+                LOGGER.warning("Error resolving canonical paths for security check: " + e.getMessage());
+                return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+            }
             LOGGER.info("Streaming song: " + song.getTitle() + " from path: " + file.getAbsolutePath());
 
             if (!file.exists() || file.isDirectory()) {

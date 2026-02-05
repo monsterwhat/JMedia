@@ -137,14 +137,11 @@ public class PlaybackController {
                 state = new PlaybackState();
             }
 
-            // Ensure a valid initial state if cue is empty or currentSongId is null
-            if (state.getCue().isEmpty()) {
-                List<Song> allSongs = getSongs(); // This still needs to be profile-aware or context-aware
-                if (!allSongs.isEmpty()) {
-                    state.setCue(allSongs.stream().map(s -> s.id).collect(Collectors.toList()));
-                    state.setCueIndex(0);
-                    state.setCurrentSongId(allSongs.get(0).id);
-                }
+// DON'T auto-populate primary queue - keep it empty for dual-queue system
+            // Only ensure currentSongId is valid if primary queue has songs
+            if (!state.getCue().isEmpty() && state.getCurrentSongId() == null) {
+                state.setCurrentSongId(state.getCue().get(0));
+                state.setCueIndex(0);
             }
 
             if (state.getCurrentSongId() == null && !state.getCue().isEmpty()) {
@@ -380,16 +377,8 @@ public class PlaybackController {
     private synchronized void advanceSong(boolean forward, boolean fromSongEnd, Long profileId) { // Added fromSongEnd parameter
         PlaybackState st = getState(profileId);
 
-        // Populate cue if empty (initial state)
-        if (st.getCue() == null || st.getCue().isEmpty()) {
-            List<Song> allSongs = getSongs();
-            List<Long> allSongIds = allSongs.stream().map(s -> s.id).toList();
-            playbackQueueController.populateCue(st, allSongIds, profileId);
-            if (st.getCue().isEmpty()) {
-                stopPlayback(profileId);
-                return;
-            }
-        }
+// DON'T auto-populate primary queue when empty
+        // Let the dual-queue system handle it through PlaybackQueueController.advance()
 
         // Handle RepeatMode.ONE when song ends naturally
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
