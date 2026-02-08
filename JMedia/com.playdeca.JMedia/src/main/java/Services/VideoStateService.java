@@ -122,20 +122,20 @@ public class VideoStateService {
 
     // ==================== CONTINUE WATCHING ALGORITHM METHODS ====================
     
-    public List<VideoService.VideoDTO> getContinueWatching(int count) {
+    public List<Models.Video> getContinueWatching(int count) {
         VideoState currentState = getOrCreateState();
         if (currentState == null || currentState.getCurrentVideoId() == null) {
             return List.of();
         }
         
         // Get current video with progress
-        VideoService.VideoDTO currentVideo = videoService.find(currentState.getCurrentVideoId());
+        Models.Video currentVideo = videoService.find(currentState.getCurrentVideoId());
         if (currentVideo != null && isInProgress(currentState)) {
             return List.of(currentVideo);
         }
         
         // Check recently accessed videos from lastVideos
-        List<VideoService.VideoDTO> continueWatchingVideos = new ArrayList<>();
+        List<Models.Video> continueWatchingVideos = new ArrayList<>();
         
         if (currentState.getLastVideos() != null) {
             for (Long videoId : currentState.getLastVideos()) {
@@ -143,7 +143,7 @@ public class VideoStateService {
                     continue; // Skip current video as it's already handled
                 }
                 
-                VideoService.VideoDTO video = videoService.find(videoId);
+                Models.Video video = videoService.find(videoId);
                 if (video != null && isInProgress(currentState)) {
                     continueWatchingVideos.add(video);
                     if (continueWatchingVideos.size() >= count) {
@@ -158,17 +158,17 @@ public class VideoStateService {
                 .collect(Collectors.toList());
     }
     
-    public List<VideoService.VideoDTO> getRecentlyAccessed(int count) {
+    public List<Models.Video> getRecentlyAccessed(int count) {
         VideoState currentState = getOrCreateState();
         if (currentState == null) {
             return List.of();
         }
         
-        List<VideoService.VideoDTO> recentlyAccessed = new ArrayList<>();
+        List<Models.Video> recentlyAccessed = new ArrayList<>();
         
         // Add current video first
         if (currentState.getCurrentVideoId() != null) {
-            VideoService.VideoDTO currentVideo = videoService.find(currentState.getCurrentVideoId());
+            Models.Video currentVideo = videoService.find(currentState.getCurrentVideoId());
             if (currentVideo != null) {
                 recentlyAccessed.add(currentVideo);
             }
@@ -181,7 +181,7 @@ public class VideoStateService {
                     continue; // Skip current video as it's already added
                 }
                 
-                VideoService.VideoDTO video = videoService.find(videoId);
+                Models.Video video = videoService.find(videoId);
                 if (video != null) {
                     recentlyAccessed.add(video);
                     if (recentlyAccessed.size() >= count) {

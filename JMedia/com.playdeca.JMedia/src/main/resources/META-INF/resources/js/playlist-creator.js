@@ -108,7 +108,7 @@ window.displayPlaylistResults = function(data) {
     // Store playlist ID for view button
     if (data.playlist && data.playlist.id) {
         viewPlaylistBtn.onclick = () => {
-            window.location.href = `/index.html?playlist=${data.playlist.id}`;
+            window.location.href = `/?playlist=${data.playlist.id}`;
         };
         viewPlaylistBtn.style.display = 'inline-flex';
     } else {

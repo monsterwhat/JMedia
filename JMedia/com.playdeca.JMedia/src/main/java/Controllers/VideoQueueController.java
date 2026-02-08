@@ -3,7 +3,7 @@ package Controllers;
 import Models.VideoState;
 import Services.VideoHistoryService;
 import Services.VideoService;
-import Services.VideoService.VideoDTO;
+import Models.Video;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
@@ -38,11 +38,11 @@ public class VideoQueueController {
         state.setCurrentTime(0);
 
         if (state.getCurrentVideoId() != null) {
-            VideoDTO currentVideo = videoService.find(state.getCurrentVideoId());
+            Video currentVideo = Models.Video.findById(state.getCurrentVideoId());
             if (currentVideo != null) {
-                state.setVideoTitle(currentVideo.title());
-                state.setSeriesTitle(currentVideo.seriesTitle());
-                state.setEpisodeTitle("Episode".equals(currentVideo.type()) ? currentVideo.title() : null);
+                state.setVideoTitle(currentVideo.title);
+                state.setSeriesTitle(currentVideo.seriesTitle);
+                state.setEpisodeTitle("episode".equals(currentVideo.type) ? currentVideo.episodeTitle : currentVideo.title);
             } else {
                 state.setVideoTitle("Unknown Title");
                 state.setSeriesTitle(null);

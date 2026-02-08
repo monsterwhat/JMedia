@@ -6,7 +6,7 @@ import Models.Settings;
 import Models.VideoHistory;
 import Services.VideoHistoryService;
 import Services.VideoService;
-import Services.VideoService.VideoDTO;
+import Models.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -49,11 +49,11 @@ public class VideoController {
         }
 
         if (memoryState.getCue().isEmpty()) {
-            List<VideoDTO> allVideos = getVideos();
+            List<Video> allVideos = getVideos();
             if (!allVideos.isEmpty()) {
-                memoryState.setCue(allVideos.stream().map(VideoDTO::id).collect(Collectors.toList()));
+                memoryState.setCue(allVideos.stream().map(v -> v.id).collect(Collectors.toList()));
                 memoryState.setCueIndex(0);
-                memoryState.setCurrentVideoId(allVideos.get(0).id());
+                memoryState.setCurrentVideoId(allVideos.get(0).id);
             }
         }
 
@@ -111,12 +111,12 @@ public class VideoController {
 
     public synchronized void updateState(VideoState newState, boolean shouldBroadcast) {
         if (newState.getCurrentVideoId() != null) {
-            VideoDTO currentVideo = videoService.find(newState.getCurrentVideoId());
+            Video currentVideo = Models.Video.findById(newState.getCurrentVideoId());
             if (currentVideo != null) {
-                newState.setVideoTitle(currentVideo.title());
-                newState.setSeriesTitle(currentVideo.seriesTitle());
-                newState.setEpisodeTitle(currentVideo.type().equals("Episode") ? currentVideo.title() : null); // Simple mapping
-                newState.setDuration(currentVideo.durationSeconds());
+                newState.setVideoTitle(currentVideo.title);
+                newState.setSeriesTitle(currentVideo.seriesTitle);
+                newState.setEpisodeTitle(currentVideo.type.equals("episode") ? currentVideo.episodeTitle : currentVideo.title);
+                newState.setDuration(currentVideo.duration);
             } else {
                 newState.setVideoTitle("Unknown Title");
                 newState.setSeriesTitle(null);
@@ -136,20 +136,20 @@ public class VideoController {
 
     public synchronized void selectVideo(Long id) {
         VideoState st = getState();
-        VideoDTO current = getCurrentVideo();
+        Video current = getCurrentVideo();
 
-        if (current != null && current.id().equals(id)) {
+        if (current != null && current.id.equals(id)) {
             st.setPlaying(!st.isPlaying());
             if (st.isPlaying()) startPlaybackTimer();
             else stopPlaybackTimer();
         } else {
             st.setCurrentVideoId(id);
-            VideoDTO newVideo = findVideo(id);
+            Video newVideo = findVideo(id);
             if (newVideo != null) {
-                st.setVideoTitle(newVideo.title());
-                st.setSeriesTitle(newVideo.seriesTitle());
-                st.setEpisodeTitle("Episode".equals(newVideo.type()) ? newVideo.title() : null);
-                st.setDuration(newVideo.durationSeconds());
+                st.setVideoTitle(newVideo.title);
+                st.setSeriesTitle(newVideo.seriesTitle);
+                st.setEpisodeTitle("episode".equals(newVideo.type) ? newVideo.episodeTitle : newVideo.title);
+                st.setDuration(newVideo.duration);
             }
             st.setPlaying(true);
             st.setCurrentTime(0);
@@ -228,16 +228,16 @@ public class VideoController {
         updateState(state, true);
     }
     
-    public List<VideoDTO> getVideos() {
-        return videoService.findAll();
+    public List<Video> getVideos() {
+        return Models.Video.listAll();
     }
 
-    public VideoService.PaginatedVideos getVideos(int page, int limit) {
-        return videoService.findPaginatedByMediaType(null, page, limit);
+    public List<Video> getVideos(int page, int limit) {
+        return Models.Video.findAll().page(page - 1, limit).list();
     }
 
-    public VideoDTO findVideo(Long id) {
-        return videoService.find(id);
+    public Video findVideo(Long id) {
+        return Models.Video.findById(id);
     }
     
     public synchronized void changeVolume(float level) {
@@ -252,7 +252,7 @@ public class VideoController {
         updateState(st, true);
     }
 
-    public synchronized VideoDTO getCurrentVideo() {
+    public synchronized Video getCurrentVideo() {
         VideoState st = getState();
         Long currentId = st.getCurrentVideoId();
         if (currentId != null) {
@@ -262,7 +262,7 @@ public class VideoController {
         if (cue != null && !cue.isEmpty()) {
             return findVideo(cue.get(0));
         }
-        List<VideoDTO> allVideos = getVideos();
+        List<Video> allVideos = getVideos();
         return allVideos.isEmpty() ? null : allVideos.get(0);
     }
     
@@ -297,7 +297,7 @@ public class VideoController {
         updateState(st, true); // updateState will fetch the new video details and broadcast
     }
 
-    public record PaginatedQueue(List<VideoDTO> videos, int totalSize) {}
+    public record PaginatedQueue(List<Video> videos, int totalSize) {}
 
     public PaginatedQueue getQueuePage(int page, int limit) {
         VideoState st = getState();
@@ -315,7 +315,13 @@ public class VideoController {
         }
 
         List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
-        List<VideoDTO> videos = videoService.findByIds(pageOfIds);
+        List<Video> videos = new ArrayList<>();
+        for (Long id : pageOfIds) {
+            Video video = Models.Video.findById(id);
+            if (video != null) {
+                videos.add(video);
+            }
+        }
 
         return new PaginatedQueue(videos, totalSize);
     }

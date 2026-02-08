@@ -11,6 +11,9 @@ import Detectors.SubtitleMatcher;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.TransactionManager;
+import jakarta.transaction.Status;
+import com.arjuna.ats.jta.exceptions.RollbackException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -29,7 +32,6 @@ public class VideoEntityCreationService {
     /**
      * Converts completed PendingMedia records into actual Movie and Episode entities
      */
-    @Transactional
     public void processCompletedPendingMedia() {
         List<PendingMedia> completedItems = PendingMedia.list("status = ?1 OR (status = ?2 AND confidenceScore >= ?3)", 
             PendingMedia.ProcessingStatus.COMPLETED, 
@@ -37,6 +39,7 @@ public class VideoEntityCreationService {
             0.5); // Changed from 0.6 to 0.5 confidence threshold
         
         LOGGER.info("Processing {} completed pending media items (50% confidence threshold)", completedItems.size());
+        LOGGER.info("Transaction active status: {}", isTransactionActive());
         
         int processedCount = 0;
         int movieCount = 0;
@@ -46,13 +49,7 @@ public class VideoEntityCreationService {
         
         for (PendingMedia pending : completedItems) {
             try {
-                // Check if entities already exist for this media file
-                if (entitiesExistForMediaFile(pending.mediaFile)) {
-                    LOGGER.debug("Entities already exist for media file: {}", pending.originalFilename);
-                    continue;
-                }
-                
-                // Process item with retry logic
+                // Process item with retry logic using isolated transactions
                 boolean success = processPendingMediaItemWithRetry(pending);
                 if (success) {
                     processedCount++;
@@ -84,6 +81,41 @@ public class VideoEntityCreationService {
     }
     
     /**
+     * Process a single PendingMedia item in its own transaction with REQUIRES_NEW semantics
+     */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    protected boolean processSingleItemInTransaction(PendingMedia pending) {
+        try {
+            // Check if entities already exist for this media file
+            if (entitiesExistForMediaFile(pending.mediaFile)) {
+                LOGGER.debug("Entities already exist for media file: {}", pending.originalFilename);
+                return true; // Skip but treat as success
+            }
+            
+            String finalMediaType = pending.getFinalMediaType();
+            
+            if ("movie".equalsIgnoreCase(finalMediaType)) {
+                createMovieFromPending(pending);
+                LOGGER.info("Created Movie entity from: {} (confidence: {})", 
+                           pending.mediaFile.path, pending.confidenceScore);
+            } else if ("episode".equalsIgnoreCase(finalMediaType)) {
+                createEpisodeFromPending(pending);
+                LOGGER.info("Created Episode entity from: {} S{:02d}E{:02d} (confidence: {})", 
+                           pending.mediaFile.path, pending.getFinalSeason(), pending.getFinalEpisode(), pending.confidenceScore);
+            } else {
+                LOGGER.warn("Unknown media type: {} for: {}", finalMediaType, pending.originalFilename);
+                return false;
+            }
+            
+            return true;
+            
+        } catch (Exception e) {
+            LOGGER.error("Failed to process pending media {}: {}", pending.originalFilename, e.getMessage(), e);
+            throw e; // Re-throw to trigger transaction rollback
+        }
+    }
+
+    /**
      * Process a single PendingMedia item with retry logic (max 2 retries, skip on 3rd failure)
      */
     private boolean processPendingMediaItemWithRetry(PendingMedia pending) {
@@ -92,36 +124,63 @@ public class VideoEntityCreationService {
         
         while (retryCount <= 2 && !success) {
             try {
-                String finalMediaType = pending.getFinalMediaType();
-                
-                if ("movie".equalsIgnoreCase(finalMediaType)) {
-                    createMovieFromPending(pending);
-                    LOGGER.info("Created Movie entity from: {} (confidence: {})", 
-                               pending.mediaFile.path, pending.confidenceScore);
-                } else if ("episode".equalsIgnoreCase(finalMediaType)) {
-                    createEpisodeFromPending(pending);
-                    LOGGER.info("Created Episode entity from: {} S{:02d}E{:02d} (confidence: {})", 
-                               pending.mediaFile.path, pending.getFinalSeason(), pending.getFinalEpisode(), pending.confidenceScore);
-                } else {
-                    LOGGER.warn("Unknown media type: {} for: {}", finalMediaType, pending.originalFilename);
-                    return false;
-                }
-                
+                // Call the new isolated transaction method
+                processSingleItemInTransaction(pending);
                 success = true;
                 
             } catch (Exception e) {
                 retryCount++;
-                if (retryCount <= 2) {
-                    LOGGER.warn("Retry {}/3 for entity creation: {} (full exception: {})", 
-                               retryCount + 1, pending.originalFilename, e.toString(), e);
+                if (retryCount <= 2 && isRetriableException(e)) {
+                    LOGGER.warn("Retry {}/3 for entity creation: {} (exception: {})", 
+                               retryCount + 1, pending.originalFilename, e.toString());
                 } else {
-                    LOGGER.error("Skipping entity creation after 3 failures: {} (final exception: {})", 
-                               pending.originalFilename, e.toString(), e);
+                    LOGGER.error("Skipping entity creation after {} failures: {} (final exception: {})", 
+                               retryCount, pending.originalFilename, e.toString(), e);
+                    break; // Exit retry loop for non-retriable exceptions
                 }
             }
         }
         
         return success;
+    }
+
+    /**
+     * Checks if a transaction is currently active
+     */
+    private boolean isTransactionActive() {
+        try {
+            TransactionManager tm = com.arjuna.ats.jta.TransactionManager.transactionManager();
+            return tm.getStatus() != Status.STATUS_NO_TRANSACTION &&
+                   tm.getStatus() != Status.STATUS_ROLLEDBACK &&
+                   tm.getStatus() != Status.STATUS_COMMITTED;
+        } catch (Exception e) {
+            LOGGER.warn("Unable to check transaction status: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Determines if an exception is retriable (can be retried) or should cause immediate failure
+     */
+    private boolean isRetriableException(Exception e) {
+        if (e == null) {
+            return false;
+        }
+        
+        String message = e.getMessage().toLowerCase();
+        String className = e.getClass().getSimpleName();
+        
+        // Retriable exceptions
+        return e instanceof jakarta.persistence.PersistenceException ||
+               className.contains("SQLTimeoutException") ||
+               className.contains("SQLTransientConnectionException") ||
+               className.contains("LockTimeoutException") ||
+               message.contains("timeout") ||
+               message.contains("deadlock") ||
+               message.contains("connection") ||
+               message.contains("network") ||
+               message.contains("temporary") ||
+               message.contains("resource");
     }
 
     /**

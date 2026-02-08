@@ -22,6 +22,9 @@
         <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
         
+        <!-- Video.js -->
+        <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet">
+        
         <!-- Streaming Platform Styles -->
         <style>
             .search-suggestions-dropdown {
@@ -113,14 +116,14 @@
             <div class="hero-head">
                 <nav class="navbar" role="navigation">
                     <div class="navbar-brand">
-                        <a class="navbar-item" href="/index.html"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
+                        <a class="navbar-item" href="/"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
                         <a role="button" class="navbar-item" id="themeToggle">
                             <i class="pi pi-sun" id="themeIcon"></i>
                         </a>
                         <a role="button" class="navbar-item" id="playerToggle">
                             <i class="pi pi-expand" id="playerIcon"></i>
                         </a>
-                        <a role="button" class="navbar-item" href="/video.html">
+<a role="button" class="navbar-item" href="/video">
                             <i class="pi pi-video"></i>
                         </a>
                         <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
@@ -162,7 +165,7 @@
                                 <span class="icon"><i class="pi pi-user"></i></span>
                                 <span id="currentProfileName">Loading...</span>
                             </a>
-                            <a class="navbar-item" href="/settings.html">
+<a class="navbar-item" href="/settings">
                                 <span class="icon"><i class="pi pi-cog"></i></span>
                                 <span>Settings</span>
                             </a>
@@ -211,6 +214,9 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
         <script src="/js/videoContextMenu.js"></script>
+        
+        <!-- Video.js -->
+        <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
         <script>
             // Define globalActiveProfileId as a property of the window object
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';

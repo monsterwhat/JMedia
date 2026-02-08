@@ -38,7 +38,7 @@
                 <a href="/" class="mobile-logo">JMedia</a>
             </div>
             <div class="mobile-header-right">
-                <a href="/settings.html" class="mobile-nav-toggle">
+<a href="/settings" class="mobile-nav-toggle">
                     <i class="pi pi-cog"></i>
                 </a>
                 <button class="mobile-nav-toggle" id="mobileNavToggle">
@@ -143,9 +143,7 @@
                     <span id="currentTime">0:00</span>
                     <span id="totalTime">0:00</span>
                 </div>
-            </div>
-            
-
+            </div>  
         </div>
         
         <!-- Mobile Side Panel -->
@@ -224,6 +222,14 @@
                 </div>
             </div>
             
+            <!-- Logout Card -->
+            <div class="mobile-card"> 
+                <div class="mobile-card-body">
+                    <button class="mobile-btn-block mobile-btn-danger" onclick="handleLogout()">
+                        <i class="pi pi-sign-out"></i> Logout
+                    </button>
+                </div>
+            </div> 
             
         </div>
         
@@ -352,234 +358,16 @@
     <!-- HTMX -->
     <script src="/js/htmx.min.js"></script>
     
-    <!-- Load musicBar modules in dependency order -->
-    <script src="/js/musicBar/utils/Helpers.js"></script>
-    <script src="/js/musicBar/core/DeviceManager.js"></script>
-    <script src="/js/musicBar/core/SynchronizationManager.js"></script>
-    <script src="/js/musicBar/core/StateManager.js"></script>
-    <script src="/js/musicBar/data/StatePersistence.js"></script>
-    <script src="/js/musicBar/core/AudioEngine.js"></script>
-    <script src="/js/musicBar/core/WebSocketManager.js"></script>
-    <script src="/js/musicBar/utils/ActionTracker.js"></script>
-    <script src="/js/musicBar/controls/PlaybackController.js"></script>
-    <script src="/js/musicBar/controls/VolumeController.js"></script>
-    <script src="/js/musicBar/controls/TimeController.js"></script>
-    <script src="/js/musicBar/ui/UIUpdater.js"></script>
-    <script src="/js/musicBar/ui/EventBindings.js"></script>
-    <script src="/js/musicBar/ui/ImageManager.js"></script>
-    <script src="/js/musicBar/data/SongContextCache.js"></script>
-    <script src="/js/musicBar/data/QueueManager.js"></script>
-    
-    <!-- Load responsive modules -->
-    <script src="/js/musicBar/responsive/ResponsiveNavigation.js"></script>
-    <script src="/js/musicBar/responsive/ResponsiveModals.js"></script>
-    <script src="/js/musicBar/responsive/ResponsivePlayer.js"></script>
-    
-    <!-- Load device adapters -->
-    <script src="/js/musicBar/adapters/MobileAdapter.js"></script>
-    <script src="/js/musicBar/adapters/TabletAdapter.js"></script>
-    <script src="/js/musicBar/adapters/DesktopAdapter.js"></script>
-    
-    <!-- Load mobile bridge for compatibility -->
-    <script src="/js/musicBar/mobile/MobileBridge.js"></script>
-    
-    <!-- Load musicBar-new.js (main orchestrator) -->
-    <script type="module" src="/js/musicBar-new.js"></script>
+    <!-- Load musicBar.js directly since we use same element IDs -->
+    <script type="module" src="/js/musicBar.js"></script>
     
     <!-- Additional JavaScript files -->
     <script type="module" src="/js/toast.js"></script>
     <script type="module" src="/js/mediaSession.js"></script>
     
-    <!-- Initialize musicBar after all modules are loaded -->
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🎵 DOM loaded, checking musicBar modules...');
-            
-            // Check if modules are available after a delay
-            setTimeout(() => {
-            console.log('Available modules:', {
-                Helpers: !!window.Helpers,
-                StateManager: !!window.StateManager,
-                UIUpdater: !!window.UIUpdater,
-                AudioEngine: !!window.AudioEngine,
-                WebSocketManager: !!window.WebSocketManager
-            });
-            
-            // Log current state for debugging
-            setTimeout(() => {
-                if (window.StateManager) {
-                    const state = window.StateManager.getState();
-                    console.log('🎵 Current state after initialization:', state);
-                }
-            }, 1500);
-                
-                // Force UIUpdater initialization if it exists but isn't initialized
-                if (window.UIUpdater && typeof window.UIUpdater.init === 'function') {
-                    console.log('🔄 Initializing UIUpdater...');
-                    window.UIUpdater.init();
-                }
-                
-                // Force StateManager initialization if it exists but isn't initialized
-                if (window.StateManager && typeof window.StateManager.init === 'function') {
-                    console.log('🔄 Initializing StateManager...');
-                    window.StateManager.init();
-                }
-                
-                // Force AudioEngine initialization if it exists but isn't initialized
-                if (window.AudioEngine && typeof window.AudioEngine.init === 'function') {
-                    console.log('🔄 Initializing AudioEngine...');
-                    window.AudioEngine.init();
-                }
-                
-                // Force ImageManager initialization if it exists but isn't initialized
-                if (window.ImageManager && typeof window.ImageManager.init === 'function') {
-                    console.log('🔄 Initializing ImageManager...');
-                    window.ImageManager.init();
-                }
-                
-                // Force WebSocketManager initialization if it exists but isn't initialized
-                if (window.WebSocketManager && typeof window.WebSocketManager.init === 'function') {
-                    console.log('🔄 Initializing WebSocketManager...');
-                    window.WebSocketManager.init();
-                }
-                
-                // Fix UIUpdater to use correct property names from server
-                if (window.UIUpdater && window.StateManager) {
-                    // Override UIUpdater.updateSongInfo to use server field names
-                    const originalUpdateSongInfo = window.UIUpdater.updateSongInfo;
-                    window.UIUpdater.updateSongInfo = function(state) {
-                        const songName = state.songName ?? "Unknown Title";
-                        const artist = state.artist ?? state.artistName ?? "Unknown Artist";
-                        
-                        // Update desktop elements
-                        if (this.domElements.songTitle) {
-                            this.domElements.songTitle.innerText = songName;
-                        }
-                        if (this.domElements.artistEl) {
-                            this.domElements.artistEl.innerText = artist;
-                        }
-                        
-                        // Update mobile elements  
-                        if (this.domElements.titleMobileEl) {
-                            this.domElements.titleMobileEl.innerText = songName;
-                        }
-                        if (this.domElements.artistMobileEl) {
-                            this.domElements.artistMobileEl.innerText = artist;
-                        }
-                    };
-                    
-                    // Force UIUpdater to update time with server state
-                    const originalUpdateTimeDisplay = window.UIUpdater.updateTimeDisplay;
-                    window.UIUpdater.updateTimeDisplay = function(currentTime, duration) {
-                        if (this.domElements.currentTimeEl) {
-                            this.domElements.currentTimeEl.innerText = window.Helpers.formatTime(Math.floor(currentTime));
-                        }
-                        if (this.domElements.totalTimeEl) {
-                            this.domElements.totalTimeEl.innerText = window.Helpers.formatTime(Math.floor(duration));
-                        }
-                    };
-                    
-                    // Make UIUpdater trigger updates more frequently
-                    window.addEventListener('audioTimeUpdate', function(e) {
-                        if (e.detail && window.UIUpdater) {
-                            window.UIUpdater.updateTimeDisplay(e.detail.currentTime, e.detail.duration);
-                        }
-                    });
-                }
-                
-                // Fix StateManager to sync server state to UI
-                if (window.StateManager) {
-                    // Listen for WebSocket state updates and trigger UI updates (but prevent infinite loops)
-                    console.log('🎵 Setting up requestStateUpdate listener');
-                    window.addEventListener('requestStateUpdate', function(e) {
-                        console.log('🎵 requestStateUpdate event received:', e.detail);
-                        
-                        // Skip updates that were triggered by our own UI updates
-                        if (e.detail.source === 'uiUpdater') {
-                            return;
-                        }
-                        
-                        if (e.detail.changes && window.UIUpdater) {
-                            console.log('🎵 State update triggering UI refresh:', e.detail.changes);
-                            
-                            // Force complete UI update immediately
-                            if (window.UIUpdater) {
-                                console.log('🎵 About to call performUIUpdate');
-                                window.UIUpdater.performUIUpdate('websocket');
-                            }
-                        }
-                    });
-                }
-                
-                // Fix ImageManager to provide artwork to UI
-                if (window.ImageManager) {
-                    // Listen for song changes and update artwork
-                    window.addEventListener('requestStateUpdate', function(e) {
-                        if (e.detail.changes && e.detail.changes.currentSongId) {
-                            setTimeout(() => {
-                                const state = window.StateManager?.getState();
-                                if (state && window.ImageManager) {
-                                    console.log('🎵 Requesting artwork update for song:', state.currentSongId);
-                                    window.ImageManager.updateImages(state, null, null);
-                                }
-                            }, 100);
-                        }
-                    });
-                }
-                
-                // Ensure modular system is properly connected to UI events
-                setTimeout(() => {
-                    if (window.StateManager) {
-                        const state = window.StateManager.getState();
-                        console.log('🎵 Initial state for UI:', state);
-                        
-                        // Force initial UI update
-                        if (window.UIUpdater) {
-                            window.UIUpdater.performUIUpdate('initial');
-                        }
-                    }
-                }, 1500);
-                
-
-            }, 1000);
-        });
-    </script>
+    <!-- Mobile-specific enhancements -->
+    <script type="module" src="/js/mobile.js"></script>
     
-    <!-- Mobile-specific enhancements (commented out - now using responsive architecture) -->
-    <!-- <script type="module" src="/js/mobile.js"></script> -->
-    
-    <!-- Responsive architecture info -->
-    <script>
-        // Log responsive architecture status
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🎵 JMedia Responsive Architecture Loaded');
-            console.log('Available responsive modules:', {
-                DeviceManager: !!window.DeviceManager,
-                StateManager: !!window.StateManager,
-                ResponsiveNavigation: !!window.ResponsiveNavigation,
-                ResponsiveModals: !!window.ResponsiveModals,
-                ResponsivePlayer: !!window.ResponsivePlayer,
-                MobileAdapter: !!window.MobileAdapter,
-                TabletAdapter: !!window.TabletAdapter,
-                DesktopAdapter: !!window.DesktopAdapter,
-                MobileBridge: !!window.MobileBridge
-            });
-            
-            // Show architecture mode info
-            if (window.MobileBridge) {
-                const bridgeState = window.MobileBridge.getBridgeState();
-                console.log('Mobile Bridge State:', bridgeState);
-                
-                if (bridgeState.legacyMode) {
-                    console.log('⚠️  Using legacy mobile mode - new responsive features available');
-                } else {
-                    console.log('✅ Using responsive architecture - full adaptive features enabled');
-                }
-            }
-        });
-    </script>
-    
-    <!-- Inline initialization script (after all modules loaded) -->
     <script>
         // Initialize mobile navigation variables
         window.mobileStore = {
@@ -1064,6 +852,43 @@
             }
         }
 
+        // Logout function
+        async function handleLogout() {
+            try {
+                // Call logout API
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (!data.error) {
+                    // Show success message
+                    if (window.showToast) {
+                        window.showToast('Logged out successfully', 'success', 2000);
+                    }
+                    
+                    // Redirect to login after short delay
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 1000);
+                } else {
+                    // Show error message
+                    if (window.showToast) {
+                        window.showToast(data.error || 'Logout failed', 'error', 3000);
+                    }
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                if (window.showToast) {
+                    window.showToast('Logout failed', 'error', 3000);
+                }
+            }
+        }
+
         // Setup mobile profile modal event listeners
         document.addEventListener('DOMContentLoaded', function() {
             const createBtn = document.getElementById('mobileCreateProfileBtn');
@@ -1088,11 +913,7 @@
 
             // Initialize playlist CRUD and mini volume control
             initMobilePlaylistCRUD();
-            
-            // Initialize volume control with delay to ensure musicBar system is ready
-            setTimeout(() => {
-                initMobileMiniVolumeControl();
-            }, 300);
+            initMobileMiniVolumeControl();
         });
         
         function fetchMobileProfiles() {

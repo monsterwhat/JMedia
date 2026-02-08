@@ -5,6 +5,7 @@ import Controllers.VideoController;
 import Services.VideoService;
 import Services.VideoHistoryService;
 import Services.VideoStateService;
+import Models.Video;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.ValueResolver;
 import io.smallrye.common.annotation.Blocking;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
+import org.slf4j.Logger; 
 import org.slf4j.LoggerFactory;
 
 @Path("/api/video/ui")
@@ -132,13 +133,13 @@ public class VideoUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit) {
 
         VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
-        List<VideoService.VideoDTO> movies = paginatedVideos.videos();
+        List<Models.Video> movies = paginatedVideos.videos();
         long totalItems = paginatedVideos.totalCount();
         
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages)); // Sanitize page number
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
-
+        
         return movieListContent
                 .data("movies", movies)
                 .data("currentPage", currentPage)
@@ -191,7 +192,7 @@ public class VideoUiApi {
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
         // JAX-RS automatically decodes path parameters, so seriesTitle here is already decoded.
-        List<VideoService.VideoDTO> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+        List<Models.Video> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
         return episodeListContent
                 .data("episodes", episodes)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
@@ -217,21 +218,21 @@ public class VideoUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
         VideoController.PaginatedQueue paginatedQueue = videoController.getQueuePage(page, limit);
-        List<VideoService.VideoDTO> queuePage = paginatedQueue.videos();
+        List<Models.Video> queuePage = paginatedQueue.videos();
         int totalQueueSize = paginatedQueue.totalSize();
-
+        
         int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages)); // Sanitize page number
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
-
-        // The template needs the index of each video *within the full queue*.
+        
+        // The template needs index of each video *within the full queue*.
         int offset = (page - 1) * limit;
         List<VideoWithIndex> queueWithIndex = new ArrayList<>();
         for (int i = 0; i < queuePage.size(); i++) {
             queueWithIndex.add(new VideoWithIndex(queuePage.get(i), offset + i));
         }
-
-String html = videoQueueFragment
+        
+        String html = videoQueueFragment
                 .data("queue", queueWithIndex)
                 .data("currentPage", currentPage)
                 .data("limit", limit)
@@ -241,14 +242,13 @@ String html = videoQueueFragment
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .data("json", (Function<Object, String>) this::toJson)
                 .render();
-
-
+        
         return new VideoQueueFragmentResponse(html, totalQueueSize);
     }
     
     // Helper record to pass video and its index to the template/JSON
-public record VideoWithIndex(VideoService.VideoDTO video, int index) {
-
+    public record VideoWithIndex(Models.Video video, int index) {
+    
     }
  
     
@@ -305,10 +305,10 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
     @Blocking
     public String getHeroFragment() {
         try {
-            List<VideoService.VideoDTO> featured = new ArrayList<>();
+            List<Models.Video> featured = new ArrayList<>();
             
             // Get all videos as base
-            List<VideoService.VideoDTO> allVideos = videoService.findAll();
+            List<Models.Video> allVideos = videoService.findAll();
             LOG.info("Hero fragment: Total videos found: " + allVideos.size());
             
             if (allVideos.isEmpty()) {
@@ -331,7 +331,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             LOG.error("Error generating hero fragment", e);
             
             // Return fallback hero content on error
-            List<VideoService.VideoDTO> fallback = new ArrayList<>();
+            List<Models.Video> fallback = new ArrayList<>();
             return optimizedHeroFragment
                     .data("featured", fallback)
                     .data("formatDuration", (Function<Integer, String>) this::formatDuration)
@@ -347,7 +347,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         return "Video API is working";
 }
     
-    private String createSimpleCarousel(String title, List<VideoService.VideoDTO> items, String iconClass, String iconColor, String badge) {
+    private String createSimpleCarousel(String title, List<Models.Video> items, String iconClass, String iconColor, String badge) {
         if (items == null || items.isEmpty()) {
             String emptyHtml = "<div class='streaming-carousel-section'>" +
                    "<div class='carousel-header'>" +
@@ -388,7 +388,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         html.append("<div class='carousel-container'>");
         html.append("<div class='streaming-carousel'>");
         
-        for (VideoService.VideoDTO item : items) {
+        for (Models.Video item : items) {
             html.append(createSimpleCard(item));
         }
         
@@ -398,15 +398,15 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         return html.toString();
     }
     
-    private String createSimpleCard(VideoService.VideoDTO item) {
+    private String createSimpleCard(Models.Video item) {
         try {
-            String title = item.title() != null ? item.title() : 
-                         item.seriesTitle() != null ? item.seriesTitle() : "Unknown Title";
-            String thumbnail = "/api/video/thumbnail/" + item.id();
+            String title = item.title != null ? item.title : 
+                         item.seriesTitle != null ? item.seriesTitle : "Unknown Title";
+            String thumbnail = "/api/video/thumbnail/" + item.id;
             String itemJson = toJson(item);
             
             StringBuilder cardHtml = new StringBuilder();
-            cardHtml.append("<div class='streaming-card' data-video-id='").append(item.id()).append("' onclick='handleCardClick(").append(itemJson).append(", event)' tabindex='0' role='button' aria-label='").append(escapeHtml(title)).append("'>");
+            cardHtml.append("<div class='streaming-card' data-video-id='").append(item.id).append("' onclick='handleCardClick(").append(itemJson).append(", event)' tabindex='0' role='button' aria-label='").append(escapeHtml(title)).append("'>");
             cardHtml.append("<div class='card-image-container'>");
             cardHtml.append("<img class='card-image' src='").append(thumbnail).append("' alt='").append(escapeHtml(title)).append("' loading='lazy'>");
             cardHtml.append("<div class='card-play-overlay'>");
@@ -416,21 +416,21 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             cardHtml.append("<div class='card-content'>");
             cardHtml.append("<div class='card-badges'>");
             
-            if ("Movie".equals(item.type())) {
+            if ("movie".equals(item.type)) {
                 cardHtml.append("<span class='card-badge movie-badge'>MOVIE</span>");
-            } else if ("Episode".equals(item.type())) {
-                cardHtml.append("<span class='card-badge episode-badge'>S").append(item.seasonNumber()).append("E").append(item.episodeNumber()).append("</span>");
+            } else if ("episode".equals(item.type)) {
+                cardHtml.append("<span class='card-badge episode-badge'>S").append(item.seasonNumber).append("E").append(item.episodeNumber).append("</span>");
             }
             
             cardHtml.append("</div>");
             cardHtml.append("<h3 class='card-title'>").append(escapeHtml(title)).append("</h3>");
             cardHtml.append("<p class='card-meta'>");
             
-            if (item.releaseYear() != null && item.releaseYear() > 0) {
-                cardHtml.append(item.releaseYear()).append(" • ");
+            if (item.releaseYear > 0) {
+                cardHtml.append(item.releaseYear).append(" • ");
             }
-            if (item.durationSeconds() > 0) {
-                cardHtml.append(formatDuration(item.durationSeconds()));
+            if (item.duration > 0) {
+                cardHtml.append(formatDuration((int)item.duration));
             }
             
             cardHtml.append("</p>");
@@ -447,8 +447,61 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             return "<div class='card-error'>Error rendering card</div>";
         }
     }
+
+    private String createSimpleCardHTML(Models.Video item) {
+        try {
+            String title = item.title != null ? item.title : 
+                         item.seriesTitle != null ? item.seriesTitle : "Unknown Title";
+            String thumbnail = "/api/video/thumbnail/" + item.id;
+            String itemJson = toJson(item);
+            
+            StringBuilder html = new StringBuilder();
+            html.append("<div class='streaming-card' data-video-id='").append(item.id).append("' onclick='handleCardClick(").append(itemJson).append(", event)' tabindex='0' role='button' aria-label='").append(escapeHtml(title)).append("'>");
+            
+            html.append("<div class='card-image-container'>");
+            html.append("<img class='card-image' src='").append(thumbnail).append("' alt='").append(escapeHtml(title)).append("' loading='lazy'>");
+            html.append("<div class='card-play-overlay'>");
+            html.append("<button class='card-play-btn'><i class='pi pi-play'></i></button>");
+            html.append("</div>");
+            html.append("</div>");
+            
+            html.append("<div class='card-content'>");
+            html.append("<div class='card-badges'>");
+            
+            if ("movie".equals(item.type)) {
+                html.append("<span class='card-badge movie-badge'>MOVIE</span>");
+            } else if ("episode".equals(item.type)) {
+                html.append("<span class='card-badge episode-badge'>S").append(item.seasonNumber).append("E").append(item.episodeNumber).append("</span>");
+            }
+            
+            html.append("</div>");
+            html.append("<h3 class='card-title'>").append(escapeHtml(title)).append("</h3>");
+            html.append("<p class='card-meta'>");
+            
+            if (item.releaseYear > 0) {
+                html.append(item.releaseYear).append(" • ");
+            }
+            if (item.duration > 0) {
+                html.append(formatDuration((int)item.duration));
+            }
+            
+            html.append("</p>");
+            html.append("</div>");
+            
+            html.append("<div class='card-actions'>");
+            html.append("<button class='card-action-btn primary' onclick='window.selectItem(").append(itemJson).append(", \"play\")'><i class='pi pi-play'></i><span>Play</span></button>");
+            html.append("<button class='card-action-btn secondary' onclick='window.selectItem(").append(itemJson).append(", \"details\")'><i class='pi pi-info-circle'></i><span>Info</span></button>");
+            html.append("<button class='card-action-btn tertiary' onclick='window.addToWatchlist(").append(itemJson).append(")'><i class='pi pi-plus'></i></button>");
+            html.append("</div>");
+            html.append("</div>");
+            
+            return html.toString();
+        } catch (Exception e) {
+            return "<div class='card-error'>Error rendering card</div>";
+        }
+    }
     
-    private String createSimpleCarouselHTML(String title, List<VideoService.VideoDTO> items, String iconClass, String iconColor, String badge, String carouselId) {
+    private String createSimpleCarouselHTML(String title, List<Models.Video> items, String iconClass, String iconColor, String badge, String carouselId) {
         StringBuilder html = new StringBuilder();
         html.append("<div class='streaming-carousel-section'>");
         html.append("<div class='carousel-header'>");
@@ -467,7 +520,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         html.append("<div class='carousel-container'>");
         html.append("<div class='streaming-carousel' id='").append(carouselId).append("'>");
         
-        for (VideoService.VideoDTO item : items) {
+        for (Models.Video item : items) {
             html.append(createSimpleCardHTML(item));
         }
         
@@ -477,58 +530,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         return html.toString();
     }
     
-    private String createSimpleCardHTML(VideoService.VideoDTO item) {
-        try {
-            String title = item.title() != null ? item.title() : 
-                         item.seriesTitle() != null ? item.seriesTitle() : "Unknown Title";
-            String thumbnail = "/api/video/thumbnail/" + item.id();
-            String itemJson = toJson(item);
-            
-            StringBuilder html = new StringBuilder();
-            html.append("<div class='streaming-card' data-video-id='").append(item.id()).append("' onclick='handleCardClick(").append(itemJson).append(", event)' tabindex='0' role='button' aria-label='").append(escapeHtml(title)).append("'>");
-            
-            html.append("<div class='card-image-container'>");
-            html.append("<img class='card-image' src='").append(thumbnail).append("' alt='").append(escapeHtml(title)).append("' loading='lazy'>");
-            html.append("<div class='card-play-overlay'>");
-            html.append("<button class='card-play-btn'><i class='pi pi-play'></i></button>");
-            html.append("</div>");
-            html.append("</div>");
-            
-            html.append("<div class='card-content'>");
-            html.append("<div class='card-badges'>");
-            
-            if ("Movie".equals(item.type())) {
-                html.append("<span class='card-badge movie-badge'>MOVIE</span>");
-            } else if ("Episode".equals(item.type())) {
-                html.append("<span class='card-badge episode-badge'>S").append(item.seasonNumber()).append("E").append(item.episodeNumber()).append("</span>");
-            }
-            
-            html.append("</div>");
-            html.append("<h3 class='card-title'>").append(escapeHtml(title)).append("</h3>");
-            html.append("<p class='card-meta'>");
-            
-            if (item.releaseYear() != null && item.releaseYear() > 0) {
-                html.append(item.releaseYear()).append(" • ");
-            }
-            if (item.durationSeconds() > 0) {
-                html.append(formatDuration(item.durationSeconds()));
-            }
-            
-            html.append("</p>");
-            html.append("</div>");
-            
-            html.append("<div class='card-actions'>");
-            html.append("<button class='card-action-btn primary' onclick='window.selectItem(").append(itemJson).append(", \"play\")'><i class='pi pi-play'></i><span>Play</span></button>");
-            html.append("<button class='card-action-btn secondary' onclick='window.selectItem(").append(itemJson).append(", \"details\")'><i class='pi pi-info-circle'></i><span>Info</span></button>");
-            html.append("<button class='card-action-btn tertiary' onclick='window.addToWatchlist(").append(itemJson).append(")'><i class='pi pi-plus'></i></button>");
-            html.append("</div>");
-            html.append("</div>");
-            
-            return html.toString();
-        } catch (Exception e) {
-            return "<div class='card-error'>Error rendering card</div>";
-        }
-    }
+
     
     @GET
     @Path("/debug")
@@ -549,25 +551,24 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             
             // Test videoService methods directly
             try {
-                List<VideoService.VideoDTO> allVideos = videoService.findAll();
+            List<Models.Video> allVideos = videoService.findAll();
                 debug.put("videoService_findAll_size", allVideos.size());
                 debug.put("videoService_findAll_sample", allVideos.stream().limit(3).map(v -> Map.of(
-                    "id", v.id(),
-                    "title", v.title(),
-                    "type", v.type()
+                    "id", v.id,
+                    "title", v.title
                 )).collect(Collectors.toList()));
             } catch (Exception e) {
                 debug.put("videoService_findAll_error", e.getMessage());
             }
             
-            // Test getFeaturedContent method
+            // Simple featured selection
             try {
-                Map<Long, Integer> emptyPlayCounts = new HashMap<>();
-                List<VideoService.VideoDTO> featured = videoService.getFeaturedContent(5, emptyPlayCounts);
+                List<Models.Video> allVideos = videoService.findAll();
+                List<Models.Video> featured = allVideos.stream().limit(5).collect(Collectors.toList());
                 debug.put("videoService_getFeatured_size", featured.size());
                 debug.put("videoService_getFeatured_sample", featured.stream().limit(2).map(v -> Map.of(
-                    "id", v.id(),
-                    "title", v.title()
+                    "id", v.id,
+                    "title", v.title
                 )).collect(Collectors.toList()));
             } catch (Exception e) {
                 debug.put("videoService_getFeatured_error", e.getMessage());
@@ -624,17 +625,17 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         try {
             // Get carousel data and apply limits
             Map<String, Object> carouselData = getCarouselData();
-            List<VideoService.VideoDTO> featured = ((List<VideoService.VideoDTO>) carouselData.get("featured"))
+            List<Models.Video> featured = ((List<Models.Video>) carouselData.get("featured"))
                     .stream().skip(offset).limit(limit).collect(Collectors.toList());
-            List<VideoService.VideoDTO> newReleases = ((List<VideoService.VideoDTO>) carouselData.get("newReleases"))
+            List<Models.Video> newReleases = ((List<Models.Video>) carouselData.get("newReleases"))
                     .stream().skip(offset).limit(limit).collect(Collectors.toList());
-            List<VideoService.VideoDTO> continueWatching = ((List<VideoService.VideoDTO>) carouselData.get("continueWatching"))
+            List<Models.Video> continueWatching = ((List<Models.Video>) carouselData.get("continueWatching"))
                     .stream().skip(offset).limit(limit).collect(Collectors.toList());
-            List<VideoService.VideoDTO> trending = ((List<VideoService.VideoDTO>) carouselData.get("trending"))
+            List<Models.Video> trending = ((List<Models.Video>) carouselData.get("trending"))
                     .stream().skip(offset).limit(limit).collect(Collectors.toList());
-            List<VideoService.VideoDTO> movies = ((List<VideoService.VideoDTO>) carouselData.get("movies"))
+            List<Models.Video> movies = ((List<Models.Video>) carouselData.get("movies"))
                     .stream().skip(offset).limit(limit).collect(Collectors.toList());
-            List<VideoService.VideoDTO> tvShows = ((List<VideoService.VideoDTO>) carouselData.get("tvShows"))
+            List<Models.Video> tvShows = ((List<Models.Video>) carouselData.get("tvShows"))
                     .stream().skip(offset).limit(limit).collect(Collectors.toList());
             
             // Generate simple HTML carousels without template
@@ -665,7 +666,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         }
     }
     
-    private String createCarouselHTML(String title, List<VideoService.VideoDTO> items, String iconClass, String iconColor, String badge) {
+    private String createCarouselHTML(String title, List<Models.Video> items, String iconClass, String iconColor, String badge) {
         try {
             String itemsJson = objectMapper.writeValueAsString(items);
             StringBuilder html = new StringBuilder();
@@ -692,8 +693,8 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             html.append("<div class=\"carousel-container\">")
                   .append("<div class=\"streaming-carousel\">");
             
-            for (VideoService.VideoDTO item : items) {
-                html.append(createCardHTML(item));
+            for (Models.Video item : items) {
+                html.append(createSimpleCardHTML(item));
             }
             
             html.append("</div></div></div>");
@@ -704,16 +705,16 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         }
     }
     
-    private String createCardHTML(VideoService.VideoDTO item) {
+    private String createCardHTML(Models.Video item) {
         try {
             String itemJson = objectMapper.writeValueAsString(item);
-            String title = item.title() != null ? item.title() : 
-                         item.seriesTitle() != null ? item.seriesTitle() : "Unknown Title";
-            String thumbnail = item.thumbnailPath() != null ? item.thumbnailPath() : 
-                          "https://picsum.photos/300/450?random=" + item.id();
+            String title = item.title != null ? item.title : 
+                         item.seriesTitle != null ? item.seriesTitle : "Unknown Title";
+            String thumbnail = item.thumbnailPath != null ? item.thumbnailPath : 
+                           "https://picsum.photos/300/450?random=" + item.id;
             
             StringBuilder html = new StringBuilder();
-            html.append("<div class='streaming-card' data-video-id='").append(item.id()).append("' ")
+            html.append("<div class='streaming-card' data-video-id='").append(item.id).append("' ")
                   .append("onclick='handleCardClick(").append(itemJson).append(", event)' ")
                   .append("tabindex='0' role='button' aria-label='").append(title).append("'>");
             
@@ -727,20 +728,24 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             // Card content
             html.append("<div class='card-content'>")
                   .append("<div class='card-badges'>");
-            if ("Movie".equals(item.type())) {
+            
+            if ("movie".equals(item.type)) {
                 html.append("<span class='card-badge movie-badge'>MOVIE</span>");
-            } else if ("Episode".equals(item.type())) {
-                html.append("<span class='card-badge episode-badge'>S").append(item.seasonNumber()).append("E").append(item.episodeNumber()).append("</span>");
+            } else if ("episode".equals(item.type)) {
+                html.append("<span class='card-badge episode-badge'>S").append(item.seasonNumber).append("E").append(item.episodeNumber).append("</span>");
             }
+            
             html.append("</div>")
                   .append("<h3 class='card-title'>").append(title).append("</h3>")
                   .append("<p class='card-meta'>");
-            if (item.releaseYear() != null && item.releaseYear() > 0) {
-                html.append(item.releaseYear()).append(" • ");
+            
+            if (item.releaseYear > 0) {
+                html.append(item.releaseYear).append(" • ");
             }
-            if (item.durationSeconds() > 0) {
-                html.append(formatDuration(item.durationSeconds())).append(" • ");
+            if (item.duration > 0) {
+                html.append(formatDuration((int)item.duration)).append(" • ");
             }
+            
             html.append("</p></div>");
             
             // Card actions
@@ -757,7 +762,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
         } catch (Exception e) {
             return "<div class='card-error'>Error rendering card</div>";
         }
-    }
+    } 
 
     @GET
     @Path("/search-suggest")
@@ -773,11 +778,11 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             }
             
             // Get search results
-            List<VideoService.VideoDTO> allVideos = videoService.findAll();
-            List<VideoService.VideoDTO> suggestions = allVideos.stream()
+            List<Models.Video> allVideos = videoService.findAll();
+            List<Models.Video> suggestions = allVideos.stream()
                     .filter(video -> {
-                        String title = video.title() != null ? video.title().toLowerCase() : "";
-                        String seriesTitle = video.seriesTitle() != null ? video.seriesTitle().toLowerCase() : "";
+                        String title = video.title != null ? video.title.toLowerCase() : "";
+                        String seriesTitle = video.seriesTitle != null ? video.seriesTitle.toLowerCase() : "";
                         String queryLower = query.toLowerCase();
                         
                         return title.contains(queryLower) || 
@@ -792,34 +797,33 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             List<Map<String, Object>> enrichedSuggestions = suggestions.stream()
                     .map(video -> {
                         Map<String, Object> enriched = new HashMap<>();
-                        enriched.put("id", video.id());
-                        enriched.put("title", video.title());
-                        enriched.put("seriesTitle", video.seriesTitle());
-                        enriched.put("type", video.type());
-                        enriched.put("durationSeconds", video.durationSeconds());
-                        enriched.put("seasonNumber", video.seasonNumber());
-                        enriched.put("episodeNumber", video.episodeNumber());
-                        enriched.put("episodeTitle", video.episodeTitle());
-                        enriched.put("releaseYear", video.releaseYear());
-                        // Description field not available in VideoDTO
+                        enriched.put("id", video.id);
+                        enriched.put("title", video.title);
+                        enriched.put("seriesTitle", video.seriesTitle);
+                        enriched.put("type", video.type);
+                        enriched.put("durationSeconds", video.duration);
+                        enriched.put("seasonNumber", video.seasonNumber);
+                        enriched.put("episodeNumber", video.episodeNumber);
+                        enriched.put("episodeTitle", video.episodeTitle);
+                        enriched.put("releaseYear", video.releaseYear);
                         
                         // Add thumbnail URL
-                        String thumbnailUrl = "/api/video/thumbnail/" + video.id();
+                        String thumbnailUrl = "/api/video/thumbnail/" + video.id;
                         enriched.put("thumbnail", thumbnailUrl);
-                        enriched.put("thumbnailPath", video.thumbnailPath() != null && !video.thumbnailPath().isBlank() ? video.thumbnailPath() : thumbnailUrl);
+                        enriched.put("thumbnailPath", video.thumbnailPath);
                         
                         // Add display helpers
-                        enriched.put("displayTitle", video.title() != null ? video.title() : 
-                                         video.seriesTitle() != null ? video.seriesTitle() : "Unknown Title");
+                        enriched.put("displayTitle", video.title != null ? video.title : 
+                                         video.seriesTitle != null ? video.seriesTitle : "Unknown Title");
                         
                         List<String> metaParts = new ArrayList<>();
-                        if (video.type() != null) metaParts.add(video.type());
-                        if (video.releaseYear() != null && video.releaseYear() > 0) 
-                            metaParts.add(video.releaseYear().toString());
-                        if (video.durationSeconds() > 0) 
-                            metaParts.add(formatDuration(video.durationSeconds()));
-                        if ("Episode".equals(video.type()) && video.seasonNumber() != null && video.episodeNumber() != null)
-                            metaParts.add("S" + video.seasonNumber() + "E" + video.episodeNumber());
+                        if (video.type != null) metaParts.add(video.type);
+                        if (video.releaseYear > 0) 
+                            metaParts.add(String.valueOf(video.releaseYear));
+                        if (video.duration > 0) 
+                            metaParts.add(formatDuration((int)video.duration));
+                        if ("episode".equals(video.type) && video.seasonNumber > 0 && video.episodeNumber > 0)
+                            metaParts.add("S" + video.seasonNumber + "E" + video.episodeNumber);
                         
                         enriched.put("displayMeta", String.join(" • ", metaParts));
                         
@@ -847,7 +851,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
 
         try {
             // Get all videos first - this is our reliable base
-            List<VideoService.VideoDTO> allVideos = videoService.findAll();
+            List<Models.Video> allVideos = videoService.findAll();
             System.out.println("DEBUG: Total videos found: " + allVideos.size());
             
             if (allVideos.isEmpty()) {
@@ -863,11 +867,11 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             }
 
             // Try to get some videos using simple methods
-            List<VideoService.VideoDTO> featured = new ArrayList<>();
-            List<VideoService.VideoDTO> newReleases = new ArrayList<>();
-            List<VideoService.VideoDTO> trending = new ArrayList<>();
-            List<VideoService.VideoDTO> movies = new ArrayList<>();
-            List<VideoService.VideoDTO> tvShows = new ArrayList<>();
+            List<Models.Video> featured = new ArrayList<>();
+            List<Models.Video> newReleases = new ArrayList<>();
+            List<Models.Video> trending = new ArrayList<>();
+            List<Models.Video> movies = new ArrayList<>();
+            List<Models.Video> tvShows = new ArrayList<>();
 
             // Try paginated movies first (simplest method)
             try {
@@ -911,7 +915,7 @@ public record VideoWithIndex(VideoService.VideoDTO video, int index) {
             // TV Shows - episodes only
             try {
                 tvShows = allVideos.stream()
-                        .filter(v -> "Episode".equals(v.type()))
+                        .filter(v -> "episode".equals(v.type))
                         .limit(Math.min(8, allVideos.size()))
                         .collect(Collectors.toList());
                 System.out.println("DEBUG: TV Shows (episodes): " + tvShows.size());

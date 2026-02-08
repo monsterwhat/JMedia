@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentPage.includes('/player.html')) {
                 playerIcon.classList.remove('pi-expand'); // Remove expand if it was set
                 playerIcon.classList.add('pi-desktop');   // Add desktop icon
-                playerToggle.href = '/index.html';        // Link to index (desktop view)
+                playerToggle.href = '/';        // Link to index (desktop view)
                 playerToggle.title = 'Switch to Desktop View';
             } else {
                 playerIcon.classList.remove('pi-desktop'); // Remove desktop if it was set
@@ -68,8 +68,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- New code for navbar button visibility ---
 
     function updateNavbarButtonsVisibility(currentProfile) {
-        const settingsBtn = document.querySelector('a[href="/settings.html"]');
-        const importBtn = document.querySelector('a[href="/import.html"]');
+        const settingsBtn = document.querySelector('a[href="/settings"]');
+        const importBtn = document.querySelector('a[href="/import"]');
 
         if (settingsBtn) {
             if (currentProfile && currentProfile.isMainProfile) {

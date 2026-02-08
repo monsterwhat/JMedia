@@ -2,8 +2,7 @@ package Models;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
+import jakarta.persistence.Table; 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.mindrot.jbcrypt.BCrypt;
@@ -18,12 +17,18 @@ public class User extends PanacheEntity {
     private String passwordHash;
     private String groupName;
     
-    @Transient
-    private String password;
-
+    // Getter for username
+    public String getUsername() {
+        return username;
+    }
+    
+    // Setter for username if needed
+    public void setUsername(String username) {
+        this.username = username;
+    }
+    
     // BCrypt hash generation
-    public void setPassword(String password) {
-        this.password = password;
+    public void setPassword(String password) { 
         this.passwordHash = BCrypt.hashpw(password, BCrypt.gensalt());
     }
     

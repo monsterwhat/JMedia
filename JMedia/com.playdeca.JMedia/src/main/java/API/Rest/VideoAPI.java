@@ -71,8 +71,13 @@ public class VideoAPI {
     @Path("/thumbnail/{videoId}")
     @Produces("image/jpeg")
     public Response getThumbnail(@PathParam("videoId") Long videoId) {
+        // Validate videoId parameter
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+
         try {
-            VideoService.VideoDTO video = videoService.find(videoId);
+            Models.Video video = Models.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
@@ -83,12 +88,23 @@ public class VideoAPI {
                 return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
             }
 
-            String fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path()).toString();
-            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type());
+            // Validate and sanitize the video path to prevent directory traversal
+            if (video.path == null || video.path.trim().isEmpty()) {
+                LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
+                return Response.status(Response.Status.BAD_REQUEST).build();
+            }
+
+            // Normalize the path and remove any directory traversal attempts
+            String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
+            // Remove any leading slashes to prevent absolute paths
+            normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
+
+            String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
+            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
             
             if (thumbnailUrl != null && !thumbnailUrl.contains("picsum.photos")) {
                 // Convert URL to file path
-                String filename = videoId + "_" + video.type() + ".jpg";
+                String filename = videoId + "_" + video.type + ".jpg";
                 java.nio.file.Path thumbnailPath = thumbnailService.getThumbnailDirectory().resolve(filename);
                 File thumbnailFile = thumbnailPath.toFile();
                 
@@ -128,13 +144,25 @@ public class VideoAPI {
             for (String idStr : idArray) {
                 try {
                     Long videoId = Long.parseLong(idStr.trim());
-                    VideoService.VideoDTO video = videoService.find(videoId);
+                    Models.Video video = Models.Video.findById(videoId);
                     
                     if (video != null) {
                         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                         if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                            String fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path()).toString();
-                            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type());
+                            // Validate and sanitize the video path to prevent directory traversal
+                            if (video.path == null || video.path.trim().isEmpty()) {
+                                LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
+                                thumbnailUrls.add("https://picsum.photos/seed/error" + videoId + "/300/450.jpg");
+                                continue;
+                            }
+
+                            // Normalize the path and remove any directory traversal attempts
+                            String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
+                            // Remove any leading slashes to prevent absolute paths
+                            normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
+
+                            String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
+                            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
                             thumbnailUrls.add(thumbnailUrl != null ? thumbnailUrl : "https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
                         } else {
                             thumbnailUrls.add("https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
@@ -161,7 +189,13 @@ public class VideoAPI {
     @Path("/stream/{videoId}")
     @Produces("video/mp4")
     public Response streamVideo(@PathParam("videoId") Long videoId, @HeaderParam("Range") String rangeHeader) {
-        VideoService.VideoDTO video = videoService.find(videoId);
+        // Validate videoId parameter
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Invalid video ID").build();
+        }
+
+        Models.Video video = Models.Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -174,8 +208,37 @@ public class VideoAPI {
                     .build();
         }
 
-        java.nio.file.Path filePath = Paths.get(videoLibraryPath, video.path());
+        // Validate and sanitize the video path to prevent directory traversal
+        if (video.path == null || video.path.trim().isEmpty()) {
+            LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Invalid video path").build();
+        }
+
+        // Normalize the path and remove any directory traversal attempts
+        String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
+        // Remove any leading slashes to prevent absolute paths
+        normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
+
+        java.nio.file.Path filePath = Paths.get(videoLibraryPath, normalizedVideoPath);
         File videoFile = filePath.toFile();
+
+        // Additional security check: ensure the resolved file is within the video library
+        try {
+            java.nio.file.Path canonicalLibraryPath = Paths.get(videoLibraryPath).toRealPath();
+            java.nio.file.Path canonicalFilePath = filePath.toRealPath();
+            
+            if (!canonicalFilePath.startsWith(canonicalLibraryPath)) {
+                LOG.warn("Path traversal attempt detected for video ID {}: {} resolves to {}", 
+                         videoId, video.path, canonicalFilePath);
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("Access denied: invalid file path").build();
+            }
+        } catch (IOException e) {
+            LOG.warn("Error resolving canonical paths for security check: {}", e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("Security validation failed").build();
+        }
 
         if (!videoFile.exists() || !videoFile.isFile()) {
             LOG.warn("Video file not found: {}", filePath);
@@ -344,14 +407,31 @@ public class VideoAPI {
     @POST
     @Path("/thumbnail/{videoId}/fetch")
     public Response fetchThumbnail(@PathParam("videoId") Long videoId) {
+        // Validate videoId parameter
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Invalid video ID")).build();
+        }
+
         executor.submit(() -> {
             try {
-                VideoService.VideoDTO video = videoService.find(videoId);
+                Models.Video video = Models.Video.findById(videoId);
                 if (video != null) {
                     String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                     if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                        String fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path()).toString();
-                        thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type());
+                        // Validate and sanitize the video path to prevent directory traversal
+                        if (video.path == null || video.path.trim().isEmpty()) {
+                            LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
+                            return;
+                        }
+
+                        // Normalize the path and remove any directory traversal attempts
+                        String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
+                        // Remove any leading slashes to prevent absolute paths
+                        normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
+
+                        String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
+                        thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
                     }
                 }
             } catch (Exception e) {
@@ -417,8 +497,14 @@ public class VideoAPI {
     @POST
     @Path("/thumbnail/{videoId}/extract")
     public Response extractThumbnail(@PathParam("videoId") Long videoId) {
+        // Validate videoId parameter
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Invalid video ID")).build();
+        }
+
         try {
-            VideoService.VideoDTO video = videoService.find(videoId);
+            Models.Video video = Models.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("Video not found")).build();
@@ -430,13 +516,25 @@ public class VideoAPI {
                         .entity(ApiResponse.error("Video library path not configured")).build();
             }
 
-            String fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path()).toString();
+            // Validate and sanitize the video path to prevent directory traversal
+            if (video.path == null || video.path.trim().isEmpty()) {
+                LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Invalid video path")).build();
+            }
+
+            // Normalize the path and remove any directory traversal attempts
+            String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
+            // Remove any leading slashes to prevent absolute paths
+            normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
+
+            String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
             
             // Delete existing thumbnail first to force regeneration
-            thumbnailService.deleteExistingThumbnail(videoId.toString(), video.type());
+            thumbnailService.deleteExistingThumbnail(videoId.toString(), video.type);
             
             // Extract new thumbnail
-            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type());
+            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
             
             if (thumbnailUrl != null && !thumbnailUrl.contains("picsum.photos")) {
                 return Response.ok(ApiResponse.success(thumbnailUrl)).build();
@@ -454,9 +552,15 @@ public class VideoAPI {
     @POST
     @Path("/metadata/{videoId}/reload")
     public Response reloadVideoMetadata(@PathParam("videoId") Long videoId) {
+        // Validate videoId parameter
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Invalid video ID")).build();
+        }
+
         executor.submit(() -> {
             try {
-                VideoService.VideoDTO video = videoService.find(videoId);
+                Models.Video video = Models.Video.findById(videoId);
                 if (video != null) {
                     String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                     if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
@@ -485,7 +589,7 @@ public class VideoAPI {
     @Path("/videos")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllVideos(@QueryParam("mediaType") String mediaType) {
-        List<VideoService.VideoDTO> videos = videoService.findAll();
+        List<Models.Video> videos = Models.Video.listAll();
         return Response.ok(videos).build();
     }
 
@@ -493,7 +597,13 @@ public class VideoAPI {
     @Path("/shows")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllSeriesTitles() {
-        List<String> seriesTitles = videoService.findAllSeriesTitles();
+        List<String> seriesTitles = Models.Video.<Models.Video>list("type", "episode")
+            .stream()
+            .map(v -> v.seriesTitle)
+            .filter(title -> title != null && !title.isBlank())
+            .distinct()
+            .sorted()
+            .collect(java.util.stream.Collectors.toList());
         return Response.ok(seriesTitles).build();
     }
 
@@ -501,7 +611,12 @@ public class VideoAPI {
     @Path("/shows/{seriesTitle}/seasons")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getSeasonsForSeries(@PathParam("seriesTitle") String seriesTitle) {
-        List<Integer> seasonNumbers = videoService.findSeasonNumbersForSeries(seriesTitle);
+        List<Integer> seasonNumbers = Models.Video.<Models.Video>list("type = ?1 and seriesTitle = ?2", "episode", seriesTitle)
+            .stream()
+            .map(v -> v.seasonNumber)
+            .distinct()
+            .sorted()
+            .collect(java.util.stream.Collectors.toList());
         return Response.ok(seasonNumbers).build();
     }
 
@@ -511,7 +626,7 @@ public class VideoAPI {
     public Response getEpisodesForSeason(
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
-        List<VideoService.VideoDTO> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+        List<Models.Video> episodes = Models.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", "episode", seriesTitle, seasonNumber);
         return Response.ok(episodes).build();
     }
 
@@ -522,9 +637,8 @@ public class VideoAPI {
             @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
-        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
-        List<VideoService.VideoDTO> movies = paginatedVideos.videos();
-        long totalItems = paginatedVideos.totalCount();
+        List<Models.Video> movies = Models.Video.<Models.Video>list("type", "movie");
+        long totalItems = movies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
 
         PaginatedMovieResponse response = new PaginatedMovieResponse(movies, page, limit, totalItems, totalPages);

@@ -37,7 +37,7 @@ public class DetailsViewAPI {
     @Path("/details/{videoId}")
     @Blocking
     public Response getDetailsView(@PathParam("videoId") Long videoId) {
-        VideoService.VideoDTO item = videoService.find(videoId);
+        Models.Video item = videoService.find(videoId);
         
         if (item == null) {
             // Return error page or 404

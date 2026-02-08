@@ -41,7 +41,7 @@ public class PlaybackViewAPI {
     @Path("/playback-fragment")
     @Blocking
     public Response getPlaybackFragment(@QueryParam("videoId") Long videoId) {
-        VideoService.VideoDTO item = null;
+        Models.Video item = null;
         
         // Use provided videoId or current state
         if (videoId != null) {
@@ -65,7 +65,7 @@ public class PlaybackViewAPI {
                 
         return Response.ok(html).build();
     }
-
+    
     @GET
     @Path("/playback-view")
     @Blocking
@@ -74,14 +74,14 @@ public class PlaybackViewAPI {
         var currentState = videoStateService.getOrCreateState();
         if (currentState == null || currentState.getCurrentVideoId() == null) {
             // No current video, return to carousels
-            String redirectHtml = "<script>window.location.href = '/video.html#carousels';</script>";
+            String redirectHtml = "<script>window.location.href = '/video#carousels';</script>";
             return Response.ok(redirectHtml).build();
         }
         
-        VideoService.VideoDTO item = videoService.find(currentState.getCurrentVideoId());
+        Models.Video item = videoService.find(currentState.getCurrentVideoId());
         if (item == null) {
             // Video not found, return to carousels
-            String redirectHtml = "<script>window.location.href = '/video.html#carousels';</script>";
+            String redirectHtml = "<script>window.location.href = '/video#carousels';</script>";
             return Response.ok(redirectHtml).build();
         }
         
