@@ -188,6 +188,106 @@ public class SettingsApi {
     }
 
     // -----------------------------
+    // BPM TOLERANCE SETTINGS
+    // -----------------------------
+    @GET
+    @Path("/{profileId}/bpm-tolerance")
+    @Transactional
+    public Response getBpmTolerance(@PathParam("profileId") Long profileId) {
+        Settings settings = settingsController.getOrCreateSettings();
+        Map<String, Object> bpmSettings = new HashMap<>();
+        bpmSettings.put("default", settings.getBpmTolerance());
+        bpmSettings.put("overrides", settings.getBpmToleranceOverrides());
+        return Response.ok(ApiResponse.success(bpmSettings)).build();
+    }
+
+    @POST
+    @Path("/{profileId}/bpm-tolerance")
+    @Transactional
+    public Response setBpmTolerance(@PathParam("profileId") Long profileId, Map<String, Object> bpmSettings) {
+        Settings settings = settingsController.getOrCreateSettings();
+        
+        if (bpmSettings.containsKey("default")) {
+            Object defaultVal = bpmSettings.get("default");
+            if (defaultVal instanceof Number) {
+                settings.setBpmTolerance(((Number) defaultVal).intValue());
+            }
+        }
+        
+        if (bpmSettings.containsKey("overrides")) {
+            Object overridesVal = bpmSettings.get("overrides");
+            if (overridesVal instanceof String) {
+                settings.setBpmToleranceOverrides((String) overridesVal);
+            }
+        }
+        
+        settingsService.save(settings);
+        return Response.ok(ApiResponse.success("BPM tolerance settings updated")).build();
+    }
+
+        // -----------------------------
+    // IMPORT SOURCES CONFIGURATION
+    // -----------------------------
+    @POST
+    @Path("/{profileId}/import-sources")
+    @Transactional
+    public Response updateImportSources(@PathParam("profileId") Long profileId, 
+                                 ImportSettingsDTO sourcesDTO) {
+        try {
+            Settings settings = settingsController.getOrCreateSettings();
+            
+            // Update source configuration (using direct field access for now)
+            if (sourcesDTO.getPrimarySource() != null) {
+                settings.setPrimarySource(sourcesDTO.getPrimarySource());
+            }
+            if (sourcesDTO.getSecondarySource() != null) {
+                settings.setSecondarySource(sourcesDTO.getSecondarySource());
+            }
+            settings.setYoutubeEnabled(sourcesDTO.isYoutubeEnabled());
+            settings.setSpotdlEnabled(sourcesDTO.isSpotdlEnabled());
+            if (sourcesDTO.getMaxRetryAttempts() > 0) {
+                settings.setMaxRetryAttempts(sourcesDTO.getMaxRetryAttempts());
+            }
+            if (sourcesDTO.getRetryWaitTimeMs() > 0) {
+                settings.setRetryWaitTimeMs(sourcesDTO.getRetryWaitTimeMs());
+            }
+            if (sourcesDTO.getSwitchStrategy() != null) {
+                settings.setSwitchStrategy(sourcesDTO.getSwitchStrategy());
+            }
+            if (sourcesDTO.getSwitchThreshold() > 0) {
+                settings.setSwitchThreshold(sourcesDTO.getSwitchThreshold());
+            }
+            settings.setEnableSmartRateLimitHandling(sourcesDTO.isEnableSmartRateLimitHandling());
+            settings.setFallbackOnLongWait(sourcesDTO.isFallbackOnLongWait());
+            if (sourcesDTO.getMaxAcceptableWaitTimeMs() > 0) {
+                settings.setMaxAcceptableWaitTimeMs(sourcesDTO.getMaxAcceptableWaitTimeMs());
+            }
+            
+            if (sourcesDTO.getPrimarySource() != null && sourcesDTO.getSecondarySource() != null 
+                && sourcesDTO.getPrimarySource() != Settings.DownloadSource.NONE
+                && sourcesDTO.getSecondarySource() != Settings.DownloadSource.NONE
+                && sourcesDTO.getPrimarySource().equals(sourcesDTO.getSecondarySource())) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Primary and secondary sources must be different"))
+                        .build();
+            }
+            
+            settingsService.save(settings);
+            settingsController.addLog("Import source configuration updated");
+            
+            return Response.ok(ApiResponse.success(settings)).build();
+             
+        } catch (Exception e) {
+            settingsController.addLog("Failed to update import sources: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to update import sources"))
+                    .build();
+        } finally {
+            // Optional cleanup if needed
+        }
+    }
+
+    // -----------------------------
     // GET MUSIC LIBRARY PATH
     // -----------------------------
     @GET
@@ -199,28 +299,7 @@ public class SettingsApi {
         } else {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Music library path not configured")).build();
         }
-    }
-    
-    @POST
-    @Path("/{profileId}/import")
-    @Transactional
-    public Response updateImportSettings(@PathParam("profileId") Long profileId, ImportSettingsDTO importSettings) {
-        if (importSettings == null) {
-            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid import settings data.")).build();
-        }
-        
-        Settings settings = settingsController.getOrCreateSettings();
-        
-        settings.setOutputFormat(importSettings.getOutputFormat());
-        settings.setDownloadThreads(importSettings.getDownloadThreads());
-        settings.setSearchThreads(importSettings.getSearchThreads());
-        
-        settingsService.save(settings);
-        
-        settingsController.addLog("Import settings updated.");
-        
-        return Response.ok(ApiResponse.success(settings)).build();
-    }
+    } 
 
     // -----------------------------
     // TOGGLE RUN AS SERVICE
@@ -238,7 +317,7 @@ public class SettingsApi {
     // SET MUSIC LIBRARY PATH
     // -----------------------------
     @POST
-    @Path("/{profileId}/music-library-path")
+    @Path("/{profileId}/music-library-path") 
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response setMusicLibraryPath(@PathParam("profileId") Long profileId, @FormParam("musicLibraryPathInput") String path) {
         if (path == null || path.isBlank()) {

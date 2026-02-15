@@ -13,10 +13,10 @@ function initializeAudioElement() {
             const audioRetry = document.getElementById('audioPlayer');
             if (audioRetry) {
                 console.log('[musicBar] audioPlayer element found after delay');
-                // Replace the audio reference
                 audio = audioRetry;
                 window.audio = audioRetry;
                 audioElementReady = true;
+                bindAudioTimeUpdate();
                 console.log('[musicBar] Audio element initialized successfully');
             } else {
                 console.error('[CRITICAL] audioPlayer element still not found after delay!');
@@ -24,8 +24,9 @@ function initializeAudioElement() {
         }, 1000);
     } else {
         console.log('[musicBar] audioPlayer element found successfully');
-        window.audio = audio; // Make it globally accessible
+        window.audio = audio;
         audioElementReady = true;
+        bindAudioTimeUpdate();
     }
 }
 
@@ -387,10 +388,10 @@ function updateMusicBar() {
     const timeSlider = document.getElementById('playbackProgressBar'); // Use getElementById for direct access
     if (timeSlider) {
         timeSlider.max = duration;
-        // Update the slider's value based on audio.currentTime if not dragging
+        // Update the slider's value based on musicState.currentTime if not dragging
         // If dragging, the slider's value is already updated by the browser
         if (!draggingSeconds) {
-            timeSlider.value = audio.currentTime;
+            timeSlider.value = musicState.currentTime;
         }
 
 // Always update the progress bar's visual fill, regardless of dragging state
@@ -476,18 +477,40 @@ function updateMusicBar() {
 // ---------------- Audio Events ----------------
 const throttledSendWS = throttle(sendWS, 100); // Send a message at most every 300ms
 
-audio.ontimeupdate = () => {
-    if (!draggingSeconds && !isUpdatingAudioSource) { // Add isUpdatingAudioSource check
-        musicState.currentTime = audio.currentTime;
-        updateMusicBar(); // Update UI more frequently for smooth playback bar
-
-        // Save state periodically (every 5 seconds) - time automatically handled
-        if (!lastStateSave || Date.now() - lastStateSave > 5000) {
-            savePlaybackState();
-            lastStateSave = Date.now();
+// Single source for visual time updates - audio element drives UI only
+function bindAudioTimeUpdate() {
+    if (!audio) return;
+    
+    audio.ontimeupdate = () => {
+        if (!draggingSeconds && !isUpdatingAudioSource) {
+            const currentTime = audio.currentTime;
+            const duration = audio.duration || 0;
+            
+            // Update state
+            musicState.currentTime = currentTime;
+            
+            // Update time text
+            const timeEl = document.getElementById('currentTime');
+            if (timeEl) {
+                timeEl.innerText = formatTime(Math.floor(currentTime));
+            }
+            
+            // Update slider
+            const slider = document.getElementById('playbackProgressBar');
+            if (slider && slider !== document.activeElement) {
+                slider.max = duration;
+                slider.value = currentTime;
+            }
+            
+            // Save state periodically (every 5 seconds)
+            if (!lastStateSave || Date.now() - lastStateSave > 5000) {
+                savePlaybackState();
+                lastStateSave = Date.now();
+            }
         }
-    }
-};
+    };
+}
+
 audio.onended = () => {
     fetch(`/api/music/playback/next/${window.globalActiveProfileId}`, {method: 'POST'});
 };
@@ -1042,7 +1065,6 @@ function processWSMessageInternal(message) {
             musicState.artist = state.artist;
         }
         musicState.playing = state.playing;
-        musicState.currentTime = state.currentTime;
         musicState.duration = state.duration;
         // Preserve server volume in state but don't use it for audio playback
         // Device volume is the authoritative source to prevent spikes
@@ -2519,8 +2541,6 @@ function performSync() {
         correction = -maxDelta;
     if (Math.abs(correction) > 0.01 && !draggingSeconds && audio.readyState >= 2) {
         audio.currentTime = currentAudioTime + correction;
-        musicState.currentTime = audio.currentTime;
-        updateMusicBar();
     }
 }
 

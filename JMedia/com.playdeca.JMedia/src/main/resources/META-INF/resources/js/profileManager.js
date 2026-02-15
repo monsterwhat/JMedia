@@ -228,6 +228,9 @@ function switchProfile(profileId) {
             fetchProfiles(); // Refresh list every time modal opens
             // fetchCurrentProfile(); // This is called on DOMContentLoaded, just update display
             updateProfileDisplay(); // Ensure modal display is current
+            if (typeof loadHiddenPlaylists === 'function') {
+                loadHiddenPlaylists();
+            }
         };
     }
     if (createProfileBtn) {

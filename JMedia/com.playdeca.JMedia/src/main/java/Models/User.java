@@ -44,4 +44,16 @@ public class User extends PanacheEntity {
     public boolean isHashedPassword() {
         return passwordHash != null && !passwordHash.isEmpty();
     }
+    
+    public String getGroupName() {
+        return groupName;
+    }
+    
+    public void setGroupName(String groupName) {
+        this.groupName = groupName;
+    }
+    
+    public String getPasswordHash() {
+        return passwordHash;
+    }
 }

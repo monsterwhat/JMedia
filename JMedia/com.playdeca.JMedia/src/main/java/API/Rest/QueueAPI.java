@@ -3,10 +3,14 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.PlaybackController;
 import Models.Playlist;
+import Models.Profile;
 import Models.Song; 
+import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response; 
 import java.util.List; 
@@ -20,16 +24,28 @@ public class QueueAPI {
     @Inject
     private PlaybackController playbackController;
 
+    @Inject
+    private SettingsService settingsService;
+
+    private Profile getUserProfile(HttpHeaders headers) {
+        return settingsService.getActiveProfileFromHeaders(headers);
+    }
+
     @GET
     @Path("/queue/{profileId}")
-    public Response getQueue(@PathParam("profileId") Long profileId) {
-        return Response.ok(ApiResponse.success(playbackController.getQueue(profileId))).build();
+    public Response getQueue(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        return Response.ok(ApiResponse.success(playbackController.getQueue(userProfile.id))).build();
     }
 
     @POST
     @Path("/playback/queue-all/{profileId}/{id}")
     @Consumes(MediaType.WILDCARD)
-    public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
+    public Response queueAllSongs(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        
         List<Song> songsToQueue;
         if (id == null || id == 0) {
             // Queue all songs
@@ -47,12 +63,12 @@ public class QueueAPI {
             return Response.ok(ApiResponse.success("No songs to queue")).build();
         }
 
-        playbackController.clearQueue(profileId);
+        playbackController.clearQueue(userProfile.id);
         List<Long> songIds = songsToQueue.stream().map(s -> s.id).toList();
-        playbackController.addToQueue(songIds, false, profileId);
+        playbackController.addToQueue(songIds, false, userProfile.id);
 
         // Start playback with the first song
-        playbackController.selectSong(songIds.get(0), profileId);
+        playbackController.selectSong(songIds.get(0), userProfile.id);
 
         return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
     }
@@ -60,35 +76,43 @@ public class QueueAPI {
     @POST
     @Path("/queue/add/{profileId}/{songId}")
     @Consumes(MediaType.WILDCARD)
-    public Response addSongToQueue(@PathParam("profileId") Long profileId, @PathParam("songId") Long songId) {
+    public Response addSongToQueue(@PathParam("profileId") Long profileId, @PathParam("songId") Long songId, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
         if (songId == null) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Song ID cannot be null")).build();
         }
-        playbackController.addToQueue(List.of(songId), false, profileId); // Add to end of queue
+        playbackController.addToQueue(List.of(songId), false, userProfile.id);
         return Response.ok(ApiResponse.success("Song added to queue")).build();
     }
 
     @POST
     @Path("/queue/skip-to/{profileId}/{index}")
     @Consumes(MediaType.WILDCARD)
-    public Response skipToQueueIndex(@PathParam("profileId") Long profileId, @PathParam("index") int index) {
-        playbackController.skipToQueueIndex(index, profileId);
+    public Response skipToQueueIndex(@PathParam("profileId") Long profileId, @PathParam("index") int index, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.skipToQueueIndex(index, userProfile.id);
         return Response.ok(ApiResponse.success("Skipped to song in queue")).build();
     }
 
     @POST
     @Path("/queue/remove/{profileId}/{index}")
     @Consumes(MediaType.WILDCARD)
-    public Response removeFromQueue(@PathParam("profileId") Long profileId, @PathParam("index") int index) {
-        playbackController.removeFromQueue(index, profileId);
+    public Response removeFromQueue(@PathParam("profileId") Long profileId, @PathParam("index") int index, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.removeFromQueue(index, userProfile.id);
         return Response.ok(ApiResponse.success("Removed song from queue")).build();
     }
 
     @POST
     @Path("/queue/clear/{profileId}")
     @Consumes(MediaType.WILDCARD)
-    public Response clearQueue(@PathParam("profileId") Long profileId) {
-        playbackController.clearQueue(profileId);
+    public Response clearQueue(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.clearQueue(userProfile.id);
         return Response.ok(ApiResponse.success("Queue cleared")).build();
     }
 
@@ -97,7 +121,10 @@ public class QueueAPI {
     public Response getHistory(
             @PathParam("profileId") Long profileId,
             @QueryParam("page") @DefaultValue("1") int page,
-            @QueryParam("limit") @DefaultValue("50") int limit) {
-        return Response.ok(ApiResponse.success(playbackController.getHistory(page, limit, profileId))).build();
+            @QueryParam("limit") @DefaultValue("50") int limit,
+            @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        return Response.ok(ApiResponse.success(playbackController.getHistory(page, limit, userProfile.id))).build();
     }
 }

@@ -1,3 +1,10 @@
+<div class="mobile-playlist-header">
+    <h3 class="mobile-section-title">My Playlists</h3>
+    <button id="mobileCreatePlaylistBtn" class="button is-primary is-rounded is-small">
+        <i class="pi pi-plus"></i> New Playlist
+    </button>
+</div>
+<div id="mobilePlaylistList">
 <!-- All Songs option -->
 <div class="mobile-playlist-item"
      hx-get="/api/music/ui/mobile-tbody/{profileId}/0"
@@ -21,6 +28,14 @@
         {#if p.isGlobal}
         <span class="tag is-info is-small"><i class="pi pi-globe"></i></span>
         {/if}
+        <div class="mobile-playlist-details">
+            {p.songs?.size() ?: 0} songs
+        </div>
+    </div>
+    <div class="mobile-playlist-actions">
+        <button class="mobile-btn mobile-btn-small" onclick="event.stopPropagation(); editMobilePlaylist({p.id})" title="Edit">
+            <i class="pi pi-pencil"></i>
+        </button>
     </div>
     <i class="pi pi-chevron-right"></i>
 </div>
@@ -33,3 +48,4 @@
     <p style="font-size: 12px; color: #999;">Create your first playlist to get started</p>
 </div>
 {/if}
+</div>

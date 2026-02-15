@@ -1,0 +1,681 @@
+<!-- Genre-Based Carousels Template -->
+<!-- Featured Hero Section -->
+{#if featured.size > 0}
+<div class="hero-container">
+    <div class="hero is-fullheight">
+        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: '/images/placeholders/hero.jpg'});"></div>
+        <div class="hero-gradient"></div>
+        <div class="hero-content">
+            <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
+            <p class="hero-description">{featured[0].description ?: 'An amazing piece of content that will keep you entertained'}</p>
+            <div class="hero-meta">
+                <span>{featured[0].releaseYear ?: '2024'}</span>
+                <span>•</span>
+                <span class="hero-rating">⭐ Awesome</span>
+                <span>•</span>
+                <span>{formatDuration.apply(featured[0].durationSeconds)}</span>
+                {#if featured[0].type == 'Episode'}
+                <span>•</span>
+                <span>S{featured[0].seasonNumber}E{featured[0].episodeNumber}</span>
+                {/if}
+            </div>
+            <div class="hero-actions">
+                <button class="btn-hero btn-hero-primary" onclick="window.selectItem({json.apply(featured[0])}, 'play')">
+                    <i class="pi pi-play"></i> Play
+                </button>
+                <button class="btn-hero btn-hero-secondary" onclick="window.selectItem({json.apply(featured[0])}, 'details')">
+                    <i class="pi pi-info-circle"></i> More Info
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{/if}
+
+<!-- Genre-Based Carousels -->
+{#if genreCarousels?size > 0}
+<div class="genre-carousels-container">
+    {#for genreCarousel in genreCarousels}
+    <div class="carousel-section genre-carousel">
+        <div class="carousel-header">
+            <h2 class="carousel-title genre-title">
+                <i class="pi pi-tag" style="color: {genreCarousel.color ?: '#3273dc'};"></i>
+                {genreCarousel.genreName}
+                <span class="genre-count">({genreCarousel.videos?size})</span>
+            </h2>
+            <div class="carousel-actions">
+                <button class="carousel-nav-btn genre-nav" onclick="window.scrollCarousel('genreCarousel_{genreCarousel.genreId}', -1)">
+                    <i class="pi pi-chevron-left"></i>
+                </button>
+                <button class="carousel-nav-btn genre-nav" onclick="window.scrollCarousel('genreCarousel_{genreCarousel.genreId}', 1)">
+                    <i class="pi pi-chevron-right"></i>
+                </button>
+                <button class="view-all-btn" onclick="window.viewGenreContent('{genreCarousel.genreSlug}', '{genreCarousel.genreName}')">
+                    View All
+                </button>
+            </div>
+        </div>
+        
+        <div class="carousel-container">
+            <div class="carousel" id="genreCarousel_{genreCarousel.genreId}">
+                {#for item in genreCarousel.videos}
+                <div class="content-card video-card genre-card" data-video-id="{item.id}" 
+                     data-genre="{genreCarousel.genreName}"
+                     onclick="window.selectItem({json.apply(item)}, 'details')">
+                    <img class="card-image" 
+                          src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}"
+                         alt="{item.title ?: item.seriesTitle}">
+                    
+                    <!-- Genre Badge -->
+                    <div class="genre-badge" style="background: {genreCarousel.color ?: '#3273dc'};">
+                        {genreCarousel.genreName}
+                    </div>
+                    
+                    <div class="play-icon">
+                        <i class="pi pi-play"></i>
+                    </div>
+                    
+                    <div class="card-overlay">
+                        <div class="card-info">
+                            <div class="card-badges">
+                                {#if item.type == 'Episode'}
+                                <span class="card-badge">S{item.seasonNumber}E{item.episodeNumber}</span>
+                                {/if}
+                                {#if item.releaseYear > (now?year - 1)}
+                                <span class="card-badge new-badge">NEW</span>
+                                {/if}
+                                {#if item.imdbRating && item.imdbRating >= 8.0}
+                                <span class="card-badge rating-badge">⭐ {item.imdbRating}</span>
+                                {/if}
+                            </div>
+                            <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                            <div class="card-meta">
+                                {item.type ?: 'Movie'}
+                                {#if item.releaseYear}
+                                <span>• {item.releaseYear}</span>
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+    {/for}
+</div>
+{/if}
+
+<!-- Recently Added Carousel -->
+{#if newReleases.size > 0}
+<div class="carousel-section">
+    <div class="carousel-header">
+        <h2 class="carousel-title">
+            <i class="pi pi-sparkles" style="color: #ffd700;"></i>
+            Recently Added
+        </h2>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
+            </button>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+    <div class="carousel-container">
+        <div class="carousel" id="newReleasesCarousel">
+            {#for item in newReleases}
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
+                     alt="{item.title ?: item.seriesTitle}">
+                <div class="play-icon">
+                    <i class="pi pi-play"></i>
+                </div>
+                <div class="card-overlay">
+                    <div class="card-info">
+                        <div class="card-badges">
+                            <span class="card-badge new-badge">NEW</span>
+                        </div>
+                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                        <div class="card-meta">{item.type ?: 'Movie'}</div>
+                    </div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+</div>
+{/if}
+
+<!-- Continue Watching Carousel -->
+{#if continueWatching.size > 0}
+<div class="carousel-section">
+    <div class="carousel-header">
+        <h2 class="carousel-title">
+            <i class="pi pi-history" style="color: #ff6b6b;"></i>
+            Continue Watching
+        </h2>
+        <div class="carousel-actions">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', -1)">
+                <i class="pi pi-chevron-left"></i>
+            </button>
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', 1)">
+                <i class="pi pi-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+    <div class="carousel-container">
+        <div class="carousel" id="continueWatchingCarousel">
+            {#for item in continueWatching}
+            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
+                <img class="card-image" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
+                     alt="{item.title ?: item.seriesTitle}">
+                <div class="play-icon">
+                    <i class="pi pi-play"></i>
+                </div>
+                <div class="card-overlay">
+                    <div class="card-info">
+                        <div class="card-badges">
+                            <span class="card-badge continue-badge">CONTINUE</span>
+                        </div>
+                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                        <div class="card-meta">{item.type ?: 'Movie'}</div>
+                    </div>
+                </div>
+                <div class="continue-progress">
+                    <div class="progress-bar" style="width: {item.watchProgress ? (item.watchProgress * 100) : 0}%;"></div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+</div>
+{/if}
+
+<!-- Empty State -->
+{#if !genreCarousels?has_content && newReleases.size == 0 && continueWatching.size == 0}
+<div class="empty-state genre-empty">
+    <i class="pi pi-tag"></i>
+    <h3>No Genre Content Found</h3>
+    <p>Your video library appears to be empty or genre information hasn't been processed yet.</p>
+    <button class="btn-primary" onclick="window.refreshGenreCarousels()">
+        <i class="pi pi-refresh"></i> Refresh Genres
+    </button>
+</div>
+{/if}
+
+<!-- Genre Filter Bar -->
+<div class="genre-filter-bar" id="genreFilterBar">
+    <div class="genre-filter-header">
+        <h3>Genre Filter</h3>
+        <button class="close-filter" onclick="toggleGenreFilter()">
+            <i class="pi pi-times"></i>
+        </button>
+    </div>
+    <div class="genre-filter-list" id="genreFilterList">
+        <div class="filter-option" data-genre="all" onclick="filterByGenre('all')">
+            <i class="pi pi-th-large"></i> All Genres
+        </div>
+        <!-- Genre filters will be dynamically loaded here -->
+    </div>
+</div>
+
+<!-- Genre Filter Toggle Button -->
+<div class="genre-filter-toggle" onclick="toggleGenreFilter()" title="Filter by Genre">
+    <i class="pi pi-filter"></i>
+</div>
+
+<script>
+// Genre carousel management
+let currentGenreCarousels = null;
+let selectedGenre = 'all';
+
+// Load genre carousels
+async function loadGenreCarousels() {
+    try {
+        const userId = getCurrentUserId();
+        const response = await fetch(`/api/video/carousels/genre${userId ? '?userId=' + userId : ''}`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            currentGenreCarousels = data.data || {};
+            refreshGenreCarouselDisplay();
+        } else {
+            console.error('Failed to load genre carousels');
+        }
+    } catch (error) {
+        console.error('Error loading genre carousels:', error);
+    }
+}
+
+// Refresh genre carousel display
+function refreshGenreCarouselDisplay() {
+    if (currentGenreCarousels) {
+        // Re-render genre carousels
+        // This would trigger template re-rendering with the new data
+        window.location.reload();
+    }
+}
+
+// View all content for a specific genre
+function viewGenreContent(genreSlug, genreName) {
+    // Navigate to genre-specific view
+    window.switchSection('genre', { genreSlug: genreSlug, genreName: genreName });
+}
+
+// Toggle genre filter
+function toggleGenreFilter() {
+    const filterBar = document.getElementById('genreFilterBar');
+    const isVisible = filterBar.style.display !== 'none';
+    
+    filterBar.style.display = isVisible ? 'none' : 'block';
+    
+    if (!isVisible) {
+        loadGenreFilters();
+    }
+}
+
+// Load genre filter options
+async function loadGenreFilters() {
+    try {
+        const response = await fetch('/api/video/genres');
+        
+        if (response.ok) {
+            const data = await response.json();
+            const filterList = document.getElementById('genreFilterList');
+            
+            // Clear existing filters (except "All Genres")
+            while (filterList.children.length > 1) {
+                filterList.removeChild(filterList.lastChild);
+            }
+            
+            // Add genre filters
+            if (data.data) {
+                data.data.forEach(genre => {
+                    const filterOption = document.createElement('div');
+                    filterOption.className = 'filter-option';
+                    filterOption.dataset.genre = genre.slug;
+                    filterOption.innerHTML = `
+                        <i class="pi pi-tag" style="color: ${genre.color || '#3273dc'};"></i>
+                        ${genre.name}
+                        <span class="genre-count">(${genre.videoCount || 0})</span>
+                    `;
+                    filterOption.onclick = () => filterByGenre(genre.slug);
+                    filterList.appendChild(filterOption);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error loading genre filters:', error);
+    }
+}
+
+// Filter by genre
+async function filterByGenre(genreSlug) {
+    selectedGenre = genreSlug;
+    
+    // Update filter selection
+    document.querySelectorAll('.filter-option').forEach(option => {
+        option.classList.toggle('active', option.dataset.genre === genreSlug);
+    });
+    
+    // Reload carousels with filter
+    await loadGenreCarousels();
+    
+    // Highlight filtered carousels
+    document.querySelectorAll('.genre-carousel').forEach(carousel => {
+        if (genreSlug === 'all') {
+            carousel.style.display = 'block';
+        } else {
+            const carouselGenre = carousel.querySelector('.genre-title').textContent.trim();
+            const shouldShow = genreSlug === 'all' || carouselGenre.toLowerCase().includes(genreSlug.replace('-', ' '));
+            carousel.style.display = shouldShow ? 'block' : 'none';
+        }
+    });
+}
+
+// Refresh genre carousels
+async function refreshGenreCarousels() {
+    await loadGenreCarousels();
+}
+
+// Enhanced carousel scrolling
+function scrollCarousel(carouselId, direction) {
+    const carousel = document.getElementById(carouselId);
+    if (carousel) {
+        const scrollAmount = carousel.classList.contains('genre-carousel') ? 350 : 300;
+        carousel.scrollBy({
+            left: scrollAmount * direction,
+            behavior: 'smooth'
+        });
+    }
+}
+
+// Format duration function
+function formatDuration(seconds) {
+    if (!seconds) return '0m';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? hours + 'h ' + minutes + 'm' : minutes + 'm';
+}
+
+// Get current user ID (placeholder)
+function getCurrentUserId() {
+    return window.currentUserId || null;
+}
+
+// Make functions globally available
+window.scrollCarousel = scrollCarousel;
+window.formatDuration = formatDuration;
+window.loadGenreCarousels = loadGenreCarousels;
+window.viewGenreContent = viewGenreContent;
+window.toggleGenreFilter = toggleGenreFilter;
+window.filterByGenre = filterByGenre;
+window.refreshGenreCarousels = refreshGenreCarousels;
+
+// Auto-load genre carousels on page load
+document.addEventListener('DOMContentLoaded', loadGenreCarousels);
+
+// Close genre filter when clicking outside
+document.addEventListener('click', function(e) {
+    const filterBar = document.getElementById('genreFilterBar');
+    const filterToggle = document.querySelector('.genre-filter-toggle');
+    
+    if (filterBar && filterBar.style.display !== 'none' && 
+        !filterBar.contains(e.target) && !filterToggle.contains(e.target)) {
+        filterBar.style.display = 'none';
+    }
+});
+</script>
+
+<style>
+/* Genre Carousel Styles */
+.genre-carousels-container {
+    margin-bottom: 40px;
+}
+
+.genre-carousel {
+    position: relative;
+}
+
+.genre-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1.3em;
+    color: #fff;
+}
+
+.genre-count {
+    font-size: 0.8em;
+    opacity: 0.7;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+.genre-nav {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.genre-nav:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.view-all-btn {
+    background: linear-gradient(135deg, #3273dc, #2366c1);
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.view-all-btn:hover {
+    background: linear-gradient(135deg, #2366c1, #1a4ca0);
+    transform: translateY(-1px);
+}
+
+/* Genre Card Styles */
+.genre-card {
+    position: relative;
+    overflow: visible;
+}
+
+.genre-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: linear-gradient(135deg, #3273dc, #2366c1);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.7em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    z-index: 5;
+    backdrop-filter: blur(10px);
+}
+
+.new-badge {
+    background: linear-gradient(135deg, #ff6b6b, #ff5252);
+}
+
+.continue-badge {
+    background: linear-gradient(135deg, #ff9800, #f57c00);
+}
+
+.rating-badge {
+    background: linear-gradient(135deg, #ffd700, #ffb300);
+    color: #333;
+}
+
+/* Genre Filter Bar */
+.genre-filter-bar {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    width: 280px;
+    max-height: 70vh;
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    backdrop-filter: blur(20px);
+    z-index: 1000;
+    display: none;
+    overflow: hidden;
+}
+
+.genre-filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.genre-filter-header h3 {
+    margin: 0;
+    color: white;
+    font-size: 1.1em;
+}
+
+.close-filter {
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.close-filter:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.genre-filter-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.filter-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+    color: #ccc;
+    border-radius: 8px;
+    transition: all 0.2s;
+    margin-bottom: 4px;
+}
+
+.filter-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.filter-option.active {
+    background: rgba(50, 115, 220, 0.2);
+    color: #3273dc;
+}
+
+.filter-option i {
+    font-size: 1.1em;
+}
+
+.filter-option .genre-count {
+    margin-left: auto;
+    font-size: 0.8em;
+    opacity: 0.7;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 10px;
+}
+
+/* Genre Filter Toggle */
+.genre-filter-toggle {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    background: rgba(30, 30, 30, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 999;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+}
+
+.genre-filter-toggle:hover {
+    background: rgba(50, 115, 220, 0.8);
+    transform: scale(1.05);
+}
+
+/* Empty State */
+.genre-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #ccc;
+}
+
+.genre-empty i {
+    font-size: 3em;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.genre-empty h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.5em;
+}
+
+.genre-empty p {
+    margin: 0 0 24px 0;
+    opacity: 0.8;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #3273dc, #2366c1);
+    border: none;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #2366c1, #1a4ca0);
+    transform: translateY(-1px);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .genre-filter-bar {
+        top: 60px;
+        right: 10px;
+        width: calc(100vw - 40px);
+        max-width: 320px;
+    }
+    
+    .genre-filter-toggle {
+        top: 60px;
+        right: 10px;
+    }
+    
+    .genre-title {
+        font-size: 1.1em;
+    }
+    
+    .genre-count {
+        display: none;
+    }
+    
+    .view-all-btn {
+        padding: 6px 12px;
+        font-size: 0.8em;
+    }
+}
+
+/* Scrollbar styling */
+.genre-filter-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.genre-filter-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.genre-filter-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.genre-filter-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+</style>

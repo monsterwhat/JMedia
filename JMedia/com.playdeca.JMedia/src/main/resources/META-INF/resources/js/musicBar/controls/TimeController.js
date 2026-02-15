@@ -11,7 +11,41 @@
          */
         init: function() {
             this.bindTimeSlider();
+            this.bindAudioTimeUpdate();
             window.Helpers.log('TimeController initialized');
+        },
+        
+        /**
+         * Bind audio element timeupdate - single source for visual time updates
+         */
+        bindAudioTimeUpdate: function() {
+            const audio = document.getElementById('audioPlayer');
+            if (!audio) {
+                window.Helpers.log('TimeController: Audio element not found');
+                return;
+            }
+            
+            audio.ontimeupdate = () => {
+                if (!SynchronizationManager.getFlag('draggingSeconds')) {
+                    const currentTime = audio.currentTime;
+                    const duration = audio.duration || 0;
+                    
+                    // Update state
+                    if (window.StateManager) {
+                        window.StateManager.updateState({ currentTime: currentTime }, 'audioTimeUpdate');
+                    }
+                    
+                    // Update slider
+                    this.updateSliderFromState(currentTime, duration);
+                    
+                    // Save state periodically (every 5 seconds)
+                    window.dispatchEvent(new CustomEvent('requestStateSave', { 
+                        detail: { includeCurrentTime: true } 
+                    }));
+                }
+            };
+            
+            window.Helpers.log('TimeController: Audio timeupdate bound');
         },
         
         /**
@@ -139,6 +173,12 @@
                 slider.max = duration || 0;
                 const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
                 slider.style.setProperty('--progress-value', `${progress}%`);
+            }
+            
+            // Update time text display
+            const timeEl = document.getElementById('currentTime');
+            if (timeEl) {
+                timeEl.innerText = this.formatTime(Math.floor(currentTime));
             }
         },
         

@@ -56,7 +56,7 @@ public class PlaylistAPI {
     @Path("/{id}")
     public Response getPlaylist(@PathParam("id") Long id) {
         try {
-            Playlist playlist = playlistService.find(id);
+            Playlist playlist = playlistService.findByIdRegardlessOfHidden(id);
             if (playlist == null) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
             }
@@ -104,12 +104,22 @@ public class PlaylistAPI {
     @DELETE
     @Path("/{id}")
     @Consumes(MediaType.WILDCARD)
+    @Transactional
     public Response deletePlaylist(@PathParam("id") Long id) {
         try {
             Playlist playlist = playlistService.find(id);
             if (playlist == null) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
             }
+            
+            List<Profile> allProfiles = Profile.listAll();
+            for (Profile profile : allProfiles) {
+                if (profile.isPlaylistHidden(id)) {
+                    profile.removeHiddenPlaylist(id);
+                    profile.persist();
+                }
+            }
+            
             playbackController.deletePlaylist(playlist);
             return Response.ok(ApiResponse.success("deleted"))
                     .header("HX-Trigger", "delete-playlist")

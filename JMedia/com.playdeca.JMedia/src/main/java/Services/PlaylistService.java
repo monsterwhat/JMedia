@@ -71,8 +71,15 @@ public class PlaylistService {
 
     public Playlist find(Long id) {
         Playlist playlist = em.find(Playlist.class, id);
-        // All playlists are global now, so anyone can find any playlist
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile != null && activeProfile.isPlaylistHidden(id)) {
+            return null;
+        }
         return playlist;
+    }
+
+    public Playlist findByIdRegardlessOfHidden(Long id) {
+        return em.find(Playlist.class, id);
     }
 
     public List<Playlist> findAll() {
@@ -80,10 +87,18 @@ public class PlaylistService {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return List.of();
             
-            // Return user's playlists + global playlists (imported ones)
-            return em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
+            List<Playlist> playlists = em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
                     .setParameter("profile", activeProfile)
                     .getResultList();
+            
+            List<Long> hiddenIds = activeProfile.getHiddenPlaylistIds();
+            if (hiddenIds != null && !hiddenIds.isEmpty()) {
+                playlists = playlists.stream()
+                        .filter(p -> !hiddenIds.contains(p.id))
+                        .toList();
+            }
+            
+            return playlists;
         } catch (Exception e) {
             System.err.println("[ERROR] PlaylistService: Error in findAll: " + e.getMessage());
             e.printStackTrace();
@@ -95,10 +110,18 @@ public class PlaylistService {
         try {
             if (profile == null) return List.of();
             
-            // Return specified profile's playlists + global playlists (imported ones)
-            return em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
+            List<Playlist> playlists = em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
                     .setParameter("profile", profile)
                     .getResultList();
+            
+            List<Long> hiddenIds = profile.getHiddenPlaylistIds();
+            if (hiddenIds != null && !hiddenIds.isEmpty()) {
+                playlists = playlists.stream()
+                        .filter(p -> !hiddenIds.contains(p.id))
+                        .toList();
+            }
+            
+            return playlists;
         } catch (Exception e) {
             System.err.println("[ERROR] PlaylistService: Error in findAllForProfile: " + e.getMessage());
             e.printStackTrace();

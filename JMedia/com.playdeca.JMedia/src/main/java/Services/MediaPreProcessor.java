@@ -3,23 +3,21 @@ package Services;
 import Models.MediaFile;
 import Models.PendingMedia;
 import Models.PendingMedia.ProcessingStatus;
-import Detectors.EpisodeDetector;
-import Detectors.MovieDetector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class MediaPreProcessor {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(MediaPreProcessor.class);
+    @Inject
+    LoggingService loggingService;
     
     @Inject
     SmartNamingService smartNamingService;
@@ -37,7 +35,7 @@ public class MediaPreProcessor {
         
         // Check if already processed
         if (processingCache.containsKey(relativePath)) {
-            LOGGER.debug("File already being processed: {}", relativePath);
+            loggingService.addLog("File already being processed: " + relativePath);
             return null;
         }
         processingCache.put(relativePath, true);
@@ -45,7 +43,7 @@ public class MediaPreProcessor {
         // Check if pending media already exists
         PendingMedia existing = PendingMedia.findByMediaFile(mediaFile);
         if (existing != null) {
-            LOGGER.debug("PendingMedia already exists for: {}", relativePath);
+            loggingService.addLog("PendingMedia already exists for: " + relativePath);
             return existing;
         }
         
@@ -58,30 +56,31 @@ public class MediaPreProcessor {
         extractRawDetectionData(pendingMedia, filename, videoPath);
         
         pendingMedia.persist();
-        LOGGER.info("Created PendingMedia for: {} (Status: {})", filename, pendingMedia.status);
+        loggingService.addLog("Created PendingMedia for: " + filename + " (Status: " + pendingMedia.status + ")");
         
         return pendingMedia;
     }
     
     /**
-     * Extracts raw detection data using existing detectors (Phase 1)
+     * Extracts raw detection data using simple patterns (Phase 1)
      */
     private void extractRawDetectionData(PendingMedia pendingMedia, String filename, Path videoPath) {
-        // Try episode detection first
-        Optional<EpisodeDetector.EpisodeInfo> episodeInfoOpt = EpisodeDetector.detect(filename);
-        if (episodeInfoOpt.isPresent()) {
-            EpisodeDetector.EpisodeInfo episodeInfo = episodeInfoOpt.get();
+        // Simple episode detection with regex
+        Pattern episodePattern = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
+        Matcher episodeMatcher = episodePattern.matcher(filename);
+        
+        if (episodeMatcher.matches()) {
+            // Episode detected
             pendingMedia.rawMediaType = "episode";
-            pendingMedia.rawSeason = episodeInfo.season;
-            pendingMedia.rawEpisode = episodeInfo.episode;
-            pendingMedia.rawTitle = episodeInfo.titleHint;
+            pendingMedia.rawSeason = Integer.parseInt(episodeMatcher.group(2));
+            pendingMedia.rawEpisode = Integer.parseInt(episodeMatcher.group(3));
+            pendingMedia.rawTitle = episodeMatcher.group(4).trim().isEmpty() ? null : episodeMatcher.group(4).trim();
             pendingMedia.rawShowName = inferBasicShowName(videoPath);
         } else {
-            // Try movie detection
-            MovieDetector.MovieInfo movieInfo = MovieDetector.detect(filename);
+            // Assume movie
             pendingMedia.rawMediaType = "movie";
-            pendingMedia.rawTitle = movieInfo.title;
-            pendingMedia.rawYear = movieInfo.releaseYear;
+            pendingMedia.rawTitle = extractTitleFromFilename(filename);
+            pendingMedia.rawYear = extractYearFromFilename(filename);
             pendingMedia.rawShowName = null; // Movies don't have show names
         }
     }
@@ -114,12 +113,47 @@ public class MediaPreProcessor {
     }
     
     /**
+     * Extracts title from filename (removes extensions and common patterns)
+     */
+    private String extractTitleFromFilename(String filename) {
+        // Remove extension
+        String title = filename.replaceFirst("\\.[^.]+$", "");
+        
+        // Remove year patterns
+        title = title.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        
+        // Remove quality indicators
+        title = title.replaceAll("(?i)\\b(720p|1080p|4k|bluray|bdrip|dvdrip|web-dl|webrip)\\b", "");
+        
+        // Remove common separators and clean up
+        title = title.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
+        
+        return title.isEmpty() ? "Unknown Title" : title;
+    }
+    
+    /**
+     * Extracts year from filename
+     */
+    private Integer extractYearFromFilename(String filename) {
+        Pattern yearPattern = Pattern.compile("\\b(19|20)\\d{2}\\b");
+        Matcher matcher = yearPattern.matcher(filename);
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+    
+    /**
      * Processes all pending media with smart detection (Phase 2)
      */
     @Transactional
     public void processPendingMedia() {
         List<PendingMedia> pendingList = PendingMedia.findPendingProcessing();
-        LOGGER.info("MediaProcessor: Starting smart processing for {} pending media items", pendingList.size());
+        loggingService.addLog("MediaProcessor: Starting smart processing for " + pendingList.size() + " pending media items");
         
         int processedCount = 0;
         int successCount = 0;
@@ -136,22 +170,20 @@ public class MediaPreProcessor {
                     failedCount++;
                 }
                 
-                // Log progress every 50 items
+                // Log progress every 50 items (like music scanning)
                 if (processedCount % 50 == 0) {
-                    LOGGER.info("MediaProcessor: Processed batch of 50 pending media items ({}/{})", 
-                               processedCount, pendingList.size());
+                    loggingService.addLog("MediaProcessor: Processed " + processedCount + " / " + pendingList.size() + " pending media items (Success: " + successCount + ", Failed: " + failedCount + ")...");
                 }
                 
             } catch (Exception e) {
-                LOGGER.error("MediaProcessor: Critical error processing pending media {} (ID: {}): {}", 
-                            pending.originalFilename, pending.id, e.getMessage(), e);
+                loggingService.addLog("MediaProcessor: Critical error processing pending media " + pending.originalFilename + " (ID: " + pending.id + "): " + e.getMessage(), e);
                 failedCount++;
                 processedCount++;
             }
         }
         
-        LOGGER.info("MediaProcessor: Smart processing completed. Total: {}, Success: {}, Failed: {}, Retries attempted: {}", 
-                   processedCount, successCount, failedCount, retryCount);
+        loggingService.addLog("MediaProcessor: Smart processing completed. Total: " + processedCount + 
+                           ", Success: " + successCount + ", Failed: " + failedCount + ", Retries attempted: " + retryCount);
     }
     
     /**
@@ -165,17 +197,15 @@ public class MediaPreProcessor {
             try {
                 processSinglePendingMedia(pending);
                 success = true;
-                LOGGER.info("MediaProcessor: Successfully processed: {} (type: {}, confidence: {:.2f})", 
-                           pending.originalFilename, pending.detectedMediaType, pending.confidenceScore);
+                loggingService.addLog("MediaProcessor: Successfully processed: " + pending.originalFilename + 
+                                   " (type: " + pending.detectedMediaType + ", confidence: " + String.format("%.2f", pending.confidenceScore) + ")");
                 
             } catch (Exception e) {
                 retryCount++;
                 if (retryCount <= 2) {
-                    LOGGER.warn("MediaProcessor: Retry {}/3 for: {} (full exception: {})", 
-                               retryCount + 1, pending.originalFilename, e.toString(), e);
+                    loggingService.addLog("MediaProcessor: Retry " + (retryCount + 1) + "/3 for: " + pending.originalFilename + " (exception: " + e.toString() + ")", e);
                 } else {
-                    LOGGER.error("MediaProcessor: Skipping after 3 failures: {} (final exception: {})", 
-                               pending.originalFilename, e.toString(), e);
+                    loggingService.addLog("MediaProcessor: Skipping after 3 failures: " + pending.originalFilename + " (final exception: " + e.toString() + ")", e);
                     
                     // Mark as failed after 3 attempts
                     pending.status = ProcessingStatus.FAILED;
@@ -194,7 +224,7 @@ public class MediaPreProcessor {
      */
     @Transactional
     public void processSinglePendingMedia(PendingMedia pending) {
-        LOGGER.info("MediaProcessor: Processing pending media: {} ({})", pending.originalFilename, pending.id);
+        loggingService.addLog("MediaProcessor: Processing pending media: " + pending.originalFilename + " (" + pending.id + ")");
         
         pending.status = ProcessingStatus.PROCESSING;
         pending.persist();
@@ -234,14 +264,15 @@ public class MediaPreProcessor {
         pending.persist();
         
         if ("episode".equalsIgnoreCase(result.mediaType)) {
-            LOGGER.info("MediaProcessor: Detected Episode: {} S{:02d}E{:02d} (confidence: {:.2f})", 
-                       pending.originalFilename, result.season, result.episode, result.confidence);
+            loggingService.addLog("MediaProcessor: Detected Episode: " + pending.originalFilename + 
+                               " S" + String.format("%02d", result.season) + "E" + String.format("%02d", result.episode) + 
+                               " (confidence: " + String.format("%.2f", result.confidence) + ")");
         } else if ("movie".equalsIgnoreCase(result.mediaType)) {
-            LOGGER.info("MediaProcessor: Detected Movie: {} (confidence: {:.2f})", 
-                       pending.originalFilename, result.confidence);
+            loggingService.addLog("MediaProcessor: Detected Movie: " + pending.originalFilename + 
+                               " (confidence: " + String.format("%.2f", result.confidence) + ")");
         } else {
-            LOGGER.info("MediaProcessor: Smart processing completed for {}: {} (confidence: {:.2f})", 
-                       pending.originalFilename, pending.status, result.confidence);
+            loggingService.addLog("MediaProcessor: Smart processing completed for " + pending.originalFilename + 
+                               ": " + pending.status + " (confidence: " + String.format("%.2f", result.confidence) + ")");
         }
     }
     

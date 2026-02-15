@@ -133,8 +133,8 @@ public class VideoUiApi {
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit) {
 
         VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
-        List<Models.Video> movies = paginatedVideos.videos();
-        long totalItems = paginatedVideos.totalCount();
+        List<Models.Video> movies = paginatedVideos.videos;
+        long totalItems = paginatedVideos.totalCount;
         
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages)); // Sanitize page number
@@ -430,7 +430,7 @@ public class VideoUiApi {
                 cardHtml.append(item.releaseYear).append(" • ");
             }
             if (item.duration > 0) {
-                cardHtml.append(formatDuration((int)item.duration));
+                cardHtml.append(formatDuration(item.duration.intValue()));
             }
             
             cardHtml.append("</p>");
@@ -482,7 +482,7 @@ public class VideoUiApi {
                 html.append(item.releaseYear).append(" • ");
             }
             if (item.duration > 0) {
-                html.append(formatDuration((int)item.duration));
+                html.append(formatDuration(item.duration.intValue()));
             }
             
             html.append("</p>");
@@ -542,10 +542,11 @@ public class VideoUiApi {
         try {
             // Count database records
             debug.put("mediaFiles_count", Models.MediaFile.count());
-            debug.put("movies_count", Models.Movie.count());
-            debug.put("episodes_count", Models.Episode.count());
-            debug.put("shows_count", Models.Show.count());
-            debug.put("seasons_count", Models.Season.count());
+            // Legacy models removed - using unified Video entity
+            // debug.put("movies_count", Models.Movie.count());
+            // debug.put("episodes_count", Models.Episode.count());
+            // debug.put("shows_count", Models.Show.count());
+            // debug.put("seasons_count", Models.Season.count());
             debug.put("videoHistory_count", Models.VideoHistory.count());
             debug.put("videoState_count", Models.VideoState.count());
             
@@ -743,7 +744,7 @@ public class VideoUiApi {
                 html.append(item.releaseYear).append(" • ");
             }
             if (item.duration > 0) {
-                html.append(formatDuration((int)item.duration)).append(" • ");
+                html.append(formatDuration(item.duration.intValue())).append(" • ");
             }
             
             html.append("</p></div>");
@@ -821,7 +822,7 @@ public class VideoUiApi {
                         if (video.releaseYear > 0) 
                             metaParts.add(String.valueOf(video.releaseYear));
                         if (video.duration > 0) 
-                            metaParts.add(formatDuration((int)video.duration));
+                            metaParts.add(formatDuration(video.duration.intValue()));
                         if ("episode".equals(video.type) && video.seasonNumber > 0 && video.episodeNumber > 0)
                             metaParts.add("S" + video.seasonNumber + "E" + video.episodeNumber);
                         
@@ -876,7 +877,7 @@ public class VideoUiApi {
             // Try paginated movies first (simplest method)
             try {
                 VideoService.PaginatedVideos moviesPaginated = videoService.findPaginatedByMediaType("Movie", 1, 20);
-                movies = moviesPaginated.videos();
+                movies = moviesPaginated.videos;
                 System.out.println("DEBUG: Movies from paginated query: " + movies.size());
                 data.put("movies", movies);
             } catch (Exception e) {

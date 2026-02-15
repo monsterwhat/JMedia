@@ -2,7 +2,7 @@
     <!-- Poster Section -->
     <div class="poster-section">
         <img class="poster-image" 
-             src="{item.thumbnailPath ?: 'https://picsum.photos/400/600?random=' + item.id}" 
+             src="{item.thumbnailPath ?: '/images/placeholders/details.jpg'}" 
              alt="{item.title ?: item.seriesTitle}">
         <button class="play-button" onclick="window.selectItem({json:item}, 'play')">
             <i class="pi pi-play"></i>

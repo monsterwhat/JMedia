@@ -193,9 +193,10 @@
             if (this.domElements.timeSlider) {
                 this.domElements.timeSlider.max = duration;
                 
-                // Update the slider's value based on audio.currentTime if not dragging
+                // Update the slider's value based on StateManager if not dragging
                 if (!SynchronizationManager.getFlag('draggingSeconds')) {
-                    this.domElements.timeSlider.value = window.AudioEngine ? window.AudioEngine.getCurrentTime() : currentTime;
+                    const state = window.StateManager.getState();
+                    this.domElements.timeSlider.value = state.currentTime;
                 }
                 
                 // Always update the progress bar's visual fill

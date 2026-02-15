@@ -234,7 +234,7 @@
                 '.mobile-header',
                 '.mobile-player',
                 '.mobile-side-panel',
-                '.mobile-modal-card'
+                '.modal-card'
             ];
             
             elements.forEach(selector => {
@@ -420,6 +420,16 @@
                     this.resumeBackgroundTasks();
                 }
             });
+            
+            // Re-setup swipe handlers after HTMX swaps (for dynamically added content)
+            document.body.addEventListener('htmx:afterSwap', (e) => {
+                if (e.detail && e.detail.target) {
+                    const target = e.detail.target;
+                    if (target.querySelector('.mobile-playlist-item') || target.classList?.contains('mobile-playlist-item')) {
+                        this.setupSwipeToDismiss();
+                    }
+                }
+            });
         },
         
         /**
@@ -445,7 +455,7 @@
          * Prevent overscroll in modals
          */
         preventOverscroll: function() {
-            const modals = document.querySelectorAll('.mobile-modal, .mobile-context-menu');
+            const modals = document.querySelectorAll('.modal, .mobile-modal, .mobile-context-menu');
             
             modals.forEach(modal => {
                 modal.addEventListener('touchmove', (e) => {
@@ -532,6 +542,15 @@
                 playlistId: playlistId,
                 swipeLeft: swipeLeft
             });
+            
+            // Check if this is a playlist item - trigger delete instead
+            if (playlistId && !songId && playlistId !== '0') {
+                const playlistName = element.querySelector('.mobile-playlist-name')?.textContent || 'this playlist';
+                if (confirm(`Delete playlist "${playlistName}"?`)) {
+                    deleteMobilePlaylist(playlistId, encodeURIComponent(playlistName));
+                }
+                return;
+            }
             
             // Emit dismiss event
             window.dispatchEvent(new CustomEvent('requestDismiss', {

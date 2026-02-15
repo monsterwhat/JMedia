@@ -93,7 +93,7 @@ public class DesktopController {
         try {
             if (Desktop.isDesktopSupported()) {
                 String url = setupController.isFirstTimeSetup() ? 
-                    "http://localhost:8080/setup.html" : 
+                    "http://localhost:8080/setup" : 
                     "http://localhost:8080";
                 Desktop.getDesktop().browse(new URI(url));
             }
@@ -121,7 +121,7 @@ public class DesktopController {
         MenuItem openItem = new MenuItem("Open JMedia");
         openItem.addActionListener(e -> {
             String url = setupController.isFirstTimeSetup() ? 
-                "http://localhost:8080/setup.html" : 
+                "http://localhost:8080/setup" : 
                 "http://localhost:8080";
             openBrowser(url);
         });
@@ -147,7 +147,7 @@ public class DesktopController {
                 public void mouseClicked(java.awt.event.MouseEvent e) {
                     if (e.getClickCount() == 2) {
                         String url = setupController.isFirstTimeSetup() ? 
-                            "http://localhost:8080/setup.html" : 
+                            "http://localhost:8080/setup" : 
                             "http://localhost:8080";
                         openBrowser(url);
                     }

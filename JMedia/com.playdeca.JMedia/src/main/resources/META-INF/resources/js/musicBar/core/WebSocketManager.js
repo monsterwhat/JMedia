@@ -247,7 +247,6 @@
                                 changes: {
                                     currentSongId: state.currentSongId,
                                     artist: state.artistName || state.artist,
-                                    currentTime: state.currentTime,
                                     duration: state.duration
                                 },
                                 source: 'websocket'
@@ -283,15 +282,14 @@
                 repeatMode: state.repeatMode
             });
             
-            // Update all state properties
+            // Update all state properties (excluding currentTime - let audio element be the visual source)
             window.dispatchEvent(new CustomEvent('requestStateUpdate', {
                 detail: {
                     changes: {
                         currentSongId: state.currentSongId,
-                        artist: state.artistName || state.artist, // Use artistName from server, fallback to artist
-                        songName: state.songName, // Add songName
+                        artist: state.artistName || state.artist,
+                        songName: state.songName,
                         playing: state.playing,
-                        currentTime: state.currentTime,
                         duration: state.duration,
                         shuffleMode: state.shuffleMode,
                         repeatMode: state.repeatMode,

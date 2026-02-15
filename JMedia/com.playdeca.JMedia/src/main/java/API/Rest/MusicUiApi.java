@@ -21,6 +21,8 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -161,9 +163,9 @@ public class MusicUiApi {
     @Consumes(MediaType.WILDCARD)
     @Blocking
     @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
-    public QueueFragmentResponse queueAllSongsUi(@PathParam("profileId") Long profileId, @PathParam("id") Long id) { // Reverted return type
+    public QueueFragmentResponse queueAllSongsUi(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) { // Reverted return type
         // Call the JSON API to do the actual queuing
-        Response apiResponse = queueAPI.queueAllSongs(profileId, id);
+        Response apiResponse = queueAPI.queueAllSongs(profileId, id, headers);
 
         // Then return the updated queue fragment for HTMX
         List<Song> updatedQueue = playbackController.getQueue(profileId);
@@ -199,8 +201,8 @@ public class MusicUiApi {
     @Consumes(MediaType.WILDCARD)
     @Blocking
     @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
-    public QueueFragmentResponse skipToQueueIndexUi(@PathParam("profileId") Long profileId, @PathParam("index") int index) { // Reverted return type
-        queueAPI.skipToQueueIndex(profileId, index);
+    public QueueFragmentResponse skipToQueueIndexUi(@PathParam("profileId") Long profileId, @PathParam("index") int index, @Context HttpHeaders headers) { // Reverted return type
+        queueAPI.skipToQueueIndex(profileId, index, headers);
 
         List<Song> updatedQueue = playbackController.getQueue(profileId);
         // Create a list of SongWithIndex objects
@@ -234,8 +236,8 @@ public class MusicUiApi {
     @Consumes(MediaType.WILDCARD)
     @Blocking
     @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
-    public QueueFragmentResponse removeFromQueueUi(@PathParam("profileId") Long profileId, @PathParam("index") int index) { // Reverted return type
-        queueAPI.removeFromQueue(profileId, index);
+    public QueueFragmentResponse removeFromQueueUi(@PathParam("profileId") Long profileId, @PathParam("index") int index, @Context HttpHeaders headers) { // Reverted return type
+        queueAPI.removeFromQueue(profileId, index, headers);
 
         List<Song> updatedQueue = playbackController.getQueue(profileId);
         // Create a list of SongWithIndex objects
@@ -274,8 +276,8 @@ public class MusicUiApi {
     @Consumes(MediaType.WILDCARD)
     @Blocking
     @Produces(MediaType.APPLICATION_JSON) // Reverted to APPLICATION_JSON
-    public QueueFragmentResponse clearQueueUi(@PathParam("profileId") Long profileId) { // Reverted return type
-        queueAPI.clearQueue(profileId);
+    public QueueFragmentResponse clearQueueUi(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) { // Reverted return type
+        queueAPI.clearQueue(profileId, headers);
 
         List<Song> updatedQueue = playbackController.getQueue(profileId);
         // Create a list of SongWithIndex objects

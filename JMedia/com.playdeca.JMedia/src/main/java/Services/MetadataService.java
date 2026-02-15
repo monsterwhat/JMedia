@@ -9,10 +9,9 @@ import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 // import org.jaudiotagger.tag.datatype.Artwork; // Commented out - class not available in jaudiotagger 3.0.1
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -21,7 +20,8 @@ import org.jaudiotagger.tag.TagException;
 @ApplicationScoped
 public class MetadataService {
     
-    private static final Logger LOGGER = LoggerFactory.getLogger(MetadataService.class);
+    @Inject
+    LoggingService loggingService;
     
     /**
      * Extracts metadata from an audio file and creates a Song object.
@@ -62,7 +62,7 @@ public class MetadataService {
             return song;
 
         } catch (IOException | ReadOnlyFileException | InvalidAudioFrameException | TagException | CannotReadException e ) {
-            LOGGER.error("Failed to extract metadata from file: {}", audioFile.getAbsolutePath(), e);
+            loggingService.addLog("Failed to extract metadata from file: " + audioFile.getAbsolutePath(), e);
             return null;
         }
     }
@@ -270,5 +270,48 @@ public class MetadataService {
         cleaned = cleaned.trim();
 
         return cleaned.isEmpty() ? title : cleaned; // Return original if cleaning removes everything
+    }
+    
+    /**
+     * Processes multiple audio files with progress reporting (like music scanning pattern)
+     */
+    public void processBatchMetadata(java.util.List<File> audioFiles) {
+        loggingService.addLog("Starting metadata extraction for " + audioFiles.size() + " audio files...");
+        
+        int totalProcessed = 0;
+        int successCount = 0;
+        int failedCount = 0;
+        
+        for (int i = 0; i < audioFiles.size(); i++) {
+            File audioFile = audioFiles.get(i);
+            try {
+                String relativePath = audioFile.getName(); // Use filename as relative path for logging
+                Song result = extractMetadata(audioFile, relativePath);
+                totalProcessed++;
+                
+                if (result != null) {
+                    successCount++;
+                    loggingService.addLog("Successfully extracted metadata for: " + audioFile.getName() + 
+                                       " - " + result.getTitle() + " by " + result.getArtist());
+                } else {
+                    failedCount++;
+                    loggingService.addLog("Failed to extract metadata for: " + audioFile.getName() + " (no metadata found)");
+                }
+                
+                // Progress reporting every 50 files (like music scanning)
+                if ((i + 1) % 50 == 0) {
+                    loggingService.addLog("Processed " + (i + 1) + " / " + audioFiles.size() + 
+                                       " metadata files (Success: " + successCount + ", Failed: " + failedCount + ")...");
+                }
+                
+            } catch (Exception e) {
+                failedCount++;
+                totalProcessed++;
+                loggingService.addLog("Error processing metadata for " + audioFile.getName() + ": " + e.getMessage(), e);
+            }
+        }
+        
+        loggingService.addLog("Metadata extraction completed. Total processed: " + totalProcessed + 
+                           ", Success: " + successCount + ", Failed: " + failedCount);
     }
 }

@@ -1,0 +1,422 @@
+<!-- Subtitle Track Selector Component -->
+<div class="subtitle-track-selector" id="subtitleTrackSelector">
+    <div class="subtitle-track-button" onclick="toggleSubtitleTrackMenu()" title="Subtitles">
+        <i class="pi pi-closed-captioning"></i>
+        <span class="current-track" id="currentTrackDisplay">Off</span>
+    </div>
+    
+    <div class="subtitle-track-menu" id="subtitleTrackMenu" style="display: none;">
+        <div class="track-list-header">Subtitle Tracks</div>
+        <div class="track-list" id="trackList">
+            <div class="track-item" data-track="off" onclick="selectTrack('off')">
+                <span class="track-name">Off</span>
+                <i class="pi pi-check track-selected" style="display: none;"></i>
+            </div>
+        </div>
+        
+        <div class="track-actions">
+            <button class="settings-btn" onclick="openSubtitleSettings()">
+                <i class="pi pi-cog"></i> Settings
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentTrackId = 'off';
+let availableTracks = [];
+
+// Initialize subtitle track selector
+function initializeSubtitleTrackSelector() {
+    if (player) {
+        loadAvailableTracks();
+        updateCurrentTrackDisplay();
+        
+        // Listen for track changes
+        player.ready(() => {
+            const tracks = player.textTracks();
+            tracks.addEventListener('change', updateCurrentTrackDisplay);
+        });
+    }
+}
+
+// Load available subtitle tracks
+async function loadAvailableTracks() {
+    try {
+        const userId = getCurrentUserId();
+        const response = await fetch(`/api/video/subtitles/${currentVideoId}`, {
+            headers: userId ? { 'X-User-ID': userId } : {}
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            availableTracks = data.tracks || [];
+            populateTrackMenu();
+        }
+    } catch (error) {
+        console.error('Error loading subtitle tracks:', error);
+    }
+}
+
+// Populate the track menu with available tracks
+function populateTrackMenu() {
+    const trackList = document.getElementById('trackList');
+    
+    // Clear existing tracks (keep "Off" option)
+    while (trackList.children.length > 1) {
+        trackList.removeChild(trackList.lastChild);
+    }
+    
+    // Add available tracks
+    availableTracks.forEach(track => {
+        const trackItem = document.createElement('div');
+        trackItem.className = 'track-item';
+        trackItem.dataset.track = track.id;
+        trackItem.innerHTML = `
+            <span class="track-name">${track.displayName || track.languageName || track.languageCode}</span>
+            <i class="pi pi-check track-selected" style="display: none;"></i>
+        `;
+        trackItem.onclick = () => selectTrack(track.id);
+        trackList.appendChild(trackItem);
+    });
+    
+    // Update selection indicators
+    updateTrackSelection();
+}
+
+// Toggle track menu visibility
+function toggleSubtitleTrackMenu() {
+    const menu = document.getElementById('subtitleTrackMenu');
+    const isVisible = menu.style.display !== 'none';
+    
+    // Hide all other menus
+    document.querySelectorAll('.subtitle-track-menu').forEach(m => m.style.display = 'none');
+    
+    menu.style.display = isVisible ? 'none' : 'block';
+    
+    if (!isVisible) {
+        loadAvailableTracks(); // Refresh tracks when opening
+    }
+}
+
+// Select a subtitle track
+function selectTrack(trackId) {
+    if (trackId === 'off') {
+        // Turn off all subtitles
+        const tracks = player.textTracks();
+        for (let i = 0; i < tracks.length; i++) {
+            if (tracks[i].kind === 'subtitles') {
+                tracks[i].mode = 'hidden';
+            }
+        }
+    } else {
+        // Find and enable the selected track
+        const tracks = player.textTracks();
+        let trackFound = false;
+        
+        for (let i = 0; i < tracks.length; i++) {
+            if (tracks[i].kind === 'subtitles') {
+                if (tracks[i].language && tracks[i].id && 
+                    availableTracks.some(at => at.id == trackId && at.languageCode === tracks[i].language)) {
+                    tracks[i].mode = 'showing';
+                    trackFound = true;
+                } else {
+                    tracks[i].mode = 'hidden';
+                }
+            }
+        }
+        
+        if (!trackFound) {
+            // If track not found in player, try to add it dynamically
+            const trackInfo = availableTracks.find(t => t.id == trackId);
+            if (trackInfo) {
+                const trackElement = {
+                    kind: 'subtitles',
+                    label: trackInfo.displayName || trackInfo.languageName,
+                    language: trackInfo.languageCode,
+                    src: `/api/video/subtitles/track/${trackInfo.id}`,
+                    default: trackInfo.isDefault
+                };
+                
+                player.addRemoteTextTrack(trackElement, true);
+            }
+        }
+    }
+    
+    currentTrackId = trackId;
+    updateTrackSelection();
+    updateCurrentTrackDisplay();
+    
+    // Save preference
+    saveTrackPreference(trackId);
+    
+    // Close menu
+    document.getElementById('subtitleTrackMenu').style.display = 'none';
+}
+
+// Update track selection indicators
+function updateTrackSelection() {
+    document.querySelectorAll('.track-item').forEach(item => {
+        const trackId = item.dataset.track;
+        const checkIcon = item.querySelector('.track-selected');
+        
+        if (trackId === currentTrackId.toString()) {
+            checkIcon.style.display = 'inline';
+            item.classList.add('selected');
+        } else {
+            checkIcon.style.display = 'none';
+            item.classList.remove('selected');
+        }
+    });
+}
+
+// Update current track display
+function updateCurrentTrackDisplay() {
+    const display = document.getElementById('currentTrackDisplay');
+    
+    if (currentTrackId === 'off') {
+        display.textContent = 'Off';
+    } else {
+        const track = availableTracks.find(t => t.id == currentTrackId);
+        if (track) {
+            display.textContent = track.displayName || track.languageName || track.languageCode;
+        } else {
+            display.textContent = 'Off';
+        }
+    }
+}
+
+// Save track preference
+async function saveTrackPreference(trackId) {
+    try {
+        const userId = getCurrentUserId();
+        if (userId && trackId !== 'off') {
+            await fetch('/api/video/subtitles/per-video-preference', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    videoId: currentVideoId,
+                    trackId: trackId
+                })
+            });
+        }
+    } catch (error) {
+        console.error('Error saving track preference:', error);
+    }
+}
+
+// Open subtitle settings
+function openSubtitleSettings() {
+    // Hide track menu
+    document.getElementById('subtitleTrackMenu').style.display = 'none';
+    
+    // Open settings panel if it exists
+    if (typeof toggleSubtitleSettings === 'function') {
+        toggleSubtitleSettings();
+    }
+}
+
+// Close menu when clicking outside
+document.addEventListener('click', function(e) {
+    const selector = document.getElementById('subtitleTrackSelector');
+    const menu = document.getElementById('subtitleTrackMenu');
+    
+    if (!selector.contains(e.target) && menu.style.display !== 'none') {
+        menu.style.display = 'none';
+    }
+});
+
+// Keyboard shortcut for quick track switching (C key)
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'c' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        
+        if (availableTracks.length > 0) {
+            // Cycle through tracks: Off -> Track 1 -> Track 2 -> ... -> Off
+            let nextTrackId = 'off';
+            
+            if (currentTrackId === 'off') {
+                nextTrackId = availableTracks[0].id;
+            } else {
+                const currentIndex = availableTracks.findIndex(t => t.id == currentTrackId);
+                if (currentIndex >= 0 && currentIndex < availableTracks.length - 1) {
+                    nextTrackId = availableTracks[currentIndex + 1].id;
+                }
+            }
+            
+            selectTrack(nextTrackId);
+        }
+    }
+});
+
+// Auto-refresh when player loads new video
+const originalLoadSubtitleTracks = window.loadSubtitleTracks;
+if (typeof originalLoadSubtitleTracks === 'function') {
+    window.loadSubtitleTracks = function() {
+        originalLoadSubtitleTracks();
+        setTimeout(() => {
+            loadAvailableTracks();
+            updateCurrentTrackDisplay();
+        }, 1000);
+    };
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(initializeSubtitleTrackSelector, 1000);
+});
+</script>
+
+<style>
+.subtitle-track-selector {
+    position: relative;
+    display: inline-block;
+}
+
+.subtitle-track-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.2s;
+    backdrop-filter: blur(10px);
+}
+
+.subtitle-track-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.current-track {
+    font-size: 0.8em;
+    opacity: 0.9;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subtitle-track-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 8px;
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(20px);
+    z-index: 1000;
+}
+
+.track-list-header {
+    padding: 12px 16px 8px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #ccc;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.track-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.track-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.track-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.track-item.selected {
+    background: rgba(50, 115, 220, 0.2);
+}
+
+.track-name {
+    flex: 1;
+    color: white;
+    font-size: 0.9em;
+}
+
+.track-selected {
+    color: #3273dc;
+    font-size: 0.8em;
+}
+
+.track-actions {
+    padding: 8px 16px 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-btn {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 0.8em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.settings-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+/* Scrollbar styling */
+.track-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.track-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.track-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.track-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .subtitle-track-menu {
+        right: 0;
+        left: auto;
+        min-width: 180px;
+    }
+    
+    .current-track {
+        max-width: 60px;
+    }
+}
+</style>

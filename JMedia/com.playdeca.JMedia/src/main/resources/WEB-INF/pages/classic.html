@@ -9,20 +9,12 @@
 
         <!-- Bulma CSS -->
       <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
-        <style>
-            .glass-box .card-content {
-                padding: 0 0.5rem 0.5rem 0.5rem !important;
-                margin: 0 !important;
-            }
-        </style>
-  
-
         <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
         <!-- Alpine.js -->
-        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script defer src="/lib/alpine.min.js"></script>
         <script>
             document.addEventListener('alpine:init', () => {
                 Alpine.store('profile', {
@@ -38,7 +30,7 @@
                             
                             if (result.success && result.data.isFirstTimeSetup) {
                                 // Redirect to setup page
-                                window.location.href = '/setup.html';
+                                window.location.href = '/setup';
                             }
                         } catch (error) {
                             console.error('Error checking setup status:', error);
@@ -56,7 +48,39 @@
     </head>
     <body x-data>
 
-        <audio id="audioPlayer" preload="metadata"></audio>
+        <audio id="audioPlayer" preload="auto"></audio>
+
+        <!-- Scripts -->
+        <script src="/js/htmx.min.js"></script>
+        <script src="/js/musicBar.js"></script>
+        <script src="/js/toast.js"></script>
+        <script src="/js/mediaSession.js"></script>
+        
+        <!-- Simple time update for classic view -->
+        <script>
+        (function() {
+            var audio = document.getElementById('audioPlayer');
+            var timeEl = document.getElementById('currentTime');
+            var slider = document.getElementById('playbackProgressBar');
+            var totalTimeEl = document.getElementById('totalTime');
+            
+            function formatTime(s) {
+                if (s === null || s === undefined || isNaN(s)) return "0:00";
+                return Math.floor(s / 60) + ':' + Math.floor(s % 60).toString().padStart(2, '0');
+            }
+            
+            if (audio) {
+                audio.ontimeupdate = function() {
+                    if (timeEl) timeEl.textContent = formatTime(audio.currentTime);
+                    if (slider && slider !== document.activeElement) {
+                        slider.value = audio.currentTime;
+                        slider.max = audio.duration || 0;
+                    }
+                    if (totalTimeEl) totalTimeEl.textContent = formatTime(audio.duration);
+                };
+            }
+        })();
+        </script>
 
         <!-- Hero layout -->
         <section class="hero is-fullheight">

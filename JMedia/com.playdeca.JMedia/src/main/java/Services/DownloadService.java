@@ -47,6 +47,49 @@ public class DownloadService {
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    // Rate limit information class
+    private static class RateLimitInfo {
+        private final RateLimitSource source;
+        private final int waitTime;
+        private final boolean isLongWait;
+        private final String pattern;
+        
+        public RateLimitInfo(RateLimitSource source, int waitTime, boolean isLongWait) {
+            this.source = source;
+            this.waitTime = waitTime;
+            this.isLongWait = isLongWait;
+            this.pattern = source == RateLimitSource.SPOTDL ? "spotdl-rate-limit" : "youtube-rate-limit";
+        }
+        
+        public RateLimitSource getSource() { return source; }
+        public int getWaitTime() { return waitTime; }
+        public boolean isLongWait() { return isLongWait; }
+        public String getPattern() { return pattern; }
+    }
+    
+    public enum RateLimitSource {
+        YOUTUBE("YouTube Rate Limit"),
+        SPOTDL("SpotDL Rate Limit");
+        
+        private final String description;
+        RateLimitSource(String description) { this.description = description; }
+        public String getDescription() { return description; }
+    }
+    
+    // Download strategy class
+    private static class DownloadStrategy {
+        private final Settings.DownloadSource source;
+        private final boolean hasFallback;
+        
+        public DownloadStrategy(Settings.DownloadSource source, boolean hasFallback) {
+            this.source = source;
+            this.hasFallback = hasFallback;
+        }
+        
+        public Settings.DownloadSource getSource() { return source; }
+        public boolean hasFallback() { return hasFallback; }
+    }
+
     // YouTube retry constants
     private static final long YOUTUBE_RETRY_WAIT_TIME_MS = 90 * 1000; // 1 minute 30 seconds
     private static final int MAX_YOUTUBE_RETRIES = 3;
@@ -58,8 +101,16 @@ public class DownloadService {
     private static final Pattern SPOTDL_DOWNLOAD_SUCCESS_PATTERN = Pattern.compile("Downloaded \"(.+?)\":");
     private static final Pattern YTDLP_MERGING_PATTERN = Pattern.compile("\\[ffmpeg\\] Merging formats into \"([^\"]+)\"");
     private static final Pattern YTDLP_AUDIO_EXTRACTION_PATTERN = Pattern.compile("\\[ExtractAudio\\] Destination: \"([^\"]+)\"");
-    private static final Pattern RATE_LIMIT_PATTERN = Pattern.compile(
+    
+    // Enhanced rate limit patterns
+    private static final Pattern YOUTUBE_RATE_LIMIT_PATTERN = Pattern.compile(
             "too many 429 error responses|rate.*limit|429|Your application has reached a rate/request limit\\. Retry will occur after: (\\d+) s"
+    );
+    private static final Pattern SPOTDL_RATE_LIMIT_PATTERN = Pattern.compile(
+            "Your application has reached a rate/request limit\\. Retry will occur after: (\\d+)"
+    );
+    private static final Pattern SPOTDL_MAX_RETRIES_PATTERN = Pattern.compile(
+            "Max Retries reached|too many 429 error responses"
     );
 
     /**
@@ -85,87 +136,17 @@ public class DownloadService {
         }
 
         try {
+            // Get current settings for smart configuration
+            Settings settings = settingsService.getSettingsOrNull();
+            if (settings == null) {
+                settings = new Settings(); // Use defaults if no settings exist
+            }
+
             installationService.validateInstallation();
 
-            // Validate yt-dlp installation for YouTube URLs or song searches
-            if (isSongSearchQuery(url) || url.contains("youtube.com") || url.contains("youtu.be")) {
-                PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
-                if (!platformOps.isYtdlpInstalled()) {
-                    throw new Exception("yt-dlp is not installed. Please install yt-dlp first: " + platformOps.getYtdlpInstallMessage());
-                }
-            }
-
-            Path normalizedDownloadPath = Paths.get(downloadPath);
-            File downloadDir = normalizedDownloadPath.toFile();
-            if (!downloadDir.exists()) {
-                downloadDir.mkdirs();
-            }
-
-            List<String> command = buildDownloadCommand(url, format, downloadThreads, searchThreads, normalizedDownloadPath, profileId);
-            result.setDownloadSource(detectDownloadSource(url));
-            broadcast("Executing command: " + String.join(" ", command) + "\n", profileId);
-
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.environment().put("PYTHONUNBUFFERED", "1");
-            processBuilder.environment().put("PYTHONIOENCODING", "utf-8");
-            processBuilder.redirectErrorStream(true);
-
-            Process process = processBuilder.start();
-
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    parseDownloadLine(line, result, profileId);
-                }
-            }
-
-            int exitCode = process.waitFor();
-            broadcast("Process finished with exit code: " + exitCode + "\n", profileId);
-
-            // Handle various failure scenarios
-            if (exitCode != 0) {
-                boolean isRateLimit = isRateLimitHit(result.getOutputCache().toString());
-                
-                // Handle YouTube-specific retry logic
-                if (isYouTubeQuery(url)) {
-                    if (hasProcessedSongs(result)) {
-                        // YouTube with some processed songs and rate limit - use existing retry logic
-                        return retryWithReducedThreads(url, format, normalizedDownloadPath, profileId, result);
-                    } else {
-                        // YouTube with no processed songs - use new YouTube retry logic
-                        return retryYouTube(url, format, normalizedDownloadPath, profileId, result, isRateLimit, 0);
-                    }
-                }
-                
-                // Non-YouTube error handling
-                if (isRateLimit && hasProcessedSongs(result)) {
-                    return retryWithReducedThreads(url, format, normalizedDownloadPath, profileId, result);
-                } else if (!hasProcessedSongs(result)) {
-                    // Check if this was a song search (non-YouTube) that can fallback to SpotDL
-                    if (isSongSearchQuery(url) && !url.contains("spotify.com")) {
-                        DownloadResult fallbackResult = tryFallbackToSpotDL(url, format, downloadThreads, searchThreads, normalizedDownloadPath, profileId);
-                        // Combine results if fallback succeeded
-                        if (hasProcessedSongs(fallbackResult)) {
-                            result.getDownloadedFiles().addAll(fallbackResult.getDownloadedFiles());
-                            result.getSkippedSongs().addAll(fallbackResult.getSkippedSongs());
-                            broadcast("✅ Combined results: " + result.getDownloadedFiles().size() + " files downloaded, " + result.getSkippedSongs().size() + " skipped.\n", profileId);
-                            return result;
-                        }
-                    }
-                    throw new Exception("Download process exited with error code " + exitCode + " and no songs were processed.\nExternal tool output:\n" + result.getOutputCache().toString());
-                }
-            } else if (exitCode == 0 && hasProcessedSongs(result)) {
-                if (isSongSearchQuery(url) || url.contains("youtube.com") || url.contains("youtu.be")) {
-                    broadcast("✅ Successfully downloaded from YouTube: " + result.getDownloadedFiles().size() + " files, " + result.getSkippedSongs().size() + " skipped.\n", profileId);
-                } else {
-                    broadcast("✅ Successfully downloaded from Spotify (SpotDL): " + result.getDownloadedFiles().size() + " files, " + result.getSkippedSongs().size() + " skipped.\n", profileId);
-                }
-            } else if (exitCode != 0) {
-                broadcast("⚠️ WARNING: Download process exited with error code " + exitCode + " but some songs were processed. Continuing...\n", profileId);
-            }
-
-            return result;
-
+            // Use new smart routing logic
+            return executeDownloadWithRetry(url, format, downloadThreads, searchThreads, 
+                                       Paths.get(downloadPath), profileId, settings);
         } finally {
             isDownloading.set(false);
         }
@@ -257,7 +238,7 @@ public class DownloadService {
                     command.add("-m");
                     command.add("yt_dlp");
                 } else {
-                    throw new Exception("Python executable not found. Please install Python to use yt-dlp.");
+            throw new Exception("Python executable not found. Please install Python to use yt-dlp.");
                 }
                 command.add("-x");
                 command.add("--audio-format");
@@ -275,9 +256,9 @@ public class DownloadService {
                             command.add(settings.getCookiesFilePath());
                             broadcast("🍪 Using cookies file: " + settings.getCookiesFilePath() + "\n", profileId);
                         }
-                    } catch (Exception e) {
-                        LOGGER.debug("Could not check cookies file: " + e.getMessage());
-                    }
+        } catch (Exception e) {
+            LOGGER.debug("Could not check cookies file: " + e.getMessage());
+        }
                 }
 
                 if (isSongSearchQuery(url)) {
@@ -346,6 +327,97 @@ public class DownloadService {
     }
 
     /**
+     * Analyzes rate limit information from output.
+     */
+    private RateLimitInfo analyzeRateLimit(String output) {
+        Matcher spotdlMatcher = SPOTDL_RATE_LIMIT_PATTERN.matcher(output);
+        if (spotdlMatcher.find()) {
+            int waitTime = Integer.parseInt(spotdlMatcher.group(1));
+            boolean isLongWait = waitTime > 3600; // > 1 hour
+            return new RateLimitInfo(RateLimitSource.SPOTDL, waitTime, isLongWait);
+        }
+        
+        Matcher youtubeMatcher = YOUTUBE_RATE_LIMIT_PATTERN.matcher(output);
+        if (youtubeMatcher.find()) {
+            String waitGroup = youtubeMatcher.group(1);
+            if (waitGroup != null) {
+                int waitTime = Integer.parseInt(waitGroup);
+                boolean isLongWait = waitTime > 3600;
+                return new RateLimitInfo(RateLimitSource.YOUTUBE, waitTime, isLongWait);
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Determines download strategy based on URL and user settings.
+     */
+    private DownloadStrategy determineDownloadStrategy(String url, Settings settings) {
+        boolean isSpotifyUrl = url.contains("spotify.com") || url.contains("open.spotify.com");
+        boolean isYouTubeUrl = url.contains("youtube.com") || url.contains("youtu.be");
+        boolean isSongSearch = isSongSearchQuery(url);
+
+        // URL-based forced routing
+        if (isSpotifyUrl && settings.getSpotdlEnabled()) {
+            return new DownloadStrategy(Settings.DownloadSource.SPOTDL, false);
+        }
+        if (isYouTubeUrl && settings.getYoutubeEnabled()) {
+            return new DownloadStrategy(Settings.DownloadSource.YOUTUBE, false);
+        }
+
+        // User preference-based routing for song searches
+        if (isSongSearch) {
+            if (settings.getYoutubeEnabled() && settings.getSpotdlEnabled()) {
+                return new DownloadStrategy(settings.getPrimarySource(), true);
+            } else if (settings.getYoutubeEnabled()) {
+                return new DownloadStrategy(Settings.DownloadSource.YOUTUBE, false);
+            } else if (settings.getSpotdlEnabled()) {
+                return new DownloadStrategy(Settings.DownloadSource.SPOTDL, false);
+            }
+        }
+
+        throw new IllegalStateException("No valid download source available");
+    }
+    
+    /**
+     * Handles rate limit decisions based on settings.
+     */
+    private boolean shouldFallbackOnRateLimit(RateLimitInfo rateLimitInfo, Settings settings, Long profileId) {
+        if (!settings.getEnableSmartRateLimitHandling()) {
+            return false;
+        }
+        
+        // Always fallback on extremely long waits (>6 hours)
+        if (rateLimitInfo.getWaitTime() > 21600) {
+            broadcast("⚠️ Extreme rate limit detected (" + rateLimitInfo.getWaitTime() + 
+                     " seconds). Automatically switching sources.\n", profileId);
+            return true;
+        }
+        
+        // Fallback on long waits if enabled
+        if (settings.getFallbackOnLongWait() && 
+            rateLimitInfo.getWaitTime() > settings.getMaxAcceptableWaitTimeMs() / 1000) {
+            broadcast("⚠️ Rate limit wait time (" + rateLimitInfo.getWaitTime() + 
+                     "s) exceeds acceptable threshold. Switching sources.\n", profileId);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Gets the secondary source based on current source and settings.
+     */
+    private Settings.DownloadSource getSecondarySource(Settings settings, Settings.DownloadSource currentSource) {
+        if (currentSource == Settings.DownloadSource.YOUTUBE) {
+            return Settings.DownloadSource.SPOTDL;
+        } else {
+            return Settings.DownloadSource.YOUTUBE;
+        }
+    }
+
+    /**
      * Detects the download source for a given URL or query.
      */
     private DownloadSource detectDownloadSource(String url) {
@@ -358,6 +430,227 @@ public class DownloadService {
         } else {
             return DownloadSource.YOUTUBE_FALLBACK;
         }
+    }
+
+    /**
+     * Executes download with intelligent retry and source switching.
+     */
+    private DownloadResult executeDownloadWithRetry(String url, String format, Integer downloadThreads,
+            Integer searchThreads, Path downloadPath, Long profileId, Settings settings) throws Exception {
+        
+        DownloadStrategy strategy = determineDownloadStrategy(url, settings);
+        DownloadResult result = new DownloadResult();
+        int retryCount = 0;
+        boolean shouldRetry = true;
+        Settings.DownloadSource currentSource = strategy.getSource();
+        boolean hasSecondary = strategy.hasFallback();
+
+        while (shouldRetry && retryCount <= settings.getMaxRetryAttempts()) {
+            // Execute download with current source
+            result = executeSingleDownload(url, format, downloadThreads, searchThreads, 
+                                         downloadPath, profileId, currentSource);
+
+            // Analyze result for rate limiting
+            RateLimitInfo rateLimitInfo = analyzeRateLimit(result.getOutputCache().toString());
+            
+            if (rateLimitInfo != null) {
+                // Handle rate limit intelligently
+                if (shouldFallbackOnRateLimit(rateLimitInfo, settings, profileId)) {
+                    // If we decide to fallback
+                    if (hasSecondary && retryCount < settings.getMaxRetryAttempts()) {
+                        currentSource = getSecondarySource(settings, currentSource);
+                        hasSecondary = false; // Don't fallback again
+                        broadcast("🔄 Switching to " + currentSource.getDisplayName() + " due to rate limit...\n", profileId);
+                    } else {
+                        // Exit if we can't fallback or have exhausted retries
+                        shouldRetry = false;
+                        break;
+                    }
+                } else {
+                    // Wait for retry
+                    executeRateLimitWait(rateLimitInfo, profileId);
+                    retryCount++;
+                }
+            } else if (hasProcessedSongs(result)) {
+                // Success!
+                broadcast("✅ Successfully downloaded from " + currentSource.getDisplayName() + "!\n", profileId);
+                return result;
+            } else {
+                // Generic failure, apply retry strategy
+                if (shouldRetryBasedOnStrategy(strategy, retryCount, settings)) {
+                    if (hasSecondary && shouldSwitchToSecondary(strategy, retryCount, settings)) {
+                        currentSource = getSecondarySource(settings, currentSource);
+                        hasSecondary = false;
+                        broadcast("🔄 Switching to " + currentSource.getDisplayName() + "...\n", profileId);
+                    } else {
+                        retryCount++;
+                        executeGenericRetryWait(retryCount, profileId);
+                    }
+                } else {
+                    shouldRetry = false;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Executes a single download with the specified source.
+     */
+    private DownloadResult executeSingleDownload(String url, String format, Integer downloadThreads,
+            Integer searchThreads, Path downloadPath, Long profileId, 
+            Settings.DownloadSource source) throws Exception {
+        
+        DownloadResult result = new DownloadResult();
+        result.setDownloadSource(source == Settings.DownloadSource.YOUTUBE ? 
+                             DownloadSource.YOUTUBE : DownloadSource.SPOTDL);
+
+        List<String> command = buildDownloadCommand(url, format, downloadThreads, 
+                                                searchThreads, downloadPath, profileId);
+        broadcast("Executing command: " + String.join(" ", command) + "\n", profileId);
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.environment().put("PYTHONUNBUFFERED", "1");
+        processBuilder.environment().put("PYTHONIOENCODING", "utf-8");
+        processBuilder.redirectErrorStream(true);
+
+        Process process = processBuilder.start();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                parseDownloadLine(line, result, profileId);
+            }
+        }
+
+        int exitCode = process.waitFor();
+        broadcast("Process finished with exit code: " + exitCode + "\n", profileId);
+
+        return result;
+    }
+
+    /**
+     * Builds download command for specific source.
+     */
+    private List<String> buildDownloadCommandWithSource(String url, String format, Integer downloadThreads,
+            Integer searchThreads, Path downloadPath, Long profileId, Settings.DownloadSource source) throws Exception {
+        
+        if (source == Settings.DownloadSource.YOUTUBE) {
+            return buildYouTubeCommand(url, format, downloadThreads, searchThreads, downloadPath, profileId);
+        } else {
+            return buildSpotDLCommand(url, format, downloadThreads, searchThreads, downloadPath);
+        }
+    }
+
+    /**
+     * Builds YouTube-specific command.
+     */
+    private List<String> buildYouTubeCommand(String url, String format, Integer downloadThreads,
+            Integer searchThreads, Path downloadPath, Long profileId) throws Exception {
+        
+        List<String> command = new ArrayList<>();
+        String pythonExecutable = installationService.findPythonExecutable();
+        if (pythonExecutable != null) {
+            Collections.addAll(command, pythonExecutable.split(" "));
+            command.add("-m");
+            command.add("yt_dlp");
+        } else {
+            throw new IOException("Python executable not found. Please install Python to use yt-dlp.");
+        }
+        
+        command.add("-x");
+        command.add("--audio-format");
+        command.add(format != null && !format.isEmpty() ? format : "mp3");
+        command.add("--output");
+        command.add(downloadPath.resolve("%(title)s.%(ext)s").toString());
+
+        // Add cookies file for yt-dlp on Linux if configured
+        if (System.getProperty("os.name").toLowerCase().contains("linux")) {
+            try {
+                Settings settings = settingsService.getSettingsOrNull();
+                if (settings != null && settings.getCookiesFilePath() != null && 
+                    Files.exists(Paths.get(settings.getCookiesFilePath()))) {
+                    command.add("--cookies");
+                    command.add(settings.getCookiesFilePath());
+                    broadcast("🍪 Using cookies file: " + settings.getCookiesFilePath() + "\n", profileId);
+                }
+            } catch (Exception e) {
+                LOGGER.debug("Could not check cookies file: " + e.getMessage());
+            }
+        }
+
+        if (isSongSearchQuery(url)) {
+            command.add("ytsearch:" + url);
+            broadcast("🔍 Searching YouTube for: " + url + "\n", profileId);
+        } else {
+            broadcast("📥 Downloading from YouTube: " + url + "\n", profileId);
+            command.add(url);
+        }
+
+        return command;
+    }
+
+    /**
+     * Determines if retry should happen based on strategy.
+     */
+    private boolean shouldRetryBasedOnStrategy(DownloadStrategy strategy, int retryCount, Settings settings) {
+        switch (settings.getSwitchStrategy()) {
+            case IMMEDIATELY:
+                return false; // Switch immediately, no retry
+            case AFTER_FAILURES:
+                return retryCount < settings.getSwitchThreshold();
+            case ONLY_ON_RATE_LIMIT:
+                return false; // Only switch on rate limit
+            case SMART_ADAPTIVE:
+                return retryCount < 2; // Smart retry logic
+            default:
+                return retryCount < settings.getMaxRetryAttempts();
+        }
+    }
+
+    /**
+     * Determines if should switch to secondary source.
+     */
+    private boolean shouldSwitchToSecondary(DownloadStrategy strategy, int retryCount, Settings settings) {
+        if (!strategy.hasFallback()) {
+            return false;
+        }
+        
+        switch (settings.getSwitchStrategy()) {
+            case IMMEDIATELY:
+                return retryCount >= 1;
+            case AFTER_FAILURES:
+                return retryCount >= settings.getSwitchThreshold();
+            case ONLY_ON_RATE_LIMIT:
+                return false; // Only switch on explicit rate limit
+            case SMART_ADAPTIVE:
+                return retryCount >= 1; // Smart adaptive switching
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Executes rate limit wait.
+     */
+    private void executeRateLimitWait(RateLimitInfo rateLimitInfo, Long profileId) throws Exception {
+        long waitTimeMs = rateLimitInfo.getWaitTime() * 1000L;
+        long waitTimeSeconds = rateLimitInfo.getWaitTime();
+        
+        broadcast("⏱️ " + rateLimitInfo.getSource().getDescription() + 
+                 " detected. Waiting " + waitTimeSeconds + " seconds before retry...\n", profileId);
+        
+        Thread.sleep(waitTimeMs);
+    }
+
+    /**
+     * Executes generic retry wait.
+     */
+    private void executeGenericRetryWait(int retryCount, Long profileId) throws Exception {
+        long waitTimeMs = 2000 * retryCount; // Exponential backoff
+        broadcast("🔄 Retrying in " + (waitTimeMs / 1000) + " seconds...\n", profileId);
+        Thread.sleep(waitTimeMs);
     }
 
     /**
@@ -604,7 +897,8 @@ public class DownloadService {
     }
 
     private boolean isRateLimitHit(String output) {
-        return RATE_LIMIT_PATTERN.matcher(output.toLowerCase()).find();
+        return YOUTUBE_RATE_LIMIT_PATTERN.matcher(output.toLowerCase()).find() ||
+               SPOTDL_RATE_LIMIT_PATTERN.matcher(output.toLowerCase()).find();
     }
 
     private long extractWaitTime(String output) {

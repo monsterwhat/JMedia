@@ -25,6 +25,9 @@ public class PlaybackQueueController {
     @Inject
     private SongService songService;
 
+    @Inject
+    private SettingsController settingsController;
+
 
 
 public void populateCue(PlaybackState state, List<Long> songIds, Long profileId) {
@@ -66,11 +69,11 @@ public void populateCue(PlaybackState state, List<Long> songIds, Long profileId)
         state.setPlaying(true);
     }
 
-public Long advance(PlaybackState state, boolean forward, Long profileId) {
+public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, Long profileId) {
         // Priority 1: Check primary queue first
         if (!state.getCue().isEmpty()) {
             state.setUsingSecondaryQueue(false);
-            return advanceInQueue(state, forward, true, profileId); // true = primary queue
+            return advanceInQueue(state, forward, true, skippedEarly, profileId); // true = primary queue
         }
         
         // Priority 2: Fallback to secondary queue
@@ -80,7 +83,7 @@ public Long advance(PlaybackState state, boolean forward, Long profileId) {
         
         if (!state.getSecondaryCue().isEmpty()) {
             state.setUsingSecondaryQueue(true);
-            return advanceInQueue(state, forward, false, profileId); // false = secondary queue
+            return advanceInQueue(state, forward, false, skippedEarly, profileId); // false = secondary queue
         }
         
         // Priority 3: No songs available
@@ -88,7 +91,7 @@ public Long advance(PlaybackState state, boolean forward, Long profileId) {
         return null;
     }
 
-    private Long advanceInQueue(PlaybackState state, boolean forward, boolean usePrimaryQueue, Long profileId) {
+    private Long advanceInQueue(PlaybackState state, boolean forward, boolean usePrimaryQueue, boolean skippedEarly, Long profileId) {
         List<Long> cue = usePrimaryQueue ? state.getCue() : state.getSecondaryCue();
         int cueIndex = usePrimaryQueue ? state.getCueIndex() : state.getSecondaryCueIndex();
         
@@ -111,7 +114,7 @@ public Long advance(PlaybackState state, boolean forward, Long profileId) {
         // --- FORWARD ADVANCEMENT ---
         // Smart shuffle: find a suitable next song and move it to the next position in the cue
         if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE && usePrimaryQueue) {
-            findAndPrepareNextSmartSong(state, profileId);
+            findAndPrepareNextSmartSong(state, skippedEarly, profileId);
         }
 
         if (cue == null || cue.isEmpty()) return null;
@@ -204,6 +207,19 @@ public Long advance(PlaybackState state, boolean forward, Long profileId) {
 
         List<Song> allSongs = songService.findByIds(songPoolIds);
 
+        // Get current song's BPM for sorting reference
+        int currentBpm = 0;
+        Song currentSong = null;
+        if (state.getCurrentSongId() != null) {
+            currentSong = allSongs.stream()
+                    .filter(s -> s.id.equals(state.getCurrentSongId()))
+                    .findFirst()
+                    .orElse(null);
+            if (currentSong != null && currentSong.getBpm() > 0) {
+                currentBpm = currentSong.getBpm();
+            }
+        }
+
         // 2. Group songs by genre
         java.util.Map<String, List<Song>> songsByGenre = allSongs.stream()
                 .collect(java.util.stream.Collectors.groupingBy(song ->
@@ -214,11 +230,31 @@ public Long advance(PlaybackState state, boolean forward, Long profileId) {
         List<String> genres = new ArrayList<>(songsByGenre.keySet());
         Collections.shuffle(genres);
 
-        // 4. Build the new queue
+        // 4. Build the new queue with BPM sorting within genre groups
         List<Long> newCue = new ArrayList<>();
         for (String genre : genres) {
             List<Song> songsInGenre = songsByGenre.get(genre);
-            Collections.shuffle(songsInGenre);
+            
+            // Sort by BPM similarity to current song's BPM
+            final int targetBpm = currentBpm;
+            if (targetBpm > 0) {
+                songsInGenre.sort((a, b) -> {
+                    int aBpm = a.getBpm() > 0 ? a.getBpm() : targetBpm;
+                    int bBpm = b.getBpm() > 0 ? b.getBpm() : targetBpm;
+                    int diffA = Math.abs(aBpm - targetBpm);
+                    int diffB = Math.abs(bBpm - targetBpm);
+                    
+                    // If BPM difference is equal, shuffle to add variety
+                    if (diffA == diffB) {
+                        return Math.random() > 0.5 ? 1 : -1;
+                    }
+                    return Integer.compare(diffA, diffB);
+                });
+            } else {
+                // No current BPM to reference, just shuffle
+                Collections.shuffle(songsInGenre);
+            }
+            
             for (Song song : songsInGenre) {
                 newCue.add(song.id);
             }
@@ -402,9 +438,9 @@ public void songSelected(Long songId, Long profileId) {
         state.setPlaying(true);
     }
 
-private void findAndPrepareNextSmartSong(PlaybackState state, Long profileId) {
+private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEarly, Long profileId) {
         Song currentSong = songService.find(state.getCurrentSongId());
-        if (currentSong == null || currentSong.getGenre() == null || currentSong.getGenre().isBlank()) {
+        if (currentSong == null) {
             return;
         }
 
@@ -418,7 +454,81 @@ private void findAndPrepareNextSmartSong(PlaybackState state, Long profileId) {
         List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
                 ? state.getOriginalCue() : cue;
 
-        Song nextSong = songService.findRandomSongByGenre(currentSong.getGenre(), currentSong.id, songPool);
+        // If skipped early (< 20% played), change to a different genre
+        // Otherwise, stay in the same genre with BPM matching
+        Song nextSong = null;
+        
+        if (skippedEarly && (currentSong.getGenre() != null && !currentSong.getGenre().isBlank())) {
+            // User skipped early - pick a song from a DIFFERENT genre
+            // Get all genres in the pool and pick one that's not the current genre
+            List<Song> allSongsInPool = songService.findByIds(songPool);
+            java.util.Map<String, List<Song>> songsByGenre = allSongsInPool.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(song ->
+                            song.getGenre() == null || song.getGenre().isBlank() ? "Unknown" : song.getGenre()
+                    ));
+            
+            // Remove current genre from options
+            String currentGenre = currentSong.getGenre();
+            List<String> otherGenres = songsByGenre.keySet().stream()
+                    .filter(g -> !g.equalsIgnoreCase(currentGenre))
+                    .collect(java.util.stream.Collectors.toList());
+            
+            if (!otherGenres.isEmpty()) {
+                // Pick a random different genre
+                java.util.Collections.shuffle(otherGenres);
+                String newGenre = otherGenres.get(0);
+                
+                // Get BPM tolerance for the new genre
+                int bpmTolerance = 10;
+                if (settingsController != null) {
+                    bpmTolerance = settingsController.getOrCreateSettings().getBpmToleranceForGenre(newGenre);
+                }
+                
+                // Try to find a song with similar BPM in the new genre
+                if (currentSong.getBpm() > 0) {
+                    nextSong = songService.findRandomSongByGenreAndBpm(
+                            newGenre,
+                            currentSong.getBpm(),
+                            bpmTolerance,
+                            currentSong.id,
+                            songPool
+                    );
+                }
+                
+                // Fall back to random in new genre if no BPM match
+                if (nextSong == null) {
+                    nextSong = songService.findRandomSongByGenre(newGenre, currentSong.id, songPool);
+                }
+            }
+        } else {
+            // Normal case (song ended naturally OR skipped after 20%) - stay in same genre with BPM matching
+            
+            if (currentSong.getGenre() == null || currentSong.getGenre().isBlank()) {
+                return; // No genre info, can't do smart shuffle
+            }
+            
+            // Get BPM tolerance from settings
+            int bpmTolerance = 10;
+            if (settingsController != null) {
+                bpmTolerance = settingsController.getOrCreateSettings().getBpmToleranceForGenre(currentSong.getGenre());
+            }
+
+            // Try to find a song with similar BPM in the same genre
+            if (currentSong.getBpm() > 0) {
+                nextSong = songService.findRandomSongByGenreAndBpm(
+                        currentSong.getGenre(), 
+                        currentSong.getBpm(), 
+                        bpmTolerance, 
+                        currentSong.id, 
+                        songPool
+                );
+            }
+
+            // Fall back to genre-only if no BPM match found
+            if (nextSong == null) {
+                nextSong = songService.findRandomSongByGenre(currentSong.getGenre(), currentSong.id, songPool);
+            }
+        }
 
         if (nextSong == null) {
             return; // No smart match found, let the default (shuffled) order proceed
@@ -476,6 +586,18 @@ private void findAndPrepareNextSmartSong(PlaybackState state, Long profileId) {
             state.setSecondaryOriginalCue(new ArrayList<>(state.getSecondaryCue()));
         }
 
+        // Get current song's BPM for sorting reference
+        int currentBpm = 0;
+        if (state.getCurrentSongId() != null) {
+            Song currentSong = allSongs.stream()
+                    .filter(s -> s.id.equals(state.getCurrentSongId()))
+                    .findFirst()
+                    .orElse(null);
+            if (currentSong != null && currentSong.getBpm() > 0) {
+                currentBpm = currentSong.getBpm();
+            }
+        }
+
         // 2. Group songs by genre
         java.util.Map<String, List<Song>> songsByGenre = allSongs.stream()
                 .collect(java.util.stream.Collectors.groupingBy(song ->
@@ -486,11 +608,30 @@ private void findAndPrepareNextSmartSong(PlaybackState state, Long profileId) {
         List<String> genres = new ArrayList<>(songsByGenre.keySet());
         Collections.shuffle(genres);
 
-        // 4. Build the new secondary queue
+        // 4. Build the new secondary queue with BPM sorting within genre groups
         List<Long> newSecondaryCue = new ArrayList<>();
         for (String genre : genres) {
             List<Song> songsInGenre = songsByGenre.get(genre);
-            Collections.shuffle(songsInGenre);
+            
+            // Sort by BPM similarity to current song's BPM
+            final int targetBpm = currentBpm;
+            if (targetBpm > 0) {
+                songsInGenre.sort((a, b) -> {
+                    int aBpm = a.getBpm() > 0 ? a.getBpm() : targetBpm;
+                    int bBpm = b.getBpm() > 0 ? b.getBpm() : targetBpm;
+                    int diffA = Math.abs(aBpm - targetBpm);
+                    int diffB = Math.abs(bBpm - targetBpm);
+                    
+                    // If BPM difference is equal, shuffle to add variety
+                    if (diffA == diffB) {
+                        return Math.random() > 0.5 ? 1 : -1;
+                    }
+                    return Integer.compare(diffA, diffB);
+                });
+            } else {
+                Collections.shuffle(songsInGenre);
+            }
+            
             for (Song song : songsInGenre) {
                 newSecondaryCue.add(song.id);
             }

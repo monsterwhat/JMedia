@@ -2,7 +2,7 @@
 {#if featured.size > 0}
 <div class="hero-container">
     <div class="hero is-fullheight">
-        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: 'https://picsum.photos/1920/1080?random=' + featured[0].id});"></div>
+        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: '/images/placeholders/hero.jpg'});"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
@@ -33,7 +33,7 @@
 <!-- Debug: No featured content found -->
 <div class="hero-container">
     <div class="hero is-fullheight">
-        <div class="hero-background" style="background-image: url('https://picsum.photos/1920/1080?random=1');"></div>
+        <div class="hero-background" style="background-image: url('/images/placeholders/hero.jpg');"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">No Featured Content</h1>
@@ -65,7 +65,7 @@
             {#for item in newReleases}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')"
                 <img class="card-image" 
-                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id}" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
                      alt="{item.title ?: item.seriesTitle}">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
@@ -108,7 +108,7 @@
             {#for item in continueWatching}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')"
                 <img class="card-image" 
-                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 1000}" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
                      alt="{item.title ?: item.seriesTitle}">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
@@ -154,7 +154,7 @@
             {#for item in trending}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')"
                 <img class="card-image" 
-                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 2000}" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
                      alt="{item.title ?: item.seriesTitle}">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
@@ -197,7 +197,7 @@
             {#for item in movies}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')"
                 <img class="card-image" 
-                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 3000}" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
                      alt="{item.title}">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
@@ -240,7 +240,7 @@
             {#for item in tvShows}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')"
                 <img class="card-image" 
-                     src="{item.thumbnailPath ?: 'https://picsum.photos/300/450?random=' + item.id + 4000}" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
                      alt="{item.seriesTitle}">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>

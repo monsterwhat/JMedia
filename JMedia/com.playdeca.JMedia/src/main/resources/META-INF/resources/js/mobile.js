@@ -127,6 +127,16 @@ class JMediaMobile {
         // Sort direction toggle
         this.setupSortEventListeners();
 
+        // Create playlist button - delegated event for dynamically loaded content
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('#createPlaylistBtn, #mobileCreatePlaylistBtn');
+            if (btn) {
+                if (typeof showMobileCreatePlaylistModal === 'function') {
+                    showMobileCreatePlaylistModal();
+                }
+            }
+        });
+
         // Profile switch event - handled by global musicBar.js
         document.body.addEventListener('profileSwitched', () => {
             // Profile management handled globally
@@ -202,6 +212,7 @@ class JMediaMobile {
             this.sidePanel.classList.add('active');
             this.sidePanelOverlay.classList.add('active');
             document.body.style.overflow = 'hidden';
+            this.loadMobilePlaylists();
         }
     }
 
@@ -214,8 +225,6 @@ class JMediaMobile {
     }
 
     switchMobileTab(tabName) {
-        console.log('[MOBILE] Switching to tab:', tabName);
-        
         // Update tab buttons
         this.tabButtons.forEach(tab => {
             tab.classList.remove('active');
@@ -230,21 +239,20 @@ class JMediaMobile {
             content.classList.remove('active');
         });
 
-        const targetContent = document.getElementById('mobile' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Content');
+        const targetContentId = tabName === 'playlists' 
+            ? 'mobilePlaylistContent' 
+            : 'mobile' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Content';
+        const targetContent = document.getElementById(targetContentId);
         if (targetContent) {
             targetContent.classList.add('active');
-            console.log('[MOBILE] Tab content activated:', targetContent.id);
         }
 
         // Load content using existing HTMX endpoints
         if (tabName === 'playlists') {
-            console.log('[MOBILE] Loading playlists content');
             this.loadMobilePlaylists();
         } else if (tabName === 'queue') {
-            console.log('[MOBILE] Loading queue content');
             this.loadMobileQueue();
         } else if (tabName === 'history') {
-            console.log('[MOBILE] Loading history content');
             this.loadMobileHistory();
         }
     }
@@ -252,26 +260,9 @@ class JMediaMobile {
     // Content loading methods using mobile-specific HTMX endpoints
     loadMobilePlaylists() {
         if (window.htmx) {
-            const target = document.getElementById('mobilePlaylistList');
-            console.log('[MOBILE] Loading playlists for profile:', window.globalActiveProfileId || '1');
-            console.log('[MOBILE] Target element found:', !!target);
-            
             window.htmx.ajax('GET', `/api/music/ui/mobile-playlists-fragment/${window.globalActiveProfileId || '1'}`, {
-                target: target,
+                target: document.getElementById('mobilePlaylistContent'),
                 swap: 'innerHTML'
-            }).then(() => {
-                console.log('[MOBILE] HTMX request completed');
-                setTimeout(() => {
-                    console.log('[MOBILE] Target HTML after load:', target.innerHTML.substring(0, 200));
-                    // Fallback to JSON if HTMX result is empty
-                    if (target.innerHTML.trim() === '') {
-                        console.log('[MOBILE] HTMX result empty, falling back to JSON');
-                        this.loadMobilePlaylistsJSON();
-                    }
-                }, 100);
-            }).catch(err => {
-                console.error('[MOBILE] HTMX request failed, falling back to JSON:', err);
-                this.loadMobilePlaylistsJSON();
             });
         }
     }

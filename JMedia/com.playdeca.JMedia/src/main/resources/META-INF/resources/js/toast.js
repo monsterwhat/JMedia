@@ -8,6 +8,7 @@ class ToastSystem {
         this.toasts = [];
         this.maxToasts = 5;
         this.defaultDuration = 4000;
+        this.maxLifetime = 300000;
         this.container = null;
         this.init();
     }
@@ -51,15 +52,21 @@ class ToastSystem {
         const toastId = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const toast = this.createToastElement(message, type, toastId, clickHandler, persistent);
         
-        this.toasts.push({ id: toastId, element: toast, type, timestamp: Date.now() });
+        this.toasts.push({ id: toastId, element: toast, type, timestamp: Date.now(), timeoutId: null, isRemoving: false });
         this.container.appendChild(toast);
 
         // Trigger animation
         setTimeout(() => toast.classList.add('show'), 10);
 
-        // Auto-remove if not persistent
+        // Auto-remove if not persistent, with safety net for persistent
         if (!persistent) {
-            setTimeout(() => this.hideToast(toastId), duration);
+            const timeoutId = setTimeout(() => this.hideToast(toastId), duration);
+            const toastObj = this.toasts.find(t => t.id === toastId);
+            if (toastObj) toastObj.timeoutId = timeoutId;
+        } else {
+            const safetyTimeoutId = setTimeout(() => this.hideToast(toastId), this.maxLifetime);
+            const toastObj = this.toasts.find(t => t.id === toastId);
+            if (toastObj) toastObj.timeoutId = safetyTimeoutId;
         }
 
         return toastId;
@@ -122,27 +129,40 @@ class ToastSystem {
         if (toastIndex === -1) return;
 
         const toast = this.toasts[toastIndex];
-        if (toast.element) {
-            toast.element.classList.remove('show');
-            
-            setTimeout(() => {
-                this.removeToast(toast.element);
-                this.toasts.splice(toastIndex, 1);
-            }, 300);
+        if (!toast || !toast.element || toast.isRemoving) return;
+        
+        toast.isRemoving = true;
+
+        if (toast.timeoutId) {
+            clearTimeout(toast.timeoutId);
+            toast.timeoutId = null;
         }
+
+        toast.element.classList.remove('show');
+        
+        setTimeout(() => {
+            const currentIndex = this.toasts.findIndex(t => t.id === toastId);
+            if (currentIndex !== -1) {
+                this.removeToast(this.toasts[currentIndex].element);
+                this.toasts.splice(currentIndex, 1);
+            }
+        }, 300);
     }
 
     removeToast(toastElement) {
-        if (toastElement && toastElement.parentNode) {
-            toastElement.parentNode.removeChild(toastElement);
-        }
+        if (!toastElement || !toastElement.parentNode) return;
+        toastElement.parentNode.removeChild(toastElement);
     }
 
     clearAll() {
-        this.toasts.forEach(toast => {
+        const toastsToClear = this.toasts.slice();
+        this.toasts = [];
+        toastsToClear.forEach(toast => {
+            if (toast.timeoutId) {
+                clearTimeout(toast.timeoutId);
+            }
             this.removeToast(toast.element);
         });
-        this.toasts = [];
     }
 
     // Convenience methods for different toast types

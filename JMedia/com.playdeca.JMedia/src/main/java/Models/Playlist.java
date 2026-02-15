@@ -51,4 +51,8 @@ public class Playlist extends PanacheEntity {
     public void setContainsSong(boolean containsSong) {
         this.containsSong = containsSong;
     }
+
+    public void setProfile(Profile profile) {
+        this.profile = profile;
+    }
 }

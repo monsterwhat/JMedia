@@ -8,7 +8,7 @@
         <div class="hero-slide" :class="{ 'active': currentSlide === ${forloop.index} }">
             <div class="hero-background-container">
                 <img class="hero-background" 
-                     src="{item.thumbnailPath ?: 'https://picsum.photos/1920/1080?random=' + item.id}" 
+                     src="{item.thumbnailPath ?: '/images/placeholders/hero.jpg'}" 
                      alt="{item.title ?: item.seriesTitle}"
                      loading="eager"
                      decoding="async">
@@ -81,7 +81,7 @@
     <!-- Empty State - No featured content available -->
     <div class="hero-background-container">
         <img class="hero-background" 
-             src="https://picsum.photos/1920/1080?random=empty" 
+             src="/images/placeholders/hero.jpg" 
              alt="No Content">
         <div class="hero-gradient"></div>
     </div>

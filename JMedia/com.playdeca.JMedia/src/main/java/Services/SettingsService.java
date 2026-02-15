@@ -21,6 +21,8 @@ import java.util.logging.Logger;
 public class SettingsService {
 
     private static final Logger LOGGER = Logger.getLogger(SettingsService.class.getName());
+    
+    private static final ThreadLocal<Long> CURRENT_USER_ID = new ThreadLocal<>();
 
     @PersistenceContext
     private EntityManager em;
@@ -213,8 +215,25 @@ public class SettingsService {
         return List.of();
     }
 
+    public static void setCurrentUserId(Long userId) {
+        CURRENT_USER_ID.set(userId);
+    }
+    
+    public static Long getCurrentUserId() {
+        return CURRENT_USER_ID.get();
+    }
+    
+    public static void clearCurrentUserId() {
+        CURRENT_USER_ID.remove();
+    }
+
     @Transactional
     public Profile getActiveProfile() {
+        Long userId = CURRENT_USER_ID.get();
+        if (userId != null) {
+            return getActiveProfile(userId);
+        }
+        
         Settings settings = getOrCreateSettings();
         Long activeProfileId = settings.getActiveProfileId();
         if (activeProfileId == null) {
@@ -230,10 +249,75 @@ public class SettingsService {
     }
 
     @Transactional
-    public void setActiveProfile(Profile profile) {
+    public Profile getActiveProfile(Long userId) {
+        if (userId == null) {
+            return getActiveProfile();
+        }
+        
+        Profile userMainProfile = Profile.findMainProfileByUser(userId);
+        if (userMainProfile == null) {
+            return null;
+        }
+        
+        Settings settings = getOrCreateSettings();
+        Long activeProfileId = settings.getActiveProfileId();
+        
+        if (activeProfileId == null) {
+            return userMainProfile;
+        }
+        
+        Profile activeProfile = em.find(Profile.class, activeProfileId);
+        
+        if (activeProfile != null && activeProfile.userId != null && activeProfile.userId.equals(userId)) {
+            return activeProfile;
+        }
+        
+        return userMainProfile;
+    }
+
+    @Transactional
+    public Profile getActiveProfileFromHeaders(jakarta.ws.rs.core.HttpHeaders headers) {
+        if (headers == null) {
+            return getActiveProfile();
+        }
+        
+        String sessionId = getSessionId(headers);
+        if (sessionId == null) {
+            return getActiveProfile();
+        }
+        
+        Models.Session session = Models.Session.findBySessionId(sessionId);
+        if (session == null || !session.active) {
+            return getActiveProfile();
+        }
+        
+        try {
+            Long userId = Long.parseLong(session.userId);
+            return getActiveProfile(userId);
+        } catch (NumberFormatException e) {
+            return getActiveProfile();
+        }
+    }
+
+    private String getSessionId(jakarta.ws.rs.core.HttpHeaders headers) {
+        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            return headers.getCookies().get("JMEDIA_SESSION").getValue();
+        }
+        return null;
+    }
+
+    @Transactional
+    public void setActiveProfile(Profile profile, Long userId) {
         if (profile == null) {
             throw new IllegalArgumentException("Profile cannot be null.");
         }
+        
+        if (userId != null) {
+            if (profile.userId != null && !profile.userId.equals(userId)) {
+                throw new IllegalArgumentException("Profile does not belong to user.");
+            }
+        }
+        
         Settings settings = getOrCreateSettings();
         settings.setActiveProfileId(profile.id);
         em.merge(settings);

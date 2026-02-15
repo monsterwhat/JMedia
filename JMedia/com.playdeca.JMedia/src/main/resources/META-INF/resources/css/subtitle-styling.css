@@ -1,0 +1,386 @@
+/* Advanced Subtitle Styling System */
+
+/* Custom CSS Variables for Subtitle Styling */
+:root {
+  --subtitle-font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --subtitle-font-size: 20px;
+  --subtitle-font-weight: 600;
+  --subtitle-text-color: #ffffff;
+  --subtitle-bg-color: rgba(0, 0, 0, 0.8);
+  --subtitle-bg-opacity: 0.8;
+  --subtitle-border-radius: 8px;
+  --subtitle-padding: 8px 16px;
+  --subtitle-margin: 8px;
+  --subtitle-line-height: 1.4;
+  --subtitle-letter-spacing: 0.5px;
+  --subtitle-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+  --subtitle-backdrop-filter: blur(10px);
+  --subtitle-position: bottom;
+  --subtitle-position-offset: 20px;
+  --subtitle-animation-duration: 0.3s;
+  --subtitle-animation-timing: ease-out;
+  --subtitle-max-width: 80%;
+  --subtitle-text-align: center;
+}
+
+/* Preset Styles */
+.subtitle-style-default {
+  --subtitle-font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --subtitle-font-size: 20px;
+  --subtitle-font-weight: 600;
+  --subtitle-text-color: #ffffff;
+  --subtitle-bg-color: rgba(0, 0, 0, 0.8);
+  --subtitle-border-radius: 8px;
+  --subtitle-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+.subtitle-style-modern {
+  --subtitle-font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --subtitle-font-size: 22px;
+  --subtitle-font-weight: 600;
+  --subtitle-text-color: #ffffff;
+  --subtitle-bg-color: rgba(50, 115, 220, 0.9);
+  --subtitle-border-radius: 12px;
+  --subtitle-text-shadow: 0 3px 8px rgba(0, 0, 0, 0.9);
+  --subtitle-backdrop-filter: blur(15px);
+  --subtitle-padding: 10px 20px;
+}
+
+.subtitle-style-classic {
+  --subtitle-font-family: 'Times New Roman', Georgia, serif;
+  --subtitle-font-size: 18px;
+  --subtitle-font-weight: 500;
+  --subtitle-text-color: #ffffff;
+  --subtitle-bg-color: rgba(0, 0, 0, 0.7);
+  --subtitle-border-radius: 6px;
+  --subtitle-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  --subtitle-backdrop-filter: blur(8px);
+  --subtitle-padding: 6px 12px;
+  --subtitle-letter-spacing: 0.2px;
+}
+
+.subtitle-style-minimal {
+  --subtitle-font-family: 'Arial', Helvetica, sans-serif;
+  --subtitle-font-size: 16px;
+  --subtitle-font-weight: 400;
+  --subtitle-text-color: #ffffff;
+  --subtitle-bg-color: rgba(0, 0, 0, 0.6);
+  --subtitle-border-radius: 4px;
+  --subtitle-text-shadow: none;
+  --subtitle-padding: 4px 8px;
+  --subtitle-letter-spacing: 0px;
+}
+
+.subtitle-style-high-contrast {
+  --subtitle-font-family: 'Arial Black', Arial, sans-serif;
+  --subtitle-font-size: 24px;
+  --subtitle-font-weight: 800;
+  --subtitle-text-color: #000000;
+  --subtitle-bg-color: rgba(255, 255, 255, 1);
+  --subtitle-border-radius: 0px;
+  --subtitle-text-shadow: none;
+  --subtitle-padding: 8px 16px;
+  --subtitle-border: 2px solid #000000;
+}
+
+/* Position Styles */
+.subtitle-position-top {
+  --subtitle-position: top;
+  --subtitle-position-offset: 40px;
+}
+
+.subtitle-position-middle {
+  --subtitle-position: top;
+  --subtitle-position-offset: 50%;
+  transform: translateY(-50%);
+}
+
+.subtitle-position-bottom {
+  --subtitle-position: bottom;
+  --subtitle-position-offset: 20px;
+}
+
+/* Enhanced Video.js Subtitle Styling */
+.video-js .vjs-text-track {
+  font-family: var(--subtitle-font-family);
+  font-size: var(--subtitle-font-size);
+  font-weight: var(--subtitle-font-weight);
+  color: var(--subtitle-text-color);
+  background-color: var(--subtitle-bg-color);
+  background: var(--subtitle-bg-color);
+  border-radius: var(--subtitle-border-radius);
+  padding: var(--subtitle-padding);
+  margin: var(--subtitle-margin);
+  line-height: var(--subtitle-line-height);
+  letter-spacing: var(--subtitle-letter-spacing);
+  text-align: var(--subtitle-text-align);
+  max-width: var(--subtitle-max-width);
+  text-shadow: var(--subtitle-text-shadow);
+  backdrop-filter: var(--subtitle-backdrop-filter);
+  transition: all var(--subtitle-animation-duration) var(--subtitle-animation-timing);
+}
+
+.video-js .vjs-text-track.vjs-text-track-display {
+  opacity: 1;
+  animation: subtitleFadeIn var(--subtitle-animation-duration) var(--subtitle-animation-timing);
+}
+
+.video-js .vjs-text-track.vjs-text-track-hidden {
+  opacity: 0;
+  animation: subtitleFadeOut var(--subtitle-animation-duration) var(--subtitle-animation-timing);
+}
+
+/* Positioning Container */
+.video-js .vjs-text-track-display {
+  position: absolute;
+  var(--subtitle-position): var(--subtitle-position-offset);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+
+/* Style-specific enhancements */
+.video-js .vjs-text-track.subtitle-style-default {
+  /* Clean, professional appearance */
+}
+
+.video-js .vjs-text-track.subtitle-style-modern {
+  /* Enhanced visual appeal */
+  border: 2px solid rgba(50, 115, 220, 0.3);
+}
+
+.video-js .vjs-text-track.subtitle-style-classic {
+  /* Timeless cinema appearance */
+  font-style: italic;
+}
+
+.video-js .vjs-text-track.subtitle-style-minimal {
+  /* Subtle, unobtrusive appearance */
+  padding: 4px 8px;
+  margin: 4px;
+}
+
+.video-js .vjs-text-track.subtitle-style-high-contrast {
+  /* Maximum readability */
+  border: 2px solid var(--subtitle-text-color);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  :root {
+    --subtitle-font-size: 18px;
+    --subtitle-padding: 6px 12px;
+    --subtitle-margin: 6px;
+    --subtitle-position-offset: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --subtitle-font-size: 16px;
+    --subtitle-padding: 4px 8px;
+    --subtitle-margin: 4px;
+    --subtitle-position-offset: 12px;
+  }
+}
+
+/* Animations */
+@keyframes subtitleFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes subtitleFadeOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* Animated Emojis and Special Effects */
+.video-js .vjs-text-track.vjs-text-track-display::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--subtitle-text-color), transparent);
+  border-radius: 2px;
+  opacity: 0.8;
+}
+
+/* Subtitle Effects Container */
+.subtitle-effects {
+  position: relative;
+}
+
+.subtitle-effect-glow .vjs-text-track {
+  filter: drop-shadow(0 0 8px var(--subtitle-text-color));
+}
+
+.subtitle-effect-outline .vjs-text-track {
+  text-shadow: 
+    -1px -1px 0 var(--subtitle-bg-color),
+    1px 1px 0 var(--subtitle-bg-color),
+    -1px 1px 0 var(--subtitle-bg-color),
+    1px -1px 0 var(--subtitle-bg-color);
+  color: transparent;
+  background: var(--subtitle-bg-color);
+  webkit-text-stroke: 1px var(--subtitle-bg-color);
+  webkit-text-fill-color: var(--subtitle-text-color);
+}
+
+.subtitle-effect-shadow .vjs-text-track {
+  text-shadow: 
+    0 0 10px var(--subtitle-text-color),
+    0 0 20px rgba(0, 0, 0, 0.3),
+    0 0 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Advanced Typography Options */
+.subtitle-font-serif {
+  --subtitle-font-family: 'Georgia', 'Times New Roman', serif;
+}
+
+.subtitle-font-sans-serif {
+  --subtitle-font-family: 'Arial', 'Helvetica', sans-serif;
+}
+
+.subtitle-font-mono {
+  --subtitle-font-family: 'Courier New', monospace;
+}
+
+.subtitle-font-handwritten {
+  --subtitle-font-family: 'Comic Sans MS', cursive, sans-serif;
+}
+
+/* Custom Color Themes */
+.subtitle-theme-ocean {
+  --subtitle-text-color: #e0f7fa;
+  --subtitle-bg-color: rgba(0, 50, 100, 0.8);
+  --subtitle-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+.subtitle-theme-sunset {
+  --subtitle-text-color: #fff3cd;
+  --subtitle-bg-color: rgba(255, 111, 97, 0.8);
+  --subtitle-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+.subtitle-theme-forest {
+  --subtitle-text-color: #4caf50;
+  --subtitle-bg-color: rgba(76, 175, 80, 0.8);
+  --subtitle-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+.subtitle-theme-neon {
+  --subtitle-text-color: #ff00ff;
+  --subtitle-bg-color: rgba(0, 0, 0, 0.9);
+  --subtitle-text-shadow: 0 0 10px var(--subtitle-text-color),
+                     0 0 20px var(--subtitle-text-color),
+                     0 0 30px var(--subtitle-text-color);
+  --subtitle-animation-duration: 0.5s;
+}
+
+/* Accessibility Enhancements */
+.video-js.vjs-user-active .vjs-text-track {
+  outline: 2px solid var(--subtitle-text-color);
+  outline-offset: 2px;
+  outline-style: dashed;
+}
+
+/* High DPI/Retina Support */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .video-js .vjs-text-track {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .video-js .vjs-text-track {
+    transition: none;
+    animation: none;
+  }
+  
+  .video-js .vjs-text-track.vjs-text-track-display {
+    opacity: 1;
+  }
+  
+  .video-js .vjs-text-track.vjs-text-track-hidden {
+    opacity: 0;
+  }
+}
+
+/* Dark Mode Integration */
+[data-theme="dark"] .vjs-text-track {
+  --subtitle-bg-color: rgba(0, 0, 0, 0.9);
+  --subtitle-text-color: #ffffff;
+  --subtitle-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+[data-theme="light"] .vjs-text-track {
+  --subtitle-bg-color: rgba(255, 255, 255, 0.8);
+  --subtitle-text-color: #000000;
+  --subtitle-text-shadow: 0 2px 4px rgba(255, 255, 255, 0.9);
+}
+
+/* Utility Classes for Dynamic Styling */
+.subtitle-transition-smooth {
+  --subtitle-animation-duration: 0.5s;
+  --subtitle-animation-timing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.subtitle-transition-bounce {
+  --subtitle-animation-duration: 0.6s;
+  --subtitle-animation-timing: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.subtitle-transition-snap {
+  --subtitle-animation-duration: 0.2s;
+  --subtitle-animation-timing: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Advanced Styling Controls */
+.subtitle-style-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.subtitle-style-preset {
+  padding: 8px 16px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--subtitle-text-color);
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.subtitle-style-preset:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.subtitle-style-preset.active {
+  background: var(--subtitle-text-color);
+  color: var(--subtitle-bg-color);
+  border-color: var(--subtitle-text-color);
+}

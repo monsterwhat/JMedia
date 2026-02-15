@@ -61,26 +61,6 @@
                 return;
             }
             
-            // Time update event
-            this.audio.ontimeupdate = () => {
-                if (!SynchronizationManager.getFlag('draggingSeconds') && 
-                    !SynchronizationManager.getFlag('isUpdatingAudioSource')) {
-                    
-                    // Emit time update event instead of direct state update
-                    window.dispatchEvent(new CustomEvent('audioTimeUpdate', {
-                        detail: {
-                            currentTime: this.audio.currentTime,
-                            duration: this.audio.duration
-                        }
-                    }));
-                    
-                    // Request periodic state save
-                    window.dispatchEvent(new CustomEvent('requestStateSave', {
-                        detail: { includeCurrentTime: false }
-                    }));
-                }
-            };
-            
             // Audio ended event
             this.audio.onended = () => {
                 window.Helpers.log('AudioEngine: Audio playback ended');

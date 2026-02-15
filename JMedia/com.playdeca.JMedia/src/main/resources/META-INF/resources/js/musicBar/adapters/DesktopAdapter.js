@@ -36,7 +36,9 @@
             this.setupDesktopOptimizations();
             this.setupKeyboardShortcuts();
             this.setupDesktopEventListeners();
-            window.Helpers.log('DesktopAdapter initialized');
+            if (window.Helpers) {
+                window.Helpers.log('DesktopAdapter initialized');
+            }
         },
         
         /**
@@ -54,12 +56,14 @@
             // Detect fullscreen status
             this.state.fullscreenActive = !!(document.fullscreenElement || document.webkitFullscreenElement);
             
-            window.Helpers.log('DesktopAdapter: Desktop capabilities detected', {
-                isDesktop: this.state.isDesktop,
-                mouseConnected: this.state.mouseConnected,
-                keyboardConnected: this.state.keyboardConnected,
-                fullscreenActive: this.state.fullscreenActive
-            });
+            if (window.Helpers) {
+                window.Helpers.log('DesktopAdapter: Desktop capabilities detected', {
+                    isDesktop: this.state.isDesktop,
+                    mouseConnected: this.state.mouseConnected,
+                    keyboardConnected: this.state.keyboardConnected,
+                    fullscreenActive: this.state.fullscreenActive
+                });
+            }
         },
         
         /**
@@ -168,10 +172,14 @@
          * Setup right-click context menus
          */
         setupRightClickMenus: function() {
-            document.addEventListener('contextmenu', (e) => {
+            // Remove existing listener to prevent duplicates
+            document.removeEventListener('contextmenu', this._rightClickHandler);
+            
+            this._rightClickHandler = (e) => {
                 if (!this.settings.rightClickMenu) return;
                 
                 e.preventDefault();
+                e.stopPropagation();
                 
                 const target = e.target.closest('.mobile-song-item, .mobile-playlist-item');
                 if (!target) return;
@@ -179,7 +187,16 @@
                 const id = target.dataset.songId || target.dataset.playlistId;
                 const type = target.classList.contains('mobile-song-item') ? 'song' : 'playlist';
                 
-                // Show context menu at cursor position
+                // Handle playlist right-click directly - show delete option
+                if (type === 'playlist' && id && id !== '0') {
+                    const playlistName = target.querySelector('.mobile-playlist-name')?.textContent || 'this playlist';
+                    if (confirm(`Delete playlist "${playlistName}"?`)) {
+                        deleteMobilePlaylist(id, encodeURIComponent(playlistName));
+                    }
+                    return;
+                }
+                
+                // Show context menu at cursor position for songs
                 window.dispatchEvent(new CustomEvent('requestContextMenu', {
                     detail: {
                         songId: id,
@@ -189,7 +206,9 @@
                         isDesktop: true
                     }
                 }));
-            });
+            };
+            
+            document.addEventListener('contextmenu', this._rightClickHandler);
         },
         
         /**
@@ -320,7 +339,7 @@
                     
                     const currentVolume = window.StateManager?.getProperty('volume') || 0.8;
                     const delta = e.deltaY > 0 ? -0.05 : 0.05;
-                    const newVolume = window.Helpers.clamp(currentVolume + delta, 0, 1);
+                    const newVolume = window.Helpers ? window.Helpers.clamp(currentVolume + delta, 0, 1) : Math.max(0, Math.min(1, currentVolume + delta));
                     
                     window.dispatchEvent(new CustomEvent('requestVolumeChange', {
                         detail: { volume: newVolume, source: 'desktopAdapter' }
@@ -630,6 +649,16 @@
                 // Pause desktop-specific behaviors
                 this.pauseDesktopBehaviors();
             });
+            
+            // Re-setup right-click handlers after HTMX swaps (for dynamically added content)
+            document.body.addEventListener('htmx:afterSwap', (e) => {
+                if (e.detail && e.detail.target) {
+                    const target = e.detail.target;
+                    if (target.querySelector('.mobile-playlist-item') || target.classList?.contains('mobile-playlist-item')) {
+                        this.setupRightClickMenus();
+                    }
+                }
+            });
         },
         
         /**
@@ -716,7 +745,7 @@
             const duration = window.StateManager?.getProperty('duration') || 100;
             const targetTime = (percentage / 100) * duration;
             
-            preview.textContent = window.Helpers.formatTime(targetTime);
+            preview.textContent = window.Helpers ? window.Helpers.formatTime(targetTime) : targetTime.toFixed(0);
             preview.style.left = e.clientX + 10 + 'px';
             preview.style.top = rect.top - 25 + 'px';
             
@@ -909,7 +938,7 @@
          * Adjust modal sizes for desktop
          */
         adjustModalSizes: function() {
-            const modals = document.querySelectorAll('.mobile-modal-card');
+            const modals = document.querySelectorAll('.modal-card');
             
             modals.forEach(modal => {
                 modal.style.maxWidth = '600px';

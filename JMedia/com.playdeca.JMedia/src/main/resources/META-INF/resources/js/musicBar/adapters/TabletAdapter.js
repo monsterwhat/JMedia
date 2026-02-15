@@ -578,7 +578,7 @@
          * Adjust modal sizes for tablet
          */
         adjustModalSizes: function() {
-            const modals = document.querySelectorAll('.mobile-modal-card');
+            const modals = document.querySelectorAll('.modal-card');
             
             modals.forEach(modal => {
                 if (this.state.splitViewActive) {

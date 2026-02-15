@@ -9,14 +9,10 @@
 
         <!-- Bulma CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
-      
-
-        <!-- HTMX -->
         <script src="/js/htmx.min.js"></script>
-
-        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script defer src="/lib/alpine.min.js"></script>
         <script>
             document.addEventListener('alpine:init', () => {
                 Alpine.store('profile', {
@@ -26,7 +22,7 @@
         </script>
 
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
- 
+
     </head>
     <body>
 
@@ -129,18 +125,17 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
                         <div class="navbar-end">
                             <a class="navbar-item" id="openProfileModalBtn">
                                 <span class="icon"><i class="pi pi-user"></i></span>
                                 <span id="currentProfileName">Loading...</span>
                             </a>
 
-<a class="navbar-item" href="/settings">
+                            <a class="navbar-item" href="/settings">
                                 <span class="icon"><i class="pi pi-cog"></i></span>
                                 <span>Settings</span>
                             </a>
-<a class="navbar-item" href="/import">
+                            <a class="navbar-item" href="/import">
                                 <span class="icon"><i class="pi pi-download"></i></span>
                                 <span>Import</span>
                             </a>
@@ -154,7 +149,7 @@
                 <div id="mainContent" style="width:100%; overflow-y: auto;">
                     <section class="section">
                         <h1 class="title">Settings</h1>
-                        
+
                         <!-- Tabs Navigation -->
                         <div class="tabs is-boxed is-fullwidth glass-box" id="settingsTabs">
                             <ul>
@@ -166,7 +161,7 @@
                                         </span>
                                     </a>
                                 </li>
-                                <li data-tab="import-installation">
+                                <li data-tab="import-installation" class="admin-only">
                                     <a>
                                         <span class="icon-text">
                                             <span class="icon"><i class="pi pi-download"></i></span>
@@ -174,7 +169,7 @@
                                         </span>
                                     </a>
                                 </li>
-                                <li data-tab="device-sync">
+                                <li data-tab="device-sync" class="admin-only">
                                     <a>
                                         <span class="icon-text">
                                             <span class="icon"><i class="pi pi-mobile"></i></span>
@@ -182,7 +177,7 @@
                                         </span>
                                     </a>
                                 </li>
-<li data-tab="playlist-creator">
+                                <li data-tab="playlist-creator">
                                     <a>
                                         <span class="icon-text">
                                             <span class="icon"><i class="pi pi-plus-circle"></i></span>
@@ -190,11 +185,19 @@
                                         </span>
                                     </a>
                                 </li>
-                                <li data-tab="logs">
+                                <li data-tab="logs" class="admin-only">
                                     <a>
                                         <span class="icon-text">
                                             <span class="icon"><i class="pi pi-list"></i></span>
                                             <span>Logs</span>
+                                        </span>
+                                    </a>
+                                </li>
+                                <li data-tab="user-management" class="admin-only">
+                                    <a>
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-users"></i></span>
+                                            <span>User Management</span>
                                         </span>
                                     </a>
                                 </li>
@@ -207,41 +210,101 @@
                             <div id="library-management" class="tab-pane is-active glass-box">
                                 <div class="tab-content-inner">
 
-                                        <!-- Run as Service -->
-                                        <div class="field switch-field mb-5">
+                                    <!-- Run as Service (Admin Only) -->
+                                    <div class="field switch-field mb-5 admin-only">
+                                        <label class="switch">
+                                            <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle">
+                                            <span class="check"></span>
+                                            <span class="control-label">Run as Service</span>
+                                        </label>
+                                    </div>
+
+                                    <!-- Music Library Section (Admin Only) -->
+                                    <div class="mb-5 admin-only" id="musicLibrarySection">
+                                        <h6 class="title is-6 mb-4">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-music"></i></span>
+                                                <span>Music Library</span>
+                                            </span>
+                                        </h6>
+                                        <div class="field">
+                                            <label class="label">Music Library Folder</label>
+                                            <div class="field has-addons">
+                                                <div class="control">
+                                                    <button id="browseMusicFolderBtn" class="button is-small is-warning">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-folder-open"></i></span>
+                                                            <span>Browse</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                                <div class="control is-expanded" >
+                                                    <input id="musicLibraryPathInput" style="height: 100%" name="musicLibraryPathInput" class="input" type="text" placeholder="Select music library folder" value="(not set)">
+                                                </div>
+                                                <div class="control">
+                                                    <button id="saveMusicLibraryPathBtn" class="button is-small is-success"
+                                                            hx-post="/api/settings/music-library-path"
+                                                            hx-include="#musicLibraryPathInput"
+                                                            hx-swap="none">
+                                                        <span class="icon-text">
+                                                            <span class="icon"><i class="pi pi-save"></i></span>
+                                                            <span>Save Path</span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="buttons is-flex-wrap-wrap">
+                                            <button id="scanLibrary" class="button is-primary is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                    <span>Scan Library</span>
+                                                </span>
+                                            </button>
+                                            <button id="reloadMetadata" class="button is-info is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-sync"></i></span>
+                                                    <span>Reload Metadata</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Video Library Section (Admin Only) -->
+                                    <div class="mb-5 admin-only" id="videoLibrarySection">
+                                        <div class="field">
                                             <label class="switch">
-                                                <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle">
+                                                <input id="enableVideoLibraryToggle" type="checkbox" name="enableVideoLibraryToggle">
                                                 <span class="check"></span>
-                                                <span class="control-label">Run as Service</span>
+                                                <span class="control-label">Enable Video Library (BETA)</span>
                                             </label>
                                         </div>
 
-                                        <!-- Music Library Section -->
-                                        <div class="mb-5">
-                                            <h6 class="title is-6 mb-4">
+                                        <div id="videoLibraryOptions" class="is-hidden">
+                                            <h6 class="title is-6 mb-3">
                                                 <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-music"></i></span>
-                                                    <span>Music Library</span>
+                                                    <span class="icon"><i class="pi pi-video"></i></span>
+                                                    <span>Video Library</span>
                                                 </span>
                                             </h6>
                                             <div class="field">
-                                                <label class="label">Music Library Folder</label>
+                                                <label class="label">Video Library Folder</label>
                                                 <div class="field has-addons">
                                                     <div class="control">
-                                                        <button id="browseMusicFolderBtn" class="button is-small is-warning">
+                                                        <button id="browseVideoFolderBtn" class="button is-small is-warning">
                                                             <span class="icon-text">
                                                                 <span class="icon"><i class="pi pi-folder-open"></i></span>
                                                                 <span>Browse</span>
                                                             </span>
                                                         </button>
                                                     </div>
-                                                    <div class="control is-expanded" >
-                                                        <input id="musicLibraryPathInput" style="height: 100%" name="musicLibraryPathInput" class="input" type="text" placeholder="Select music library folder" value="(not set)">
+                                                    <div class="control is-expanded">
+                                                        <input id="videoLibraryPathInput" style="height: 100%" name="videoLibraryPathInput" class="input" type="text" placeholder="Select video library folder" value="(not set)">
                                                     </div>
                                                     <div class="control">
-                                                        <button id="saveMusicLibraryPathBtn" class="button is-small is-success"
-                                                                hx-post="/api/settings/music-library-path"
-                                                                hx-include="#musicLibraryPathInput"
+                                                        <button id="saveVideoLibraryPathBtn" class="button is-small is-success"
+                                                                hx-post="/api/settings/video-library-path"
+                                                                hx-include="#videoLibraryPathInput"
                                                                 hx-swap="none">
                                                             <span class="icon-text">
                                                                 <span class="icon"><i class="pi pi-save"></i></span>
@@ -252,13 +315,19 @@
                                                 </div>
                                             </div>
                                             <div class="buttons is-flex-wrap-wrap">
-                                                <button id="scanLibrary" class="button is-primary is-small">
+                                                <button id="scanVideoLibrary" class="button is-primary is-small"
+                                                        hx-post="/api/video/scan"
+                                                        hx-trigger="click"
+                                                        hx-swap="none">
                                                     <span class="icon-text">
                                                         <span class="icon"><i class="pi pi-refresh"></i></span>
-                                                        <span>Scan Library</span>
+                                                        <span>Scan Video Library</span>
                                                     </span>
                                                 </button>
-                                                <button id="reloadMetadata" class="button is-info is-small">
+                                                <button id="reloadVideoMetadata" class="button is-info is-small"
+                                                        hx-post="/api/video/reload-metadata"
+                                                        hx-trigger="click"
+                                                        hx-swap="none">
                                                     <span class="icon-text">
                                                         <span class="icon"><i class="pi pi-sync"></i></span>
                                                         <span>Reload Metadata</span>
@@ -266,507 +335,510 @@
                                                 </button>
                                             </div>
                                         </div>
+                                    </div>
 
-                                        <!-- Video Library Section -->
-                                        <div class="mb-5">
-                                            <div class="field">
-                                                <label class="switch">
-                                                    <input id="enableVideoLibraryToggle" type="checkbox" name="enableVideoLibraryToggle">
-                                                    <span class="check"></span>
-                                                    <span class="control-label">Enable Video Library (BETA)</span>
-                                                </label>
-                                            </div>
+                                    <!-- Data Management Section -->
+                                    <div class="mb-3">
+                                        <hr>
+                                        <h6 class="title is-6 mb-3">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-database"></i></span>
+                                                <span>Data Management</span>
+                                            </span>
+                                        </h6>
 
-                                            <div id="videoLibraryOptions" class="is-hidden">
-                                                <h6 class="title is-6 mb-3">
-                                                    <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-video"></i></span>
-                                                        <span>Video Library</span>
-                                                    </span>
-                                                </h6>
-                                                <div class="field">
-                                                    <label class="label">Video Library Folder</label>
-                                                    <div class="field has-addons">
-                                                        <div class="control">
-                                                            <button id="browseVideoFolderBtn" class="button is-small is-warning">
-                                                                <span class="icon-text">
-                                                                    <span class="icon"><i class="pi pi-folder-open"></i></span>
-                                                                    <span>Browse</span>
-                                                                </span>
-                                                            </button>
-                                                        </div>
-                                                        <div class="control is-expanded">
-                                                            <input id="videoLibraryPathInput" style="height: 100%" name="videoLibraryPathInput" class="input" type="text" placeholder="Select video library folder" value="(not set)">
-                                                        </div>
-                                                        <div class="control">
-                                                            <button id="saveVideoLibraryPathBtn" class="button is-small is-success"
-                                                                    hx-post="/api/settings/video-library-path"
-                                                                    hx-include="#videoLibraryPathInput"
-                                                                    hx-swap="none">
-                                                                <span class="icon-text">
-                                                                    <span class="icon"><i class="pi pi-save"></i></span>
-                                                                    <span>Save Path</span>
-                                                                </span>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div class="buttons is-flex-wrap-wrap">
-                                                    <button id="scanVideoLibrary" class="button is-primary is-small"
-                                                            hx-post="/api/video/scan"
-                                                            hx-trigger="click"
-                                                            hx-swap="none">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-refresh"></i></span>
-                                                            <span>Scan Video Library</span>
-                                                        </span>
-                                                    </button>
-                                                    <button id="reloadVideoMetadata" class="button is-info is-small"
-                                                            hx-post="/api/video/reload-metadata"
-                                                            hx-trigger="click"
-                                                            hx-swap="none">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-sync"></i></span>
-                                                            <span>Reload Metadata</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Data Management Section -->
-                                        <div class="mb-3">
-                                            <hr>
-                                            <h6 class="title is-6 mb-3">
-                                                <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-database"></i></span>
-                                                    <span>Data Management</span>
-                                                </span>
-                                            </h6>
-                                            
-                                            <!-- Music Data Management -->
-                                            <div class="mb-4">
-                                                <p class="has-text-weight-semibold mb-2 is-size-7">Music Library</p>
-                                                <div class="buttons is-flex-wrap-wrap">
-                                                    <button id="resetLibrary" class="button is-danger is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-undo"></i></span>
-                                                            <span>Reset Music</span>
-                                                        </span>
-                                                    </button>
-                                                    <button id="deleteDuplicates" class="button is-danger is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-trash"></i></span>
-                                                            <span>Delete Duplicates</span>
-                                                        </span>
-                                                    </button>
-                                                    <button id="clearSongs" class="button is-danger is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-times-circle"></i></span>
-                                                            <span>Clear Songs DB</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- Other Data Management -->
-                                            <div class="mb-4">
-                                                <p class="has-text-weight-semibold mb-2 is-size-7">Other Data</p>
-                                                <div class="buttons is-flex-wrap-wrap">
-                                                    <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-history"></i></span>
-                                                            <span>Clear History</span>
-                                                        </span>
-                                                    </button>
-                                                    <button id="resetVideoDb" class="button is-danger is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-database"></i></span>
-                                                            <span>Reset Video DB</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Update Management Section -->
-                                        <div class="mb-3">
-                                            <hr>
-                                            <h6 class="title is-6 mb-3">
-                                                <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-download"></i></span>
-                                                    <span>Update Management</span>
-                                                </span>
-                                            </h6>
-                                            
-                                            <div class="field">
-                                                <label class="label">Current Version</label>
-                                                <div class="control">
-                                                    <input type="text" class="input" id="currentVersionInput" value="0.9.0" disabled style="cursor: not-allowed; opacity: 0.7;">
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="field">
-                                                <label class="switch">
-                                                    <input type="checkbox" id="autoUpdateToggle" checked>
-                                                    <span class="check"></span>
-                                                    <span class="control-label">Auto-check for updates</span>
-                                                </label>
-                                            </div>
-                                            
+                                        <!-- Music Data Management (Admin Only) -->
+                                        <div class="mb-4 admin-only">
+                                            <p class="has-text-weight-semibold mb-2 is-size-7">Music Library</p>
                                             <div class="buttons is-flex-wrap-wrap">
-                                                <button id="checkForUpdatesBtn" class="button is-primary is-small">
+                                                <button id="resetLibrary" class="button is-danger is-small">
                                                     <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
-                                                        <span>Check for Updates</span>
+                                                        <span class="icon"><i class="pi pi-undo"></i></span>
+                                                        <span>Reset Music</span>
                                                     </span>
                                                 </button>
-                                                <button id="viewUpdateDialogBtn" class="button is-info is-small">
+                                                <button id="deleteDuplicates" class="button is-danger is-small">
                                                     <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-external-link"></i></span>
-                                                        <span>View Update Info</span>
+                                                        <span class="icon"><i class="pi pi-trash"></i></span>
+                                                        <span>Delete Duplicates</span>
                                                     </span>
                                                 </button>
-                                            </div>
-                                            
-                                            <div id="updateStatus" class="mt-2" style="display: none;">
-                                                <!-- Update status will be shown here -->
+                                                <button id="clearSongs" class="button is-danger is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-times-circle"></i></span>
+                                                        <span>Clear Songs DB</span>
+                                                    </span>
+                                                </button>
                                             </div>
                                         </div>
+
+                                        <!-- Other Data Management -->
+                                        <div class="mb-4">
+                                            <p class="has-text-weight-semibold mb-2 is-size-7">Other Data</p>
+                                            <div class="buttons is-flex-wrap-wrap">
+                                                <button id="clearPlaybackHistory" hx-post="/api/settings/clearPlaybackHistory" class="button is-danger is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-history"></i></span>
+                                                        <span>Clear History</span>
+                                                    </span>
+                                                </button>
+                                                <button id="resetVideoDb" class="button is-danger is-small admin-only">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-database"></i></span>
+                                                        <span>Reset Video DB</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Update Management Section (Admin Only) -->
+                                    <div class="mb-3 admin-only" id="updateManagementSection">
+                                        <hr>
+                                        <h6 class="title is-6 mb-3">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-download"></i></span>
+                                                <span>Update Management</span>
+                                            </span>
+                                        </h6>
+
+                                        <div class="field">
+                                            <label class="label">Current Version</label>
+                                            <div class="control">
+                                                <input type="text" class="input" id="currentVersionInput" value="0.9.0" disabled style="cursor: not-allowed; opacity: 0.7;">
+                                            </div>
+                                        </div>
+
+                                        <div class="field">
+                                            <label class="switch">
+                                                <input type="checkbox" id="autoUpdateToggle" checked>
+                                                <span class="check"></span>
+                                                <span class="control-label">Auto-check for updates</span>
+                                            </label>
+                                        </div>
+
+                                        <div class="buttons is-flex-wrap-wrap">
+                                            <button id="checkForUpdatesBtn" class="button is-primary is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                    <span>Check for Updates</span>
+                                                </span>
+                                            </button>
+                                            <button id="viewUpdateDialogBtn" class="button is-info is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-external-link"></i></span>
+                                                    <span>View Update Info</span>
+                                                </span>
+                                            </button>
+                                        </div>
+
+                                        <div id="updateStatus" class="mt-2" style="display: none;">
+                                            <!-- Update status will be shown here -->
+                                        </div>
+                                    </div>
+
+                                    <!-- Playback Settings Section -->
+                                    <div class="mb-3">
+                                        <hr>
+                                        <h6 class="title is-6 mb-3">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-play"></i></span>
+                                                <span>Playback Settings</span>
+                                            </span>
+                                        </h6>
+
+                                        <!-- Crossfade Duration -->
+                                        <div class="field">
+                                            <label class="label">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-sync"></i></span>
+                                                    <span>Crossfade Duration</span>
+                                                </span>
+                                            </label>
+                                            <div class="control">
+                                                <div class="range-slider">
+                                                    <input type="range" id="crossfadeDuration" min="0" max="10" value="0" step="1" 
+                                                           oninput="document.getElementById('crossfadeValue').textContent = this.value">
+                                                    <span class="range-value" id="crossfadeValue">0</span>
+                                                    <span class="help">seconds (0 = off)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- BPM Tolerance -->
+                                        <div class="field">
+                                            <label class="label">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-heart"></i></span>
+                                                    <span>Default BPM Tolerance</span>
+                                                </span>
+                                            </label>
+                                            <div class="control">
+                                                <input class="input" type="number" id="bpmTolerance" value="10" min="1" max="50" style="max-width: 120px;">
+                                                <span class="help">Tolerance for smart shuffle BPM matching (±BPM)</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- BPM Tolerance Overrides -->
+                                        <div class="field">
+                                            <label class="label">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-list"></i></span>
+                                                    <span>Genre-Specific BPM Tolerance</span>
+                                                </span>
+                                            </label>
+                                            <div class="control">
+                                                <div id="bpmOverridesContainer">
+                                                    <!-- Dynamic override rows will be added here -->
+                                                </div>
+                                                <button type="button" class="button is-small is-info is-outlined mt-2" onclick="addBpmOverrideRow()">
+                                                    <span class="icon"><i class="pi pi-plus"></i></span>
+                                                    <span>Add Genre Override</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="buttons is-flex-wrap-wrap">
+                                            <button id="savePlaybackSettingsBtn" class="button is-success is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-save"></i></span>
+                                                    <span>Save Playback Settings</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- Import Installation Tab -->
                             <div id="import-installation" class="tab-pane glass-box">
                                 <div class="tab-content-inner">
-                                        <div class="notification is-warning is-light" id="installationRequiredDialog">
-                                            <div class="content">
-                                                <p class="has-text-weight-semibold">
-                                                    <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
-                                                        <span>Import features require additional installations.</span>
-                                                    </span>
-                                                </p>
-                                                <p class="mb-3">The following components need to be installed to enable music import functionality:</p>
-                                                <ul class="mb-4" id="missingComponentsList">
-                                                    <!-- Components will be dynamically added here -->
-                                                </ul>
-                                                <div class="notification is-info is-light">
-                                                    <p class="is-size-7 mb-0">
+                                    <div class="notification is-warning is-light" id="installationRequiredDialog">
+                                        <div class="content">
+                                            <p class="has-text-weight-semibold">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
+                                                    <span>Import features require additional installations.</span>
+                                                </span>
+                                            </p>
+                                            <p class="mb-3">The following components need to be installed to enable music import functionality:</p>
+                                            <ul class="mb-4" id="missingComponentsList">
+                                                <!-- Components will be dynamically added here -->
+                                            </ul>
+                                            <div class="notification is-info is-light">
+                                                <p class="is-size-7 mb-0">
                                                     <span class="icon-text">
                                                         <span class="icon"><i class="pi pi-info-circle"></i></span>
                                                         <span>Note: On Windows, Chocolatey is installed first, then Python and FFmpeg via Chocolatey, and SpotDL/Whisper via pip (Python).</span>
                                                     </span>
-                                                    </p>
-                                                </div>
+                                                </p>
                                             </div>
                                         </div>
+                                    </div>
 
-                                        <!-- Chocolatey Installation -->
-                                        <div class="field mb-3">
-                                            <div class="level is-mobile">
-                                                <div class="level-left">
-                                                    <label class="label mb-0">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-box"></i></span>
-                                                            <span>Chocolatey</span>
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                                <div class="level-right">
-                                                    <button id="installChocoBtn" class="button is-success is-rounded is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-download"></i></span>
-                                                            <span>Install Chocolatey</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
+                                    <!-- Chocolatey Installation -->
+                                    <div class="field mb-3">
+                                        <div class="level is-mobile">
+                                            <div class="level-left">
+                                                <label class="label mb-0">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-box"></i></span>
+                                                        <span>Chocolatey</span>
+                                                    </span>
+                                                </label>
                                             </div>
-                                            <div class="mt-2" id="chocoProgressContainer" style="display: none;">
-                                                <progress id="chocoInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            <div class="level-right">
+                                                <button id="installChocoBtn" class="button is-success is-rounded is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-download"></i></span>
+                                                        <span>Install Chocolatey</span>
+                                                    </span>
+                                                </button>
                                             </div>
-                                            <p id="chocoStatus" class="help is-size-7 mt-2">Not installed</p>
                                         </div>
-
-                                        <!-- Python Installation -->
-                                        <div class="field mb-3">
-                                            <div class="level is-mobile">
-                                                <div class="level-left">
-                                                    <label class="label mb-0">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-code"></i></span>
-                                                            <span>Python</span>
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                                <div class="level-right">
-                                                    <button id="installPythonBtn" class="button is-success is-rounded is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-download"></i></span>
-                                                            <span>Install Python</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="mt-2" id="pythonProgressContainer" style="display: none;">
-                                                <progress id="pythonInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
-                                            </div>
-                                            <p id="pythonStatus" class="help is-size-7 mt-2">Not installed</p>
+                                        <div class="mt-2" id="chocoProgressContainer" style="display: none;">
+                                            <progress id="chocoInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
                                         </div>
+                                        <p id="chocoStatus" class="help is-size-7 mt-2">Not installed</p>
+                                    </div>
 
-                                        <!-- FFmpeg Installation -->
-                                        <div class="field mb-3">
-                                            <div class="level is-mobile">
-                                                <div class="level-left">
-                                                    <label class="label mb-0">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-video"></i></span>
-                                                            <span>FFmpeg</span>
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                                <div class="level-right">
-                                                    <button id="installFfmpegBtn" class="button is-success is-rounded is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-download"></i></span>
-                                                            <span>Install FFmpeg</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
+                                    <!-- Python Installation -->
+                                    <div class="field mb-3">
+                                        <div class="level is-mobile">
+                                            <div class="level-left">
+                                                <label class="label mb-0">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-code"></i></span>
+                                                        <span>Python</span>
+                                                    </span>
+                                                </label>
                                             </div>
-                                            <div class="mt-2" id="ffmpegProgressContainer" style="display: none;">
-                                                <progress id="ffmpegInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            <div class="level-right">
+                                                <button id="installPythonBtn" class="button is-success is-rounded is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-download"></i></span>
+                                                        <span>Install Python</span>
+                                                    </span>
+                                                </button>
                                             </div>
-                                            <p id="ffmpegStatus" class="help is-size-7 mt-2">Not installed</p>
                                         </div>
-
-                                        <!-- SpotDL Installation -->
-                                        <div class="field mb-3">
-                                            <div class="level is-mobile">
-                                                <div class="level-left">
-                                                    <label class="label mb-0">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-music"></i></span>
-                                                            <span>SpotDL</span>
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                                <div class="level-right">
-                                                    <button id="installSpotdlBtn" class="button is-success is-rounded is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-download"></i></span>
-                                                            <span>Install SpotDL</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="mt-2" id="spotdlProgressContainer" style="display: none;">
-                                                <progress id="spotdlInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
-                                            </div>
-                                            <p id="spotdlStatus" class="help is-size-7 mt-2">Not installed</p>
+                                        <div class="mt-2" id="pythonProgressContainer" style="display: none;">
+                                            <progress id="pythonInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
                                         </div>
+                                        <p id="pythonStatus" class="help is-size-7 mt-2">Not installed</p>
+                                    </div>
 
-                                        <!-- Whisper Installation -->
-                                        <div class="field mb-3">
-                                            <div class="level is-mobile">
-                                                <div class="level-left">
-                                                    <label class="label mb-0">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-microphone"></i></span>
-                                                            <span>Whisper</span>
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                                <div class="level-right">
-                                                    <button id="installWhisperBtn" class="button is-success is-rounded is-small">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-download"></i></span>
-                                                            <span>Install Whisper</span>
-                                                        </span>
-                                                    </button>
-                                                </div>
+                                    <!-- FFmpeg Installation -->
+                                    <div class="field mb-3">
+                                        <div class="level is-mobile">
+                                            <div class="level-left">
+                                                <label class="label mb-0">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-video"></i></span>
+                                                        <span>FFmpeg</span>
+                                                    </span>
+                                                </label>
                                             </div>
-                                            <div class="mt-2" id="whisperProgressContainer" style="display: none;">
-                                                <progress id="whisperInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                            <div class="level-right">
+                                                <button id="installFfmpegBtn" class="button is-success is-rounded is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-download"></i></span>
+                                                        <span>Install FFmpeg</span>
+                                                    </span>
+                                                </button>
                                             </div>
-                                            <p id="whisperStatus" class="help is-size-7 mt-2">Not installed</p>
                                         </div>
+                                        <div class="mt-2" id="ffmpegProgressContainer" style="display: none;">
+                                            <progress id="ffmpegInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                        </div>
+                                        <p id="ffmpegStatus" class="help is-size-7 mt-2">Not installed</p>
+                                    </div>
 
-                                        <!-- Import Settings Section -->
-                                        <hr>
-                                        <h6 class="title is-6 mb-4">
+                                    <!-- SpotDL Installation -->
+                                    <div class="field mb-3">
+                                        <div class="level is-mobile">
+                                            <div class="level-left">
+                                                <label class="label mb-0">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-music"></i></span>
+                                                        <span>SpotDL</span>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <div class="level-right">
+                                                <button id="installSpotdlBtn" class="button is-success is-rounded is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-download"></i></span>
+                                                        <span>Install SpotDL</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2" id="spotdlProgressContainer" style="display: none;">
+                                            <progress id="spotdlInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                        </div>
+                                        <p id="spotdlStatus" class="help is-size-7 mt-2">Not installed</p>
+                                    </div>
+
+                                    <!-- Whisper Installation -->
+                                    <div class="field mb-3">
+                                        <div class="level is-mobile">
+                                            <div class="level-left">
+                                                <label class="label mb-0">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-microphone"></i></span>
+                                                        <span>Whisper</span>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <div class="level-right">
+                                                <button id="installWhisperBtn" class="button is-success is-rounded is-small">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-download"></i></span>
+                                                        <span>Install Whisper</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2" id="whisperProgressContainer" style="display: none;">
+                                            <progress id="whisperInstallProgress" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                        </div>
+                                        <p id="whisperStatus" class="help is-size-7 mt-2">Not installed</p>
+                                    </div>
+
+                                    <!-- Import Settings Section -->
+                                    <hr>
+                                    <div class="admin-only">
+                                    <h6 class="title is-6 mb-4">
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-cog"></i></span>
+                                            <span>Import Settings</span>
+                                        </span>
+                                    </h6>
+
+                                    <div class="field">
+                                        <label class="label" for="outputFormat">
                                             <span class="icon-text">
-                                                <span class="icon"><i class="pi pi-cog"></i></span>
-                                                <span>Import Settings</span>
+                                                <span class="icon"><i class="pi pi-file"></i></span>
+                                                <span>Output Format</span>
                                             </span>
-                                        </h6>
-
-                                        <div class="field">
-                                            <label class="label" for="outputFormat">
-                                                <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-file"></i></span>
-                                                    <span>Output Format</span>
-                                                </span>
-                                            </label>
-                                            <div class="control">
-                                                <div class="select is-fullwidth">
-                                                    <select id="outputFormat">
-                                                        <option value="mp3">MP3</option>
-                                                        <option value="flac">FLAC</option>
-                                                        <option value="ogg">OGG</option>
-                                                        <option value="opus">OPUS</option>
-                                                        <option value="m4a">M4A</option>
-                                                        <option value="wav">WAV</option>
-                                                    </select>
+                                        </label>
+                                        <div class="control">
+                                            <div class="select is-fullwidth">
+                                                <select id="outputFormat">
+                                                    <option value="mp3">MP3</option>
+                                                    <option value="flac">FLAC</option>
+                                                    <option value="ogg">OGG</option>
+                                                    <option value="opus">OPUS</option>
+                                                    <option value="m4a">M4A</option>
+                                                    <option value="wav">WAV</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="columns">
+                                        <div class="column">
+                                            <div class="field">
+                                                <label class="label" for="downloadThreads">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-download"></i></span>
+                                                        <span>Download Threads</span>
+                                                    </span>
+                                                </label>
+                                                <div class="control">
+                                                    <input class="input" type="number" id="downloadThreads" value="4" min="1">
+                                                </div>
+                                            </div> 
+                                        </div>
+                                        <div class="column">
+                                            <div class="field">
+                                                <label class="label" for="searchThreads">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-search"></i></span>
+                                                        <span>Search Threads</span>
+                                                    </span>
+                                                </label>
+                                                <div class="control">
+                                                    <input class="input" type="number" id="searchThreads" value="4" min="1">
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="columns">
-                                            <div class="column">
-                                                <div class="field">
-                                                    <label class="label" for="downloadThreads">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-download"></i></span>
-                                                            <span>Download Threads</span>
-                                                        </span>
-                                                    </label>
-                                                    <div class="control">
-                                                        <input class="input" type="number" id="downloadThreads" value="4" min="1">
-                                                    </div>
-                                                </div> 
-                                            </div>
-                                            <div class="column">
-                                                <div class="field">
-                                                    <label class="label" for="searchThreads">
-                                                        <span class="icon-text">
-                                                            <span class="icon"><i class="pi pi-search"></i></span>
-                                                            <span>Search Threads</span>
-                                                        </span>
-                                                    </label>
-                                                    <div class="control">
-                                                        <input class="input" type="number" id="searchThreads" value="4" min="1">
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
+                                    </div>
 
-                                        <div class="buttons mt-3">
-                                            <button id="saveImportSettingsBtn" class="button is-success is-fullwidth">
-                                                <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-save"></i></span>
-                                                    <span>Save Settings</span>
-                                                </span>
-                                            </button>
-                                        </div>
+                                    <div class="buttons mt-3">
+                                        <button id="saveImportSettingsBtn" class="button is-success is-fullwidth">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-save"></i></span>
+                                                <span>Save Settings</span>
+                                            </span>
+                                        </button>
+                                    </div>
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- Device Sync Tab -->
                             <div id="device-sync" class="tab-pane glass-box">
                                 <div class="tab-content-inner">
-                                        
-                                        <!-- QR Code Section -->
-                                        <div class="mb-5">
-                                            <h6 class="title is-6 mb-4">
+
+                                    <!-- QR Code Section -->
+                                    <div class="mb-5">
+                                        <h6 class="title is-6 mb-4">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-qrcode"></i></span>
+                                                <span>Connect New Device</span>
+                                            </span>
+                                        </h6>
+
+                                        <div class="has-text-centered mb-4" id="qrCodeContainer">
+                                            <div class="notification is-info is-light">
+                                                <p class="is-size-7">Click "Generate QR Code" to create a connection code for your mobile device</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="buttons is-centered">
+                                            <button id="generateQrCodeBtn" class="button is-primary is-small">
                                                 <span class="icon-text">
                                                     <span class="icon"><i class="pi pi-qrcode"></i></span>
-                                                    <span>Connect New Device</span>
+                                                    <span>Generate QR Code</span>
                                                 </span>
-                                            </h6>
-                                            
-                                            <div class="has-text-centered mb-4" id="qrCodeContainer">
-                                                <div class="notification is-info is-light">
-                                                    <p class="is-size-7">Click "Generate QR Code" to create a connection code for your mobile device</p>
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="buttons is-centered">
-                                                <button id="generateQrCodeBtn" class="button is-primary is-small">
-                                                    <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-qrcode"></i></span>
-                                                        <span>Generate QR Code</span>
-                                                    </span>
-                                                </button>
-                                                <button id="refreshQrCodeBtn" class="button is-info is-small" style="display: none;">
-                                                    <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
-                                                        <span>Refresh</span>
-                                                    </span>
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <!-- Active Sessions Section -->
-                                        <div class="mb-5">
-                                            <h6 class="title is-6 mb-4">
+                                            </button>
+                                            <button id="refreshQrCodeBtn" class="button is-info is-small" style="display: none;">
                                                 <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-users"></i></span>
-                                                    <span>Connected Devices</span>
+                                                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                    <span>Refresh</span>
                                                 </span>
-                                            </h6>
-                                            
-                                            <div id="deviceSessionsList">
-                                                <!-- Device sessions will be populated here -->
-                                                <div class="notification is-warning is-light">
-                                                    <p class="is-size-7">No devices currently connected</p>
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="buttons mt-3">
-                                                <button id="refreshSessionsBtn" class="button is-info is-small">
-                                                    <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-refresh"></i></span>
-                                                        <span>Refresh</span>
-                                                    </span>
-                                                </button>
-                                                <button id="cleanupExpiredBtn" class="button is-warning is-small">
-                                                    <span class="icon-text">
-                                                        <span class="icon"><i class="pi pi-broom"></i></span>
-                                                        <span>Cleanup Expired</span>
-                                                    </span>
-                                                </button>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!-- Active Sessions Section -->
+                                    <div class="mb-5">
+                                        <h6 class="title is-6 mb-4">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-users"></i></span>
+                                                <span>Connected Devices</span>
+                                            </span>
+                                        </h6>
+
+                                        <div id="deviceSessionsList">
+                                            <!-- Device sessions will be populated here -->
+                                            <div class="notification is-warning is-light">
+                                                <p class="is-size-7">No devices currently connected</p>
                                             </div>
                                         </div>
 
-                                        <!-- Sync Settings Section -->
-                                        <div class="mb-3">
-                                            <hr>
-                                            <h6 class="title is-6 mb-3">
+                                        <div class="buttons mt-3">
+                                            <button id="refreshSessionsBtn" class="button is-info is-small">
                                                 <span class="icon-text">
-                                                    <span class="icon"><i class="pi pi-cog"></i></span>
-                                                    <span>Sync Settings</span>
+                                                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                    <span>Refresh</span>
                                                 </span>
-                                            </h6>
-                                            
-                                            <div class="field">
-                                                <label class="switch">
-                                                    <input id="syncMusicToggle" type="checkbox" checked>
-                                                    <span class="check"></span>
-                                                    <span class="control-label">Sync Music Library</span>
-                                                </label>
-                                            </div>
-                                            
-                                            <div class="field">
-                                                <label class="switch">
-                                                    <input id="syncVideosToggle" type="checkbox">
-                                                    <span class="check"></span>
-                                                    <span class="control-label">Sync Videos/Movies</span>
-                                                </label>
-                                            </div>
-                                            
-                                            <div class="field">
-                                                <label class="switch">
-                                                    <input id="syncPlaylistsToggle" type="checkbox" checked>
-                                                    <span class="check"></span>
-                                                    <span class="control-label">Sync Playlists</span>
-                                                </label>
-                                            </div>
+                                            </button>
+                                            <button id="cleanupExpiredBtn" class="button is-warning is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-broom"></i></span>
+                                                    <span>Cleanup Expired</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!-- Sync Settings Section -->
+                                    <div class="mb-3">
+                                        <hr>
+                                        <h6 class="title is-6 mb-3">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                                <span>Sync Settings</span>
+                                            </span>
+                                        </h6>
+
+                                        <div class="field">
+                                            <label class="switch">
+                                                <input id="syncMusicToggle" type="checkbox" checked>
+                                                <span class="check"></span>
+                                                <span class="control-label">Sync Music Library</span>
+                                            </label>
                                         </div>
 
+                                        <div class="field">
+                                            <label class="switch">
+                                                <input id="syncVideosToggle" type="checkbox">
+                                                <span class="check"></span>
+                                                <span class="control-label">Sync Videos/Movies</span>
+                                            </label>
+                                        </div>
+
+                                        <div class="field">
+                                            <label class="switch">
+                                                <input id="syncPlaylistsToggle" type="checkbox" checked>
+                                                <span class="check"></span>
+                                                <span class="control-label">Sync Playlists</span>
+                                            </label>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-
-<!-- Playlist Creator Tab -->
+                            <!-- Playlist Creator Tab -->
                             <div id="playlist-creator" class="tab-pane glass-box">
                                 <div class="tab-content-inner">
                                     <h6 class="title is-6 mb-4">
@@ -775,7 +847,6 @@
                                             <span>Create Playlist from Text</span>
                                         </span>
                                     </h6>
-
                                     <!-- Playlist Information -->
                                     <div class="field">
                                         <label class="label">Playlist Name</label>
@@ -783,32 +854,27 @@
                                             <input id="playlistNameInput" class="input" type="text" placeholder="Enter playlist name...">
                                         </div>
                                     </div>
-
                                     <div class="field">
                                         <label class="label">Description (Optional)</label>
                                         <div class="control">
                                             <textarea id="playlistDescriptionInput" class="textarea" rows="2" placeholder="Enter playlist description..."></textarea>
                                         </div>
                                     </div>
-
                                     <!-- Text Input -->
                                     <div class="field">
                                         <label class="label">Song List</label>
                                         <div class="control">
                                             <textarea id="songListTextarea" class="textarea" rows="10" placeholder="Paste your song list here...
-
-Supported formats:
-• Song Name, Album, Artist
-• Song Name - Artist
-• Artist - Song Name
-
-Example:
-Bohemian Rhapsody, A Night at the Opera, Queen
-Stairway to Heaven - Led Zeppelin
-Hotel California - Eagles"></textarea>
+                                                      Supported formats:
+                                                      • Song Name, Album, Artist
+                                                      • Song Name - Artist
+                                                      • Artist - Song Name
+                                                      Example:
+                                                      Bohemian Rhapsody, A Night at the Opera, Queen
+                                                      Stairway to Heaven - Led Zeppelin
+                                                      Hotel California - Eagles"></textarea>
                                         </div>
                                     </div>
-
                                     <!-- Action Buttons -->
                                     <div class="buttons">
                                         <button id="createPlaylistBtn" class="button is-primary">
@@ -824,19 +890,17 @@ Hotel California - Eagles"></textarea>
                                             </span>
                                         </button>
                                     </div>
-
                                     <!-- Results Section -->
                                     <div id="playlistResults" class="mt-4" style="display: none;">
                                         <div class="notification">
                                             <p id="resultsMessage" class="mb-2"></p>
-                                            
+
                                             <div id="unmatchedSection" style="display: none;">
                                                 <p class="has-text-weight-semibold mb-2">Unmatched Songs:</p>
                                                 <div id="unmatchedList" class="content" style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px;">
                                                     <!-- Unmatched songs will be listed here -->
                                                 </div>
                                             </div>
-
                                             <div class="buttons mt-3">
                                                 <button id="viewPlaylistBtn" class="button is-info is-small">
                                                     <span class="icon-text">
@@ -849,7 +913,6 @@ Hotel California - Eagles"></textarea>
                                     </div>
                                 </div>
                             </div>
-
                             <!-- Logs Tab -->
                             <div id="logs" class="tab-pane glass-box">
                                 <div class="tab-content-inner">
@@ -863,6 +926,51 @@ Hotel California - Eagles"></textarea>
                                                 <span>Clear Logs</span>
                                             </span>
                                         </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- User Management Tab -->
+                            <div id="user-management" class="tab-pane glass-box">
+                                <div class="tab-content-inner">
+                                    <div class="level mb-4">
+                                        <div class="level-left">
+                                            <h6 class="title is-6">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-users"></i></span>
+                                                    <span>User Management</span>
+                                                </span>
+                                            </h6>
+                                        </div>
+                                        <div class="level-right">
+                                            <button id="createUserBtn" class="button is-success is-small">
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-plus"></i></span>
+                                                    <span>Create User</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="userManagementContent">
+                                        <div class="table-container">
+                                            <table class="table is-fullwidth is-striped">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Username</th>
+                                                        <th>Group</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="usersTableBody">
+                                                    <!-- Users will be loaded here -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div id="usersLoading" class="has-text-centered py-4">
+                                            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+                                        </div>
+                                        <div id="usersError" class="notification is-danger is-light" style="display: none;">
+                                            <!-- Error message will be shown here -->
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -928,8 +1036,8 @@ Hotel California - Eagles"></textarea>
                     <div class="level-right is-hidden-mobile">
                         <div class="level-item">
                             <div class="is-flex is-align-items-center">
-                               <i class="pi pi-volume-up mr-2"></i>
-                                 <input style="width: 80%" type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                                <i class="pi pi-volume-up mr-2"></i>
+                                <input style="width: 80%" type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
                             </div>
                         </div>
                     </div> 
@@ -949,30 +1057,31 @@ Hotel California - Eagles"></textarea>
         <script src="/js/video-settings.js"></script>
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
+        <script src="/js/users.js"></script>
 
         <!-- Tab functionality script -->
         <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                const tabButtons = document.querySelectorAll('#settingsTabs li');
-                const tabPanes = document.querySelectorAll('.tab-pane');
+                                                        document.addEventListener('DOMContentLoaded', function () {
+                                                            const tabButtons = document.querySelectorAll('#settingsTabs li');
+                                                            const tabPanes = document.querySelectorAll('.tab-pane');
 
-                tabButtons.forEach(button => {
-                    button.addEventListener('click', function() {
-                        const targetTab = this.getAttribute('data-tab');
-                        
-                        // Remove active class from all buttons and panes
-                        tabButtons.forEach(btn => btn.classList.remove('is-active'));
-                        tabPanes.forEach(pane => pane.classList.remove('is-active'));
-                        
-                        // Add active class to clicked button and corresponding pane
-                        this.classList.add('is-active');
-                        const targetPane = document.getElementById(targetTab);
-                        if (targetPane) {
-                            targetPane.classList.add('is-active');
-                        }
-                    });
-                });
-            });
+                                                            tabButtons.forEach(button => {
+                                                                button.addEventListener('click', function () {
+                                                                    const targetTab = this.getAttribute('data-tab');
+
+                                                                    // Remove active class from all buttons and panes
+                                                                    tabButtons.forEach(btn => btn.classList.remove('is-active'));
+                                                                    tabPanes.forEach(pane => pane.classList.remove('is-active'));
+
+                                                                    // Add active class to clicked button and corresponding pane
+                                                                    this.classList.add('is-active');
+                                                                    const targetPane = document.getElementById(targetTab);
+                                                                    if (targetPane) {
+                                                                        targetPane.classList.add('is-active');
+                                                                    }
+                                                                });
+                                                            });
+                                                        });
         </script>
 
         <script>
@@ -982,7 +1091,7 @@ Hotel California - Eagles"></textarea>
         <script src="/js/deviceSync.js"></script>
 
         <script>
-                                                        // Toast Notification System now handled by unified toast.js library
+            // Toast Notification System now handled by unified toast.js library
         </script>
 
         <script>
@@ -1247,7 +1356,7 @@ Hotel California - Eagles"></textarea>
                 <section class="modal-card-body">
                     <div class="content">
                         <p>Enabling "Run as Service" allows this application to act as a music server, enabling other devices on the network (or with a connection to this device) to stream music from it.</p>
-                        
+
                         <div class="notification is-info is-light">
                             <strong>Key Features:</strong>
                             <ul>
@@ -1256,7 +1365,7 @@ Hotel California - Eagles"></textarea>
                                 <li>Accessible via system tray icon</li>
                             </ul>
                         </div>
-                        
+
                         <div class="notification is-warning is-light">
                             <strong>Important Notes:</strong>
                             <ul>
@@ -1301,20 +1410,20 @@ Hotel California - Eagles"></textarea>
                                 </span>
                             </h5>
                         </div>
-                        
+
                         <h6 class="title is-6 mb-4">
                             <span class="icon-text">
                                 <span class="icon"><i class="pi pi-users"></i></span>
                                 <span>All Profiles</span>
                             </span>
                         </h6>
-                        
+
                         <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
                             <!-- Profiles will be dynamically loaded here as circular buttons -->
                         </div>
-                        
+
                         <hr>
-                        
+
                         <div class="field">
                             <label class="label">
                                 <span class="icon-text">
@@ -1336,7 +1445,7 @@ Hotel California - Eagles"></textarea>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="notification is-warning is-light">
                             <p class="has-text-weight-semibold mb-2">
                                 <span class="icon-text">
@@ -1346,13 +1455,25 @@ Hotel California - Eagles"></textarea>
                             </p>
                             <p class="is-size-7">Deleting a profile will permanently remove all associated data including playlists, playback history, and settings.</p>
                         </div>
-                        
+
                         <button class="button is-danger is-fullwidth" id="deleteCurrentProfileBtn">
                             <span class="icon-text">
                                 <span class="icon"><i class="pi pi-trash"></i></span>
                                 <span>Delete Current Profile</span>
                             </span>
                         </button>
+
+                        <hr>
+
+                        <h6 class="title is-6 mb-4">
+                            <span class="icon-text">
+                                <span class="icon"><i class="pi pi-eye-slash"></i></span>
+                                <span>Hidden Playlists</span>
+                            </span>
+                        </h6>
+                        <div id="hiddenPlaylistsContainer" style="max-height: 150px; overflow-y: auto;">
+                            <p class="has-text-centered has-text-grey">Loading...</p>
+                        </div>
                     </div>
                 </section>
                 <footer class="modal-card-foot glass-modal-footer">
@@ -1369,11 +1490,11 @@ Hotel California - Eagles"></textarea>
     </body>
 </html>
 
- <!-- Installation Progress Dialog -->
+<!-- Installation Progress Dialog -->
 <div id="installDialog" class="modal">
     <div class="modal-background"></div>
-            <div class="modal-card glass-modal">
-                <header class="modal-card-head glass-modal-header">
+    <div class="modal-card glass-modal">
+        <header class="modal-card-head glass-modal-header">
             <p class="modal-card-title">
                 <span class="icon-text">
                     <span class="icon"><i class="pi pi-download"></i></span>
@@ -1381,9 +1502,9 @@ Hotel California - Eagles"></textarea>
                 </span>
             </p>
             <button class="delete" aria-label="close" id="closeInstallDialog"></button>
-                </header>
-                <section class="modal-card-body glass-modal-body">
-                    <div class="content">
+        </header>
+        <section class="modal-card-body glass-modal-body">
+            <div class="content">
                 <div class="notification is-info is-light mb-4">
                     <p class="has-text-weight-semibold">
                         <span class="icon-text">
@@ -1429,6 +1550,55 @@ Hotel California - Eagles"></textarea>
                     <span>Cancel Installation</span>
                 </span>
             </button>
+        </footer>
+    </div>
+</div>
+
+<!-- User Management Modal -->
+<div id="userModal" class="modal">
+    <div class="modal-background" onclick="closeUserModal()"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title" id="userModalTitle">Create User</p>
+            <button class="delete" aria-label="close" onclick="closeUserModal()"></button>
+        </header>
+        <section class="modal-card-body">
+            <input type="hidden" id="editUserId">
+            <div class="field">
+                <label class="label">Username</label>
+                <div class="control">
+                    <input id="userUsername" class="input" type="text" placeholder="Enter username">
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Password <span id="passwordHint" class="has-text-grey is-size-7">(required)</span></label>
+                <div class="control">
+                    <input id="userPassword" class="input" type="password" placeholder="Enter password">
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Group</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="userGroup">
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div id="userModalError" class="notification is-danger is-light" style="display: none;">
+                <!-- Error message will be shown here -->
+            </div>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-success" id="saveUserBtn">
+                <span class="icon-text">
+                    <span class="icon"><i class="pi pi-save"></i></span>
+                    <span>Save</span>
+                </span>
+            </button>
+            <button class="button" onclick="closeUserModal()">Cancel</button>
         </footer>
     </div>
 </div>

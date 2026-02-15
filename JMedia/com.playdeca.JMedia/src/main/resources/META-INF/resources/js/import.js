@@ -1,7 +1,22 @@
+console.log('[Import] Script loading');
 let importWebSocket;
 let importSettings = {};
+let advancedConfig = {
+    primarySource: 'YOUTUBE',
+    secondarySource: 'SPOTDL',
+    youtubeEnabled: true,
+    spotdlEnabled: true,
+    maxRetryAttempts: 3,
+    retryWaitTime: 90,
+    switchStrategy: 'AFTER_FAILURES',
+    switchThreshold: 3,
+    enableSmartRateLimitHandling: true,
+    fallbackOnLongWait: true,
+    maxAcceptableWaitTime: 60
+};
 
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[Import] DOMContentLoaded fired');
     const spotdlUrlInput = document.getElementById('spotdlUrl');
     const spotdlOutputTextarea = document.getElementById('spotdlOutput');
     const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
@@ -148,6 +163,218 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Load advanced configuration
+    const loadAdvancedConfiguration = async () => {
+        try {
+            const response = await fetch(`/api/settings/${globalActiveProfileId}`);
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data) {
+                    // Update advanced config with settings
+                    Object.assign(advancedConfig, {
+                        primarySource: apiResponse.data.primarySource || 'YOUTUBE',
+                        secondarySource: apiResponse.data.secondarySource || 'SPOTDL',
+                        youtubeEnabled: apiResponse.data.youtubeEnabled !== false,
+                        spotdlEnabled: apiResponse.data.spotdlEnabled !== false,
+                        maxRetryAttempts: apiResponse.data.maxRetryAttempts || 3,
+                        retryWaitTime: (apiResponse.data.retryWaitTimeMs || 90000) / 1000,
+                        switchStrategy: apiResponse.data.switchStrategy || 'AFTER_FAILURES',
+                        switchThreshold: apiResponse.data.switchThreshold || 3,
+                        enableSmartRateLimitHandling: apiResponse.data.enableSmartRateLimitHandling !== false,
+                        fallbackOnLongWait: apiResponse.data.fallbackOnLongWait !== false,
+                        maxAcceptableWaitTime: (apiResponse.data.maxAcceptableWaitTimeMs || 3600000) / 60000
+                    });
+                    
+                    // Update UI elements
+                    updateAdvancedConfigUI();
+                }
+            }
+        } catch (error) {
+            console.error('Error loading advanced configuration:', error);
+            displayWarning('Failed to load advanced configuration.');
+        }
+    };
+
+    // Update UI with loaded configuration
+    const updateAdvancedConfigUI = () => {
+        document.getElementById('youtubeEnabled').checked = advancedConfig.youtubeEnabled;
+        document.getElementById('spotdlEnabled').checked = advancedConfig.spotdlEnabled;
+        document.getElementById('enableSmartRateLimitHandling').checked = advancedConfig.enableSmartRateLimitHandling;
+        document.getElementById('fallbackOnLongWait').checked = advancedConfig.fallbackOnLongWait;
+        
+        document.getElementById('primarySource').value = advancedConfig.primarySource;
+        document.getElementById('secondarySource').value = advancedConfig.secondarySource;
+        document.getElementById('switchStrategy').value = advancedConfig.switchStrategy;
+        
+        document.getElementById('maxRetryAttempts').value = advancedConfig.maxRetryAttempts;
+        document.getElementById('retryWaitTime').value = advancedConfig.retryWaitTime;
+        document.getElementById('switchThreshold').value = advancedConfig.switchThreshold;
+        document.getElementById('maxAcceptableWaitTime').value = advancedConfig.maxAcceptableWaitTime;
+        
+        updateSecondarySourceOptions();
+    };
+
+    // Update secondary source based on primary selection
+    const updateSecondarySourceOptions = () => {
+        const primarySource = document.getElementById('primarySource').value;
+        const secondarySelect = document.getElementById('secondarySource');
+        
+        secondarySelect.innerHTML = '<option value="NONE">None</option>';
+        
+        if (primarySource === 'YOUTUBE') {
+            secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
+        } else if (primarySource === 'SPOTDL') {
+            secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
+        } else {
+            // Primary is NONE - show both options
+            secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
+            secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
+        }
+    };
+
+    // Save advanced configuration
+    window.saveAdvancedConfiguration = async () => {
+        console.log('[Import] saveAdvancedConfiguration called');
+        console.log('[Import] globalActiveProfileId:', globalActiveProfileId);
+        
+        try {
+            // Validate configuration
+            if (!validateAdvancedConfig()) {
+                console.log('[Import] Validation failed');
+                return;
+            }
+            
+            // Prepare data for API
+            const configData = {
+                primarySource: document.getElementById('primarySource').value,
+                secondarySource: document.getElementById('secondarySource').value,
+                youtubeEnabled: document.getElementById('youtubeEnabled').checked,
+                spotdlEnabled: document.getElementById('spotdlEnabled').checked,
+                enableSmartRateLimitHandling: document.getElementById('enableSmartRateLimitHandling').checked,
+                maxRetryAttempts: parseInt(document.getElementById('maxRetryAttempts').value),
+                retryWaitTimeMs: parseInt(document.getElementById('retryWaitTime').value) * 1000,
+                switchStrategy: document.getElementById('switchStrategy').value,
+                switchThreshold: parseInt(document.getElementById('switchThreshold').value),
+                fallbackOnLongWait: document.getElementById('fallbackOnLongWait').checked,
+                maxAcceptableWaitTimeMs: parseInt(document.getElementById('maxAcceptableWaitTime').value) * 60000
+            };
+            
+            console.log('[Import] Sending config:', configData);
+            
+            const response = await fetch(`/api/settings/${globalActiveProfileId}/import-sources`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(configData)
+            });
+            
+            console.log('[Import] Response status:', response.status);
+            
+            if (response.ok) {
+                showToast('Advanced configuration saved successfully!', 'success');
+                // Update local config
+                Object.assign(advancedConfig, configData);
+            } else {
+                const errorResponse = await response.json();
+                console.error('[Import] Save failed:', errorResponse);
+                showToast('Failed to save configuration: ' + (errorResponse.error || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            console.error('Error saving advanced configuration:', error);
+            showToast('Error saving advanced configuration', 'error');
+        }
+    };
+
+    // Validate advanced configuration
+    const validateAdvancedConfig = () => {
+        const youtubeEnabled = document.getElementById('youtubeEnabled').checked;
+        const spotdlEnabled = document.getElementById('spotdlEnabled').checked;
+        const primarySource = document.getElementById('primarySource').value;
+        const secondarySource = document.getElementById('secondarySource').value;
+        const maxRetryAttempts = parseInt(document.getElementById('maxRetryAttempts').value);
+        const switchThreshold = parseInt(document.getElementById('switchThreshold').value);
+        
+        console.log('[Import] Validating - youtubeEnabled:', youtubeEnabled, 'spotdlEnabled:', spotdlEnabled);
+        console.log('[Import] Validating - primarySource:', primarySource, 'secondarySource:', secondarySource);
+        
+        if (!youtubeEnabled && !spotdlEnabled) {
+            displayError('At least one download source must be enabled');
+            return false;
+        }
+        
+        if (primarySource === secondarySource) {
+            displayError('Primary and secondary sources must be different');
+            return false;
+        }
+        
+        if (!youtubeEnabled && primarySource === 'YOUTUBE') {
+            displayError('YouTube selected as primary but not enabled');
+            return false;
+        }
+        
+        if (!spotdlEnabled && secondarySource === 'SPOTDL') {
+            displayError('SpotDL selected as secondary but not enabled');
+            return false;
+        }
+        
+        if (switchThreshold > maxRetryAttempts) {
+            displayError('Failure threshold cannot be greater than max retry attempts');
+            return false;
+        }
+        
+        console.log('[Import] Validation passed');
+        return true;
+    };
+
+    // Test configuration with a sample download
+    const testConfiguration = async () => {
+        if (!validateAdvancedConfig()) {
+            return;
+        }
+        
+        showToast('Testing configuration with sample search...', 'info');
+        
+        try {
+            // Use a simple search query for testing
+            const testQuery = 'test song';
+            
+            if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'start-import',
+                    urls: [testQuery],
+                    format: importSettings.outputFormat || 'mp3',
+                    downloadThreads: 1, // Use minimal threads for testing
+                    searchThreads: 1,
+                    downloadPath: downloadFolderInput.value,
+                    playlistName: null,
+                    testMode: true // Flag this as a test
+                };
+                importWebSocket.send(JSON.stringify(message));
+            } else {
+                displayError('WebSocket not connected for testing');
+            }
+        } catch (error) {
+            console.error('Error testing configuration:', error);
+            displayError('Failed to test configuration');
+        }
+    };
+
+    // Error display functions
+    const displayError = (message) => {
+        const statusDiv = document.getElementById('configStatus');
+        statusDiv.className = 'notification is-danger';
+        statusDiv.textContent = message;
+        statusDiv.classList.remove('is-hidden');
+    };
+
+    const showConfigSuccess = (message) => {
+        const statusDiv = document.getElementById('configStatus');
+        statusDiv.className = 'notification is-success';
+        statusDiv.textContent = message;
+        statusDiv.classList.remove('is-hidden');
+    };
+
     // Only run import.html specific logic if a key element is present
     if (spotdlUrlInput && downloadFolderInput && playlistSelect && newPlaylistNameInput && downloadBtn && spotdlOutputTextarea && spotdlWarningMessage) {
         const fetchImportSettings = async () => {
@@ -197,6 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Fetch playlists on page load
         fetchAndPopulatePlaylists();
         fetchImportSettings();
+        loadAdvancedConfiguration();
 
         // Fetch default music library path and set default download folder
         const setDefaultDownloadFolder = async () => {
@@ -306,6 +534,52 @@ document.addEventListener('DOMContentLoaded', () => {
             // For now, treat any multi-line input as a song list
             // In the future, we could detect playlist formats
             return lines;
+        }
+
+        // Event listeners for advanced configuration
+        // Primary source change handler
+        const primarySourceSelect = document.getElementById('primarySource');
+        if (primarySourceSelect) {
+            primarySourceSelect.addEventListener('change', updateSecondarySourceOptions);
+        }
+        
+        // Save configuration handler
+        const saveBtn = document.getElementById('saveAdvancedConfigBtn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', saveAdvancedConfiguration);
+        }
+        
+        // Reset configuration handler
+        const resetBtn = document.getElementById('resetAdvancedConfigBtn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                if (confirm('Reset all advanced settings to defaults?')) {
+                    // Reset to defaults and save
+                    const defaults = {
+                        primarySource: 'YOUTUBE',
+                        secondarySource: 'SPOTDL',
+                        youtubeEnabled: true,
+                        spotdlEnabled: true,
+                        maxRetryAttempts: 3,
+                        retryWaitTime: 90,
+                        switchStrategy: 'AFTER_FAILURES',
+                        switchThreshold: 3,
+                        enableSmartRateLimitHandling: true,
+                        fallbackOnLongWait: true,
+                        maxAcceptableWaitTime: 60
+                    };
+                    
+                    Object.assign(advancedConfig, defaults);
+                    updateAdvancedConfigUI();
+                    saveAdvancedConfiguration();
+                }
+            });
+        }
+            
+        // Test configuration handler
+        const testBtn = document.getElementById('testConfigurationBtn');
+        if (testBtn) {
+            testBtn.addEventListener('click', testConfiguration);
         }
 
         // External App Warning Logic

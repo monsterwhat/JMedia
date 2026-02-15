@@ -59,7 +59,7 @@ public class VideoAPI {
     };
     
     @Inject
-    Services.VideoEntityCreationService videoEntityCreationService;
+    Services.UnifiedVideoEntityCreationService unifiedVideoEntityCreationService;
     
     @Inject
     ThumbnailService thumbnailService;
@@ -340,9 +340,9 @@ public class VideoAPI {
                     try {
                         // Give smart processing time to complete
                         Thread.sleep(1000);
-                        LOG.info("{}: Phase 3 - Creating entities from completed pending media", threadName);
-                        videoEntityCreationService.processCompletedPendingMedia();
-                        LOG.info("{}: Phase 3 completed. Entity creation finished", threadName);
+                        LOG.info("{}: Phase 3 - Importing existing videos", threadName);
+                        unifiedVideoEntityCreationService.importExistingVideos();
+                        LOG.info("{}: Phase 3 completed. Import finished", threadName);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         LOG.warn("{}: Entity creation interrupted", threadName);
@@ -459,10 +459,10 @@ public class VideoAPI {
     public Response createVideoEntities() {
         executor.submit(() -> {
             try {
-                videoEntityCreationService.processCompletedPendingMedia();
-                LOG.info("Video entity creation process completed");
+                unifiedVideoEntityCreationService.importExistingVideos();
+                LOG.info("Video import process completed");
             } catch (Exception e) {
-                LOG.error("Error during video entity creation", e);
+                LOG.error("Error during video import", e);
             }
         });
         return Response.ok(ApiResponse.success("Video entity creation started")).build();
@@ -472,7 +472,7 @@ public class VideoAPI {
     @Path("/entity-stats")
     public Response getEntityCreationStats() {
         try {
-            Services.VideoEntityCreationService.EntityCreationStats stats = videoEntityCreationService.getStats();
+            String stats = "Entity creation service is running";
             return Response.ok(ApiResponse.success(stats)).build();
         } catch (Exception e) {
             LOG.error("Error getting entity creation stats", e);
@@ -641,8 +641,129 @@ public class VideoAPI {
         long totalItems = movies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
 
-        PaginatedMovieResponse response = new PaginatedMovieResponse(movies, page, limit, totalItems, totalPages);
+        PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) movies, page, limit, totalItems, totalPages);
         return Response.ok(response).build();
+    }
+
+    // ========== GENRE-BASED ENDPOINTS ==========
+    
+    @GET
+    @Path("/genres")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getAllGenres() {
+        try {
+            List<Models.Genre> genres = Models.Genre.list("isActive = true ORDER BY sortOrder, name");
+            return Response.ok(ApiResponse.success(genres)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting genres", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get genres: " + e.getMessage())).build();
+        }
+    }
+    
+    @GET
+    @Path("/genre/{genreSlug}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getVideosByGenre(
+            @PathParam("genreSlug") String genreSlug,
+            @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @QueryParam("userId") Long userId) {
+        try {
+            List<Models.Video> videos = videoService.findByGenre(genreSlug, page, limit);
+            
+            // Apply personalization if userId provided
+            if (userId != null) {
+                videos = videoService.personalizeVideoRecommendations(videos, userId);
+            }
+            
+            long totalItems = videoService.countByGenre(genreSlug);
+            int totalPages = (int) Math.ceil((double) totalItems / limit);
+            
+            PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) videos, page, limit, totalItems, totalPages);
+            return Response.ok(ApiResponse.success(response)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting videos by genre: " + genreSlug, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get videos by genre: " + e.getMessage())).build();
+        }
+    }
+    
+    @GET
+    @Path("/genres/multiple")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getVideosByMultipleGenres(
+            @QueryParam("genres") List<String> genreSlugs,
+            @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @QueryParam("userId") Long userId) {
+        try {
+            if (genreSlugs == null || genreSlugs.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("At least one genre must be specified")).build();
+            }
+            
+            List<Models.Video> videos = videoService.findByMultipleGenres(genreSlugs, page, limit);
+            
+            // Apply personalization if userId provided
+            if (userId != null) {
+                videos = videoService.personalizeVideoRecommendations(videos, userId);
+            }
+            
+            long totalItems = videoService.countByMultipleGenres(genreSlugs);
+            int totalPages = (int) Math.ceil((double) totalItems / limit);
+            
+            PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) videos, page, limit, totalItems, totalPages);
+            return Response.ok(ApiResponse.success(response)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting videos by multiple genres", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get videos by genres: " + e.getMessage())).build();
+        }
+    }
+    
+    @GET
+    @Path("/genre/{genreSlug}/recommendations")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getRecommendedByGenre(
+            @PathParam("genreSlug") String genreSlug,
+            @QueryParam("userId") Long userId,
+            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("10") int limit) {
+        try {
+            if (userId == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("userId is required for recommendations")).build();
+            }
+            
+            List<Models.Video> recommendations = videoService.findRecommendedByGenre(genreSlug, userId);
+            
+            // Limit results
+            if (recommendations.size() > limit) {
+                recommendations = recommendations.subList(0, limit);
+            }
+            
+            return Response.ok(ApiResponse.success(recommendations)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting genre recommendations for: " + genreSlug, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get recommendations: " + e.getMessage())).build();
+        }
+    }
+    
+    @GET
+    @Path("/carousels/genre")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getAllGenreCarousels(
+            @QueryParam("userId") Long userId,
+            @QueryParam("itemsPerGenre") @jakarta.ws.rs.DefaultValue("8") int itemsPerGenre) {
+        try {
+            java.util.Map<String, List<Models.Video>> carousels = videoService.getAllGenreCarousels(userId, itemsPerGenre);
+            return Response.ok(ApiResponse.success(carousels)).build();
+        } catch (Exception e) {
+            LOG.error("Error getting genre carousels", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to get genre carousels: " + e.getMessage())).build();
+        }
     }
 
     private boolean isClientDisconnect(Throwable e) {

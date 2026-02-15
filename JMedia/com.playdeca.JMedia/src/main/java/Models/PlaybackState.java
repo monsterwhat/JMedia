@@ -62,6 +62,8 @@ public class PlaybackState extends PanacheEntity {
 
     private boolean usingSecondaryQueue = false;
 
+    private Integer crossfadeDuration = 0;
+
     public enum ShuffleMode {
         OFF,
         SHUFFLE,

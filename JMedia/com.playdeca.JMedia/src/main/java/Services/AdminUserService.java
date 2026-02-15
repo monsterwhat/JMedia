@@ -1,5 +1,6 @@
 package Services;
 
+import Models.Profile;
 import Models.User;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -31,6 +32,12 @@ public class AdminUserService {
             adminUser.setGroupName("admin");
             
             adminUser.persist();
+            
+            Profile mainProfile = new Profile();
+            mainProfile.name = DEFAULT_ADMIN_USERNAME;
+            mainProfile.isMainProfile = true;
+            mainProfile.userId = adminUser.id;
+            mainProfile.persist();
             
             LOG.info("Default admin user created successfully.");
             LOG.warn("Please change the default password after first login!");

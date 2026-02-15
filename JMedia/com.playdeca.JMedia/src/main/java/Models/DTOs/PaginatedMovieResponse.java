@@ -1,19 +1,22 @@
 package Models.DTOs;
 
-import Models.Video;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.util.List;
 
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
+/**
+ * Paginated response for movie listings
+ */
 public class PaginatedMovieResponse {
-    private List<Video> videos;
-    private int currentPage;
-    private int limit;
-    private long totalItems;
-    private int totalPages;
+    public List<Object> videos;
+    public int page;
+    public int limit;
+    public long totalItems;
+    public int totalPages;
+    
+    public PaginatedMovieResponse(List<Object> videos, int page, int limit, long totalItems, int totalPages) {
+        this.videos = videos;
+        this.page = page;
+        this.limit = limit;
+        this.totalItems = totalItems;
+        this.totalPages = totalPages;
+    }
 }

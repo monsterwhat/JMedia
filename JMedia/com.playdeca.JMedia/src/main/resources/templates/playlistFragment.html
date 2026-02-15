@@ -39,6 +39,11 @@
                                       <i class="pi pi-{p.isGlobal ? 'lock' : 'unlock'}"></i> {p.isGlobal ? 'Make Private' : 'Make Public'}
                                   </a>
                               </li>
+                              <li>
+                                  <a class="dropdown-item" href="#" onclick="hidePlaylist({p.id}, '{p.name ?: 'Unnamed Playlist'}')">
+                                      <i class="pi pi-eye-slash"></i> Hide
+                                  </a>
+                              </li>
                               {#if !p.isGlobal}
                               <li>
                                   <a class="dropdown-item has-text-danger" href="#" onclick="deletePlaylist({p.id}, '{p.name ?: 'Unnamed Playlist'}')">

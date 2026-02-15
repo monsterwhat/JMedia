@@ -1,6 +1,6 @@
 <div class="video-entry video-card" data-video-id="{video.id}" onclick="playVideo(this, {'id': '{video.id}', 'title': '{video.title}', 'releaseYear': '{video.releaseYear}', 'durationSeconds': '{video.durationSeconds}', 'episodeNumber': '{video.episodeNumber}', 'episodeTitle': '{video.episodeTitle}'})"
     <div class="video-thumbnail">
-        <img src="https://picsum.photos/320/180" alt="Placeholder image" />
+        <img src="/images/placeholders/video-small.jpg" alt="Placeholder image" />
     </div>
     <div class="video-title">
         {#if video.episodeNumber}E{video.episodeNumber} - {video.episodeTitle or video.title or video.path.segments.last}{else}{video.title or video.path.segments.last} {#if video.releaseYear} ({video.releaseYear}) {/if}{/if}

@@ -1,18 +1,15 @@
 package Services;
 
-import Models.Show;
-import Models.Season;
-import Models.Episode;
+import Models.Video;
 import Models.MediaFile;
-import Models.Movie;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,53 +24,66 @@ public class MetadataOrganizerService {
     public record OrganizedPath(String virtualPath, String displayName) {}
     
     /**
-     * Creates a virtual organization structure based on metadata, not physical folders
+     * Creates a virtual organization structure based on Video entities, not physical folders
      */
     @Transactional
     public void organizeVirtualStructure() {
-        LOGGER.info("Starting virtual organization based on metadata...");
+        LOGGER.info("Starting virtual organization based on Video entities...");
         
-        // Get all shows from database
-        List<Show> shows = Show.listAll();
+        // Get all unique show names from episodes
+        List<String> showNames = Video.<Video>list("type", "episode")
+                .stream()
+                .map(v -> v.seriesTitle)
+                .filter(title -> title != null && !title.trim().isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
         
-        for (Show show : shows) {
-            organizeShow(show);
+        for (String showName : showNames) {
+            organizeShow(showName);
         }
         
-        LOGGER.info("Virtual organization completed for {} shows", shows.size());
+        LOGGER.info("Virtual organization completed for {} shows", showNames.size());
     }
     
-    private void organizeShow(Show show) {
-        LOGGER.info("Organizing show: {}", show.name);
+    private void organizeShow(String showName) {
+        LOGGER.info("Organizing show: {}", showName);
         
-        // Get all seasons for this show
-        List<Season> seasons = Season.list("show", show);
+        // Get all unique seasons for this show
+        List<Integer> seasons = Video.<Video>list("type = ?1 and seriesTitle = ?2", "episode", showName)
+                .stream()
+                .map(v -> v.seasonNumber)
+                .filter(season -> season != null)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
         
-        for (Season season : seasons) {
-            organizeSeason(show, season);
+        for (Integer seasonNumber : seasons) {
+            organizeSeason(showName, seasonNumber);
         }
     }
     
-    private void organizeSeason(Show show, Season season) {
-        LOGGER.info("Organizing season {} for show {}", season.seasonNumber, show.name);
+    private void organizeSeason(String showName, Integer seasonNumber) {
+        LOGGER.info("Organizing season {} for show {}", seasonNumber, showName);
         
         // Get all episodes for this season
-        List<Episode> episodes = Episode.list("season", season);
+        List<Video> episodes = Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", 
+                "episode", showName, seasonNumber);
         
-        for (Episode episode : episodes) {
-            organizeEpisode(show, season, episode);
+        for (Video episode : episodes) {
+            organizeEpisode(showName, seasonNumber, episode);
         }
     }
     
-    private void organizeEpisode(Show show, Season season, Episode episode) {
+    private void organizeEpisode(String showName, Integer seasonNumber, Video episode) {
         // Create virtual path structure
         String virtualPath = String.format("/shows/%s/season/%d/episode/%d", 
-            normalizeShowName(show.name), 
-            season.seasonNumber, 
+            normalizeShowName(showName), 
+            seasonNumber, 
             episode.episodeNumber);
         
         String displayName = String.format("S%02dE%02d - %s", 
-            season.seasonNumber, 
+            seasonNumber, 
             episode.episodeNumber, 
             episode.title != null ? episode.title : "Episode " + episode.episodeNumber);
         
@@ -88,15 +98,14 @@ public class MetadataOrganizerService {
             return "Unknown Show";
         }
         
-        // Use smart detection to clean the name
-        Optional<String> detected = SmartShowNameDetector.detectFromFolder(originalName);
+        // Simple cleaning of show name
+        String cleaned = originalName.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv)\\b", "");
+        cleaned = cleaned.replaceAll("(?i)\\b(season|s|episode|e|part)\\s*[\\d\\-]+", "");
+        cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
+        cleaned = cleaned.replaceAll("\\s+", " ");
         
-        if (detected.isPresent()) {
-            return detected.get();
-        }
-        
-        // Fallback to basic cleaning
-        return SmartShowNameDetector.cleanShowNameStatic(originalName);
+        return toTitleCase(cleaned.trim());
     }
     
     /**
@@ -117,18 +126,18 @@ public class MetadataOrganizerService {
         
         // Debug: Check database connection and basic query
         try {
-            long showCount = Show.count();
-            LOGGER.info("DEBUG: Total show count in database: {}", showCount);
+            long episodeCount = Video.count("type", "episode");
+            LOGGER.info("DEBUG: Total episode count in database: {}", episodeCount);
             
-            if (showCount == 0) {
-                LOGGER.warn("DEBUG: No shows found in database! Check if video import has been run.");
+            if (episodeCount == 0) {
+                LOGGER.warn("DEBUG: No episodes found in database! Check if video import has been run.");
                 // Let's also check if there are any video files at all
                 LOGGER.info("DEBUG: Checking if there are any MediaFile records...");
                 long mediaFileCount = MediaFile.count();
                 LOGGER.info("DEBUG: Total MediaFile count: {}", mediaFileCount);
                 
                 if (mediaFileCount > 0) {
-                    LOGGER.info("DEBUG: MediaFiles exist but no Shows - this suggests import may not have created show metadata properly");
+                    LOGGER.info("DEBUG: MediaFiles exist but no episodes - this suggests import may not have created video metadata properly");
                 }
             }
         } catch (Exception e) {
@@ -137,13 +146,21 @@ public class MetadataOrganizerService {
         
         List<OrganizedPath> structure = new ArrayList<>();
         
-        List<Show> shows = Show.listAll();
-        LOGGER.info("DEBUG: Found {} shows in database", shows.size());
+        // Get unique show names from episodes
+        List<String> showNames = Video.<Video>list("type", "episode")
+                .stream()
+                .map(v -> v.seriesTitle)
+                .filter(title -> title != null && !title.trim().isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
         
-        for (Show show : shows) {
-            LOGGER.info("DEBUG: Processing show - ID: {}, Name: '{}'", show.id, show.name);
-            String displayName = getDisplayName(show.name);
-            String virtualPath = "/shows/" + normalizeShowName(show.name);
+        LOGGER.info("DEBUG: Found {} unique show names in database", showNames.size());
+        
+        for (String showName : showNames) {
+            LOGGER.info("DEBUG: Processing show - Name: '{}'", showName);
+            String displayName = getDisplayName(showName);
+            String virtualPath = "/shows/" + normalizeShowName(showName);
             OrganizedPath organizedPath = new OrganizedPath(virtualPath, displayName);
             structure.add(organizedPath);
             LOGGER.info("DEBUG: Added organized path - VirtualPath: '{}', DisplayName: '{}'", virtualPath, displayName);
@@ -157,22 +174,22 @@ public class MetadataOrganizerService {
         LOGGER.info("DEBUG: getVirtualSeasonStructure called with showName: '{}'", showName);
         List<OrganizedPath> structure = new ArrayList<>();
         
-        Show show = Show.find("name", showName).firstResult();
-        LOGGER.info("DEBUG: Found show with exact name: {}", show != null ? "YES (ID: " + show.id + ")" : "NO");
+        // Get all unique seasons for this show
+        List<Integer> seasons = Video.<Video>list("type = ?1 and seriesTitle = ?2", "episode", showName)
+                .stream()
+                .map(v -> v.seasonNumber)
+                .filter(season -> season != null)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
         
-        if (show == null) {
-            LOGGER.warn("DEBUG: Show not found with name '{}', returning empty structure", showName);
-            return structure;
-        }
+        LOGGER.info("DEBUG: Found {} seasons for show '{}'", seasons.size(), showName);
         
-        List<Season> seasons = Season.list("show", show);
-        LOGGER.info("DEBUG: Found {} seasons for show ID: {}", seasons.size(), show.id);
-        
-        for (Season season : seasons) {
-            String displayName = "Season " + season.seasonNumber;
-            String virtualPath = "/shows/" + normalizeShowName(showName) + "/season/" + season.seasonNumber;
+        for (Integer seasonNumber : seasons) {
+            String displayName = "Season " + seasonNumber;
+            String virtualPath = "/shows/" + normalizeShowName(showName) + "/season/" + seasonNumber;
             structure.add(new OrganizedPath(virtualPath, displayName));
-            LOGGER.info("DEBUG: Added season {} - DisplayName: '{}', VirtualPath: '{}'", season.seasonNumber, displayName, virtualPath);
+            LOGGER.info("DEBUG: Added season {} - DisplayName: '{}', VirtualPath: '{}'", seasonNumber, displayName, virtualPath);
         }
         
         LOGGER.info("DEBUG: Returning {} season structures", structure.size());
@@ -182,19 +199,16 @@ public class MetadataOrganizerService {
     public List<OrganizedPath> getVirtualEpisodeStructure(String showName, int seasonNumber) {
         List<OrganizedPath> structure = new ArrayList<>();
         
-        Show show = Show.find("name", showName).firstResult();
-        if (show == null) {
+        // Get all episodes for this show and season
+        List<Video> episodes = Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", 
+                "episode", showName, seasonNumber);
+        
+        if (episodes.isEmpty()) {
+            LOGGER.info("DEBUG: No episodes found for show '{}', season {}", showName, seasonNumber);
             return structure;
         }
         
-        Season season = Season.find("show = ?1 and seasonNumber = ?2", show, seasonNumber).firstResult();
-        if (season == null) {
-            return structure;
-        }
-        
-        List<Episode> episodes = Episode.list("season", season);
-        
-        for (Episode episode : episodes) {
+        for (Video episode : episodes) {
             String displayName = String.format("S%02dE%02d - %s", 
                 seasonNumber, episode.episodeNumber, 
                 episode.title != null ? episode.title : "Episode " + episode.episodeNumber);

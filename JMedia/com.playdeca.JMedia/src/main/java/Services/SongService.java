@@ -319,6 +319,59 @@ public class SongService {
         return find(randomId); // This fetches the single, full Song object
     }
 
+    public Song findRandomSongByGenreAndBpm(String genre, int currentBpm, int bpmTolerance, Long excludeSongId, List<Long> songPoolIds) {
+        if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
+            return null;
+        }
+
+        int minBpm = currentBpm - bpmTolerance;
+        int maxBpm = currentBpm + bpmTolerance;
+
+        List<Long> matchingIds = em.createQuery(
+                "SELECT s.id FROM Song s WHERE s.id IN :songPoolIds AND LOWER(s.genre) = :genre AND s.id != :excludeSongId AND s.bpm >= :minBpm AND s.bpm <= :maxBpm", Long.class)
+                .setParameter("songPoolIds", songPoolIds)
+                .setParameter("genre", genre.toLowerCase())
+                .setParameter("excludeSongId", excludeSongId)
+                .setParameter("minBpm", minBpm)
+                .setParameter("maxBpm", maxBpm)
+                .getResultList();
+
+        if (matchingIds.isEmpty()) {
+            return null;
+        }
+
+        java.util.Collections.shuffle(matchingIds);
+        Long randomId = matchingIds.get(0);
+        return find(randomId);
+    }
+
+    public List<Song> findSongsByGenreWithBpmSorting(String genre, int currentBpm, List<Long> songPoolIds) {
+        if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Song> songs = em.createQuery(
+                "SELECT s FROM Song s WHERE s.id IN :songPoolIds AND LOWER(s.genre) = :genre", Song.class)
+                .setParameter("songPoolIds", songPoolIds)
+                .setParameter("genre", genre.toLowerCase())
+                .getResultList();
+
+        if (songs.isEmpty()) {
+            return songs;
+        }
+
+        final int targetBpm = currentBpm;
+        songs.sort((a, b) -> {
+            int aBpm = a.getBpm() > 0 ? a.getBpm() : targetBpm;
+            int bBpm = b.getBpm() > 0 ? b.getBpm() : targetBpm;
+            int diffA = Math.abs(aBpm - targetBpm);
+            int diffB = Math.abs(bBpm - targetBpm);
+            return Integer.compare(diffA, diffB);
+        });
+
+        return songs;
+    }
+
     @Transactional
     public List<Song> findSongsAddedAfter(java.time.LocalDateTime dateTime) {
         return em.createQuery("SELECT s FROM Song s WHERE s.dateAdded > :dateTime", Song.class)

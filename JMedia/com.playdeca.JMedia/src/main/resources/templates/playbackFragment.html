@@ -27,6 +27,17 @@
         </div>
     </div>
 
+    <!-- Subtitle Controls -->
+    <div class="subtitle-controls">
+        <!-- Include subtitle track selector component -->
+        <div id="subtitleTrackSelectorContainer"></div>
+        
+        <!-- Settings button -->
+        <button class="subtitle-settings-btn" onclick="toggleSubtitleSettings()" title="Subtitle Settings">
+            <i class="pi pi-cog"></i>
+        </button>
+    </div>
+
     <!-- Close Button -->
     <button class="close-button" onclick="window.switchSection('details')">
         <i class="pi pi-times"></i>
@@ -35,9 +46,12 @@
 
 <script>
     let player = null;
+    let currentVideoId = null;
 
     // Initialize Video.js player
     function initializePlayer() {
+        currentVideoId = {item.id};
+        
         player = videojs('videoPlayer', {
             controls: true,
             autoplay: true,
@@ -57,6 +71,7 @@
         player.ready(() => {
             document.getElementById('loadingOverlay')?.classList.add('hidden');
             showMediaInfo();
+            loadSubtitleTracks();
         });
 
         // Handle errors
@@ -79,6 +94,58 @@
                 player.dispose();
             }
         });
+    }
+
+    // Load subtitle tracks for the current video
+    async function loadSubtitleTracks() {
+        try {
+            const userId = getCurrentUserId();
+            const response = await fetch(`/api/video/subtitles/${currentVideoId}`, {
+                method: 'GET',
+                headers: userId ? { 'X-User-ID': userId } : {}
+            });
+            
+            if (!response.ok) {
+                console.warn('Failed to load subtitle tracks');
+                return;
+            }
+            
+            const data = await response.json();
+            const tracks = data.tracks || [];
+            
+            // Clear existing text tracks
+            const existingTracks = player.textTracks();
+            for (let i = existingTracks.length - 1; i >= 0; i--) {
+                player.removeRemoteTextTrack(existingTracks[i]);
+            }
+            
+            // Add subtitle tracks to player
+            tracks.forEach((track, index) => {
+                const trackElement = {
+                    kind: 'subtitles',
+                    label: track.displayName || track.languageName,
+                    language: track.languageCode,
+                    src: `/api/video/subtitles/track/${track.id}`,
+                    default: track.isDefault || index === 0
+                };
+                
+                player.addRemoteTextTrack(trackElement, false);
+            });
+            
+            // Enable the subtitle menu if tracks are available
+            if (tracks.length > 0) {
+                player.controlBar.subtitlesButton.show();
+            }
+            
+        } catch (error) {
+            console.error('Error loading subtitle tracks:', error);
+        }
+    }
+    
+    // Get current user ID (this should be available from the session/auth system)
+    function getCurrentUserId() {
+        // This is a placeholder - implement based on your auth system
+        return window.currentUserId || null;
     }
 
     // Show media info
@@ -125,10 +192,39 @@
                 e.preventDefault();
                 player.muted(!player.muted());
                 break;
+            case 'c':
+                e.preventDefault();
+                toggleSubtitles();
+                break;
             case 'Escape':
                 e.preventDefault();
                 window.switchSection('details');
                 break;
+        }
+    }
+    
+    // Toggle subtitle visibility
+    function toggleSubtitles() {
+        const tracks = player.textTracks();
+        let hasEnabledSubtitle = false;
+        
+        // Check if any subtitle track is enabled
+        for (let i = 0; i < tracks.length; i++) {
+            if (tracks[i].kind === 'subtitles' && tracks[i].mode === 'showing') {
+                tracks[i].mode = 'hidden';
+                hasEnabledSubtitle = true;
+                break;
+            }
+        }
+        
+        // If no subtitle was enabled, enable the first one
+        if (!hasEnabledSubtitle) {
+            for (let i = 0; i < tracks.length; i++) {
+                if (tracks[i].kind === 'subtitles') {
+                    tracks[i].mode = 'showing';
+                    break;
+                }
+            }
         }
     }
 
@@ -140,8 +236,34 @@
         return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
     }
 
+    // Load subtitle components
+    async function loadSubtitleComponents() {
+        try {
+            // Load subtitle track selector
+            const selectorResponse = await fetch('/templates/subtitleTrackSelector.html');
+            if (selectorResponse.ok) {
+                const selectorHtml = await selectorResponse.text();
+                document.getElementById('subtitleTrackSelectorContainer').innerHTML = selectorHtml;
+            }
+            
+            // Load subtitle settings panel
+            const settingsResponse = await fetch('/templates/subtitleSettingsComponent.html');
+            if (settingsResponse.ok) {
+                const settingsHtml = await settingsResponse.text();
+                const settingsDiv = document.createElement('div');
+                settingsDiv.innerHTML = settingsHtml;
+                document.body.appendChild(settingsDiv);
+            }
+        } catch (error) {
+            console.error('Error loading subtitle components:', error);
+        }
+    }
+
     // Initialize on load
-    document.addEventListener('DOMContentLoaded', initializePlayer);
+    document.addEventListener('DOMContentLoaded', function() {
+        initializePlayer();
+        loadSubtitleComponents();
+    });
 </script>
 
 <style>
@@ -241,5 +363,41 @@
 
     .video-js .vjs-volume-level {
         background: #3273dc;
+    }
+
+    /* Subtitle Controls */
+    .subtitle-controls {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        z-index: 10;
+    }
+
+    .subtitle-settings-btn {
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 10;
+        transition: background-color 0.3s ease;
+        backdrop-filter: blur(10px);
+    }
+
+    .subtitle-settings-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Move media info to accommodate subtitle controls */
+    .media-info {
+        top: 70px; /* Moved down from 20px */
     }
 </style>

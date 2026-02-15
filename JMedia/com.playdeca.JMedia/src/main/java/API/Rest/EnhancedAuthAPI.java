@@ -1,6 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Models.Session;
 import Models.User;
 import Services.AuthService;
 import Services.SessionService;
@@ -13,7 +14,7 @@ import jakarta.ws.rs.core.NewCookie;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import java.time.Instant;
-import java.util.Map; 
+import java.util.Map;
 
 @Path("/api/auth")
 @Produces(MediaType.APPLICATION_JSON)
@@ -42,7 +43,7 @@ public class EnhancedAuthAPI {
             String ipAddress = getClientIp(uriInfo);
             
             // Create session
-            SessionService.UserSession session = sessionService.createSession(String.valueOf(user.id), user.getUsername(), ipAddress);
+            Session session = sessionService.createSession(String.valueOf(user.id), user.getUsername(), ipAddress);
             
             // Create secure session cookie (7 days = 604800 seconds)
             NewCookie sessionCookie = new NewCookie.Builder("JMEDIA_SESSION")
@@ -119,7 +120,7 @@ public class EnhancedAuthAPI {
         }
         
         if (sessionService.validateSession(sessionId, "localhost")) { // Simplified for now
-            var session = sessionService.sessions.get(sessionId);
+            Session session = Session.findBySessionId(sessionId);
             return Response.ok()
                     .entity(ApiResponse.success(session))
                     .build();
@@ -127,6 +128,84 @@ public class EnhancedAuthAPI {
         
         return Response.status(Response.Status.UNAUTHORIZED)
                 .entity(ApiResponse.error("Invalid or expired session"))
+                .build();
+    }
+    
+    @GET
+    @Path("/current-user")
+    public Response getCurrentUser(@Context HttpHeaders headers) {
+        String sessionId = null;
+        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
+        }
+        
+        if (sessionId == null) {
+            return Response.ok()
+                    .entity(ApiResponse.success(Map.of("loggedIn", false)))
+                    .build();
+        }
+        
+        Session session = Session.findBySessionId(sessionId);
+        if (session == null || !session.active) {
+            return Response.ok()
+                    .entity(ApiResponse.success(Map.of("loggedIn", false)))
+                    .build();
+        }
+        
+        // Get user info from database
+        User user = User.find("username", session.username).firstResult();
+        if (user == null) {
+            return Response.ok()
+                    .entity(ApiResponse.success(Map.of("loggedIn", false)))
+                    .build();
+        }
+        
+        boolean isAdmin = "admin".equals(user.getGroupName());
+        
+        return Response.ok()
+                .entity(ApiResponse.success(Map.of(
+                    "loggedIn", true,
+                    "username", user.getUsername(),
+                    "isAdmin", isAdmin,
+                    "groupName", user.getGroupName() != null ? user.getGroupName() : ""
+                )))
+                .build();
+    }
+    
+    @GET
+    @Path("/is-admin")
+    public Response isAdmin(@Context HttpHeaders headers) {
+        String sessionId = null;
+        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
+        }
+        
+        if (sessionId == null) {
+            return Response.ok()
+                    .entity(ApiResponse.success(Map.of("isAdmin", false)))
+                    .build();
+        }
+        
+        Session session = Session.findBySessionId(sessionId);
+        
+        if (session == null || !session.active) {
+            return Response.ok()
+                    .entity(ApiResponse.success(Map.of("isAdmin", false)))
+                    .build();
+        }
+        
+        User user = User.find("username", session.username).firstResult();
+        
+        if (user == null) {
+            return Response.ok()
+                    .entity(ApiResponse.success(Map.of("isAdmin", false)))
+                    .build();
+        }
+        
+        boolean isAdmin = "admin".equals(user.getGroupName());
+        
+        return Response.ok()
+                .entity(ApiResponse.success(Map.of("isAdmin", isAdmin)))
                 .build();
     }
     

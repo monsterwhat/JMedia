@@ -1,9 +1,6 @@
 package Services;
 
 import Models.MediaFile;
-import Services.SmartShowNameDetector;
-import Detectors.EpisodeDetector;
-import Detectors.MovieDetector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
@@ -13,6 +10,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import java.util.Arrays;
 
 @ApplicationScoped
@@ -181,42 +179,38 @@ public class SmartNamingService {
     }
     
     /**
-     * Enhanced episode detection using multiple methods
+     * Enhanced episode detection using regex patterns
      */
     private EpisodeDetection detectEpisodeInfo(String filename, PathAnalysis pathAnalysis) {
         EpisodeDetection detection = new EpisodeDetection();
         
-        // Try existing EpisodeDetector
-        Optional<EpisodeDetector.EpisodeInfo> episodeInfo = EpisodeDetector.detect(filename);
-        if (episodeInfo.isPresent()) {
-            EpisodeDetector.EpisodeInfo info = episodeInfo.get();
-            detection.season = info.season;
-            detection.episode = info.episode;
-            detection.titleHint = info.titleHint;
-            detection.hasEpisodePattern = true;
-            detection.detectionMethod = "EpisodeDetector";
-        }
+        // Try episode detection with multiple patterns
+        Pattern[] episodePatterns = {
+            Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)"),
+            Pattern.compile("(?i)(.*?)(\\d{1,2})[x×](\\d{1,3})(.*)"),
+            Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)"),
+            Pattern.compile("(?i)(.*?)(\\d{1,3})[\\s\\._-]*of[\\s\\._-]*(\\d{1,3})(.*)")
+        };
         
-        // Try SmartShowNameDetector for more comprehensive analysis
-        if (!detection.hasEpisodePattern) {
-            Optional<SmartShowNameDetector.ShowInfo> showInfo = SmartShowNameDetector.detectFromFilename(filename);
-            if (showInfo.isPresent()) {
-                SmartShowNameDetector.ShowInfo info = showInfo.get();
-                detection.season = info.season;
-                detection.episode = info.episode;
-                detection.titleHint = info.titleHint;
+        for (Pattern pattern : episodePatterns) {
+            Matcher matcher = pattern.matcher(filename);
+            if (matcher.matches()) {
+                detection.season = matcher.groupCount() > 2 ? Integer.parseInt(matcher.group(2)) : null;
+                detection.episode = Integer.parseInt(matcher.groupCount() > 2 ? matcher.group(3) : matcher.group(2));
+                detection.titleHint = matcher.groupCount() > 3 ? matcher.group(4).trim() : null;
                 detection.hasEpisodePattern = true;
-                detection.detectionMethod = "SmartShowNameDetector";
-                detection.confidence = info.confidence;
+                detection.detectionMethod = "RegexPattern";
+                detection.confidence = 0.8;
+                return detection;
             }
         }
         
         // Check path structure for episode indicators
-        if (!detection.hasEpisodePattern && pathAnalysis.hasSeasonFolder) {
+        if (pathAnalysis.hasSeasonFolder) {
             detection.hasSeasonFolder = true;
-            // Try to extract season number from folder name
             detection.season = extractSeasonFromFolder(pathAnalysis.parentFolder);
             detection.detectionMethod = "PathStructure";
+            detection.confidence = 0.6;
         }
         
         return detection;
@@ -302,35 +296,29 @@ public class SmartNamingService {
     private String extractShowName(String rawShowName, String filename, PathAnalysis pathAnalysis, 
                                   EpisodeDetection episodeDetection) {
         
-        // Try SmartShowNameDetector on folder names
+        // Try folder names with simple cleaning
         if (pathAnalysis.hasSeasonFolder && !pathAnalysis.grandParentFolder.isEmpty()) {
-            Optional<String> folderShowName = SmartShowNameDetector.detectFromFolder(pathAnalysis.grandParentFolder);
-            if (folderShowName.isPresent()) {
-                return folderShowName.get();
+            String folderShowName = cleanShowName(pathAnalysis.grandParentFolder);
+            if (!folderShowName.equals("Unknown Show")) {
+                return folderShowName;
             }
         }
         
         if (!pathAnalysis.parentFolder.isEmpty()) {
-            Optional<String> folderShowName = SmartShowNameDetector.detectFromFolder(pathAnalysis.parentFolder);
-            if (folderShowName.isPresent()) {
-                return folderShowName.get();
+            String folderShowName = cleanShowName(pathAnalysis.parentFolder);
+            if (!folderShowName.equals("Unknown Show")) {
+                return folderShowName;
             }
-        }
-        
-        // Try SmartShowNameDetector on filename
-        Optional<SmartShowNameDetector.ShowInfo> filenameShowInfo = SmartShowNameDetector.detectFromFilename(filename);
-        if (filenameShowInfo.isPresent()) {
-            return filenameShowInfo.get().cleanName;
         }
         
         // Fall back to raw show name with cleaning
         if (rawShowName != null && !rawShowName.trim().isEmpty()) {
-            return SmartShowNameDetector.cleanShowNameStatic(rawShowName);
+            return cleanShowName(rawShowName);
         }
         
         // Last resort: try to extract from parent folder
         if (!pathAnalysis.parentFolder.isEmpty()) {
-            return SmartShowNameDetector.cleanShowNameStatic(pathAnalysis.parentFolder);
+            return cleanShowName(pathAnalysis.parentFolder);
         }
         
         return "Unknown Show";
@@ -344,12 +332,12 @@ public class SmartNamingService {
         
         // Use episode title hint if available
         if (episodeDetection.titleHint != null && !episodeDetection.titleHint.trim().isEmpty()) {
-            return SmartShowNameDetector.cleanTitleHintStatic(episodeDetection.titleHint);
+            return cleanTitle(episodeDetection.titleHint);
         }
         
         // Use raw title if available
         if (rawTitle != null && !rawTitle.trim().isEmpty()) {
-            return SmartShowNameDetector.cleanTitleHintStatic(rawTitle);
+            return cleanTitle(rawTitle);
         }
         
         // Extract from filename
@@ -362,8 +350,8 @@ public class SmartNamingService {
             }
         }
         
-        // Use SmartShowNameDetector for final cleaning
-        return SmartShowNameDetector.cleanShowNameStatic(filenameWithoutExt);
+        // Use simple cleaning for final result
+        return cleanShowName(filenameWithoutExt);
     }
     
     /**
@@ -429,6 +417,85 @@ public class SmartNamingService {
         }
         
         return Math.min(baseConfidence, 1.0);
+    }
+    
+    /**
+     * Cleans show name by removing common patterns and indicators
+     */
+    private static String cleanShowName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "Unknown Show";
+        }
+        
+        // Remove year patterns
+        String cleaned = name.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        
+        // Remove quality indicators
+        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv)\\b", "");
+        
+        // Remove season/episode patterns
+        cleaned = cleaned.replaceAll("(?i)\\b(season|s|episode|e|part)\\s*[\\d\\-]+", "");
+        
+        // Remove special characters and clean up
+        cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
+        
+        // Remove extra spaces and capitalize properly
+        cleaned = cleaned.replaceAll("\\s+", " ");
+        cleaned = toTitleCase(cleaned.trim());
+        
+        return cleaned.isEmpty() ? "Unknown Show" : cleaned;
+    }
+    
+    /**
+     * Cleans title by removing common artifacts
+     */
+    private static String cleanTitle(String title) {
+        if (title == null || title.trim().isEmpty()) {
+            return "Unknown Title";
+        }
+        
+        // Remove year if already stored separately
+        String cleaned = title.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        
+        // Remove quality indicators
+        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|4k|bluray|bdrip|dvdrip|web-dl|webrip)\\b", "");
+        
+        // Remove common release info
+        cleaned = cleaned.replaceAll("(?i)\\b(proper|repack|extended|uncut|unrated|directors?.cut)\\b", "");
+        
+        // Clean up separators and special characters
+        cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
+        
+        // Remove extra spaces
+        cleaned = cleaned.replaceAll("\\s+", " ");
+        
+        return toTitleCase(cleaned.trim());
+    }
+    
+    /**
+     * Converts to title case
+     */
+    private static String toTitleCase(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+        
+        StringBuilder result = new StringBuilder();
+        boolean capitalizeNext = true;
+        
+        for (char c : input.toCharArray()) {
+            if (Character.isWhitespace(c)) {
+                capitalizeNext = true;
+                result.append(c);
+            } else if (capitalizeNext) {
+                result.append(Character.toUpperCase(c));
+                capitalizeNext = false;
+            } else {
+                result.append(Character.toLowerCase(c));
+            }
+        }
+        
+        return result.toString();
     }
     
     /**

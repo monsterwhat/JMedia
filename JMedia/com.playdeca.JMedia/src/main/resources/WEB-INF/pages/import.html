@@ -6,14 +6,14 @@
         <title id="pageTitle">Spotdl/Yt-dlp Interface</title>
         <script src="/js/theme-initializer.js"></script>
         <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
-       
+
         <script src="/js/htmx.min.js"></script>
         <!-- Alpine.js -->
-        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script defer src="/lib/alpine.min.js"></script>
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
-         
+
     </head>
     <body>
         <script>
@@ -63,14 +63,14 @@
                                     <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
                                         <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
                                     </div>
-<div class="dropdown-content"
-                                          id="searchSuggestionsDropdown"
-                                          hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
-                                          hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
-                                          hx-target="this"
-                                          hx-swap="innerHTML"
-                                          hx-indicator="#globalSearchDropdownLoadingIndicator">
-                                         <!-- Suggestions will be loaded here -->
+                                    <div class="dropdown-content"
+                                         id="searchSuggestionsDropdown"
+                                         hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                                         hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                                         hx-target="this"
+                                         hx-swap="innerHTML"
+                                         hx-indicator="#globalSearchDropdownLoadingIndicator">
+                                        <!-- Suggestions will be loaded here -->
                                     </div>
                                 </div>
                             </div>
@@ -81,11 +81,11 @@
                                 <span id="currentProfileName">Loading...</span>
                             </a>
 
-<a class="navbar-item" href="/settings">
+                            <a class="navbar-item" href="/settings">
                                 <span class="icon"><i class="pi pi-cog"></i></span>
                                 <span>Settings</span>
                             </a>
-<a class="navbar-item" href="/import">
+                            <a class="navbar-item" href="/import">
                                 <span class="icon"><i class="pi pi-download"></i></span>
                                 <span>Import</span>
                             </a>
@@ -120,7 +120,7 @@
                                 <div id="spotdlWarningMessage" class="notification is-warning is-hidden mb-4">
                                     <!-- Warning messages will be displayed here -->
                                 </div>
-                                
+
                                 <div class="field-group">
                                     <div class="field">
                                         <label class="label" for="spotdlUrl">
@@ -132,20 +132,20 @@
                                         <div class="control">
                                             <textarea class="textarea is-medium" id="spotdlUrl" 
                                                       placeholder="Single song: 'Song Title' or 'Artist - Title'
-                      
-Multi-line list:
-Max Sinàl,KingCrowney,Liv East - Intentions
-Jend - I Know
-NO CIGAR - Cool
-Darius,WAYNE SNOW - Night Birds
-Good Luck - Look at U
 
-Or enter Spotify/YouTube URLs (playlists work)"></textarea>
+                                                      Multi-line list:
+                                                      Max Sinàl,KingCrowney,Liv East - Intentions
+                                                      Jend - I Know
+                                                      NO CIGAR - Cool
+                                                      Darius,WAYNE SNOW - Night Birds
+                                                      Good Luck - Look at U
+
+                                                      Or enter Spotify/YouTube URLs (playlists work)"></textarea>
                                         </div>
                                         <p class="help is-size-7">Single songs, albums, playlists, or multi-line song lists. Song lists support multiple artists separated by commas. Each line is treated as a separate song.</p>
                                     </div>
 
-                                    <div class="field">
+                                    <div class="field admin-only">
                                         <label class="label" for="downloadFolder">
                                             <span class="icon-text">
                                                 <span class="icon"><i class="pi pi-folder"></i></span>
@@ -157,7 +157,7 @@ Or enter Spotify/YouTube URLs (playlists work)"></textarea>
                                                    placeholder="e.g., C:\Music\SpotDL">
                                         </div>
                                         <p class="help is-size-7">Directory where downloaded files will be saved</p>
-                                    </div>
+                                    </div> 
 
                                     <div class="field">
                                         <label class="label">
@@ -201,8 +201,8 @@ Or enter Spotify/YouTube URLs (playlists work)"></textarea>
                                                         <textarea class="textarea has-background-black has-text-white" 
                                                                   id="cookiesContent" rows="6" 
                                                                   placeholder="Paste your cookies.txt content here for YouTube downloads that require authentication...
-Format: Netscape cookie format or HTTP request headers
-This enables downloading age-restricted or region-restricted content."></textarea>
+                                                                  Format: Netscape cookie format or HTTP request headers
+                                                                  This enables downloading age-restricted or region-restricted content."></textarea>
                                                     </div>
                                                     <p class="help is-size-7 has-text-warning">For Linux servers only. Enables downloading restricted YouTube content using cookies.</p>
                                                 </div>
@@ -224,12 +224,180 @@ This enables downloading age-restricted or region-restricted content."></textare
                                                         </button>
                                                     </div>
                                                 </div>
-                                                <div id="cookiesStatus" class="notification is-hidden">
-                                                    <!-- Cookies status will be shown here -->
-                                                </div>
                                             </div>
                                         </div>
                                     </div>
+
+                                    <!-- Advanced Import Configuration -->
+                                    <div class="field admin-only">
+                                        <label class="label">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                                <span>Advanced Import Configuration</span>
+                                            </span>
+                                        </label>
+
+                                        <div class="card has-background-dark" x-data="{ showAdvanced: false }">
+                                            <div class="card-content p-4">
+                                                <!-- Toggle Advanced Section -->
+                                                <div class="field">
+                                                    <button class="button is-info is-small is-fullwidth" @click="showAdvanced = !showAdvanced">
+                                                        <span class="icon-text">
+                                                            <span class="icon">
+                                                                <i class="pi" :class="showAdvanced ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+                                                            </span>
+                                                            <span x-text="showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings'"></span>
+                                                        </span>
+                                                    </button>
+                                                </div>
+
+                                                <!-- Advanced Configuration (Initially Hidden) -->
+                                                <div x-show="showAdvanced" x-transition>
+                                                    <!-- Source Configuration -->
+                                                    <div class="field">
+                                                        <label class="label is-small">Download Sources</label>
+                                                        <div class="columns">
+                                                            <div class="column is-half">
+                                                                <div class="field">
+                                                                    <label class="checkbox">
+                                                                        <input type="checkbox" id="youtubeEnabled" checked>
+                                                                        <span class="has-text-success">●</span> Enable YouTube (yt-dlp)
+                                                                    </label>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="checkbox">
+                                                                        <input type="checkbox" id="spotdlEnabled" checked>
+                                                                        <span class="has-text-success">●</span> Enable SpotDL
+                                                                    </label>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="checkbox">
+                                                                        <input type="checkbox" id="enableSmartRateLimitHandling" checked>
+                                                                        <span class="has-text-info">⚡</span> Smart rate limit handling
+                                                                    </label>
+                                                                    <p class="help is-size-7">Automatically switch sources on long rate limits (>1 hour)</p>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="checkbox">
+                                                                        <input type="checkbox" id="fallbackOnLongWait" checked>
+                                                                        <span class="has-text-warning">↩</span> Fallback on long wait
+                                                                    </label>
+                                                                    <p class="help is-size-7">Switch to fallback source if wait time exceeds max acceptable</p>
+                                                                </div>
+                                                            </div>
+                                                            <div class="column is-half">
+                                                                <div class="field">
+                                                                    <label class="label is-small">Primary Source</label>
+                                                                    <div class="select is-small is-fullwidth">
+                                                                        <select id="primarySource">
+                                                                            <option value="NONE">None</option>
+                                                                            <option value="YOUTUBE">YouTube (yt-dlp)</option>
+                                                                            <option value="SPOTDL">SpotDL</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="label is-small">Secondary Source (Fallback)</label>
+                                                                    <div class="select is-small is-fullwidth">
+                                                                        <select id="secondarySource">
+                                                                            <option value="NONE">None</option>
+                                                                            <option value="SPOTDL">SpotDL</option>
+                                                                            <option value="YOUTUBE">YouTube (yt-dlp)</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="label is-small">Switch Strategy</label>
+                                                                    <div class="select is-small is-fullwidth">
+                                                                        <select id="switchStrategy">
+                                                                            <option value="IMMEDIATELY">Switch immediately on failure</option>
+                                                                            <option value="AFTER_FAILURES" selected>After X consecutive failures</option>
+                                                                            <option value="ONLY_ON_RATE_LIMIT">Only on rate limit</option>
+                                                                            <option value="SMART_ADAPTIVE">Smart adaptive switching</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Retry Configuration -->
+                                                    <div class="field">
+                                                        <label class="label is-small">Retry & Timing Settings</label>
+                                                        <div class="columns">
+                                                            <div class="column">
+                                                                <div class="field">
+                                                                    <label class="label is-small">Max Retry Attempts</label>
+                                                                    <div class="control">
+                                                                        <input class="input is-small" type="number" id="maxRetryAttempts" 
+                                                                               value="3" min="0" max="10">
+                                                                    </div>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="label is-small">Retry Wait Time (seconds)</label>
+                                                                    <div class="control">
+                                                                        <input class="input is-small" type="number" id="retryWaitTime" 
+                                                                               value="90" min="1" max="300">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="column">
+                                                                <div class="field">
+                                                                    <label class="label is-small">Failure Threshold</label>
+                                                                    <div class="control">
+                                                                        <input class="input is-small" type="number" id="switchThreshold" 
+                                                                               value="3" min="1" max="10">
+                                                                    </div>
+                                                                    <p class="help is-size-7">Number of failures before switching</p>
+                                                                </div>
+                                                                <div class="field">
+                                                                    <label class="label is-small">Max Acceptable Wait (minutes)</label>
+                                                                    <div class="control">
+                                                                        <input class="input is-small" type="number" id="maxAcceptableWaitTime" 
+                                                                               value="60" min="5" max="1440">
+                                                                    </div>
+                                                                    <p class="help is-size-7">Fallback if rate limit exceeds this time</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Action Buttons -->
+                                                    <div class="field is-grouped">
+                                                        <div class="control">
+                                                            <button class="button is-success is-small" id="saveAdvancedConfigBtn" onclick="if(window.saveAdvancedConfiguration) window.saveAdvancedConfiguration(); else console.error('saveAdvancedConfiguration not found');">
+                                                                <span class="icon-text">
+                                                                    <span class="icon"><i class="pi pi-save"></i></span>
+                                                                    <span>Save Configuration</span>
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                        <div class="control">
+                                                            <button class="button is-warning is-small" id="resetAdvancedConfigBtn">
+                                                                <span class="icon-text">
+                                                                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                                    <span>Reset to Defaults</span>
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                        <div class="control">
+                                                            <button class="button is-info is-small" id="testConfigurationBtn">
+                                                                <span class="icon-text">
+                                                                    <span class="icon"><i class="pi pi-play"></i></span>
+                                                                    <span>Test Configuration</span>
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Configuration Status -->
+                                                    <div id="configStatus" class="notification is-hidden">
+                                                        <!-- Status messages will appear here -->
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>  
 
                                     <div class="field is-grouped">
                                         <div class="control">
@@ -307,14 +475,15 @@ This enables downloading age-restricted or region-restricted content."></textare
                     <div class="level-right is-hidden-mobile">
                         <div class="level-item">
                             <div class="is-flex is-align-items-center">
-                             <i class="pi pi-volume-up mr-2"></i>
-                                 <input style="width: 80%" type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
+                                <i class="pi pi-volume-up mr-2"></i>
+                                <input style="width: 80%" type="range" min="0" max="100" value="80" name="level" id="volumeProgressBar"/>
                             </div>
                         </div>
                     </div> 
                 </nav>
             </div>
         </section>
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 10000;"></div>
         <script src="/js/toast.js"></script>
         <script src="/js/musicBar.js"></script>
         <script src="/js/mediaSession.js"></script>
@@ -347,6 +516,11 @@ This enables downloading age-restricted or region-restricted content."></textare
                         </div>
                     </div>
                     <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
+                    <hr>
+                    <h6 class="title is-6 mt-4">Hidden Playlists:</h6>
+                    <div id="hiddenPlaylistsContainer" style="max-height: 150px; overflow-y: auto;">
+                        <p class="has-text-centered has-text-grey">Loading...</p>
+                    </div>
                 </section>
                 <footer class="modal-card-foot glass-modal-footer">
                     <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
@@ -370,17 +544,17 @@ This enables downloading age-restricted or region-restricted content."></textare
             function updateCookiesStatus() {
                 const profileId = window.globalActiveProfileId;
                 fetch(`/api/settings/${profileId}/cookies-status`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            const status = data.data;
-                            const statusDiv = document.getElementById('cookiesStatus');
-                            const deleteBtn = document.getElementById('deleteCookiesBtn');
-                            const uploadBtn = document.getElementById('uploadCookiesBtn');
-                            
-                            if (status.configured && status.exists) {
-                                statusDiv.className = 'notification is-success is-size-7';
-                                statusDiv.innerHTML = `
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                const status = data.data;
+                                const statusDiv = document.getElementById('cookiesStatus');
+                                const deleteBtn = document.getElementById('deleteCookiesBtn');
+                                const uploadBtn = document.getElementById('uploadCookiesBtn');
+
+                                if (status.configured && status.exists) {
+                                    statusDiv.className = 'notification is-success is-size-7';
+                                    statusDiv.innerHTML = `
                                     <span class="icon-text">
                                         <span class="icon"><i class="pi pi-check-circle"></i></span>
                                         <span>Cookies file configured and accessible</span>
@@ -390,37 +564,37 @@ This enables downloading age-restricted or region-restricted content."></textare
                                     <br>
                                     <small>Last modified: ${status.lastModified || 'Unknown'}</small>
                                 `;
-                                deleteBtn.disabled = false;
-                                uploadBtn.textContent = 'Update Cookies';
-                            } else {
-                                statusDiv.className = 'notification is-warning is-size-7';
-                                statusDiv.innerHTML = `
+                                    deleteBtn.disabled = false;
+                                    uploadBtn.textContent = 'Update Cookies';
+                                } else {
+                                    statusDiv.className = 'notification is-warning is-size-7';
+                                    statusDiv.innerHTML = `
                                     <span class="icon-text">
                                         <span class="icon"><i class="pi pi-exclamation-triangle"></i></span>
                                         <span>No cookies file configured</span>
                                     </span>
                                 `;
-                                deleteBtn.disabled = true;
-                                uploadBtn.innerHTML = `
+                                    deleteBtn.disabled = true;
+                                    uploadBtn.innerHTML = `
                                     <span class="icon-text">
                                         <span class="icon"><i class="pi pi-upload"></i>
                                         <span>Save Cookies</span>
                                     </span>
                                 `;
+                                }
+
+                                statusDiv.classList.remove('is-hidden');
                             }
-                            
-                            statusDiv.classList.remove('is-hidden');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error checking cookies status:', error);
-                    });
+                        })
+                        .catch(error => {
+                            console.error('Error checking cookies status:', error);
+                        });
             }
 
             function uploadCookies() {
                 const profileId = window.globalActiveProfileId;
                 const cookiesContent = document.getElementById('cookiesContent').value.trim();
-                
+
                 if (!cookiesContent) {
                     showToast('Please enter cookies content', 'warning');
                     return;
@@ -436,26 +610,26 @@ This enables downloading age-restricted or region-restricted content."></textare
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ cookiesContent: cookiesContent })
+                    body: JSON.stringify({cookiesContent: cookiesContent})
                 })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Cookies file saved successfully', 'success');
-                        document.getElementById('cookiesContent').value = '';
-                        updateCookiesStatus();
-                    } else {
-                        showToast('Failed to save cookies: ' + data.error, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error uploading cookies:', error);
-                    showToast('Error uploading cookies', 'error');
-                })
-                .finally(() => {
-                    uploadBtn.disabled = false;
-                    uploadBtn.innerHTML = originalText;
-                });
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                showToast('Cookies file saved successfully', 'success');
+                                document.getElementById('cookiesContent').value = '';
+                                updateCookiesStatus();
+                            } else {
+                                showToast('Failed to save cookies: ' + data.error, 'error');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error uploading cookies:', error);
+                            showToast('Error uploading cookies', 'error');
+                        })
+                        .finally(() => {
+                            uploadBtn.disabled = false;
+                            uploadBtn.innerHTML = originalText;
+                        });
             }
 
             function deleteCookies() {
@@ -472,38 +646,38 @@ This enables downloading age-restricted or region-restricted content."></textare
                 fetch(`/api/settings/${profileId}/cookies`, {
                     method: 'DELETE'
                 })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Cookies file deleted successfully', 'success');
-                        updateCookiesStatus();
-                    } else {
-                        showToast('Failed to delete cookies: ' + data.error, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error deleting cookies:', error);
-                    showToast('Error deleting cookies', 'error');
-                })
-                .finally(() => {
-                    deleteBtn.disabled = false;
-                    deleteBtn.innerHTML = originalText;
-                });
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                showToast('Cookies file deleted successfully', 'success');
+                                updateCookiesStatus();
+                            } else {
+                                showToast('Failed to delete cookies: ' + data.error, 'error');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error deleting cookies:', error);
+                            showToast('Error deleting cookies', 'error');
+                        })
+                        .finally(() => {
+                            deleteBtn.disabled = false;
+                            deleteBtn.innerHTML = originalText;
+                        });
             }
 
             // Event listeners for cookies functionality
-            document.addEventListener('DOMContentLoaded', function() {
+            document.addEventListener('DOMContentLoaded', function () {
                 const uploadBtn = document.getElementById('uploadCookiesBtn');
                 const deleteBtn = document.getElementById('deleteCookiesBtn');
-                
+
                 if (uploadBtn) {
                     uploadBtn.addEventListener('click', uploadCookies);
                 }
-                
+
                 if (deleteBtn) {
                     deleteBtn.addEventListener('click', deleteCookies);
                 }
-                
+
                 // Initial cookies status check (only if on Linux)
                 if (navigator.userAgent.toLowerCase().includes('linux')) {
                     updateCookiesStatus();
@@ -677,6 +851,25 @@ This enables downloading age-restricted or region-restricted content."></textare
                     globalSearchInput.value = decodeURIComponent(searchQuery);
                     htmx.trigger(globalSearchInput, 'search');
                     history.replaceState(null, '', window.location.pathname);
+                }
+            });
+        </script>
+
+        <script>
+            document.addEventListener('DOMContentLoaded', async () => {
+                try {
+                    const adminRes = await fetch('/api/auth/is-admin');
+                    const adminJson = await adminRes.json();
+
+                    if (!adminJson.data || !adminJson.data.isAdmin) {
+                        document.querySelectorAll('.admin-only').forEach(el => {
+                            el.style.display = 'none';
+                        });
+                    }
+                } catch (e) {
+                    document.querySelectorAll('.admin-only').forEach(el => {
+                        el.style.display = 'none';
+                    });
                 }
             });
         </script>

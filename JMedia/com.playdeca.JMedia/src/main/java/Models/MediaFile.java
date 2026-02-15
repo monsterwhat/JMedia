@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 @Entity
 public class MediaFile extends PanacheEntity {
 
+    @jakarta.persistence.Column(length = 1000)
     public String path;
     public long size;
     public long lastModified;

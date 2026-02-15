@@ -145,6 +145,214 @@ window.saveImportSettings = async function () {
     }
 };
 
+window.loadPlaybackSettings = async function () {
+    if (!window.globalActiveProfileId) return;
+
+    // Load crossfade from PlaybackState
+    try {
+        const crossfadeRes = await fetch(`/api/music/playback/crossfade/${window.globalActiveProfileId}`);
+        const crossfadeJson = await crossfadeRes.json();
+        if (crossfadeRes.ok && crossfadeJson.data !== undefined) {
+            const crossfadeInput = document.getElementById('crossfadeDuration');
+            const crossfadeValue = document.getElementById('crossfadeValue');
+            if (crossfadeInput) {
+                crossfadeInput.value = crossfadeJson.data;
+                if (crossfadeValue) crossfadeValue.textContent = crossfadeJson.data;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load crossfade settings:', e);
+    }
+
+    // Load BPM tolerance from Settings
+    try {
+        const bpmRes = await fetch(`/api/settings/${window.globalActiveProfileId}/bpm-tolerance`);
+        const bpmJson = await bpmRes.json();
+        if (bpmRes.ok && bpmJson.data) {
+            const bpmInput = document.getElementById('bpmTolerance');
+            if (bpmInput && bpmJson.data.default) {
+                bpmInput.value = bpmJson.data.default;
+            }
+            
+            // Load BPM overrides
+            const overridesContainer = document.getElementById('bpmOverridesContainer');
+            if (overridesContainer && bpmJson.data.overrides) {
+                try {
+                    const overrides = JSON.parse(bpmJson.data.overrides);
+                    overridesContainer.innerHTML = '';
+                    for (const [genre, tolerance] of Object.entries(overrides)) {
+                        addBpmOverrideRow(genre, tolerance);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse BPM overrides:', e);
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load BPM tolerance settings:', e);
+    }
+};
+
+window.savePlaybackSettings = async function () {
+    if (!window.globalActiveProfileId) return;
+
+    // Save crossfade
+    const crossfadeInput = document.getElementById('crossfadeDuration');
+    const crossfadeValue = crossfadeInput ? parseInt(crossfadeInput.value) : 0;
+    
+    try {
+        await fetch(`/api/music/playback/crossfade/${window.globalActiveProfileId}/${crossfadeValue}`, {
+            method: 'POST'
+        });
+    } catch (e) {
+        console.error('Failed to save crossfade:', e);
+    }
+
+    // Save BPM tolerance
+    const bpmInput = document.getElementById('bpmTolerance');
+    const bpmValue = bpmInput ? parseInt(bpmInput.value) : 10;
+
+    // Collect overrides
+    const overrides = {};
+    const overrideRows = document.querySelectorAll('.bpm-override-row');
+    overrideRows.forEach(row => {
+        const genreInput = row.querySelector('.bpm-override-genre');
+        const toleranceInput = row.querySelector('.bpm-override-tolerance');
+        if (genreInput && toleranceInput && genreInput.value.trim()) {
+            overrides[genreInput.value.trim().toLowerCase()] = parseInt(toleranceInput.value) || 10;
+        }
+    });
+
+    try {
+        await fetch(`/api/settings/${window.globalActiveProfileId}/bpm-tolerance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                default: bpmValue,
+                overrides: JSON.stringify(overrides)
+            })
+        });
+        Toast.success('Playback settings saved successfully');
+    } catch (e) {
+        console.error('Failed to save BPM tolerance:', e);
+        Toast.error('Failed to save playback settings');
+    }
+};
+
+window.addBpmOverrideRow = function (genre = '', tolerance = '') {
+    const container = document.getElementById('bpmOverridesContainer');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'bpm-override-row is-flex is-align-items-center mb-2';
+    row.innerHTML = `
+        <input type="text" class="input bpm-override-genre is-small mr-2" placeholder="Genre (e.g., electronic)" value="${genre}" style="max-width: 180px;">
+        <span class="mr-2">±</span>
+        <input type="number" class="input bpm-override-tolerance is-small mr-2" placeholder="BPM" value="${tolerance}" min="1" max="50" style="max-width: 80px;">
+        <button type="button" class="button is-danger is-small" onclick="this.closest('.bpm-override-row').remove()">
+            <span class="icon"><i class="pi pi-times"></i></span>
+        </button>
+    `;
+    container.appendChild(row);
+};
+
+window.loadProfiles = async function () {
+    const profileList = document.getElementById('profileList');
+    if (!profileList) return;
+
+    try {
+        const res = await fetch('/api/profiles');
+        const profiles = await res.json();
+        
+        if (!res.ok || !profiles.length) {
+            profileList.innerHTML = '<p class="has-text-grey">No profiles found</p>';
+            return;
+        }
+
+        const currentProfileRes = await fetch('/api/profiles/current');
+        const currentProfile = await currentProfileRes.json();
+
+        profileList.innerHTML = profiles.map(profile => {
+            const isMain = profile.isMainProfile;
+            const isCurrent = currentProfile.id === profile.id;
+            return `
+                <div class="card mb-2">
+                    <div class="card-content p-3">
+                        <div class="is-flex is-justify-content-space-between is-align-items-center">
+                            <div>
+                                <p class="has-text-weight-semibold">${profile.name} ${isMain ? '<span class="tag is-warning is-small ml-2">Main</span>' : ''} ${isCurrent ? '<span class="tag is-info is-small ml-2">Current</span>' : ''}</p>
+                            </div>
+                            <div class="buttons are-small">
+                                ${!isMain ? `
+                                    <button class="button is-danger is-light is-small" onclick="deleteProfile(${profile.id})">
+                                        <span class="icon"><i class="pi pi-trash"></i></span>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Error loading profiles:', e);
+        profileList.innerHTML = '<p class="has-text-danger">Error loading profiles</p>';
+    }
+};
+
+window.createProfile = async function () {
+    const nameInput = document.getElementById('newProfileName');
+    const name = nameInput?.value?.trim();
+    
+    if (!name) {
+        Toast.error('Please enter a profile name');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: name
+        });
+
+        if (res.ok) {
+            Toast.success('Profile created successfully');
+            if (nameInput) nameInput.value = '';
+            window.loadProfiles();
+        } else {
+            const json = await res.json();
+            Toast.error(json.error || 'Failed to create profile');
+        }
+    } catch (e) {
+        console.error('Error creating profile:', e);
+        Toast.error('Error creating profile');
+    }
+};
+
+window.deleteProfile = async function (profileId) {
+    if (!confirm('Are you sure you want to delete this profile? All associated data will be moved to the main profile.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/profiles/${profileId}`, {
+            method: 'DELETE'
+        });
+
+        if (res.ok) {
+            Toast.success('Profile deleted successfully');
+            window.loadProfiles();
+        } else {
+            const json = await res.json();
+            Toast.error(json.error || 'Failed to delete profile');
+        }
+    } catch (e) {
+        console.error('Error deleting profile:', e);
+        Toast.error('Error deleting profile');
+    }
+};
+
 
 window.refreshSettingsUI = async function () {
 
@@ -399,7 +607,45 @@ function updateInstallationStatusElements(status) {
     updateMissingComponentsDialog(status);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+    // Check if user is admin and hide/show admin-only sections
+    let isAdmin = false;
+    try {
+        const adminRes = await fetch('/api/auth/is-admin');
+        const adminJson = await adminRes.json();
+        
+        if (adminJson.data && adminJson.data.isAdmin) {
+            isAdmin = true;
+            console.log('User is admin, showing all sections');
+        } else {
+            console.log('User is NOT admin, hiding admin sections');
+        }
+        
+        // Hide admin-only sections for non-admins
+        if (!isAdmin) {
+            // Hide profile management tab
+            const profileTab = document.querySelector('li[data-tab="profile-management"]');
+            if (profileTab) {
+                profileTab.style.display = 'none';
+            }
+            
+            // Hide admin-only elements in settings
+            document.querySelectorAll('.admin-only').forEach(el => {
+                el.style.display = 'none';
+            });
+        }
+    } catch (e) {
+        console.error('Error checking admin status:', e);
+        // Hide admin-only sections on error
+        const profileTab = document.querySelector('li[data-tab="profile-management"]');
+        if (profileTab) {
+            profileTab.style.display = 'none';
+        }
+        document.querySelectorAll('.admin-only').forEach(el => {
+            el.style.display = 'none';
+        });
+    }
+
     // Get DOM elements that are referenced throughout the code
     window.installationRequiredDialog = document.getElementById("installationRequiredDialog");
     window.missingComponentsList = document.getElementById("missingComponentsList");
@@ -445,6 +691,25 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("reloadMetadata").onclick = () => showConfirmationDialog("Are you sure you want to reload all song metadata? This might take a while.", window.reloadMetadata);
     document.getElementById("deleteDuplicates").onclick = () => showConfirmationDialog("Are you sure you want to delete duplicate songs? This action cannot be undone.", window.deleteDuplicates);
     document.getElementById("saveImportSettingsBtn").onclick = window.saveImportSettings;
+    document.getElementById("savePlaybackSettingsBtn").onclick = window.savePlaybackSettings;
+    
+    // Profile management
+    const createProfileBtn = document.getElementById('createProfileBtn');
+    if (createProfileBtn) {
+        createProfileBtn.onclick = window.createProfile;
+    }
+    const newProfileName = document.getElementById('newProfileName');
+    if (newProfileName) {
+        newProfileName.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                window.createProfile();
+            }
+        });
+    }
+    window.loadProfiles();
+    
+    // Load playback settings on page load
+    window.loadPlaybackSettings();
     
     // Update button handlers
     const checkForUpdatesBtn = document.getElementById("checkForUpdatesBtn");

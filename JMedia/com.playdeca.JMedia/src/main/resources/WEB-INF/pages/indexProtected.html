@@ -6,15 +6,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="#48c78e">
-    <title id="pageTitle">JMedia Mobile</title>
+    <title id="pageTitle">JMedia</title>
     
     <!-- Theme Initializer -->
     <script src="/js/theme-initializer.js"></script>
     
     <!-- CSS -->
+    <link rel="stylesheet" href="/css/bulma.min.css">
     <link rel="stylesheet" href="/css/mobile.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+    <link rel="stylesheet" href="/lib/font-awesome/all.min.css">
+    <link rel="stylesheet" href="/lib/primeicons.css">
     
     <!-- Favicon -->
     <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
@@ -170,19 +171,11 @@
             
             <!-- Mobile Tab Contents -->
             <div class="mobile-tab-content active" id="mobilePlaylistContent">
-                <div class="mobile-playlist-header">
-                    <h3 class="mobile-section-title">My Playlists</h3>
-                    <button id="createPlaylistBtn" class="mobile-btn mobile-btn-primary">
-                        <i class="pi pi-plus"></i> New Playlist
-                    </button>
-                </div>
-                <div id="mobilePlaylistList">
-                    <div class="mobile-loading">
-                        <div class="mobile-loading-spinner">
-                            <i class="pi pi-spin pi-spinner"></i>
-                        </div>
-                        <p>Loading playlists...</p>
+                <div class="mobile-loading">
+                    <div class="mobile-loading-spinner">
+                        <i class="pi pi-spin pi-spinner"></i>
                     </div>
+                    <p>Loading playlists...</p>
                 </div>
             </div>
             
@@ -237,17 +230,15 @@
         <div class="mobile-side-panel-overlay" id="mobileSidePanelOverlay"></div>
         
         <!-- Mobile Profile Management Modal -->
-        <div id="mobileProfileModal" class="mobile-modal">
-            <div class="mobile-modal-overlay" onclick="closeMobileProfileModal()"></div>
-            <div class="mobile-modal-card">
-                <header class="mobile-modal-header">
-                    <h3 class="mobile-modal-title">Manage Profiles</h3>
-                    <button class="mobile-modal-close" onclick="closeMobileProfileModal()">
-                        <i class="pi pi-times"></i>
-                    </button>
+        <div id="mobileProfileModal" class="modal">
+            <div class="modal-background" onclick="closeMobileProfileModal()"></div>
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">Manage Profiles</p>
+                    <button class="delete" aria-label="close" onclick="closeMobileProfileModal()"></button>
                 </header>
                 
-                <div class="mobile-modal-body">
+                <div class="modal-card-body">
                     <!-- Current Profile Display -->
                     <div class="mobile-current-profile">
                         <div class="mobile-profile-display">
@@ -288,7 +279,7 @@
                         <i class="pi pi-trash"></i> Delete Current Profile
                     </button>
                 </div>
-            </div>
+            </section>
         </div>
         
         <!-- Mobile Context Menu -->
@@ -357,7 +348,6 @@
     <audio id="audioPlayer" preload="auto"></audio>
     <!-- HTMX -->
     <script src="/js/htmx.min.js"></script>
-    
     <!-- Load musicBar.js directly since we use same element IDs -->
     <script type="module" src="/js/musicBar.js"></script>
     
@@ -367,6 +357,22 @@
     
     <!-- Mobile-specific enhancements -->
     <script type="module" src="/js/mobile.js"></script>
+    
+    <script>
+        // Add right-click to delete playlists
+        document.addEventListener('contextmenu', function(e) {
+            const target = e.target.closest('.mobile-playlist-item');
+            if (!target) return;
+            
+            const playlistId = target.dataset.playlistId;
+            if (!playlistId || playlistId === '0') return;
+            
+            const playlistName = target.querySelector('.mobile-playlist-name')?.textContent || 'this playlist';
+            if (confirm(`Delete playlist "${playlistName}"?`)) {
+                deleteMobilePlaylist(playlistId, encodeURIComponent(playlistName));
+            }
+        });
+    </script>
     
     <script>
         // Initialize mobile navigation variables
@@ -609,6 +615,24 @@
 
             playlistList.innerHTML = '';
 
+            // Add "All Songs" option
+            const allSongsItem = document.createElement('div');
+            allSongsItem.className = 'mobile-playlist-item';
+            allSongsItem.setAttribute('data-playlist-id', '0');
+            allSongsItem.innerHTML = `
+                <div class="mobile-playlist-info">
+                    <div class="mobile-playlist-name">All Songs</div>
+                </div>
+                <i class="pi pi-chevron-right"></i>
+            `;
+            allSongsItem.addEventListener('click', () => {
+                window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${window.globalActiveProfileId}/0`, {
+                    target: document.getElementById('mobileSongList'),
+                    swap: 'innerHTML'
+                });
+            });
+            playlistList.appendChild(allSongsItem);
+
             if (mobilePlaylists.length === 0) {
                 playlistList.innerHTML = `
                     <div class="mobile-empty-state">
@@ -623,9 +647,10 @@
             mobilePlaylists.forEach(playlist => {
                 const playlistItem = document.createElement('div');
                 playlistItem.className = 'mobile-playlist-item';
+                const globalIcon = playlist.isGlobal ? '<span class="tag is-info is-small" style="margin-left: 8px;"><i class="pi pi-globe"></i></span>' : '';
                 playlistItem.innerHTML = `
                     <div class="mobile-playlist-info">
-                        <div class="mobile-playlist-name">${playlist.name || 'Untitled Playlist'}</div>
+                        <div class="mobile-playlist-name">${playlist.name || 'Untitled Playlist'}${globalIcon}</div>
                         <div class="mobile-playlist-details">
                             ${playlist.songCount || 0} songs
                         </div>
@@ -633,9 +658,6 @@
                     <div class="mobile-playlist-actions">
                         <button class="mobile-btn mobile-btn-small" onclick="editMobilePlaylist(${playlist.id})" title="Edit">
                             <i class="pi pi-pencil"></i>
-                        </button>
-                        <button class="mobile-btn mobile-btn-small mobile-btn-danger" onclick="deleteMobilePlaylist(${playlist.id}, '${encodeURIComponent(playlist.name || 'Untitled Playlist')}')" title="Delete">
-                            <i class="pi pi-trash"></i>
                         </button>
                     </div>
                 `;
@@ -677,7 +699,7 @@
 
         function createMobilePlaylistModal(playlist = null) {
             const modal = document.createElement('div');
-            modal.className = 'mobile-modal';
+            modal.className = 'modal';
             modal.id = 'mobilePlaylistModal';
             
             const isEdit = playlist !== null;
@@ -686,16 +708,14 @@
             const buttonText = isEdit ? 'Save Changes' : 'Create Playlist';
 
             modal.innerHTML = `
-                <div class="mobile-modal-overlay" onclick="closeMobilePlaylistModal()"></div>
-                <div class="mobile-modal-card">
-                    <header class="mobile-modal-header">
-                        <h3 class="mobile-modal-title">${title}</h3>
-                        <button class="mobile-modal-close" onclick="closeMobilePlaylistModal()">
-                            <i class="pi pi-times"></i>
-                        </button>
+                <div class="modal-background" onclick="closeMobilePlaylistModal()"></div>
+                <div class="modal-card">
+                    <header class="modal-card-head">
+                        <p class="modal-card-title">${title}</p>
+                        <button class="delete" aria-label="close" onclick="closeMobilePlaylistModal()"></button>
                     </header>
                     
-                    <div class="mobile-modal-body">
+                    <div class="modal-card-body">
                         <div class="mobile-form-group">
                             <label class="mobile-label">Playlist Name</label>
                             <input type="text" 
@@ -839,7 +859,7 @@
         function loadMobilePlaylistSongs(playlistId) {
             // Load playlist songs into main song list
             if (window.htmx) {
-                window.htmx.ajax('GET', `/api/music/ui/tbody/${window.globalActiveProfileId}/${playlistId}`, {
+                window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${window.globalActiveProfileId}/${playlistId}`, {
                     target: document.getElementById('mobileSongList'),
                     swap: 'innerHTML'
                 });
@@ -1196,13 +1216,6 @@
                     songCoverFallback.style.display = 'block';
                 });
             }
-            
-            if (window.htmx) {
-                window.htmx.ajax('GET', `/api/music/ui/tbody/${window.globalActiveProfileId}/0`, {
-                    target: document.getElementById('mobileSongList'),
-                    swap: 'innerHTML'
-                });
-            }
         });
         
         // PWA Installation Handler
@@ -1362,7 +1375,6 @@
             margin: 0;
             font-size: 18px;
             font-weight: 600;
-            color: #333;
         }
 
         .mobile-playlist-item {
@@ -1386,7 +1398,6 @@
 
         .mobile-playlist-name {
             font-weight: 500;
-            color: #333;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;

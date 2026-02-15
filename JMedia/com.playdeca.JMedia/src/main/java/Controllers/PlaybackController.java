@@ -94,8 +94,17 @@ public class PlaybackController {
             PlaybackState st = getState(profileId);
             if (st.isPlaying() && st.getCurrentSongId() != null) {
                 double newTime = st.getCurrentTime() + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
-                if (newTime >= st.getDuration() && st.getDuration() > 0) {
-                    // Song ended naturally, advance to next
+                
+                int crossfadeDuration = st.getCrossfadeDuration();
+                double crossfadeThreshold = st.getDuration() - crossfadeDuration;
+                
+                // Check if we've reached the crossfade point (or end of song if no crossfade)
+                if (crossfadeDuration > 0 && newTime >= crossfadeThreshold && st.getDuration() > 0) {
+                    // Crossfade point reached - trigger next song early
+                    // The client will handle the actual audio fade overlap
+                    handleSongEnded(profileId);
+                } else if (newTime >= st.getDuration() && st.getDuration() > 0) {
+                    // Song ended naturally with no crossfade, advance to next
                     handleSongEnded(profileId);
                 } else {
                     st.setCurrentTime(newTime);
@@ -388,7 +397,16 @@ public class PlaybackController {
             return;
         }
 
-        Long nextSongId = playbackQueueController.advance(st, forward, profileId);
+        // Determine if this was an early skip (user skipped before 20% of song played)
+        boolean skippedEarly = false;
+        if (!fromSongEnd && st.getDuration() > 0) {
+            double percentPlayed = (st.getCurrentTime() / st.getDuration()) * 100.0;
+            if (percentPlayed < 20.0) {
+                skippedEarly = true;
+            }
+        }
+
+        Long nextSongId = playbackQueueController.advance(st, forward, skippedEarly, profileId);
 
         if (nextSongId == null) {
             stopPlayback(profileId);
@@ -594,6 +612,24 @@ public class PlaybackController {
         playbackQueueController.setSeconds(st, seconds, profileId);
         System.out.println("[PlaybackController] PlaybackState currentTime after setSeconds for profile " + profileId + ": " + st.getCurrentTime());
         updateState(profileId, st, true);
+    }
+
+    /**
+     * Sets the crossfade duration in seconds
+     */
+    @Transactional
+    public synchronized void setCrossfadeDuration(int seconds, Long profileId) {
+        PlaybackState st = getState(profileId);
+        st.setCrossfadeDuration(Math.max(0, Math.min(10, seconds)));
+        updateState(profileId, st, true);
+    }
+
+    /**
+     * Gets the crossfade duration in seconds
+     */
+    public synchronized int getCrossfadeDuration(Long profileId) {
+        PlaybackState st = getState(profileId);
+        return st.getCrossfadeDuration();
     }
 
     /**

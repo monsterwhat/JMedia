@@ -162,13 +162,13 @@
             if (!modal) return;
             
             // Close button
-            const closeBtn = modal.querySelector('.mobile-modal-close');
+            const closeBtn = modal.querySelector('.delete');
             if (closeBtn) {
                 closeBtn.addEventListener('click', this.hideProfileModal.bind(this));
             }
             
             // Overlay click to close
-            const overlay = modal.querySelector('.mobile-modal-overlay');
+            const overlay = modal.querySelector('.modal-background');
             if (overlay) {
                 overlay.addEventListener('click', this.hideProfileModal.bind(this));
             }
@@ -829,19 +829,17 @@
          */
         createPlaylistModal: function(options = {}) {
             const modal = document.createElement('div');
-            modal.className = 'mobile-modal';
+            modal.className = 'modal';
             modal.id = 'responsivePlaylistModal';
             
             modal.innerHTML = `
-                <div class="mobile-modal-overlay" onclick="window.ResponsiveModals.hidePlaylistModal()"></div>
-                <div class="mobile-modal-card">
-                    <header class="mobile-modal-header">
-                        <h3 class="mobile-modal-title">Create Playlist</h3>
-                        <button class="mobile-modal-close" onclick="window.ResponsiveModals.hidePlaylistModal()">
-                            <i class="pi pi-times"></i>
-                        </button>
+                <div class="modal-background" onclick="window.ResponsiveModals.hidePlaylistModal()"></div>
+                <div class="modal-card">
+                    <header class="modal-card-head">
+                        <p class="modal-card-title">Create Playlist</p>
+                        <button class="delete" aria-label="close" onclick="window.ResponsiveModals.hidePlaylistModal()"></button>
                     </header>
-                    <div class="mobile-modal-body">
+                    <div class="modal-card-body">
                         <div class="mobile-form-group">
                             <label class="mobile-label">Playlist Name</label>
                             <input type="text" 

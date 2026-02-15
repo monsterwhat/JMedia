@@ -13,7 +13,7 @@
                     <img src="/api/video/thumbnail/{entry.video.id}" 
                          alt="{entry.video.title ?: entry.video.seriesTitle}"
                          loading="lazy"
-                         onerror="this.src='https://picsum.photos/seed/video{entry.video.id}/80/120.jpg'">
+                         onerror="this.src='/images/placeholders/video-queue.jpg'">
                     <div class="video-queue-play-btn" onclick="playVideo({entry.video.id})">
                         <i class="pi pi-play"></i>
                     </div>

@@ -87,12 +87,15 @@ public class UpdateService {
             });
     }
     
-    @Scheduled(every = "24h") // Every 24 hours
+    // @Scheduled(every = "24h") // Every 24 hours - Temporarily disabled
     public void scheduledUpdateCheck() {
+        // Temporarily disabled to prevent compilation issues
+        /*
         Settings settings = settingsService.getOrCreateSettings();
         if (settings.getAutoUpdateEnabled()) {
             checkForUpdatesAsync();
         }
+        */
     }
     
     private List<GitHubRelease> fetchReleases() {

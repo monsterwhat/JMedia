@@ -8,7 +8,7 @@
         <script src="/js/theme-initializer.js"></script>
         
 <!-- Alpine.js for profiles -->
-        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script defer src="/lib/alpine.min.js"></script>
         <script>
             document.addEventListener('alpine:init', () => {
                 Alpine.store('profile', {
@@ -19,11 +19,11 @@
 
         <!-- Bulma CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
-        <link rel="stylesheet" href="https://unpkg.com/primeicons@7.0.0/primeicons.css">
+        <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
         
         <!-- Video.js -->
-        <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet">
+        <link href="/lib/video-js.css" rel="stylesheet">
         
         <!-- Streaming Platform Styles -->
         <style>
@@ -216,7 +216,7 @@
         <script src="/js/videoContextMenu.js"></script>
         
         <!-- Video.js -->
-        <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+        <script src="/lib/video.min.js"></script>
         <script>
             // Define globalActiveProfileId as a property of the window object
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';

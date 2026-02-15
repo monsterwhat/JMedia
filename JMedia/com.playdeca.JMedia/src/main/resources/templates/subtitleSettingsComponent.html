@@ -1,0 +1,604 @@
+<!-- Subtitle Settings Component -->
+<div class="subtitle-settings-overlay" id="subtitleSettingsOverlay" style="display: none;">
+    <div class="subtitle-settings-panel">
+        <div class="subtitle-settings-header">
+            <h3>Subtitle Settings</h3>
+            <button class="close-btn" onclick="toggleSubtitleSettings()">
+                <i class="pi pi-times"></i>
+            </button>
+        </div>
+        
+        <!-- Track Selection -->
+        <div class="setting-group">
+            <label for="subtitleTrack">Subtitle Track</label>
+            <select id="subtitleTrack" onchange="changeSubtitleTrack(this.value)">
+                <option value="off">Off</option>
+            </select>
+        </div>
+        
+        <!-- Language Preferences -->
+        <div class="setting-group">
+            <label for="subtitleLanguage">Preferred Language</label>
+            <select id="subtitleLanguage" onchange="changeSubtitleLanguage(this.value)">
+                <option value="en">English</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="it">Italiano</option>
+                <option value="pt">Português</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="zh">中文</option>
+                <option value="auto">Auto-detect</option>
+            </select>
+        </div>
+        
+        <!-- Subtitle Style -->
+        <div class="setting-group">
+            <label for="subtitleStyle">Style</label>
+            <select id="subtitleStyle" onchange="changeSubtitleStyle(this.value)">
+                <option value="default">Default</option>
+                <option value="modern">Modern</option>
+                <option value="classic">Classic</option>
+                <option value="minimal">Minimal</option>
+                <option value="high-contrast">High Contrast</option>
+            </select>
+        </div>
+        
+        <!-- Font Size -->
+        <div class="setting-group">
+            <label for="subtitleSize">Font Size</label>
+            <div class="slider-container">
+                <input type="range" id="subtitleSize" min="12" max="36" value="20" 
+                       oninput="changeSubtitleSize(this.value)">
+                <span id="subtitleSizeValue">20px</span>
+            </div>
+        </div>
+        
+        <!-- Font Color -->
+        <div class="setting-group">
+            <label for="subtitleColor">Text Color</label>
+            <div class="color-picker-container">
+                <input type="color" id="subtitleColor" value="#ffffff" 
+                       oninput="changeSubtitleColor(this.value)">
+                <button class="preset-color" data-color="#ffffff" onclick="changeSubtitleColor('#ffffff')"></button>
+                <button class="preset-color" data-color="#ffff00" onclick="changeSubtitleColor('#ffff00')"></button>
+                <button class="preset-color" data-color="#00ff00" onclick="changeSubtitleColor('#00ff00')"></button>
+                <button class="preset-color" data-color="#00ffff" onclick="changeSubtitleColor('#00ffff')"></button>
+            </div>
+        </div>
+        
+        <!-- Background Color -->
+        <div class="setting-group">
+            <label for="subtitleBgColor">Background</label>
+            <div class="color-picker-container">
+                <input type="color" id="subtitleBgColor" value="#000000" 
+                       oninput="changeSubtitleBackground(this.value)">
+                <button class="preset-bg" onclick="changeSubtitleBackground('transparent')">None</button>
+                <button class="preset-bg" onclick="changeSubtitleBackground('rgba(0,0,0,0.8)')">Black</button>
+                <button class="preset-bg" onclick="changeSubtitleBackground('rgba(0,0,0,0.5)')">Semi</button>
+            </div>
+        </div>
+        
+        <!-- Position -->
+        <div class="setting-group">
+            <label for="subtitlePosition">Position</label>
+            <select id="subtitlePosition" onchange="changeSubtitlePosition(this.value)">
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+                <option value="middle">Middle</option>
+            </select>
+        </div>
+        
+        <!-- Advanced Options -->
+        <div class="setting-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="enableSubtitles" checked onchange="toggleSubtitlesEnabled(this.checked)">
+                Enable Subtitles
+            </label>
+        </div>
+        
+        <div class="setting-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="preferSDH" onchange="togglePreferSDH(this.checked)">
+                Prefer SDH (Subtitles for Deaf/Hard-of-hearing)
+            </label>
+        </div>
+        
+        <div class="setting-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="preferForced" onchange="togglePreferForced(this.checked)">
+                Prefer Forced Subtitles
+            </label>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="setting-actions">
+            <button class="btn-secondary" onclick="resetSubtitleSettings()">Reset to Default</button>
+            <button class="btn-primary" onclick="saveSubtitleSettings()">Save Settings</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentSubtitleSettings = {
+    track: 'off',
+    language: 'en',
+    style: 'default',
+    size: 20,
+    color: '#ffffff',
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    position: 'bottom',
+    enabled: true,
+    preferSDH: false,
+    preferForced: false
+};
+
+// Initialize subtitle settings
+function initializeSubtitleSettings() {
+    loadSavedSettings();
+    updateSubtitleTrackOptions();
+    applySubtitleStyles();
+}
+
+// Load saved settings from localStorage or API
+function loadSavedSettings() {
+    const saved = localStorage.getItem('subtitleSettings');
+    if (saved) {
+        currentSubtitleSettings = { ...currentSubtitleSettings, ...JSON.parse(saved) };
+        
+        // Update UI
+        document.getElementById('subtitleTrack').value = currentSubtitleSettings.track;
+        document.getElementById('subtitleLanguage').value = currentSubtitleSettings.language;
+        document.getElementById('subtitleStyle').value = currentSubtitleSettings.style;
+        document.getElementById('subtitleSize').value = currentSubtitleSettings.size;
+        document.getElementById('subtitleSizeValue').textContent = currentSubtitleSettings.size + 'px';
+        document.getElementById('subtitleColor').value = currentSubtitleSettings.color;
+        document.getElementById('subtitlePosition').value = currentSubtitleSettings.position;
+        document.getElementById('enableSubtitles').checked = currentSubtitleSettings.enabled;
+        document.getElementById('preferSDH').checked = currentSubtitleSettings.preferSDH;
+        document.getElementById('preferForced').checked = currentSubtitleSettings.preferForced;
+    }
+}
+
+// Update subtitle track options based on available tracks
+async function updateSubtitleTrackOptions() {
+    try {
+        const userId = getCurrentUserId();
+        const response = await fetch(`/api/video/subtitles/${currentVideoId}`, {
+            headers: userId ? { 'X-User-ID': userId } : {}
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            const select = document.getElementById('subtitleTrack');
+            
+            // Clear existing options (except "Off")
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
+            }
+            
+            // Add available tracks
+            data.tracks.forEach(track => {
+                const option = document.createElement('option');
+                option.value = track.id;
+                option.textContent = track.displayName || track.languageName;
+                option.selected = track.isDefault;
+                select.appendChild(option);
+            });
+            
+            // Set current track
+            if (data.preferredTrackId) {
+                currentSubtitleSettings.track = data.preferredTrackId;
+                select.value = data.preferredTrackId;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading subtitle tracks:', error);
+    }
+}
+
+// Toggle subtitle settings panel
+function toggleSubtitleSettings() {
+    const overlay = document.getElementById('subtitleSettingsOverlay');
+    overlay.style.display = overlay.style.display === 'none' ? 'flex' : 'none';
+    
+    if (overlay.style.display === 'flex') {
+        updateSubtitleTrackOptions();
+    }
+}
+
+// Change subtitle track
+function changeSubtitleTrack(trackId) {
+    currentSubtitleSettings.track = trackId;
+    
+    if (player && trackId !== 'off') {
+        const tracks = player.textTracks();
+        for (let i = 0; i < tracks.length; i++) {
+            if (tracks[i].kind === 'subtitles') {
+                tracks[i].mode = (trackId === 'off') ? 'hidden' : 'showing';
+            }
+        }
+    } else if (player) {
+        const tracks = player.textTracks();
+        for (let i = 0; i < tracks.length; i++) {
+            if (tracks[i].kind === 'subtitles') {
+                tracks[i].mode = 'hidden';
+            }
+        }
+    }
+}
+
+// Change subtitle language preference
+function changeSubtitleLanguage(language) {
+    currentSubtitleSettings.language = language;
+    // Reorder tracks based on language preference
+    updateSubtitleTrackOptions();
+}
+
+// Apply subtitle styles to the player
+function applySubtitleStyles() {
+    if (!player) return;
+    
+    const style = document.createElement('style');
+    style.id = 'subtitle-custom-styles';
+    style.textContent = `
+        .video-js .vjs-text-track {
+            font-size: ${currentSubtitleSettings.size}px !important;
+            color: ${currentSubtitleSettings.color} !important;
+            background-color: ${currentSubtitleSettings.backgroundColor} !important;
+            ${currentSubtitleSettings.position === 'top' ? 'top: 10% !important; bottom: auto !important;' : ''}
+            ${currentSubtitleSettings.position === 'middle' ? 'top: 50% !important; bottom: auto !important; transform: translateY(-50%) !important;' : ''}
+        }
+        
+        ${currentSubtitleSettings.style === 'modern' ? `
+        .video-js .vjs-text-track {
+            \{font-family\}: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8) !important;
+            font-weight: 600 !important;
+        }
+        ` : ''}
+        
+        ${currentSubtitleSettings.style === 'classic' ? `
+        .video-js .vjs-text-track {
+            \{font-family\}: 'Times New Roman', serif !important;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.9) !important;
+        }
+        ` : ''}
+        
+        ${currentSubtitleSettings.style === 'high-contrast' ? `
+        .video-js .vjs-text-track {
+            \{background\}: black !important;
+            border: 2px solid white !important;
+            padding: 2px 4px !important;
+            font-weight: bold !important;
+        }
+        ` : ''}
+    `;
+    
+    // Remove existing custom styles
+    const existingStyle = document.getElementById('subtitle-custom-styles');
+    if (existingStyle) {
+        existingStyle.remove();
+    }
+    
+    document.head.appendChild(style);
+}
+
+// Style change handlers
+function changeSubtitleStyle(style) {
+    currentSubtitleSettings.style = style;
+    applySubtitleStyles();
+}
+
+function changeSubtitleSize(size) {
+    currentSubtitleSettings.size = parseInt(size);
+    document.getElementById('subtitleSizeValue').textContent = size + 'px';
+    applySubtitleStyles();
+}
+
+function changeSubtitleColor(color) {
+    currentSubtitleSettings.color = color;
+    document.getElementById('subtitleColor').value = color;
+    applySubtitleStyles();
+}
+
+function changeSubtitleBackground(color) {
+    currentSubtitleSettings.backgroundColor = color;
+    applySubtitleStyles();
+}
+
+function changeSubtitlePosition(position) {
+    currentSubtitleSettings.position = position;
+    applySubtitleStyles();
+}
+
+function toggleSubtitlesEnabled(enabled) {
+    currentSubtitleSettings.enabled = enabled;
+    changeSubtitleTrack(enabled ? currentSubtitleSettings.track : 'off');
+}
+
+function togglePreferSDH(prefer) {
+    currentSubtitleSettings.preferSDH = prefer;
+    // This would trigger a re-sorting of subtitle tracks
+    updateSubtitleTrackOptions();
+}
+
+function togglePreferForced(prefer) {
+    currentSubtitleSettings.preferForced = prefer;
+    // This would trigger a re-sorting of subtitle tracks
+    updateSubtitleTrackOptions();
+}
+
+// Reset settings to defaults
+function resetSubtitleSettings() {
+    currentSubtitleSettings = {
+        track: 'off',
+        language: 'en',
+        style: 'default',
+        size: 20,
+        color: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        position: 'bottom',
+        enabled: true,
+        preferSDH: false,
+        preferForced: false
+    };
+    
+    loadSavedSettings();
+    applySubtitleStyles();
+}
+
+// Save settings
+async function saveSubtitleSettings() {
+    // Save to localStorage
+    localStorage.setItem('subtitleSettings', JSON.stringify(currentSubtitleSettings));
+    
+    // Save to API if user is logged in
+    try {
+        const userId = getCurrentUserId();
+        if (userId) {
+            await fetch('/api/video/subtitles/preference', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    videoId: currentVideoId,
+                    preferredLanguage: currentSubtitleSettings.language,
+                    enableAutoSelection: true,
+                    preferSDHSubtitles: currentSubtitleSettings.preferSDH,
+                    preferForcedSubtitles: currentSubtitleSettings.preferForced,
+                    subtitleStyle: currentSubtitleSettings.style,
+                    subtitleAppearance: JSON.stringify({
+                        size: currentSubtitleSettings.size,
+                        color: currentSubtitleSettings.color,
+                        backgroundColor: currentSubtitleSettings.backgroundColor,
+                        position: currentSubtitleSettings.position
+                    })
+                })
+            });
+        }
+    } catch (error) {
+        console.error('Error saving subtitle preferences:', error);
+    }
+    
+    // Show success message
+    showMessage('Subtitle settings saved');
+    toggleSubtitleSettings();
+}
+
+// Show message helper
+function showMessage(message) {
+    // This would integrate with your existing message system
+    console.log(message);
+}
+
+// Add keyboard shortcut for subtitle settings (S key)
+document.addEventListener('keydown', function(e) {
+    if (e.key === 's' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        toggleSubtitleSettings();
+    }
+});
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', initializeSubtitleSettings);
+</script>
+
+<style>
+.subtitle-settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
+}
+
+.subtitle-settings-panel {
+    background: rgba(30, 30, 30, 0.95);
+    border-radius: 12px;
+    padding: 24px;
+    width: 90%;
+    max-width: 400px;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(20px);
+}
+
+.subtitle-settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.subtitle-settings-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+    color: #fff;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 1.2em;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.setting-group {
+    margin-bottom: 16px;
+}
+
+.setting-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+.setting-group select,
+.setting-group input[type="color"] {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    font-size: 0.9em;
+}
+
+.setting-group select:focus,
+.setting-group input:focus {
+    outline: none;
+    border-color: #3273dc;
+    box-shadow: 0 0 0 2px rgba(50, 115, 220, 0.2);
+}
+
+.slider-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.slider-container input[type="range"] {
+    flex: 1;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+}
+
+.slider-container span {
+    min-width: 50px;
+    text-align: right;
+    color: #ccc;
+}
+
+.color-picker-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.color-picker-container input[type="color"] {
+    width: 50px;
+    height: 35px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.preset-color,
+.preset-bg {
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.preset-color:hover,
+.preset-bg:hover {
+    transform: scale(1.1);
+}
+
+.preset-color[data-color="#ffffff"] { background: #ffffff; }
+.preset-color[data-color="#ffff00"] { background: #ffff00; }
+.preset-color[data-color="#00ff00"] { background: #00ff00; }
+.preset-color[data-color="#00ffff"] { background: #00ffff; }
+
+.preset-bg {
+    background: linear-gradient(45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(-45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #ccc 75%), 
+                linear-gradient(-45deg, transparent 75%, #ccc 75%);
+    background-size: 10px 10px;
+    background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin: 0;
+}
+
+.setting-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-primary,
+.btn-secondary {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #3273dc;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #2366c1;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+</style>
