@@ -45,21 +45,25 @@
 </div>
 
 <script>
-    let player = null;
-    let currentVideoId = null;
-
     // Initialize Video.js player
     function initializePlayer() {
-        currentVideoId = {item.id};
+        const videoId = {item.id};
+        console.log('Initializing player for video ID:', videoId);
         
-        player = videojs('videoPlayer', {
+        // Clean up existing player if it exists
+        if (videojs.getPlayers()['videoPlayer']) {
+            console.log('Disposing existing player instance');
+            videojs.getPlayers()['videoPlayer'].dispose();
+        }
+
+        // Initialize Video.js
+        const player = videojs('videoPlayer', {
             controls: true,
             autoplay: true,
             preload: 'auto',
             fluid: true,
             responsive: true,
             playbackRates: [0.5, 1, 1.25, 1.5, 2],
-            plugins: {},
             html5: {
                 vhs: {
                     overrideNative: true
@@ -67,15 +71,22 @@
             }
         });
 
+        // Set global reference for keyboard controls and cleanup
+        window.activeVideoPlayer = player;
+        window.currentVideoId = videoId;
+
         // Remove loading overlay when ready
         player.ready(() => {
+            console.log('Player ready');
             document.getElementById('loadingOverlay')?.classList.add('hidden');
             showMediaInfo();
-            loadSubtitleTracks();
+            loadSubtitleTracks(player, videoId);
         });
 
         // Handle errors
         player.on('error', () => {
+            const error = player.error();
+            console.error('Video.js Error:', error);
             document.getElementById('loadingOverlay')?.classList.add('hidden');
             document.getElementById('errorOverlay')?.classList.add('show');
         });
@@ -86,21 +97,15 @@
         });
 
         // Keyboard controls
+        document.removeEventListener('keydown', handleKeyPress);
         document.addEventListener('keydown', handleKeyPress);
-
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-            if (player) {
-                player.dispose();
-            }
-        });
     }
 
     // Load subtitle tracks for the current video
-    async function loadSubtitleTracks() {
+    async function loadSubtitleTracks(playerInstance, videoId) {
         try {
             const userId = getCurrentUserId();
-            const response = await fetch(`/api/video/subtitles/${currentVideoId}`, {
+            const response = await fetch(`/api/video/subtitles/${videoId}`, {
                 method: 'GET',
                 headers: userId ? { 'X-User-ID': userId } : {}
             });
@@ -114,9 +119,9 @@
             const tracks = data.tracks || [];
             
             // Clear existing text tracks
-            const existingTracks = player.textTracks();
+            const existingTracks = playerInstance.textTracks();
             for (let i = existingTracks.length - 1; i >= 0; i--) {
-                player.removeRemoteTextTrack(existingTracks[i]);
+                playerInstance.removeRemoteTextTrack(existingTracks[i]);
             }
             
             // Add subtitle tracks to player
@@ -129,12 +134,12 @@
                     default: track.isDefault || index === 0
                 };
                 
-                player.addRemoteTextTrack(trackElement, false);
+                playerInstance.addRemoteTextTrack(trackElement, false);
             });
             
             // Enable the subtitle menu if tracks are available
-            if (tracks.length > 0) {
-                player.controlBar.subtitlesButton.show();
+            if (tracks.length > 0 && playerInstance.controlBar.subtitlesButton) {
+                playerInstance.controlBar.subtitlesButton.show();
             }
             
         } catch (error) {
@@ -142,10 +147,9 @@
         }
     }
     
-    // Get current user ID (this should be available from the session/auth system)
+    // Get current user ID
     function getCurrentUserId() {
-        // This is a placeholder - implement based on your auth system
-        return window.currentUserId || null;
+        return window.currentUserId || localStorage.getItem('activeProfileId') || null;
     }
 
     // Show media info
@@ -161,8 +165,12 @@
 
     // Keyboard controls
     function handleKeyPress(e) {
+        const player = window.activeVideoPlayer;
         if (!player) return;
         
+        // Don't trigger if user is typing in an input
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
         switch(e.key) {
             case ' ':
                 e.preventDefault();
@@ -194,18 +202,22 @@
                 break;
             case 'c':
                 e.preventDefault();
-                toggleSubtitles();
+                toggleSubtitles(player);
                 break;
             case 'Escape':
                 e.preventDefault();
-                window.switchSection('details');
+                if (player.isFullscreen()) {
+                    player.exitFullscreen();
+                } else {
+                    window.switchSection('details', { videoId: window.currentVideoId });
+                }
                 break;
         }
     }
     
     // Toggle subtitle visibility
-    function toggleSubtitles() {
-        const tracks = player.textTracks();
+    function toggleSubtitles(playerInstance) {
+        const tracks = playerInstance.textTracks();
         let hasEnabledSubtitle = false;
         
         // Check if any subtitle track is enabled
@@ -239,11 +251,15 @@
     // Load subtitle components
     async function loadSubtitleComponents() {
         try {
+            // Check if containers already exist
+            if (document.getElementById('subtitleSettingsModal')) return;
+
             // Load subtitle track selector
             const selectorResponse = await fetch('/templates/subtitleTrackSelector.html');
             if (selectorResponse.ok) {
                 const selectorHtml = await selectorResponse.text();
-                document.getElementById('subtitleTrackSelectorContainer').innerHTML = selectorHtml;
+                const container = document.getElementById('subtitleTrackSelectorContainer');
+                if (container) container.innerHTML = selectorHtml;
             }
             
             // Load subtitle settings panel
@@ -251,6 +267,7 @@
             if (settingsResponse.ok) {
                 const settingsHtml = await settingsResponse.text();
                 const settingsDiv = document.createElement('div');
+                settingsDiv.id = 'subtitleSettingsModalContainer';
                 settingsDiv.innerHTML = settingsHtml;
                 document.body.appendChild(settingsDiv);
             }
@@ -259,11 +276,10 @@
         }
     }
 
-    // Initialize on load
-    document.addEventListener('DOMContentLoaded', function() {
-        initializePlayer();
-        loadSubtitleComponents();
-    });
+    // Execute initialization immediately
+    console.log('Playback fragment script executing');
+    initializePlayer();
+    loadSubtitleComponents();
 </script>
 
 <style>

@@ -132,7 +132,7 @@ public class VideoUiApi {
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit) {
 
-        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("Movie", page, limit);
+        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit);
         List<Models.Video> movies = paginatedVideos.videos;
         long totalItems = paginatedVideos.totalCount;
         
@@ -426,11 +426,11 @@ public class VideoUiApi {
             cardHtml.append("<h3 class='card-title'>").append(escapeHtml(title)).append("</h3>");
             cardHtml.append("<p class='card-meta'>");
             
-            if (item.releaseYear > 0) {
+            if (item.releaseYear != null && item.releaseYear > 0) {
                 cardHtml.append(item.releaseYear).append(" • ");
             }
-            if (item.duration > 0) {
-                cardHtml.append(formatDuration(item.duration.intValue()));
+            if (item.duration != null && item.duration > 0) {
+                cardHtml.append(formatDuration(item.getDurationSeconds()));
             }
             
             cardHtml.append("</p>");
@@ -478,11 +478,11 @@ public class VideoUiApi {
             html.append("<h3 class='card-title'>").append(escapeHtml(title)).append("</h3>");
             html.append("<p class='card-meta'>");
             
-            if (item.releaseYear > 0) {
+            if (item.releaseYear != null && item.releaseYear > 0) {
                 html.append(item.releaseYear).append(" • ");
             }
-            if (item.duration > 0) {
-                html.append(formatDuration(item.duration.intValue()));
+            if (item.duration != null && item.duration > 0) {
+                html.append(formatDuration(item.getDurationSeconds()));
             }
             
             html.append("</p>");
@@ -740,11 +740,11 @@ public class VideoUiApi {
                   .append("<h3 class='card-title'>").append(title).append("</h3>")
                   .append("<p class='card-meta'>");
             
-            if (item.releaseYear > 0) {
+            if (item.releaseYear != null && item.releaseYear > 0) {
                 html.append(item.releaseYear).append(" • ");
             }
-            if (item.duration > 0) {
-                html.append(formatDuration(item.duration.intValue())).append(" • ");
+            if (item.duration != null && item.duration > 0) {
+                html.append(formatDuration(item.getDurationSeconds())).append(" • ");
             }
             
             html.append("</p></div>");
@@ -802,7 +802,7 @@ public class VideoUiApi {
                         enriched.put("title", video.title);
                         enriched.put("seriesTitle", video.seriesTitle);
                         enriched.put("type", video.type);
-                        enriched.put("durationSeconds", video.duration);
+                        enriched.put("durationSeconds", video.getDurationSeconds());
                         enriched.put("seasonNumber", video.seasonNumber);
                         enriched.put("episodeNumber", video.episodeNumber);
                         enriched.put("episodeTitle", video.episodeTitle);
@@ -822,7 +822,7 @@ public class VideoUiApi {
                         if (video.releaseYear > 0) 
                             metaParts.add(String.valueOf(video.releaseYear));
                         if (video.duration > 0) 
-                            metaParts.add(formatDuration(video.duration.intValue()));
+                            metaParts.add(formatDuration(video.getDurationSeconds()));
                         if ("episode".equals(video.type) && video.seasonNumber > 0 && video.episodeNumber > 0)
                             metaParts.add("S" + video.seasonNumber + "E" + video.episodeNumber);
                         
@@ -876,7 +876,7 @@ public class VideoUiApi {
 
             // Try paginated movies first (simplest method)
             try {
-                VideoService.PaginatedVideos moviesPaginated = videoService.findPaginatedByMediaType("Movie", 1, 20);
+                VideoService.PaginatedVideos moviesPaginated = videoService.findPaginatedByMediaType("movie", 1, 20);
                 movies = moviesPaginated.videos;
                 System.out.println("DEBUG: Movies from paginated query: " + movies.size());
                 data.put("movies", movies);

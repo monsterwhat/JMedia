@@ -100,6 +100,14 @@ public class Video extends PanacheEntity {
     public Long size; // bytes
     public String quality; // "HD", "Full HD", "4K", "8K"
     public Long lastModified;
+
+    /**
+     * Helper for templates to get duration in seconds.
+     * @return Duration in seconds.
+     */
+    public Integer getDurationSeconds() {
+        return duration != null ? (int) (duration / 1000) : 0;
+    }
     
     // Media Paths
     public String thumbnailPath;

@@ -23,6 +23,9 @@ public class PlaybackViewAPI {
     @Inject
     private VideoStateService videoStateService;
 
+    @Inject
+    private Controllers.VideoController videoController;
+
     // Qute Templates
     @Inject @io.quarkus.qute.Location("playbackFragment.html")
     Template playbackFragment;
@@ -43,19 +46,26 @@ public class PlaybackViewAPI {
     public Response getPlaybackFragment(@QueryParam("videoId") Long videoId) {
         Models.Video item = null;
         
-        // Use provided videoId or current state
-        if (videoId != null) {
+        // Use provided videoId or current state from VideoController's memory
+        if (videoId != null && videoId > 0) {
             item = videoService.find(videoId);
         } else {
-            var currentState = videoStateService.getOrCreateState();
+            // Check VideoController's memory state first as it's the most up-to-date
+            var currentState = videoController.getState();
             if (currentState != null && currentState.getCurrentVideoId() != null) {
                 item = videoService.find(currentState.getCurrentVideoId());
+            } else {
+                // Fallback to database state via VideoStateService
+                var dbState = videoStateService.getOrCreateState();
+                if (dbState != null && dbState.getCurrentVideoId() != null) {
+                    item = videoService.find(dbState.getCurrentVideoId());
+                }
             }
         }
         
         if (item == null) {
             String errorHtml = "<div class='notification is-warning'>No video available for playback</div>";
-            return Response.status(Response.Status.BAD_REQUEST).entity(errorHtml).build();
+            return Response.status(Response.Status.OK).entity(errorHtml).build(); // Return 200 with error message
         }
         
         String html = playbackFragment
@@ -70,12 +80,17 @@ public class PlaybackViewAPI {
     @Path("/playback-view")
     @Blocking
     public Response getPlaybackView() {
-        // Get current video from state
-        var currentState = videoStateService.getOrCreateState();
+        // Get current video from VideoController's memory
+        var currentState = videoController.getState();
         if (currentState == null || currentState.getCurrentVideoId() == null) {
-            // No current video, return to carousels
-            String redirectHtml = "<script>window.location.href = '/video#carousels';</script>";
-            return Response.ok(redirectHtml).build();
+            // Fallback to database
+            var dbState = videoStateService.getOrCreateState();
+            if (dbState == null || dbState.getCurrentVideoId() == null) {
+                // No current video, return to carousels
+                String redirectHtml = "<script>window.location.href = '/video#carousels';</script>";
+                return Response.ok(redirectHtml).build();
+            }
+            currentState = dbState;
         }
         
         Models.Video item = videoService.find(currentState.getCurrentVideoId());
