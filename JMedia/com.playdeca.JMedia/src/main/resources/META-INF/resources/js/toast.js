@@ -19,7 +19,7 @@ class ToastSystem {
         if (!this.container) {
             this.container = document.createElement('div');
             this.container.id = 'toast-container';
-            this.container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10000;';
+            this.container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 99999;';
             document.body.appendChild(this.container);
         }
     }

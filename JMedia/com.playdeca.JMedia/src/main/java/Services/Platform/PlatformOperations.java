@@ -8,6 +8,7 @@ public interface PlatformOperations {
 // Installation status checks
     boolean isPackageMangerInstalled();
     boolean isPythonInstalled();
+    boolean isNodeInstalled();
     boolean isSpotdlInstalled();
     boolean isYtdlpInstalled();
     boolean isFFmpegInstalled();
@@ -16,6 +17,7 @@ public interface PlatformOperations {
 // Installation methods
     void installPackageManger(Long profileId) throws Exception;
     void installPython(Long profileId) throws Exception;
+    void installNode(Long profileId) throws Exception;
     void installSpotdl(Long profileId) throws Exception;
     void installYtdlp(Long profileId) throws Exception;
     void installFFmpeg(Long profileId) throws Exception;
@@ -23,6 +25,7 @@ public interface PlatformOperations {
     
 // Uninstallation methods
     void uninstallPython(Long profileId) throws Exception;
+    void uninstallNode(Long profileId) throws Exception;
     void uninstallSpotdl(Long profileId) throws Exception;
     void uninstallYtdlp(Long profileId) throws Exception;
     void uninstallFFmpeg(Long profileId) throws Exception;
@@ -32,13 +35,15 @@ public interface PlatformOperations {
     void executeCommand(String command, Long profileId) throws Exception;
     void executeCommandAsAdmin(String command, Long profileId) throws Exception;
     
-    // Python executable detection
+    // Executable detection
     String findPythonExecutable() throws Exception;
+    String findNodeExecutable() throws Exception;
     
 // Installation status messages
     String getPackageManagerName();
     String getPackageManagerInstallMessage();
     String getPythonInstallMessage();
+    String getNodeInstallMessage();
     String getSpotdlInstallMessage();
     String getYtdlpInstallMessage();
     String getFFmpegInstallMessage();
@@ -51,7 +56,12 @@ public interface PlatformOperations {
     String getYtdlpCommand();
     String getFFmpegCommand();
     String getWhisperCommand();
+    String getNodeCommand();
     
     // Execution method detection
     boolean shouldUseSpotdlDirectCommand();
+    
+    // Cookies management
+    String getCookiesStoragePath();
+    boolean validateCookiesFile(String cookiesPath);
 }

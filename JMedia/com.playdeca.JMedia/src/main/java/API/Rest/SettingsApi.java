@@ -18,14 +18,21 @@ import java.util.concurrent.CompletableFuture;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import Models.DTOs.ImportSettingsDTO;
 import Services.SettingsService;
+import Services.InstallationService;
+import Services.Platform.PlatformOperations;
+import Services.Platform.PlatformOperationsFactory;
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class SettingsApi {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(SettingsApi.class);
+    
     @Inject
     private SettingsController settingsController;
 
@@ -37,6 +44,12 @@ public class SettingsApi {
     
     @Inject
     private SettingsService settingsService;
+    
+    @Inject
+    private PlatformOperationsFactory platformOperationsFactory;
+    
+    @Inject
+    private InstallationService installationService;
 
     @Inject
     ManagedExecutor executor;
@@ -263,7 +276,26 @@ public class SettingsApi {
                 settings.setMaxAcceptableWaitTimeMs(sourcesDTO.getMaxAcceptableWaitTimeMs());
             }
             
-            if (sourcesDTO.getPrimarySource() != null && sourcesDTO.getSecondarySource() != null 
+            // YouTube advanced options
+            settings.setYoutubeForceIpv4(sourcesDTO.isYoutubeForceIpv4());
+            settings.setYoutubeForceIpv6(sourcesDTO.isYoutubeForceIpv6());
+            if (sourcesDTO.getYoutubeUserAgent() != null) {
+                settings.setYoutubeUserAgent(sourcesDTO.getYoutubeUserAgent());
+            }
+            if (sourcesDTO.getYoutubeExtractorArgs() != null) {
+                settings.setYoutubeExtractorArgs(sourcesDTO.getYoutubeExtractorArgs());
+            }
+            if (sourcesDTO.getYoutubeImpersonate() != null) {
+                settings.setYoutubeImpersonate(sourcesDTO.getYoutubeImpersonate());
+            }
+            if (sourcesDTO.getYoutubeUpdateChannel() != null) {
+                settings.setYoutubeUpdateChannel(sourcesDTO.getYoutubeUpdateChannel());
+            }
+            if (sourcesDTO.getYoutubePlayerClient() != null) {
+                settings.setYoutubePlayerClient(sourcesDTO.getYoutubePlayerClient());
+            }
+            
+            if (sourcesDTO.getPrimarySource() != null && sourcesDTO.getSecondarySource() != null
                 && sourcesDTO.getPrimarySource() != Settings.DownloadSource.NONE
                 && sourcesDTO.getSecondarySource() != Settings.DownloadSource.NONE
                 && sourcesDTO.getPrimarySource().equals(sourcesDTO.getSecondarySource())) {
@@ -286,7 +318,47 @@ public class SettingsApi {
             // Optional cleanup if needed
         }
     }
-
+    
+    // -----------------------------
+    // UPDATE YT-DLP
+    // -----------------------------
+    @POST
+    @Path("/{profileId}/update-yt-dlp")
+    @Transactional
+    public Response updateYtDlp(@PathParam("profileId") Long profileId, 
+                                 @QueryParam("channel") String channel) {
+        try {
+            Settings.YtDlpUpdateChannel updateChannel;
+            if (channel == null || channel.isBlank()) {
+                Settings settings = settingsController.getOrCreateSettings();
+                updateChannel = settings.getYoutubeUpdateChannel();
+            } else {
+                updateChannel = Settings.YtDlpUpdateChannel.valueOf(channel.toUpperCase());
+            }
+            
+            LOGGER.info("Updating yt-dlp to channel: {}", updateChannel.getChannelName());
+            
+            // Run update in background and return immediately
+            CompletableFuture.runAsync(() -> {
+                try {
+                    installationService.updateYtDlp(updateChannel);
+                    settingsController.addLog("yt-dlp updated to " + updateChannel.getChannelName() + " channel");
+                } catch (Exception e) {
+                    LOGGER.error("Failed to update yt-dlp", e);
+                    settingsController.addLog("Failed to update yt-dlp: " + e.getMessage(), e);
+                }
+            });
+            
+            return Response.ok(ApiResponse.success("yt-dlp update initiated to " + updateChannel.getChannelName() + " channel")).build();
+            
+        } catch (Exception e) {
+            settingsController.addLog("Failed to update yt-dlp: " + e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to update yt-dlp: " + e.getMessage()))
+                    .build();
+        }
+    }
+    
     // -----------------------------
     // GET MUSIC LIBRARY PATH
     // -----------------------------
@@ -537,9 +609,10 @@ public class SettingsApi {
             } catch (java.util.concurrent.TimeoutException e) {
                 // Return default status if timeout occurs
                 status = new ImportInstallationStatus(
-                    false, false, false, false, false, false,
+                    false, false, false, false, false, false, false,
                     "Status check timed out - Chocolatey may not be available",
                     "Status check timed out - Python may not be available",
+                    "Status check timed out - Node.js may not be available",
                     "Status check timed out - SpotDL status unknown",
                     "Status check timed out - yt-dlp status unknown",
                     "Status check timed out - FFmpeg status unknown",
@@ -548,9 +621,10 @@ public class SettingsApi {
             } catch (Exception e) {
                 // Return default status if any other error occurs
                 status = new ImportInstallationStatus(
-                    false, false, false, false, false, false,
+                    false, false, false, false, false, false, false,
                     "Status check failed: " + e.getMessage() + " - Chocolatey may not be available",
                     "Status check failed: " + e.getMessage() + " - Python may not be available",
+                    "Status check failed: " + e.getMessage() + " - Node.js may not be available",
                     "Status check failed: " + e.getMessage() + " - SpotDL status unknown",
                     "Status check failed: " + e.getMessage() + " - yt-dlp status unknown",
                     "Status check failed: " + e.getMessage() + " - FFmpeg status unknown",
@@ -614,42 +688,37 @@ public class SettingsApi {
     @Transactional
     public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request) {
         try {
-            // Check if running on Linux
-            if (!System.getProperty("os.name").toLowerCase().contains("linux")) {
-                return Response.status(Response.Status.FORBIDDEN)
-                        .entity(ApiResponse.error("Cookies upload is only supported on Linux systems"))
-                        .build();
-            }
-
+            LOGGER.info("Received cookies upload request for profile: {}", profileId);
+            
             String cookiesContent = request.get("cookiesContent");
             if (cookiesContent == null || cookiesContent.trim().isEmpty()) {
+                LOGGER.warn("No cookies content provided");
                 return Response.status(Response.Status.BAD_REQUEST)
                         .entity(ApiResponse.error("No cookies content provided"))
                         .build();
             }
 
-            // Get storage path from platform operations
-            Services.Platform.LinuxPlatformOperations linuxOps = new Services.Platform.LinuxPlatformOperations();
-            String cookiesStoragePath = linuxOps.getCookiesStoragePath();
+            PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+            String cookiesStoragePath = platformOps.getCookiesStoragePath();
+            LOGGER.info("Using cookies storage path: {}", cookiesStoragePath);
 
-            // Ensure directory exists
             java.nio.file.Path cookiesDir = java.nio.file.Paths.get(cookiesStoragePath).getParent();
             if (!java.nio.file.Files.exists(cookiesDir)) {
+                LOGGER.info("Creating cookies directory: {}", cookiesDir);
                 java.nio.file.Files.createDirectories(cookiesDir);
             }
 
-            // Save the file
             java.nio.file.Files.writeString(java.nio.file.Paths.get(cookiesStoragePath), cookiesContent);
+            LOGGER.info("Cookies file written, validating...");
 
-            // Validate cookies file
-            if (!linuxOps.validateCookiesFile(cookiesStoragePath)) {
+            if (!platformOps.validateCookiesFile(cookiesStoragePath)) {
+                LOGGER.warn("Cookies file validation failed");
                 java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(cookiesStoragePath));
                 return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("Invalid cookies file format"))
+                        .entity(ApiResponse.error("Invalid cookies file format. Make sure it's in Netscape format with tab-separated values."))
                         .build();
             }
 
-            // Set file permissions to 600 (read/write for owner only)
             java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesStoragePath);
             try {
                 java.nio.file.attribute.PosixFileAttributeView attrs = java.nio.file.Files.getFileAttributeView(cookiesPath, java.nio.file.attribute.PosixFileAttributeView.class);
@@ -657,20 +726,21 @@ public class SettingsApi {
                     attrs.setPermissions(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
                 }
             } catch (Exception e) {
-                // Continue even if permission setting fails
+                LOGGER.warn("Could not set secure permissions on cookies file: " + e.getMessage());
                 settingsController.addLog("Warning: Could not set secure permissions on cookies file: " + e.getMessage());
             }
 
-            // Update settings
             Settings settings = settingsController.getOrCreateSettings();
             settings.setCookiesFilePath(cookiesStoragePath);
             settingsService.save(settings);
 
+            LOGGER.info("Cookies file uploaded successfully");
             settingsController.addLog("Cookies file uploaded successfully: " + cookiesStoragePath);
 
             return Response.ok(ApiResponse.success("Cookies file uploaded successfully")).build();
 
         } catch (Exception e) {
+            LOGGER.error("Failed to upload cookies file: {}", e.getMessage(), e);
             settingsController.addLog("Failed to upload cookies file: " + e.getMessage(), e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Failed to upload cookies file: " + e.getMessage()))

@@ -214,6 +214,89 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public boolean isNodeInstalled() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("node", "--version");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    @Override
+    public void installNode(Long profileId) throws Exception {
+        broadcastInstallationProgress("node", 0, true, profileId);
+        broadcast("Installing Node.js using system package manager...\n", profileId);
+        
+        // NodeSource repository provides the latest versions
+        if (isCommandAvailable("apt")) {
+            // Add NodeSource repository for latest Node.js
+            broadcast("Adding NodeSource repository...\n", profileId);
+            try {
+                executeCommandAsRoot("curl -fsSL https://deb.nodesource.com/setup_22.x | bash -", profileId);
+                executeCommandAsRoot("apt install -y nodejs", profileId);
+            } catch (Exception e) {
+                // Fallback to system node
+                broadcast("NodeSource failed, trying system packages...\n", profileId);
+                executeCommandAsRoot("apt update && apt install -y nodejs npm", profileId);
+            }
+        } else if (isCommandAvailable("yum")) {
+            executeCommandAsRoot("yum install -y nodejs npm", profileId);
+        } else if (isCommandAvailable("dnf")) {
+            executeCommandAsRoot("dnf install -y nodejs npm", profileId);
+        } else if (isCommandAvailable("pacman")) {
+            executeCommandAsRoot("pacman -S --noconfirm nodejs npm", profileId);
+        } else if (isCommandAvailable("zypper")) {
+            executeCommandAsRoot("zypper install -y nodejs npm", profileId);
+        } else {
+            throw new Exception("No supported package manager found. Please install Node.js manually from nodejs.org");
+        }
+        
+        broadcastInstallationProgress("node", 100, false, profileId);
+        broadcast("Node.js installation completed\n", profileId);
+    }
+    
+    @Override
+    public String findNodeExecutable() throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("node", "--version");
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        if (process.waitFor() == 0) {
+            return "node";
+        }
+        return null;
+    }
+    
+    @Override
+    public String getNodeCommand() {
+        return "node";
+    }
+    
+    @Override
+    public String getNodeInstallMessage() {
+        return "Node.js not found. Install via package manager (apt/yum/dnf/pacman) or download from nodejs.org";
+    }
+    
+    @Override
+    public void uninstallNode(Long profileId) throws Exception {
+        broadcast("Uninstalling Node.js...\n", profileId);
+        if (isCommandAvailable("apt")) {
+            executeCommandAsRoot("apt remove -y nodejs npm", profileId);
+        } else if (isCommandAvailable("yum")) {
+            executeCommandAsRoot("yum remove -y nodejs npm", profileId);
+        } else if (isCommandAvailable("dnf")) {
+            executeCommandAsRoot("dnf remove -y nodejs npm", profileId);
+        } else if (isCommandAvailable("pacman")) {
+            executeCommandAsRoot("pacman -R --noconfirm nodejs npm", profileId);
+        } else if (isCommandAvailable("zypper")) {
+            executeCommandAsRoot("zypper remove -y nodejs npm", profileId);
+        }
+        broadcast("Node.js uninstallation completed\n", profileId);
+    }
+    
+    @Override
     public void installSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
         broadcast("Installing SpotDL...\n", profileId);

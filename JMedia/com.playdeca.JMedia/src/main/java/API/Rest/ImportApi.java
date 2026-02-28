@@ -146,6 +146,22 @@ public class ImportApi {
                     .build();
         }
     }
+    
+    @POST
+    @Path("/install/node/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response installNode(@PathParam("profileId") Long profileId) {
+        try {
+            importController.installNode(profileId);
+            return Response.ok(ApiResponse.success("Node.js installation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error installing Node.js: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error installing Node.js: " + e.getMessage()))
+                    .build();
+        }
+    }
 
     @POST
     @Path("/install/ffmpeg/{profileId}")
@@ -208,6 +224,22 @@ public class ImportApi {
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Error uninstalling Python: " + e.getMessage()))
+                    .build();
+        }
+    }
+    
+    @POST
+    @Path("/uninstall/node/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response uninstallNode(@PathParam("profileId") Long profileId) {
+        try {
+            importController.uninstallNode(profileId);
+            return Response.ok(ApiResponse.success("Node.js uninstallation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error uninstalling Node.js: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error uninstalling Node.js: " + e.getMessage()))
                     .build();
         }
     }

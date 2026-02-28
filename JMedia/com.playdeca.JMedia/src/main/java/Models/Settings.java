@@ -66,6 +66,19 @@ public class Settings extends PanacheEntity {
     private Integer bpmTolerance = 10;
     private String bpmToleranceOverrides = "{}"; // JSON map: {"electronic": 5, "jazz": 15}
     
+    // Metadata enrichment during reload
+    private Boolean enableMetadataEnrichment = true; // Enrich missing metadata from external APIs during reload
+    private Boolean enableBpmExtraction = true; // Extract BPM using FFmpeg during reload
+    
+    // YouTube (yt-dlp) advanced options
+    private Boolean youtubeForceIpv4 = false;
+    private Boolean youtubeForceIpv6 = false;
+    private String youtubeUserAgent;
+    private String youtubeExtractorArgs;
+    private String youtubeImpersonate;
+    private YtDlpUpdateChannel youtubeUpdateChannel = YtDlpUpdateChannel.STABLE;
+    private String youtubePlayerClient = ""; // android, tv, web_safari, web
+    
     public enum DownloadSource {
         NONE("None"),
         YOUTUBE("YouTube (yt-dlp)"), 
@@ -92,6 +105,20 @@ public class Settings extends PanacheEntity {
         }
         public String getDescription() {
             return description;
+        }
+    }
+    
+    public enum YtDlpUpdateChannel {
+        STABLE("stable"),
+        NIGHTLY("nightly"),
+        MASTER("master");
+        
+        private final String channelName;
+        YtDlpUpdateChannel(String channelName) {
+            this.channelName = channelName;
+        }
+        public String getChannelName() {
+            return channelName;
         }
     }
 
@@ -216,6 +243,22 @@ public class Settings extends PanacheEntity {
         this.bpmToleranceOverrides = bpmToleranceOverrides;
     }
     
+    public Boolean getEnableMetadataEnrichment() {
+        return enableMetadataEnrichment != null ? enableMetadataEnrichment : true;
+    }
+    
+    public void setEnableMetadataEnrichment(Boolean enableMetadataEnrichment) {
+        this.enableMetadataEnrichment = enableMetadataEnrichment;
+    }
+    
+    public Boolean getEnableBpmExtraction() {
+        return enableBpmExtraction != null ? enableBpmExtraction : true;
+    }
+    
+    public void setEnableBpmExtraction(Boolean enableBpmExtraction) {
+        this.enableBpmExtraction = enableBpmExtraction;
+    }
+    
     public Integer getBpmToleranceForGenre(String genre) {
         if (genre == null || genre.isBlank()) {
             return bpmTolerance != null ? bpmTolerance : 10;
@@ -247,5 +290,62 @@ public class Settings extends PanacheEntity {
         
         return bpmTolerance != null ? bpmTolerance : 10;
     }
-     
+    
+    // YouTube advanced options getters and setters
+    public Boolean getYoutubeForceIpv4() {
+        return youtubeForceIpv4 != null ? youtubeForceIpv4 : false;
+    }
+    
+    public void setYoutubeForceIpv4(Boolean youtubeForceIpv4) {
+        this.youtubeForceIpv4 = youtubeForceIpv4;
+    }
+    
+    public Boolean getYoutubeForceIpv6() {
+        return youtubeForceIpv6 != null ? youtubeForceIpv6 : false;
+    }
+    
+    public void setYoutubeForceIpv6(Boolean youtubeForceIpv6) {
+        this.youtubeForceIpv6 = youtubeForceIpv6;
+    }
+    
+    public String getYoutubeUserAgent() {
+        return youtubeUserAgent;
+    }
+    
+    public void setYoutubeUserAgent(String youtubeUserAgent) {
+        this.youtubeUserAgent = youtubeUserAgent;
+    }
+    
+    public String getYoutubeExtractorArgs() {
+        return youtubeExtractorArgs;
+    }
+    
+    public void setYoutubeExtractorArgs(String youtubeExtractorArgs) {
+        this.youtubeExtractorArgs = youtubeExtractorArgs;
+    }
+    
+    public String getYoutubeImpersonate() {
+        return youtubeImpersonate;
+    }
+    
+    public void setYoutubeImpersonate(String youtubeImpersonate) {
+        this.youtubeImpersonate = youtubeImpersonate;
+    }
+    
+    public YtDlpUpdateChannel getYoutubeUpdateChannel() {
+        return youtubeUpdateChannel != null ? youtubeUpdateChannel : YtDlpUpdateChannel.STABLE;
+    }
+    
+    public void setYoutubeUpdateChannel(YtDlpUpdateChannel youtubeUpdateChannel) {
+        this.youtubeUpdateChannel = youtubeUpdateChannel;
+    }
+    
+    public String getYoutubePlayerClient() {
+        return youtubePlayerClient;
+    }
+    
+    public void setYoutubePlayerClient(String youtubePlayerClient) {
+        this.youtubePlayerClient = youtubePlayerClient;
+    }
+      
 }

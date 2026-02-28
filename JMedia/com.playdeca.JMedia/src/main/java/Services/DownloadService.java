@@ -46,6 +46,8 @@ public class DownloadService {
 
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private volatile Process currentProcess;
+    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
 
     // Rate limit information class
     private static class RateLimitInfo {
@@ -152,6 +154,22 @@ public class DownloadService {
         }
     }
 
+    public void cancelDownload() {
+        isCancelled.set(true);
+        if (currentProcess != null && currentProcess.isAlive()) {
+            currentProcess.destroyForcibly();
+            LOGGER.info("Download process forcibly terminated");
+        }
+    }
+
+    public boolean isCancelled() {
+        return isCancelled.get();
+    }
+
+    public void resetCancelled() {
+        isCancelled.set(false);
+    }
+
     /**
      * Parses a line of download output and extracts relevant information.
      */
@@ -246,19 +264,55 @@ public class DownloadService {
                 command.add("--output");
                 command.add(downloadPath.resolve("%(title)s.%(ext)s").toString());
 
-                // Add cookies file for yt-dlp on Linux if configured
-                if (System.getProperty("os.name").toLowerCase().contains("linux")) {
-                    try {
-                        Settings settings = settingsService.getSettingsOrNull();
-                        if (settings != null && settings.getCookiesFilePath() != null && 
-                            Files.exists(Paths.get(settings.getCookiesFilePath()))) {
-                            command.add("--cookies");
-                            command.add(settings.getCookiesFilePath());
-                            broadcast("🍪 Using cookies file: " + settings.getCookiesFilePath() + "\n", profileId);
-                        }
-        } catch (Exception e) {
-            LOGGER.debug("Could not check cookies file: " + e.getMessage());
-        }
+                // Add cookies file for yt-dlp if configured
+                Settings settings = settingsService.getSettingsOrNull();
+                try {
+                    if (settings != null && settings.getCookiesFilePath() != null && 
+                        Files.exists(Paths.get(settings.getCookiesFilePath()))) {
+                        command.add("--cookies");
+                        command.add(settings.getCookiesFilePath());
+                        broadcast("🍪 Using cookies file: " + settings.getCookiesFilePath() + "\n", profileId);
+                    }
+                } catch (Exception e) {
+                    LOGGER.debug("Could not check cookies file: " + e.getMessage());
+                }
+                
+                // Add YouTube advanced options from settings
+                if (settings != null) {
+                    // Force IPv4
+                    if (settings.getYoutubeForceIpv4()) {
+                        command.add("-4");
+                    }
+                    
+                    // Force IPv6
+                    if (settings.getYoutubeForceIpv6()) {
+                        command.add("-6");
+                    }
+                    
+                    // User Agent
+                    if (settings.getYoutubeUserAgent() != null && !settings.getYoutubeUserAgent().isBlank()) {
+                        command.add("--user-agent");
+                        command.add(settings.getYoutubeUserAgent());
+                    }
+                    
+                    // Extractor Args
+                    if (settings.getYoutubeExtractorArgs() != null && !settings.getYoutubeExtractorArgs().isBlank()) {
+                        command.add("--extractor-args");
+                        command.add("youtube:" + settings.getYoutubeExtractorArgs());
+                    }
+                    
+                    // Browser Impersonation (requires Node.js, Deno, or Bun)
+                    if (settings.getYoutubeImpersonate() != null && !settings.getYoutubeImpersonate().isBlank()) {
+                        broadcast("⚠️ Browser impersonation requires Node.js, Deno, or Bun installed\n", profileId);
+                        command.add("--impersonate");
+                        command.add(settings.getYoutubeImpersonate());
+                    }
+                    
+                    // Player Client (android, tv, web_safari, web)
+                    if (settings.getYoutubePlayerClient() != null && !settings.getYoutubePlayerClient().isBlank()) {
+                        command.add("--player-client");
+                        command.add(settings.getYoutubePlayerClient());
+                    }
                 }
 
                 if (isSongSearchQuery(url)) {
@@ -446,10 +500,22 @@ public class DownloadService {
         boolean hasSecondary = strategy.hasFallback();
 
         while (shouldRetry && retryCount <= settings.getMaxRetryAttempts()) {
+            // Check if cancelled before starting new download
+            if (isCancelled.get()) {
+                broadcast("Import cancelled.\n", profileId);
+                break;
+            }
+            
             // Execute download with current source
             result = executeSingleDownload(url, format, downloadThreads, searchThreads, 
                                          downloadPath, profileId, currentSource);
 
+            // Check if cancelled after download
+            if (isCancelled.get()) {
+                broadcast("Import cancelled.\n", profileId);
+                break;
+            }
+            
             // Analyze result for rate limiting
             RateLimitInfo rateLimitInfo = analyzeRateLimit(result.getOutputCache().toString());
             
@@ -515,16 +581,22 @@ public class DownloadService {
         processBuilder.environment().put("PYTHONIOENCODING", "utf-8");
         processBuilder.redirectErrorStream(true);
 
-        Process process = processBuilder.start();
+        currentProcess = processBuilder.start();
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(currentProcess.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                if (isCancelled.get()) {
+                    broadcast("Download cancelled.\n", profileId);
+                    currentProcess.destroyForcibly();
+                    return result;
+                }
                 parseDownloadLine(line, result, profileId);
             }
         }
 
-        int exitCode = process.waitFor();
+        int exitCode = currentProcess.waitFor();
+        currentProcess = null;
         broadcast("Process finished with exit code: " + exitCode + "\n", profileId);
 
         return result;
@@ -565,18 +637,59 @@ public class DownloadService {
         command.add("--output");
         command.add(downloadPath.resolve("%(title)s.%(ext)s").toString());
 
-        // Add cookies file for yt-dlp on Linux if configured
-        if (System.getProperty("os.name").toLowerCase().contains("linux")) {
-            try {
-                Settings settings = settingsService.getSettingsOrNull();
-                if (settings != null && settings.getCookiesFilePath() != null && 
-                    Files.exists(Paths.get(settings.getCookiesFilePath()))) {
-                    command.add("--cookies");
-                    command.add(settings.getCookiesFilePath());
-                    broadcast("🍪 Using cookies file: " + settings.getCookiesFilePath() + "\n", profileId);
-                }
-            } catch (Exception e) {
-                LOGGER.debug("Could not check cookies file: " + e.getMessage());
+        // Add cookies file for yt-dlp if configured
+        Settings settings = settingsService.getSettingsOrNull();
+        try {
+            if (settings != null && settings.getCookiesFilePath() != null && 
+                Files.exists(Paths.get(settings.getCookiesFilePath()))) {
+                command.add("--cookies");
+                command.add(settings.getCookiesFilePath());
+                broadcast("🍪 Using cookies file: " + settings.getCookiesFilePath() + "\n", profileId);
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Could not check cookies file: " + e.getMessage());
+        }
+        
+        // Add YouTube advanced options from settings
+        if (settings != null) {
+            // Force IPv4
+            if (settings.getYoutubeForceIpv4()) {
+                command.add("-4");
+                broadcast("🌐 Forcing IPv4 connection\n", profileId);
+            }
+            
+            // Force IPv6
+            if (settings.getYoutubeForceIpv6()) {
+                command.add("-6");
+                broadcast("🌐 Forcing IPv6 connection\n", profileId);
+            }
+            
+            // User Agent
+            if (settings.getYoutubeUserAgent() != null && !settings.getYoutubeUserAgent().isBlank()) {
+                command.add("--user-agent");
+                command.add(settings.getYoutubeUserAgent());
+                broadcast("🔐 Using custom User-Agent\n", profileId);
+            }
+            
+            // Extractor Args
+            if (settings.getYoutubeExtractorArgs() != null && !settings.getYoutubeExtractorArgs().isBlank()) {
+                command.add("--extractor-args");
+                command.add("youtube:" + settings.getYoutubeExtractorArgs());
+                broadcast("⚙️ Using custom extractor args\n", profileId);
+            }
+            
+            // Browser Impersonation
+            if (settings.getYoutubeImpersonate() != null && !settings.getYoutubeImpersonate().isBlank()) {
+                command.add("--impersonate");
+                command.add(settings.getYoutubeImpersonate());
+                broadcast("🎭 Impersonating " + settings.getYoutubeImpersonate() + "\n", profileId);
+            }
+            
+            // Player Client (android, tv, web_safari, web)
+            if (settings.getYoutubePlayerClient() != null && !settings.getYoutubePlayerClient().isBlank()) {
+                command.add("--player-client");
+                command.add(settings.getYoutubePlayerClient());
+                broadcast("📱 Using player client: " + settings.getYoutubePlayerClient() + "\n", profileId);
             }
         }
 

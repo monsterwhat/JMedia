@@ -6,8 +6,9 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader; 
-import java.io.InputStreamReader; 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
@@ -243,6 +244,78 @@ public class WindowsPlatformOperations implements PlatformOperations {
             broadcastInstallationProgress("python", 100, false, profileId);
             broadcast("Python installation completed via manual installer\n", profileId);
         }
+    }
+    
+    @Override
+    public boolean isNodeInstalled() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("node", "--version");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    @Override
+    public void installNode(Long profileId) throws Exception {
+        broadcastInstallationProgress("node", 0, true, profileId);
+        broadcast("Installing Node.js via Chocolatey...\n", profileId);
+        
+        try {
+            String chocoInstallScript = "choco install nodejs -y";
+            executePowerShellCommandAsAdmin(chocoInstallScript, profileId);
+            broadcastInstallationProgress("node", 100, false, profileId);
+            broadcast("Node.js installation completed via Chocolatey\n", profileId);
+        } catch (Exception e) {
+            broadcast("Chocolatey not available, downloading Node.js installer...\n", profileId);
+            broadcastInstallationProgress("node", 25, true, profileId);
+            
+            String downloadScript = "Invoke-WebRequest -Uri 'https://nodejs.org/dist/v22.13.1/node-v22.13.1-x64.msi' -OutFile '$env:TEMP\\node-installer.msi'";
+            executePowerShellCommandAsAdmin(downloadScript, profileId);
+            
+            broadcastInstallationProgress("node", 50, true, profileId);
+            broadcast("Installing Node.js (this may take a few minutes)...\n", profileId);
+            
+            String installScript = "Start-Process msiexec.exe -ArgumentList '/i', '$env:TEMP\\node-installer.msi', '/quiet', '/norestart' -Wait -Verb RunAs";
+            executePowerShellCommandAsAdmin(installScript, profileId);
+            
+            executePowerShellCommandAsAdmin("Remove-Item '$env:TEMP\\node-installer.msi' -ErrorAction SilentlyContinue", profileId);
+            
+            broadcastInstallationProgress("node", 100, false, profileId);
+            broadcast("Node.js installation completed via manual installer\n", profileId);
+        }
+    }
+    
+    @Override
+    public String findNodeExecutable() throws Exception {
+        // Try node command
+        ProcessBuilder pb = new ProcessBuilder("node", "--version");
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        if (process.waitFor() == 0) {
+            return "node";
+        }
+        return null;
+    }
+    
+    @Override
+    public String getNodeCommand() {
+        return "node";
+    }
+    
+    @Override
+    public String getNodeInstallMessage() {
+        return "Node.js not found. Install via Chocolatey or download from nodejs.org";
+    }
+    
+    @Override
+    public void uninstallNode(Long profileId) throws Exception {
+        broadcast("Uninstalling Node.js via Chocolatey...\n", profileId);
+        String chocoUninstallScript = "choco uninstall nodejs -y";
+        executePowerShellCommandAsAdmin(chocoUninstallScript, profileId);
+        broadcast("Node.js uninstallation completed\n", profileId);
     }
     
 @Override
@@ -605,5 +678,46 @@ public class WindowsPlatformOperations implements PlatformOperations {
                 component, progress, isInstalling
         );
         importStatusSocket.broadcast(progressMessage, profileId);
+    }
+    
+    @Override
+    public String getCookiesStoragePath() {
+        String userHome = System.getProperty("user.home");
+        return userHome + File.separator + ".jmedia" + File.separator + "cookies.txt";
+    }
+    
+    @Override
+    public boolean validateCookiesFile(String cookiesPath) {
+        try {
+            java.nio.file.Path path = java.nio.file.Paths.get(cookiesPath);
+            if (!java.nio.file.Files.exists(path)) {
+                return false;
+            }
+            
+            String content = java.nio.file.Files.readString(path);
+            if (content == null || content.trim().isEmpty()) {
+                return false;
+            }
+            
+            String[] lines = content.split("\r?\n");
+            int validLines = 0;
+            
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+                
+                String[] parts = line.split("\t");
+                if (parts.length >= 7) {
+                    validLines++;
+                }
+            }
+            
+            return validLines > 0;
+        } catch (Exception e) {
+            LOGGER.debug("Error validating cookies file: " + e.getMessage());
+            return false;
+        }
     }
 }

@@ -538,6 +538,7 @@ function updateComponentStatus(component, isInstalled, button, statusElement) {
 }
 
 function updateInstallationStatusElements(status) {
+    console.log('[Settings] updateInstallationStatusElements called with:', status);
     // Update individual status elements
     const chocoStatusEl = document.getElementById('chocoStatus');
     const pythonStatusEl = document.getElementById('pythonStatus');
@@ -545,8 +546,11 @@ function updateInstallationStatusElements(status) {
     const spotdlStatusEl = document.getElementById('spotdlStatus');
     const whisperStatusEl = document.getElementById('whisperStatus');
     
+    console.log('[Settings] Found elements - choco:', !!chocoStatusEl, 'python:', !!pythonStatusEl, 'ffmpeg:', !!ffmpegStatusEl, 'spotdl:', !!spotdlStatusEl, 'whisper:', !!whisperStatusEl);
+    
     // If any elements are missing, don't proceed
     if (!chocoStatusEl || !pythonStatusEl || !ffmpegStatusEl || !spotdlStatusEl || !whisperStatusEl) {
+        console.log('[Settings] updateInstallationStatusElements returning early - elements not found');
         return;
     }
 
@@ -672,6 +676,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
         }
     });
+    
+    // Add click handler for Import Installation tab to load status when tab is shown
+    const importInstallationTab = document.querySelector('li[data-tab="import-installation"]');
+    if (importInstallationTab) {
+        importInstallationTab.addEventListener('click', () => {
+            // Use setTimeout to ensure the tab content is visible when we try to update
+            setTimeout(() => {
+                window.loadInstallationStatus();
+            }, 100);
+        });
+    }
+    
     document.getElementById("resetLibrary").onclick = () => showConfirmationDialog("Are you sure you want to reset the library path?", window.resetLibrary);
     document.getElementById("scanLibrary").onclick = () => window.scanLibrary();
     document.getElementById("clearSongs").onclick = () => showConfirmationDialog("Are you sure you want to clear all songs from the database? This action cannot be undone.", window.clearSongsDB);
@@ -1123,6 +1139,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Test if settings.js is loading properly
     // Load initial installation status with retry logic (same as setup.js)
     window.loadInstallationStatus = async function (retryCount = 0) {
+        console.log('[Settings] loadInstallationStatus called, retryCount:', retryCount);
         const maxRetries = 20;
         const baseDelay = 100; // 100ms
         // Check if globalActiveProfileId is available
@@ -1166,11 +1183,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
 
             const result = await response.json();
+            console.log('[Settings] Installation status response:', result);
             // Handle different response structures (same as setup.js)
             let status = null;
             if (result.success && result.data) {
                 // Standard API response format
                 status = result.data;
+                console.log('[Settings] Status from result.data:', status);
             } else if (result.data) {
                 // Direct data response (no success wrapper)
                 status = result.data;
@@ -1190,20 +1209,32 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             
             // Update installation status using the same approach as setup.js
+            console.log('[Settings] Calling updateInstallationStatusElements with:', status);
             updateInstallationStatusElements(status);
             // Use the already parsed 'result' instead of calling response.json() again
             if (result.data) {
                 const status = result.data;
+                // Get DOM elements fresh inside function (not from outer scope variables)
+                const installChocoBtnEl = document.getElementById("installChocoBtn");
+                const installPythonBtnEl = document.getElementById("installPythonBtn");
+                const installFfmpegBtnEl = document.getElementById("installFfmpegBtn");
+                const installSpotdlBtnEl = document.getElementById("installSpotdlBtn");
+                const installWhisperBtnEl = document.getElementById("installWhisperBtn");
+                const chocoStatusEl = document.getElementById("chocoStatus");
+                const pythonStatusEl = document.getElementById("pythonStatus");
+                const ffmpegStatusEl = document.getElementById("ffmpegStatus");
+                const spotdlStatusEl = document.getElementById("spotdlStatus");
+                const whisperStatusEl = document.getElementById("whisperStatus");
                 // Update Chocolatey status
-                updateComponentStatus('choco', status.chocoInstalled, installChocoBtn, chocoStatus);
+                updateComponentStatus('choco', status.chocoInstalled, installChocoBtnEl, chocoStatusEl);
                 // Update Python status
-                updateComponentStatus('python', status.pythonInstalled, installPythonBtn, pythonStatus);
+                updateComponentStatus('python', status.pythonInstalled, installPythonBtnEl, pythonStatusEl);
                 // Update FFmpeg status
-                updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtn, ffmpegStatus);
+                updateComponentStatus('ffmpeg', status.ffmpegInstalled, installFfmpegBtnEl, ffmpegStatusEl);
                 // Update SpotDL status
-                updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtn, spotdlStatus);
+                updateComponentStatus('spotdl', status.spotdlInstalled, installSpotdlBtnEl, spotdlStatusEl);
                 // Update Whisper status
-                updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtn, whisperStatus);
+                updateComponentStatus('whisper', status.whisperInstalled, installWhisperBtnEl, whisperStatusEl);
                 // Update missing components list and dialog visibility
                 updateMissingComponentsDialog(status);
             } else {

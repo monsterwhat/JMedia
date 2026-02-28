@@ -862,7 +862,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 1000;
+    z-index: 100000;
     display: flex;
     align-items: flex-end;
     opacity: 0;
@@ -1703,7 +1703,7 @@ body {
     border: 1px solid var(--mobile-border);
     border-radius: 12px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-    z-index: 1201;
+    z-index: 10001;
     padding: 8px 0;
     min-width: 240px;
     max-width: 80%;
@@ -1717,13 +1717,15 @@ body {
     opacity: 1;
     pointer-events: auto;
     transform: translate(-50%, -50%) scale(1);
+    display: block;
+    visibility: visible;
 }
 
 .mobile-context-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.3);
-    z-index: 1100;
+    z-index: 10000;
     pointer-events: auto;
     transition: opacity 0.25s ease, visibility 0.25s ease;
     opacity: 0;
@@ -1740,7 +1742,7 @@ body {
     margin: 0;
     padding: 0;
     position: relative;
-    z-index: 1202; /* Above backdrop */
+    z-index: 10002; /* Above backdrop */
 }
 
 .mobile-context-list li {
@@ -1784,10 +1786,15 @@ body {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     min-width: 200px;
     max-width: 300px;
+    z-index: 10001;
 }
 
 .mobile-context-menu.desktop-context[aria-hidden="false"] {
     transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    display: block;
+    visibility: visible;
 }
 
 /* Dark theme adjustments for context menu */

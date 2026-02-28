@@ -3,12 +3,14 @@ package Models.DTOs;
 public class ImportInstallationStatus {
     public boolean chocoInstalled;
     public boolean pythonInstalled;
+    public boolean nodeInstalled;
     public boolean spotdlInstalled;
     public boolean ytdlpInstalled;
     public boolean ffmpegInstalled;
     public boolean whisperInstalled;
     public String chocoMessage;
     public String pythonMessage;
+    public String nodeMessage;
     public String spotdlMessage;
     public String ytdlpMessage;
     public String ffmpegMessage;
@@ -17,6 +19,7 @@ public class ImportInstallationStatus {
     // Installation progress tracking (0-100)
     public int chocoInstallProgress;
     public int pythonInstallProgress;
+    public int nodeInstallProgress;
     public int spotdlInstallProgress;
     public int ytdlpInstallProgress;
     public int ffmpegInstallProgress;
@@ -25,12 +28,13 @@ public class ImportInstallationStatus {
     // Installation status tracking
     public boolean chocoInstalling;
     public boolean pythonInstalling;
+    public boolean nodeInstalling;
     public boolean spotdlInstalling;
     public boolean ytdlpInstalling;
     public boolean ffmpegInstalling;
     public boolean whisperInstalling;
 
-    public ImportInstallationStatus(boolean chocoInstalled, boolean pythonInstalled, boolean spotdlInstalled, boolean ytdlpInstalled, boolean ffmpegInstalled, boolean whisperInstalled, String chocoMessage, String pythonMessage, String spotdlMessage, String ytdlpMessage, String ffmpegMessage, String whisperMessage) {
+    public ImportInstallationStatus(boolean chocoInstalled, boolean pythonInstalled, boolean nodeInstalled, boolean spotdlInstalled, boolean ytdlpInstalled, boolean ffmpegInstalled, boolean whisperInstalled, String chocoMessage, String pythonMessage, String nodeMessage, String spotdlMessage, String ytdlpMessage, String ffmpegMessage, String whisperMessage) {
         this.chocoInstalled = chocoInstalled;
         this.pythonInstalled = pythonInstalled;
         this.spotdlInstalled = spotdlInstalled;
@@ -39,6 +43,7 @@ public class ImportInstallationStatus {
         this.whisperInstalled = whisperInstalled;
         this.chocoMessage = chocoMessage;
         this.pythonMessage = pythonMessage;
+        this.nodeMessage = nodeMessage;
         this.spotdlMessage = spotdlMessage;
         this.ytdlpMessage = ytdlpMessage;
         this.ffmpegMessage = ffmpegMessage;
@@ -47,6 +52,7 @@ public class ImportInstallationStatus {
         // Initialize progress and installation status
         this.chocoInstallProgress = chocoInstalled ? 100 : 0;
         this.pythonInstallProgress = pythonInstalled ? 100 : 0;
+        this.nodeInstallProgress = nodeInstalled ? 100 : 0;
         this.spotdlInstallProgress = spotdlInstalled ? 100 : 0;
         this.ytdlpInstallProgress = ytdlpInstalled ? 100 : 0;
         this.ffmpegInstallProgress = ffmpegInstalled ? 100 : 0;
@@ -54,6 +60,7 @@ public class ImportInstallationStatus {
         
         this.chocoInstalling = false;
         this.pythonInstalling = false;
+        this.nodeInstalling = false;
         this.spotdlInstalling = false;
         this.ytdlpInstalling = false;
         this.ffmpegInstalling = false;

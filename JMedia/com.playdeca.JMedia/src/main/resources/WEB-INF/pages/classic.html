@@ -406,7 +406,7 @@
                             </div>
                             <div>
                                 <p id="songTitle" class="has-text-weight-semibold is-size-6">Loading...</p>
-                                <p id="songArtist" class="has-text-success is-size-7">Unknown Artist</p>
+                                <p id="songArtist" class="has-text-success is-size-7" style="cursor: pointer;" onclick="filterByArtist()">Unknown Artist</p>
                             </div>
                         </div>
                     </div>
@@ -437,7 +437,7 @@
                                 <p id="songTitleMobile" class="has-text-weight-semibold is-size-6 marquee">Loading...</p>
                             </div>
                             <div style="overflow: hidden;">
-                                <p id="songArtistMobile" class="has-text-success is-size-7 marquee">Unknown Artist</p>
+                                <p id="songArtistMobile" class="has-text-success is-size-7 marquee" style="cursor: pointer;" onclick="filterByArtist()">Unknown Artist</p>
                             </div>
                         </div>
                     </div>
@@ -622,6 +622,10 @@ if (newUrl !== targetUrl) {
         <div id="customContextMenu" class="context-menu" style="display: none;">
             <div class="context-menu-item" id="editSongMenuItem" data-action="edit-song" data-disabled="true">Edit Song</div>
             <div class="context-menu-item" id="queueSongMenuItem" data-action="queue-song">Queue Song</div>
+            <div class="context-menu-item" id="queueSimilarSongsMenuItem" data-action="queue-similar-songs">
+                <span class="icon is-small"><i class="pi pi-sync"></i></span>
+                <span>Queue Similar Songs</span>
+            </div>
             <div class="context-menu-item has-submenu" id="addToPlaylistMenuItem" data-action="add-to-playlist">
                 Add to Playlist
                 <div class="submenu" id="playlistSubMenu" style="display: none;">

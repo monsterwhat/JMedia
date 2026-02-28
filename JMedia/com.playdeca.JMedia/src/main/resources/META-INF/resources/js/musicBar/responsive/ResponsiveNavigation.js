@@ -45,7 +45,6 @@
             this.setupElements();
             this.setupEventListeners();
             this.loadInitialState();
-            window.Helpers.log('ResponsiveNavigation initialized');
         },
         
         /**

@@ -12,7 +12,15 @@ let advancedConfig = {
     switchThreshold: 3,
     enableSmartRateLimitHandling: true,
     fallbackOnLongWait: true,
-    maxAcceptableWaitTime: 60
+    maxAcceptableWaitTime: 60,
+    // YouTube advanced options
+    youtubeForceIpv4: false,
+    youtubeForceIpv6: false,
+    youtubeUserAgent: '',
+    youtubeExtractorArgs: '',
+    youtubeImpersonate: '',
+    youtubeUpdateChannel: 'STABLE',
+    youtubePlayerClient: ''
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const spotdlOutputTextarea = document.getElementById('spotdlOutput');
     const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
     const downloadBtn = document.getElementById('downloadBtn');
+    const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
     const downloadFolderInput = document.getElementById('downloadFolder');
     const playlistSelect = document.getElementById('playlistSelect');
     const newPlaylistNameInput = document.getElementById('newPlaylistName');
@@ -41,6 +50,13 @@ document.addEventListener('DOMContentLoaded', () => {
             spotdlWarningMessage.textContent = '';
             spotdlWarningMessage.classList.add('is-hidden');
         }
+    };
+
+    // Function to reset the import form to a clean state
+    const resetImportForm = () => {
+        if (spotdlUrlInput) spotdlUrlInput.value = '';
+        if (playlistSelect) playlistSelect.value = '';
+        if (newPlaylistNameInput) newPlaylistNameInput.value = '';
     };
 
     // Function to establish WebSocket connection
@@ -86,11 +102,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else if (event.data === "[IMPORT_IN_PROGRESS]") {
                 if (downloadBtn) downloadBtn.disabled = true;
+                if (cancelDownloadBtn) cancelDownloadBtn.disabled = false;
                 if (spotdlOutputTextarea) spotdlOutputTextarea.value += 'An import is already in progress. Displaying current output...\n';
             } else if (event.data === "[IMPORT_FINISHED]") {
                 if (downloadBtn) downloadBtn.disabled = false;
+                if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+                resetImportForm();
                 if (spotdlOutputTextarea) spotdlOutputTextarea.value += 'Import process finished.\n';
-                // Optionally, show a success/failure message based on the last few lines of output
+            } else if (event.data && event.data.includes("cancelled")) {
+                if (downloadBtn) downloadBtn.disabled = false;
+                if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+                resetImportForm();
             } else {
                 if (spotdlOutputTextarea) {
                     spotdlOutputTextarea.value += event.data; // Append raw data, server sends newlines
@@ -107,6 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 spotdlOutputTextarea.value += '\nWebSocket disconnected.\n';
             }
             if (downloadBtn) downloadBtn.disabled = false; // Re-enable button on close
+            if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
             if (!event.wasClean) {
                 displayWarning('WebSocket connection closed unexpectedly. Please check server logs.');
             }
@@ -115,7 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
         importWebSocket.onerror = (error) => {
             console.error('WebSocket error for import status:', error);
             displayWarning('WebSocket error. Check console for details.');
-            if (downloadBtn) downloadBtn.disabled = false; // Re-enable button on error
+            if (downloadBtn) downloadBtn.disabled = false;
+            if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
         };
     };
 
@@ -182,11 +206,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         switchThreshold: apiResponse.data.switchThreshold || 3,
                         enableSmartRateLimitHandling: apiResponse.data.enableSmartRateLimitHandling !== false,
                         fallbackOnLongWait: apiResponse.data.fallbackOnLongWait !== false,
-                        maxAcceptableWaitTime: (apiResponse.data.maxAcceptableWaitTimeMs || 3600000) / 60000
+                        maxAcceptableWaitTime: (apiResponse.data.maxAcceptableWaitTimeMs || 3600000) / 60000,
+                        // YouTube advanced options
+                        youtubeForceIpv4: apiResponse.data.youtubeForceIpv4 || false,
+                        youtubeForceIpv6: apiResponse.data.youtubeForceIpv6 || false,
+                        youtubeUserAgent: apiResponse.data.youtubeUserAgent || '',
+                        youtubeExtractorArgs: apiResponse.data.youtubeExtractorArgs || '',
+                        youtubeImpersonate: apiResponse.data.youtubeImpersonate || '',
+                        youtubeUpdateChannel: apiResponse.data.youtubeUpdateChannel || 'STABLE',
+                        youtubePlayerClient: apiResponse.data.youtubePlayerClient || ''
                     });
                     
                     // Update UI elements
                     updateAdvancedConfigUI();
+                    // Load yt-dlp version
+                    loadYtDlpVersion();
                 }
             }
         } catch (error) {
@@ -211,6 +245,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('switchThreshold').value = advancedConfig.switchThreshold;
         document.getElementById('maxAcceptableWaitTime').value = advancedConfig.maxAcceptableWaitTime;
         
+        // YouTube advanced options
+        document.getElementById('youtubeForceIpv4').checked = advancedConfig.youtubeForceIpv4;
+        document.getElementById('youtubeForceIpv6').checked = advancedConfig.youtubeForceIpv6;
+        document.getElementById('youtubeUserAgent').value = advancedConfig.youtubeUserAgent || '';
+        document.getElementById('youtubeExtractorArgs').value = advancedConfig.youtubeExtractorArgs || '';
+        document.getElementById('youtubeImpersonate').value = advancedConfig.youtubeImpersonate || '';
+        document.getElementById('youtubeUpdateChannel').value = advancedConfig.youtubeUpdateChannel || 'STABLE';
+        document.getElementById('youtubePlayerClient').value = advancedConfig.youtubePlayerClient || '';
+        
         updateSecondarySourceOptions();
     };
 
@@ -229,6 +272,93 @@ document.addEventListener('DOMContentLoaded', () => {
             // Primary is NONE - show both options
             secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
             secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
+        }
+    };
+    
+    // Load yt-dlp version
+    const loadYtDlpVersion = async () => {
+        try {
+            const response = await fetch(`/api/settings/${globalActiveProfileId}/install-status`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.data && data.data.ytdlpMessage) {
+                    // Extract version from message (format: "yt-dlp found" or "yt-dlp X.Y.Z")
+                    const msg = data.data.ytdlpMessage;
+                    const versionMatch = msg.match(/yt-dlp[^\d]*(\d+\.\d+(\.\d+)?)/i);
+                    const versionElement = document.getElementById('ytdlpVersion');
+                    if (versionElement) {
+                        versionElement.textContent = versionMatch ? versionMatch[1] : (msg.includes('found') ? 'Installed' : msg);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error loading yt-dlp version:', error);
+            const versionElement = document.getElementById('ytdlpVersion');
+            if (versionElement) {
+                versionElement.textContent = 'Unknown';
+            }
+        }
+    };
+    
+    // Update yt-dlp
+    window.updateYtDlp = async () => {
+        const updateBtn = document.getElementById('updateYtDlpBtn');
+        const statusElement = document.getElementById('ytdlpUpdateStatus');
+        
+        if (!updateBtn || !statusElement) {
+            console.error('Update button or status element not found');
+            return;
+        }
+        
+        const channel = document.getElementById('youtubeUpdateChannel').value;
+        
+        // Disable button and show loading
+        updateBtn.disabled = true;
+        updateBtn.classList.add('is-loading');
+        statusElement.textContent = 'Updating...';
+        statusElement.className = 'is-size-7 has-text-info';
+        
+        try {
+            const response = await fetch(`/api/settings/${globalActiveProfileId}/update-yt-dlp?channel=${channel}`, {
+                method: 'POST'
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                statusElement.textContent = 'Update initiated! Reloading version in 5s...';
+                statusElement.className = 'is-size-7 has-text-success';
+                
+                // Reload version after delay
+                setTimeout(() => {
+                    loadYtDlpVersion();
+                    updateBtn.disabled = false;
+                    updateBtn.classList.remove('is-loading');
+                }, 5000);
+                
+                showToast('yt-dlp update initiated: ' + data.message, 'success');
+            } else {
+                statusElement.textContent = 'Update failed: ' + (data.error || 'Unknown error');
+                statusElement.className = 'is-size-7 has-text-danger';
+                updateBtn.disabled = false;
+                updateBtn.classList.remove('is-loading');
+                showToast('Failed to update yt-dlp: ' + (data.error || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            console.error('Error updating yt-dlp:', error);
+            statusElement.textContent = 'Error: ' + error.message;
+            statusElement.className = 'is-size-7 has-text-danger';
+            updateBtn.disabled = false;
+            updateBtn.classList.remove('is-loading');
+            showToast('Error updating yt-dlp', 'error');
+        }
+    };
+    
+    // Setup update button listener
+    const setupUpdateButton = () => {
+        const updateBtn = document.getElementById('updateYtDlpBtn');
+        if (updateBtn) {
+            updateBtn.addEventListener('click', window.updateYtDlp);
         }
     };
 
@@ -256,7 +386,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 switchStrategy: document.getElementById('switchStrategy').value,
                 switchThreshold: parseInt(document.getElementById('switchThreshold').value),
                 fallbackOnLongWait: document.getElementById('fallbackOnLongWait').checked,
-                maxAcceptableWaitTimeMs: parseInt(document.getElementById('maxAcceptableWaitTime').value) * 60000
+                maxAcceptableWaitTimeMs: parseInt(document.getElementById('maxAcceptableWaitTime').value) * 60000,
+                // YouTube advanced options
+                youtubeForceIpv4: document.getElementById('youtubeForceIpv4').checked,
+                youtubeForceIpv6: document.getElementById('youtubeForceIpv6').checked,
+                youtubeUserAgent: document.getElementById('youtubeUserAgent').value,
+                youtubeExtractorArgs: document.getElementById('youtubeExtractorArgs').value,
+                youtubeImpersonate: document.getElementById('youtubeImpersonate').value,
+                youtubeUpdateChannel: document.getElementById('youtubeUpdateChannel').value,
+                youtubePlayerClient: document.getElementById('youtubePlayerClient').value
             };
             
             console.log('[Import] Sending config:', configData);
@@ -425,6 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchAndPopulatePlaylists();
         fetchImportSettings();
         loadAdvancedConfiguration();
+        setupUpdateButton();
 
         // Fetch default music library path and set default download folder
         const setDefaultDownloadFolder = async () => {
@@ -457,6 +596,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setDefaultDownloadFolder(); // Call on page load
         connectWebSocket(); // Connect WebSocket only if import elements are present
+
+        // Initialize cancel button state
+        if (cancelDownloadBtn) {
+            cancelDownloadBtn.disabled = true;
+        }
 
         if (downloadBtn) {
             downloadBtn.addEventListener('click', () => {
@@ -494,6 +638,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Clear output and disable button immediately
                 spotdlOutputTextarea.value = '';
                 downloadBtn.disabled = true;
+                
+                // Enable cancel button immediately using setTimeout to ensure UI updates
+                setTimeout(() => {
+                    const cancelBtnDirect = document.getElementById('cancelDownloadBtn');
+                    if (cancelBtnDirect) {
+                        cancelBtnDirect.disabled = false;
+                    }
+                }, 10);
 
                 if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
                     const message = {
@@ -505,11 +657,31 @@ document.addEventListener('DOMContentLoaded', () => {
                         downloadPath,
                         playlistName: playlistNameToSend
                     };
-                    importWebSocket.send(JSON.stringify(message));
+                    
+                    // Send message in next tick to allow UI to update first
+                    setTimeout(() => {
+                        importWebSocket.send(JSON.stringify(message));
+                    }, 50);
                 } else {
                     displayWarning('WebSocket is not connected. Attempting to reconnect...');
                     connectWebSocket(); // Try to reconnect
                     downloadBtn.disabled = false;
+                    if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+                }
+            });
+        }
+
+        // Cancel button handler
+        if (cancelDownloadBtn) {
+            cancelDownloadBtn.addEventListener('click', () => {
+                if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
+                    const message = {
+                        type: 'cancel-import'
+                    };
+                    importWebSocket.send(JSON.stringify(message));
+                    cancelDownloadBtn.disabled = true;
+                } else {
+                    displayWarning('WebSocket is not connected. Cannot cancel import.');
                 }
             });
         }

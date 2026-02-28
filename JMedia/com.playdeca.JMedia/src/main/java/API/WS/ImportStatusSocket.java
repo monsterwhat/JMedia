@@ -117,6 +117,8 @@ public class ImportStatusSocket {
                         request.queueAfterDownload,
                         profileId
                 );
+            } else if ("cancel-import".equals(request.type)) {
+                importController.cancelImport();
             }
         } catch (IOException e) {
             System.err.println("[ERROR] ImportStatusSocket: Failed to parse import request: " + e.getMessage());

@@ -535,7 +535,14 @@
                                             </div>
                                         </div>
                                     </div>
-
+                                    <div class="mt-3">
+                                        <button class="button is-small is-info" onclick="window.refreshInstallationStatus()">
+                                            <span class="icon">
+                                                <i class="pi pi-refresh"></i>
+                                            </span>
+                                            Refresh Status
+                                        </button>
+                                    </div>
                                     <!-- Chocolatey Installation -->
                                     <div class="field mb-3">
                                         <div class="level is-mobile">
@@ -733,8 +740,8 @@
                                             </span>
                                         </button>
                                     </div>
-                                    </div>
                                 </div>
+                            </div>
                             </div>
 
                             <!-- Device Sync Tab -->
@@ -1097,11 +1104,15 @@
         <script>
             // Load installation status after DOM is fully loaded and globalActiveProfileId is initialized
             document.addEventListener('DOMContentLoaded', () => {
+                console.log('[Settings HTML] DOMContentLoaded fired');
                 // Load installation status once after DOM is ready
                 if (typeof loadInstallationStatus === 'function') {
+                    console.log('[Settings HTML] loadInstallationStatus is a function, calling it');
                     setTimeout(() => {
                         loadInstallationStatus();
                     }, 100);
+                } else {
+                    console.error('[Settings HTML] loadInstallationStatus is NOT a function! Type:', typeof loadInstallationStatus);
                 }
             });
 

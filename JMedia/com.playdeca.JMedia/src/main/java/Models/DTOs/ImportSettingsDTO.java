@@ -26,6 +26,15 @@ public class ImportSettingsDTO {
     private boolean fallbackOnLongWait;
     private long maxAcceptableWaitTimeMs;
     
+    // YouTube (yt-dlp) advanced options
+    private boolean youtubeForceIpv4;
+    private boolean youtubeForceIpv6;
+    private String youtubeUserAgent;
+    private String youtubeExtractorArgs;
+    private String youtubeImpersonate;
+    private Settings.YtDlpUpdateChannel youtubeUpdateChannel;
+    private String youtubePlayerClient;
+    
     // Getters and setters for Lombok issues
     public Settings.DownloadSource getPrimarySource() { return primarySource; }
     public void setPrimarySource(Settings.DownloadSource primarySource) { this.primarySource = primarySource; }
@@ -69,4 +78,26 @@ public class ImportSettingsDTO {
     
     public int getSearchThreads() { return searchThreads; }
     public void setSearchThreads(int searchThreads) { this.searchThreads = searchThreads; }
+    
+    // YouTube advanced options getters and setters
+    public boolean isYoutubeForceIpv4() { return youtubeForceIpv4; }
+    public void setYoutubeForceIpv4(boolean youtubeForceIpv4) { this.youtubeForceIpv4 = youtubeForceIpv4; }
+    
+    public boolean isYoutubeForceIpv6() { return youtubeForceIpv6; }
+    public void setYoutubeForceIpv6(boolean youtubeForceIpv6) { this.youtubeForceIpv6 = youtubeForceIpv6; }
+    
+    public String getYoutubeUserAgent() { return youtubeUserAgent; }
+    public void setYoutubeUserAgent(String youtubeUserAgent) { this.youtubeUserAgent = youtubeUserAgent; }
+    
+    public String getYoutubeExtractorArgs() { return youtubeExtractorArgs; }
+    public void setYoutubeExtractorArgs(String youtubeExtractorArgs) { this.youtubeExtractorArgs = youtubeExtractorArgs; }
+    
+    public String getYoutubeImpersonate() { return youtubeImpersonate; }
+    public void setYoutubeImpersonate(String youtubeImpersonate) { this.youtubeImpersonate = youtubeImpersonate; }
+    
+    public Settings.YtDlpUpdateChannel getYoutubeUpdateChannel() { return youtubeUpdateChannel; }
+    public void setYoutubeUpdateChannel(Settings.YtDlpUpdateChannel youtubeUpdateChannel) { this.youtubeUpdateChannel = youtubeUpdateChannel; }
+    
+    public String getYoutubePlayerClient() { return youtubePlayerClient; }
+    public void setYoutubePlayerClient(String youtubePlayerClient) { this.youtubePlayerClient = youtubePlayerClient; }
 }

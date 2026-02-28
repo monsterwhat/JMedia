@@ -65,6 +65,8 @@ public class ImportService {
     DownloadService downloadService;
 
     private final AtomicBoolean isImporting = new AtomicBoolean(false);
+    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private volatile List<String> currentUrls = new ArrayList<>();
     private final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -114,6 +116,7 @@ public class ImportService {
                 broadcast("ERROR: " + e.getMessage() + "\n", profileId);
             } finally {
                 isImporting.set(false);
+                isCancelled.set(false);
                 broadcast("[IMPORT_FINISHED]", profileId);
             }
         });
@@ -134,18 +137,27 @@ public class ImportService {
                 return;
             }
 
+            // Store URLs for cancellation
+            currentUrls = new ArrayList<>(urls);
+            
             broadcast("Starting new import process for " + urls.size() + " items...\n", profileId);
 
             try {
                 List<Song> allSongsForPlaylist = new ArrayList<>();
 
                 // Process each URL/song
-                for (int i = 0; i < urls.size(); i++) {
-                    String url = urls.get(i);
-                    broadcast("\n--- Processing item " + (i + 1) + " of " + urls.size() + ": " + url + " ---\n", profileId);
+                for (int i = 0; i < currentUrls.size(); i++) {
+                    // Check if cancelled - exit loop immediately
+                    if (isCancelled.get() || currentUrls.isEmpty()) {
+                        broadcast("Import cancelled. Stopping...\n", profileId);
+                        break;
+                    }
+                    
+                    String url = currentUrls.get(i);
+                    broadcast("\n--- Processing item " + (i + 1) + " of " + currentUrls.size() + ": " + url + " ---\n", profileId);
 
                     // Check if song already exists (only for song lists, not URLs)
-                    if (urls.size() > 1 && isSongSearchQuery(url)) {
+                    if (currentUrls.size() > 1 && isSongSearchQuery(url)) {
                         Song existingSong = findExistingSong(url);
                         if (existingSong != null) {
                             broadcast("⏭️ Song already exists in library: '" + existingSong.getTitle() + "' by '" + existingSong.getArtist() + "' - skipping download\n", profileId);
@@ -165,14 +177,20 @@ public class ImportService {
                         // Add to overall list
                         allSongsForPlaylist.addAll(songsForThisUrl);
 
-                        broadcast("Completed item " + (i + 1) + " of " + urls.size() + ". Found " + songsForThisUrl.size() + " songs.\n", profileId);
+                        broadcast("Completed item " + (i + 1) + " of " + currentUrls.size() + ". Found " + songsForThisUrl.size() + " songs.\n", profileId);
+                        
+                        // Check if cancelled after each download
+                        if (isCancelled.get() || currentUrls.isEmpty()) {
+                            broadcast("Import cancelled. Stopping...\n", profileId);
+                            break;
+                        }
 
                     } catch (Exception e) {
                         LOGGER.error("Error processing item: " + url, e);
                         broadcast("ERROR processing '" + url + "': " + e.getMessage() + "\n", profileId);
 
                         // Check if this is a song search query that might have hit YouTube retry limits
-                        if (urls.size() > 1 && isSongSearchQuery(url)) {
+                        if (currentUrls.size() > 1 && isSongSearchQuery(url)) {
                             boolean isLikelyYouTubeExhausted = e.getMessage() != null
                                     && (e.getMessage().contains("All 3 YouTube retries failed")
                                     || e.getMessage().contains("YouTube retry wait interrupted")
@@ -194,7 +212,7 @@ public class ImportService {
                 }
 
                 broadcast("\n=== Summary ===\n", profileId);
-                broadcast("Processed " + urls.size() + " items. Found " + allSongsForPlaylist.size() + " total songs.\n", profileId);
+                broadcast("Processed " + currentUrls.size() + " items. Found " + allSongsForPlaylist.size() + " total songs.\n", profileId);
 
                 // Step 3: Create playlist if requested
                 if (playlistName != null && !playlistName.trim().isEmpty()) {
@@ -216,6 +234,7 @@ public class ImportService {
                 broadcast("ERROR: " + e.getMessage() + "\n", profileId);
             } finally {
                 isImporting.set(false);
+                isCancelled.set(false);
                 broadcast("[IMPORT_FINISHED]", profileId);
             }
         });
@@ -387,6 +406,20 @@ public class ImportService {
         return isImporting.get();
     }
 
+    public void cancelImport() {
+        if (isImporting.get()) {
+            isCancelled.set(true);
+            // Clear the URLs list to stop processing immediately
+            currentUrls.clear();
+            downloadService.cancelDownload();
+            broadcast("Import cancelled by user.\n", null);
+        }
+    }
+
+    public boolean isCancelled() {
+        return isCancelled.get();
+    }
+
     public String getOutputCache() {
         return downloadService.getLastOutputCache();
     }
@@ -408,6 +441,10 @@ public class ImportService {
         installationService.installPython(profileId);
     }
 
+    public void installNode(Long profileId) throws Exception {
+        installationService.installNode(profileId);
+    }
+
     public void installFFmpeg(Long profileId) throws Exception {
         installationService.installFFmpeg(profileId);
     }
@@ -426,6 +463,10 @@ public class ImportService {
 
     public void uninstallPython(Long profileId) throws Exception {
         installationService.uninstallPython(profileId);
+    }
+
+    public void uninstallNode(Long profileId) throws Exception {
+        installationService.uninstallNode(profileId);
     }
 
     public void uninstallFFmpeg(Long profileId) throws Exception {

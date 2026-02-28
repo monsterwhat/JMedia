@@ -37,6 +37,13 @@ public class ImportController {
     }
 
     /**
+     * Cancels the current import process.
+     */
+    public void cancelImport() {
+        importService.cancelImport();
+    }
+
+    /**
      * Gets cached output of current or last import process.
      *
      * @return The entire output log as a single string.
@@ -71,6 +78,13 @@ public class ImportController {
     }
 
     /**
+     * Installs Node.js.
+     */
+    public void installNode(Long profileId) throws Exception {
+        importService.installNode(profileId);
+    }
+
+    /**
      * Installs FFmpeg.
      */
     public void installFFmpeg(Long profileId) throws Exception {
@@ -96,6 +110,13 @@ public class ImportController {
      */
     public void uninstallPython(Long profileId) throws Exception {
         importService.uninstallPython(profileId);
+    }
+
+    /**
+     * Uninstalls Node.js.
+     */
+    public void uninstallNode(Long profileId) throws Exception {
+        importService.uninstallNode(profileId);
     }
 
     /**

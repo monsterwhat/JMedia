@@ -42,7 +42,6 @@
             this.setupElements();
             this.setupEventListeners();
             this.detectTouchSupport();
-            window.Helpers.log('ResponsiveModals initialized');
         },
         
         /**
@@ -399,6 +398,9 @@
             switch (action) {
                 case 'queue':
                     this.addToQueue(songId);
+                    break;
+                case 'queue-similar':
+                    this.addSimilarSongsToQueue(songId);
                     break;
                 case 'playlist':
                     this.showPlaylistSelection(songId);
@@ -934,6 +936,32 @@
                 });
             }
         },
+
+        /**
+         * Add similar songs to queue
+         */
+        addSimilarSongsToQueue: function(songId) {
+            const profileId = window.globalActiveProfileId || '1';
+            
+            if (window.htmx) {
+                window.htmx.ajax('POST', `/api/music/queue/similar/${profileId}/${songId}`, {
+                    handler: function () {
+                        window.Helpers.log(`ResponsiveModals: Similar songs queued for song ${songId}`);
+                        if (window.showToast) {
+                            window.showToast('Similar songs added to queue', 'success');
+                        }
+                        
+                        window.dispatchEvent(new CustomEvent('queueChanged', {
+                            detail: {
+                                queueSize: window.musicState?.cue?.length || 0,
+                                queueChanged: true,
+                                queueLengthChanged: true
+                            }
+                        }));
+                    }
+                });
+            }
+        },
         
         /**
          * Update song metadata
@@ -1033,19 +1061,6 @@
                         window.ResponsiveModals.init();
                     }
                 }, 200);
-            }
-        },
-        
-        // Start initialization
-        init: function() {
-            if (this.state.filterMenuVisible) {
-                this.hideFilterMenu();
-            }
-            if (this.state.profileModalVisible) {
-                this.hideProfileModal();
-            }
-            if (this.state.activeModal === 'playlist') {
-                this.hidePlaylistModal();
             }
         }
     };

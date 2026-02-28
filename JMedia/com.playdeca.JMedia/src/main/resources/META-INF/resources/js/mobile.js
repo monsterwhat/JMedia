@@ -646,6 +646,7 @@ class MobileContextMenu {
         this.activeElement = null;
         this.timerId = null;
         this.duration = 500; // 500ms long press
+        this.currentSongId = null;
         this.init();
     }
 
@@ -789,10 +790,13 @@ class MobileContextMenu {
         if (!menu)
             return;
 
-        // Store song ID on menu
+        // Store song ID on instance and menu element
+        this.currentSongId = songId;
         menu.dataset.songId = songId;
         menu.setAttribute('aria-hidden', 'false');
-
+        
+        // Add desktop class for positioning if needed
+        
         // Add desktop class for positioning if needed
         if (isDesktop) {
             menu.classList.add('desktop-context');
@@ -815,8 +819,6 @@ class MobileContextMenu {
                 this.menuJustOpened = false;
             }, 300);
         }
-
-        console.log('[MobileContextMenu] Menu shown for song ID:', songId, 'Desktop:', isDesktop);
     }
 
     positionMenuAtCursor(menu) {
@@ -831,8 +833,8 @@ class MobileContextMenu {
 
         // Get menu dimensions
         const menuRect = menu.getBoundingClientRect();
-        const menuWidth = menuRect.width || 200; // fallback width
-        const menuHeight = menuRect.height || 250; // fallback height
+        const menuWidth = menuRect.width || 200;
+        const menuHeight = menuRect.height || 250;
 
         // Calculate position
         let x = this.mousePosition.x;
@@ -863,6 +865,7 @@ class MobileContextMenu {
         menu.setAttribute('aria-hidden', 'true');
         menu.classList.remove('desktop-context');
         delete menu.dataset.songId;
+        this.currentSongId = null;
 
         // Reset desktop positioning
         menu.style.position = '';
@@ -884,8 +887,6 @@ class MobileContextMenu {
 
         // Clear mouse position
         this.mousePosition = null;
-
-        console.log('[MobileContextMenu] Menu hidden');
     }
 
     handleMenuClick(e) {
@@ -894,14 +895,12 @@ class MobileContextMenu {
             return;
 
         const action = li.dataset.action;
-        const songId = parseInt(document.getElementById('mobileContextMenu').dataset.songId, 10);
+        const songId = this.currentSongId;
 
-        if (!songId || isNaN(songId)) {
+        if (!songId) {
             console.warn('[MobileContextMenu] No valid song ID found');
             return;
         }
-
-        console.log('[MobileContextMenu] Action:', action, 'Song ID:', songId);
 
         // Dispatch to existing musicBar functions
         switch (action) {
@@ -915,6 +914,25 @@ class MobileContextMenu {
                                 window.showToast('Song added to queue', 'success');
                             }
                             // Emit queue change event for UI updates
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: {
+                                    queueSize: window.musicState?.cue?.length || 0,
+                                    queueChanged: true,
+                                    queueLengthChanged: true
+                                }
+                            }));
+                        }
+                    });
+                }
+                break;
+            case 'queue-similar':
+                if (window.htmx) {
+                    htmx.ajax('POST', `/api/music/queue/similar/${window.globalActiveProfileId}/${songId}`, {
+                        handler: function () {
+                            console.log(`Similar songs queued for song ${songId}.`);
+                            if (window.showToast) {
+                                window.showToast('Similar songs added to queue', 'success');
+                            }
                             window.dispatchEvent(new CustomEvent('queueChanged', {
                                 detail: {
                                     queueSize: window.musicState?.cue?.length || 0,

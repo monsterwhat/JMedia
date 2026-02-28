@@ -186,48 +186,6 @@
                                         <p class="help is-size-7">Add downloaded songs to an existing playlist or create a new one</p>
                                     </div>
 
-                                    <!-- Cookies Upload Section (Linux Only) -->
-                                    <div class="field" x-data="{ isLinux: navigator.userAgent.toLowerCase().includes('linux') }" x-show="isLinux">
-                                        <label class="label">
-                                            <span class="icon-text">
-                                                <span class="icon"><i class="pi pi-cookie"></i></span>
-                                                <span>YouTube Cookies (Linux Only)</span>
-                                            </span>
-                                        </label>
-                                        <div class="card has-background-dark">
-                                            <div class="card-content p-4">
-                                                <div class="field">
-                                                    <div class="control">
-                                                        <textarea class="textarea has-background-black has-text-white" 
-                                                                  id="cookiesContent" rows="6" 
-                                                                  placeholder="Paste your cookies.txt content here for YouTube downloads that require authentication...
-                                                                  Format: Netscape cookie format or HTTP request headers
-                                                                  This enables downloading age-restricted or region-restricted content."></textarea>
-                                                    </div>
-                                                    <p class="help is-size-7 has-text-warning">For Linux servers only. Enables downloading restricted YouTube content using cookies.</p>
-                                                </div>
-                                                <div class="field is-grouped">
-                                                    <div class="control">
-                                                        <button class="button is-info is-medium" id="uploadCookiesBtn">
-                                                            <span class="icon-text">
-                                                                <span class="icon"><i class="pi pi-upload"></i></span>
-                                                                <span>Save Cookies</span>
-                                                            </span>
-                                                        </button>
-                                                    </div>
-                                                    <div class="control">
-                                                        <button class="button is-danger is-medium" id="deleteCookiesBtn">
-                                                            <span class="icon-text">
-                                                                <span class="icon"><i class="pi pi-trash"></i></span>
-                                                                <span>Delete</span>
-                                                            </span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
                                     <!-- Advanced Import Configuration -->
                                     <div class="field admin-only">
                                         <label class="label">
@@ -253,6 +211,61 @@
 
                                                 <!-- Advanced Configuration (Initially Hidden) -->
                                                 <div x-show="showAdvanced" x-transition>
+                                                    <!-- YouTube Cookies Section -->
+                                                    <div class="field">
+                                                        <label class="label is-small">
+                                                            <span class="icon-text">
+                                                                <span class="icon"><i class="pi pi-cookie"></i></span>
+                                                                <span>YouTube Cookies</span>
+                                                            </span>
+                                                        </label>
+                                                        <div class="notification is-dark p-3">
+                                                            <div class="field">
+                                                                <label class="label is-small has-text-white">Upload Cookie File</label>
+                                                                <div class="file has-name is-fullwidth" id="cookieFileUpload">
+                                                                    <label class="file-label">
+                                                                        <input class="file-input" type="file" name="resume" id="cookieFileInput" accept=".txt">
+                                                                        <span class="file-cta">
+                                                                            <span class="file-icon">
+                                                                                <i class="pi pi-upload"></i>
+                                                                            </span>
+                                                                            <span class="file-label">Choose file</span>
+                                                                        </span>
+                                                                        <span class="file-name" id="cookieFileName">No file selected</span>
+                                                                    </label>
+                                                                </div>
+                                                                <p class="help is-size-7 has-text-grey">Upload a cookies.txt file for YouTube downloads requiring authentication</p>
+                                                            </div>
+                                                            <div class="field">
+                                                                <label class="label is-small has-text-white">Or Paste Cookie Content</label>
+                                                                <div class="control">
+                                                                    <textarea class="textarea has-background-black has-text-white" 
+                                                                              id="cookiesContent" rows="4" 
+                                                                              placeholder="Paste your cookies.txt content here..."></textarea>
+                                                                </div>
+                                                            </div>
+                                                            <div class="field is-grouped">
+                                                                <div class="control">
+                                                                    <button class="button is-info is-small" id="uploadCookiesBtn">
+                                                                        <span class="icon-text">
+                                                                            <span class="icon"><i class="pi pi-upload"></i></span>
+                                                                            <span>Save</span>
+                                                                        </span>
+                                                                    </button>
+                                                                </div>
+                                                                <div class="control">
+                                                                    <button class="button is-danger is-small" id="deleteCookiesBtn">
+                                                                        <span class="icon-text">
+                                                                            <span class="icon"><i class="pi pi-trash"></i></span>
+                                                                            <span>Delete</span>
+                                                                        </span>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div id="cookiesStatus" class="notification is-hidden mt-2 p-2"></div>
+                                                        </div>
+                                                    </div>
+
                                                     <!-- Source Configuration -->
                                                     <div class="field">
                                                         <label class="label is-small">Download Sources</label>
@@ -361,6 +374,122 @@
                                                             </div>
                                                         </div>
                                                     </div>
+                                                    
+                                                    <!-- YouTube Advanced Options -->
+                                                    <div class="mt-4">
+                                                        <hr>
+                                                        <h6 class="title is-6 mb-3">
+                                                            <span class="icon-text">
+                                                                <span class="icon"><i class="pi pi-cog"></i></span>
+                                                                <span>YouTube Advanced Options</span>
+                                                            </span>
+                                                        </h6>
+                                                        
+                                                        <div class="columns">
+                                                            <div class="column is-half">
+                                                                <!-- Force IPv4 -->
+                                                                <div class="field">
+                                                                    <label class="checkbox">
+                                                                        <input type="checkbox" id="youtubeForceIpv4">
+                                                                        <span>Force IPv4</span>
+                                                                    </label>
+                                                                    <p class="help is-size-7">Helps with some 403 errors</p>
+                                                                </div>
+                                                                
+                                                                <!-- Force IPv6 -->
+                                                                <div class="field">
+                                                                    <label class="checkbox">
+                                                                        <input type="checkbox" id="youtubeForceIpv6">
+                                                                        <span>Force IPv6</span>
+                                                                    </label>
+                                                                    <p class="help is-size-7">Alternative to IPv4</p>
+                                                                </div>
+                                                                
+                                                                <!-- User Agent -->
+                                                                <div class="field">
+                                                                    <label class="label is-small">User Agent</label>
+                                                                    <div class="control">
+                                                                        <input class="input is-small" type="text" id="youtubeUserAgent" 
+                                                                               placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
+                                                                    </div>
+                                                                    <p class="help is-size-7">Custom browser user agent string</p>
+                                                                </div>
+                                                            </div>
+                                                            <div class="column is-half">
+                                                                <!-- Extractor Args -->
+                                                                <div class="field">
+                                                                    <label class="label is-small">Extractor Args</label>
+                                                                    <div class="control">
+                                                                        <input class="input is-small" type="text" id="youtubeExtractorArgs" 
+                                                                               placeholder="player_skip=webpage,configs">
+                                                                    </div>
+                                                                    <p class="help is-size-7">e.g., player_skip=webpage,configs</p>
+                                                                </div>
+                                                                
+                                                                <!-- Browser Impersonation -->
+                                                                <div class="field">
+                                                                    <label class="label is-small">Browser Impersonation</label>
+                                                                    <div class="select is-small is-fullwidth">
+                                                                        <select id="youtubeImpersonate">
+                                                                            <option value="">None</option>
+                                                                            <option value="chrome">Chrome</option>
+                                                                            <option value="firefox">Firefox</option>
+                                                                            <option value="safari">Safari</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <p class="help is-size-7">TLS fingerprint bypass</p>
+                                                                </div>
+                                                                
+                                                                <!-- Player Client -->
+                                                                <div class="field">
+                                                                    <label class="label is-small">Player Client</label>
+                                                                    <div class="select is-small is-fullwidth">
+                                                                        <select id="youtubePlayerClient">
+                                                                            <option value="">Auto (Default)</option>
+                                                                            <option value="android">Android</option>
+                                                                            <option value="tv">TV (Echo Show)</option>
+                                                                            <option value="web">Web</option>
+                                                                            <option value="web_safari">Web Safari</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <p class="help is-size-7">Force specific YouTube client</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <!-- yt-dlp Update Section -->
+                                                        <div class="mt-3">
+                                                            <hr>
+                                                            <div class="columns is-vcentered">
+                                                                <div class="column is-narrow">
+                                                                    <span class="is-size-7">Current yt-dlp version: </span>
+                                                                    <span id="ytdlpVersion" class="has-text-weight-bold is-size-7">Checking...</span>
+                                                                </div>
+                                                                <div class="column is-narrow">
+                                                                    <div class="field has-addons mb-0">
+                                                                        <div class="control">
+                                                                            <div class="select is-small">
+                                                                                <select id="youtubeUpdateChannel">
+                                                                                    <option value="STABLE">Stable</option>
+                                                                                    <option value="NIGHTLY">Nightly</option>
+                                                                                    <option value="MASTER">Master</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div class="control">
+                                                                            <button class="button is-small is-info" id="updateYtDlpBtn">
+                                                                                <span class="icon"><i class="pi pi-download"></i></span>
+                                                                                <span>Update</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="column">
+                                                                    <span id="ytdlpUpdateStatus" class="help is-size-7"></span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
 
                                                     <!-- Action Buttons -->
                                                     <div class="field is-grouped">
@@ -401,10 +530,18 @@
 
                                     <div class="field is-grouped">
                                         <div class="control">
-                                            <button class="button is-warning is-medium is-fullwidth" id="downloadBtn">
+                                            <button class="button is-warning is-medium" id="downloadBtn">
                                                 <span class="icon-text">
                                                     <span class="icon"><i class="pi pi-download"></i></span>
                                                     <span>Find And Download</span>
+                                                </span>
+                                            </button>
+                                        </div>
+                                        <div class="control">
+                                            <button class="button is-danger is-medium" id="cancelDownloadBtn" disabled>
+                                                <span class="icon-text">
+                                                    <span class="icon"><i class="pi pi-times"></i></span>
+                                                    <span>Cancel</span>
                                                 </span>
                                             </button>
                                         </div>
@@ -546,13 +683,22 @@
                 fetch(`/api/settings/${profileId}/cookies-status`)
                         .then(response => response.json())
                         .then(data => {
-                            if (data.success) {
+                            if (data.data) {
                                 const status = data.data;
                                 const statusDiv = document.getElementById('cookiesStatus');
                                 const deleteBtn = document.getElementById('deleteCookiesBtn');
                                 const uploadBtn = document.getElementById('uploadCookiesBtn');
 
                                 if (status.configured && status.exists) {
+                                    let daysAgo = '';
+                                    if (status.lastModified) {
+                                        const lastModDate = new Date(status.lastModified);
+                                        const now = new Date();
+                                        const diffTime = Math.abs(now - lastModDate);
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                        daysAgo = diffDays === 1 ? '1 day ago' : `${diffDays} days ago`;
+                                    }
+                                    
                                     statusDiv.className = 'notification is-success is-size-7';
                                     statusDiv.innerHTML = `
                                     <span class="icon-text">
@@ -562,7 +708,7 @@
                                     <br>
                                     <small>Path: ${status.path}</small>
                                     <br>
-                                    <small>Last modified: ${status.lastModified || 'Unknown'}</small>
+                                    <small>Last modified: ${status.lastModified || 'Unknown'}${daysAgo ? ' (' + daysAgo + ')' : ''}</small>
                                 `;
                                     deleteBtn.disabled = false;
                                     uploadBtn.textContent = 'Update Cookies';
@@ -614,12 +760,12 @@
                 })
                         .then(response => response.json())
                         .then(data => {
-                            if (data.success) {
+                            if (data.error) {
+                                showToast('Failed to save cookies: ' + data.error, 'error');
+                            } else {
                                 showToast('Cookies file saved successfully', 'success');
                                 document.getElementById('cookiesContent').value = '';
                                 updateCookiesStatus();
-                            } else {
-                                showToast('Failed to save cookies: ' + data.error, 'error');
                             }
                         })
                         .catch(error => {
@@ -648,11 +794,11 @@
                 })
                         .then(response => response.json())
                         .then(data => {
-                            if (data.success) {
+                            if (data.error) {
+                                showToast('Failed to delete cookies: ' + data.error, 'error');
+                            } else {
                                 showToast('Cookies file deleted successfully', 'success');
                                 updateCookiesStatus();
-                            } else {
-                                showToast('Failed to delete cookies: ' + data.error, 'error');
                             }
                         })
                         .catch(error => {
@@ -665,10 +811,60 @@
                         });
             }
 
+            function uploadCookiesFile(file) {
+                if (!file) {
+                    console.error('No file provided');
+                    return;
+                }
+
+                const profileId = window.globalActiveProfileId;
+                console.log('Uploading cookie file:', file.name, 'for profile:', profileId);
+                
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    const cookiesContent = e.target.result;
+                    console.log('File content length:', cookiesContent.length);
+                    
+                    fetch(`/api/settings/${profileId}/upload-cookies`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({cookiesContent: cookiesContent})
+                    })
+                    .then(response => {
+                        console.log('Response status:', response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Response data:', data);
+                        if (data.error) {
+                            showToast('Failed to upload cookies: ' + data.error, 'error');
+                        } else {
+                            showToast('Cookies file uploaded successfully', 'success');
+                            updateCookiesStatus();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error uploading cookies file:', error);
+                        showToast('Error uploading cookies file', 'error');
+                    });
+                };
+                
+                reader.onerror = function(e) {
+                    console.error('FileReader error:', e);
+                    showToast('Error reading file', 'error');
+                };
+                
+                reader.readAsText(file);
+            }
+
             // Event listeners for cookies functionality
             document.addEventListener('DOMContentLoaded', function () {
                 const uploadBtn = document.getElementById('uploadCookiesBtn');
                 const deleteBtn = document.getElementById('deleteCookiesBtn');
+                const cookieFileInput = document.getElementById('cookieFileInput');
 
                 if (uploadBtn) {
                     uploadBtn.addEventListener('click', uploadCookies);
@@ -678,10 +874,19 @@
                     deleteBtn.addEventListener('click', deleteCookies);
                 }
 
-                // Initial cookies status check (only if on Linux)
-                if (navigator.userAgent.toLowerCase().includes('linux')) {
-                    updateCookiesStatus();
+                // Handle cookie file upload
+                if (cookieFileInput) {
+                    cookieFileInput.addEventListener('change', function(e) {
+                        const file = e.target.files[0];
+                        if (file) {
+                            document.getElementById('cookieFileName').textContent = file.name;
+                            uploadCookiesFile(file);
+                        }
+                    });
                 }
+
+                // Check cookies status
+                updateCookiesStatus();
             });
 
             // HTMX request interception to inject profileId into URLs

@@ -65,9 +65,6 @@ function setOfflineFlag(v) {
         log('offline', isOffline);
 }
 
-// Lightweight per-profile clock offset to smooth time synchronization on the client
-// Keyed by profileId (string). Used to gradually align local audio with server timeline.
-let clockOffsets = {};
 // Per-device volume control (Phase: per-device volume)
 let deviceVolumes = {};
 let deviceId = (typeof window !== 'undefined' && window.localStorage) ? localStorage.getItem('musicDeviceId') : null;
@@ -271,9 +268,9 @@ if (deviceVolumes[deviceId] != null && isFinite(deviceVolumes[deviceId])) {
 initVol = Math.max(0, Math.min(1, initVol));
 musicState.volume = initVol;
 audio.volume = initVol;
-// Sync cadence control: align all devices within ~300ms cadence
-const SYNC_INTERVAL_MS = 300;
-let syncTimer = null;
+// Lightweight per-profile clock offset to smooth time synchronization on the client
+// Keyed by profileId (string). Used to gradually align local audio with server timeline.
+let clockOffsets = {};
 // Per-profile last known server time for sync math
 let lastServerTimeByProfile = {};
 let lastServerTimestampByProfile = {};
@@ -388,13 +385,8 @@ function updateMusicBar() {
     const timeSlider = document.getElementById('playbackProgressBar'); // Use getElementById for direct access
     if (timeSlider) {
         timeSlider.max = duration;
-        // Update the slider's value based on musicState.currentTime if not dragging
-        // If dragging, the slider's value is already updated by the browser
-        if (!draggingSeconds) {
-            timeSlider.value = musicState.currentTime;
-        }
 
-// Always update the progress bar's visual fill, regardless of dragging state
+        // Always update the progress bar's visual fill, regardless of dragging state
 // Use the current value of the slider for calculation, which will be
 // either currentTime (if not dragging) or the dragged value (if dragging)
         const currentSliderValue = parseFloat(timeSlider.value);
@@ -471,6 +463,17 @@ function updateMusicBar() {
         const artworkUrl = songCoverImageEl ? songCoverImageEl.src : '/logo.png';
         window.updateMediaSessionMetadata(musicState.songName, musicState.artist, artworkUrl);
         window.updateMediaSessionPlaybackState(musicState.playing);
+    }
+}
+
+function filterByArtist() {
+    const artist = musicState.artist;
+    if (!artist || artist === "Unknown Artist") return;
+    
+    const searchInput = document.getElementById('globalSearchInput');
+    if (searchInput) {
+        searchInput.value = artist;
+        htmx.trigger(searchInput, 'keyup');
     }
 }
 
@@ -2434,7 +2437,7 @@ if (customContextMenu) {
                     await addSongToPlaylist(playlistId, currentRightClickedSongId);
                 }
                 hideContextMenu(); // Hide all menus after adding
-            } else if (action === 'queue-song') {
+} else if (action === 'queue-song') {
                 if (currentRightClickedSongId) {
                     htmx.ajax('POST', `/api/music/queue/add/${window.globalActiveProfileId}/${currentRightClickedSongId}`, {
                         handler: function () {
@@ -2454,6 +2457,25 @@ if (customContextMenu) {
                     });
                 }
                 hideContextMenu(); // Hide all menus after queuing
+            } else if (action === 'queue-similar-songs') {
+                if (currentRightClickedSongId) {
+                    htmx.ajax('POST', `/api/music/queue/similar/${window.globalActiveProfileId}/${currentRightClickedSongId}`, {
+                        handler: function () {
+                            console.log(`Similar songs queued for song ${currentRightClickedSongId}.`);
+                            if (window.showToast) {
+                                window.showToast('Similar songs added to queue', 'success');
+                            }
+                            window.dispatchEvent(new CustomEvent('queueChanged', {
+                                detail: {
+                                    queueSize: musicState.cue?.length || 0,
+                                    queueChanged: true,
+                                    queueLengthChanged: true
+                                }
+                            }));
+                        }
+                    });
+                }
+                hideContextMenu();
             } else if (action === 'rescan-song') {
                 if (currentRightClickedSongId) {
                     await rescanSong(currentRightClickedSongId);
@@ -2518,6 +2540,8 @@ function updateLyricsIconVisibility() {
     }
 }
 // Phase E helper: performs cadence-based sync every SYNC_INTERVAL_MS to reduce cross-device drift
+const SYNC_INTERVAL_MS = 300;
+let syncTimer = null;
 function performSync() {
     const pid = window.globalActiveProfileId || 'default';
     if (!clockOffsets[pid])

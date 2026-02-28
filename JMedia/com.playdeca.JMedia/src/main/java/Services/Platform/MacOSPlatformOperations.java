@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 
 @ApplicationScoped
@@ -121,6 +122,70 @@ public class MacOSPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("python", 100, false, profileId);
         broadcast("Python installation completed\n", profileId);
+    }
+    
+    @Override
+    public boolean isNodeInstalled() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("node", "--version");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    @Override
+    public void installNode(Long profileId) throws Exception {
+        broadcastInstallationProgress("node", 0, true, profileId);
+        
+        if (isCommandAvailable("brew")) {
+            broadcast("Installing Node.js using Homebrew...\n", profileId);
+            executeCommand("brew install node", profileId);
+        } else if (isCommandAvailable("port")) {
+            broadcast("Installing Node.js using MacPorts...\n", profileId);
+            executeCommand("sudo port install nodejs", profileId);
+        } else {
+            broadcast("No package manager found. Please install Node.js manually from nodejs.org\n", profileId);
+            broadcast("Download URL: https://nodejs.org/downloads/\n", profileId);
+            throw new Exception("No package manager available. Please install Node.js manually.");
+        }
+        
+        broadcastInstallationProgress("node", 100, false, profileId);
+        broadcast("Node.js installation completed\n", profileId);
+    }
+    
+    @Override
+    public String findNodeExecutable() throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("node", "--version");
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        if (process.waitFor() == 0) {
+            return "node";
+        }
+        return null;
+    }
+    
+    @Override
+    public String getNodeCommand() {
+        return "node";
+    }
+    
+    @Override
+    public String getNodeInstallMessage() {
+        return "Node.js not found. Install via Homebrew or MacPorts, or download from nodejs.org";
+    }
+    
+    @Override
+    public void uninstallNode(Long profileId) throws Exception {
+        broadcast("Uninstalling Node.js...\n", profileId);
+        if (isCommandAvailable("brew")) {
+            executeCommand("brew uninstall node", profileId);
+        } else if (isCommandAvailable("port")) {
+            executeCommand("sudo port uninstall nodejs", profileId);
+        }
+        broadcast("Node.js uninstallation completed\n", profileId);
     }
     
 @Override
@@ -447,5 +512,46 @@ public class MacOSPlatformOperations implements PlatformOperations {
                 component, progress, isInstalling
         );
         importStatusSocket.broadcast(progressMessage, profileId);
+    }
+    
+    @Override
+    public String getCookiesStoragePath() {
+        String userHome = System.getProperty("user.home");
+        return userHome + File.separator + ".jmedia" + File.separator + "cookies.txt";
+    }
+    
+    @Override
+    public boolean validateCookiesFile(String cookiesPath) {
+        try {
+            java.nio.file.Path path = java.nio.file.Paths.get(cookiesPath);
+            if (!java.nio.file.Files.exists(path)) {
+                return false;
+            }
+            
+            String content = java.nio.file.Files.readString(path);
+            if (content == null || content.trim().isEmpty()) {
+                return false;
+            }
+            
+            String[] lines = content.split("\r?\n");
+            int validLines = 0;
+            
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+                
+                String[] parts = line.split("\t");
+                if (parts.length >= 7) {
+                    validLines++;
+                }
+            }
+            
+            return validLines > 0;
+        } catch (Exception e) {
+            LOGGER.debug("Error validating cookies file: " + e.getMessage());
+            return false;
+        }
     }
 }

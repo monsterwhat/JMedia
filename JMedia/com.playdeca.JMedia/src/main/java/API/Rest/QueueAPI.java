@@ -13,7 +13,8 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response; 
-import java.util.List; 
+import java.util.List;
+import java.util.ArrayList;
 
 @Transactional
 @Path("/api/music") // This path will be combined with method paths
@@ -126,5 +127,63 @@ public class QueueAPI {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
         return Response.ok(ApiResponse.success(playbackController.getHistory(page, limit, userProfile.id))).build();
+    }
+
+    @POST
+    @Path("/queue/similar/{profileId}/{songId}")
+    @Consumes(MediaType.WILDCARD)
+    public Response queueSimilarSongs(@PathParam("profileId") Long profileId, @PathParam("songId") Long songId, @Context HttpHeaders headers) {
+        System.out.println("[QueueAPI] queueSimilarSongs called - profileId: " + profileId + ", songId: " + songId);
+        
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        
+        Song sourceSong = Song.findById(songId);
+        if (sourceSong == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Song not found")).build();
+        }
+
+        String sourceGenre = sourceSong.getGenre();
+        if (sourceGenre == null || sourceGenre.isBlank()) {
+            return Response.ok(ApiResponse.success("Source song has no genre, cannot find similar songs")).build();
+        }
+        
+        System.out.println("[QueueAPI] Source song genre: " + sourceGenre + ", BPM: " + sourceSong.getBpm());
+        
+        int bpmTolerance = 10;
+        int bpm = sourceSong.getBpm();
+        
+        String[] genreTokens = sourceGenre.toLowerCase().split("\\s+");
+        
+        List<Song> allSongs = Song.list("id != ?1", songId);
+        
+        List<Song> similarSongs = allSongs.stream()
+            .filter(song -> {
+                if (song.getGenre() == null || song.getGenre().isEmpty()) return false;
+                String targetGenre = song.getGenre().toLowerCase();
+                for (String token : genreTokens) {
+                    if (targetGenre.contains(token)) {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            .filter(song -> {
+                int songBpm = song.getBpm();
+                return songBpm > 0 && Math.abs(songBpm - bpm) <= bpmTolerance;
+            })
+            .limit(30)
+            .toList();
+
+        if (similarSongs.isEmpty()) {
+            System.out.println("[QueueAPI] No similar songs found");
+            return Response.ok(ApiResponse.success("No similar songs found")).build();
+        }
+
+        List<Long> songIds = similarSongs.stream().map(s -> s.id).toList();
+        System.out.println("[QueueAPI] Found " + songIds.size() + " similar songs, adding to queue");
+        playbackController.addToQueue(songIds, false, userProfile.id);
+
+        return Response.ok(ApiResponse.success(songIds.size() + " similar songs added to queue")).build();
     }
 }

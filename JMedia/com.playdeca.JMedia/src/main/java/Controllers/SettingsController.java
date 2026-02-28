@@ -6,6 +6,7 @@ import jakarta.annotation.PostConstruct;
 import Models.Settings;
 import Models.SettingsLog;
 import Models.Song;
+import Services.EnhancedFreeMetadataService;
 import Services.ImportService;
 import Services.SettingsService;
 import Services.SongService;
@@ -37,9 +38,10 @@ import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.audio.mp3.MP3File;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jaudiotagger.tag.TagException;
 import org.jaudiotagger.tag.images.Artwork;
+import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @ApplicationScoped
 public class SettingsController implements Serializable {
@@ -58,6 +60,9 @@ public class SettingsController implements Serializable {
     
     @Inject
     private ObjectMapper objectMapper;
+
+    @Inject
+    private EnhancedFreeMetadataService enhancedFreeMetadataService;
 
     private final List<ScanResult> failedSongs = Collections.synchronizedList(new ArrayList<>());
     
@@ -766,6 +771,50 @@ public class SettingsController implements Serializable {
         }
     }
 
+    // -------------------------------
+    // BPM Detection using FFmpeg
+    // -------------------------------
+    private int getBpmWithFFprobe(File file) {
+        // Try to extract BPM using ffprobe - this only works if BPM is in the metadata tags
+        // Command: ffprobe -v error -show_entries format=bpm -of default=noprint_wrappers=1:nokey=1 "input.mp3"
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                "ffprobe", "-v", "error", 
+                "-show_entries", "format=bpm", 
+                "-of", "default=noprint_wrappers=1:nokey=1", 
+                file.getAbsolutePath()
+            );
+            Process process = pb.start();
+            
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line = reader.readLine();
+                if (line != null) {
+                    output.append(line);
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode == 0 && output.length() > 0) {
+                String bpmStr = output.toString().trim();
+                // ffprobe returns "0" if BPM is not in tags
+                if (bpmStr != null && !bpmStr.isEmpty() && !bpmStr.equals("0") && !bpmStr.equals("N/A")) {
+                    try {
+                        int bpm = (int) Math.round(Double.parseDouble(bpmStr));
+                        if (bpm > 0 && bpm < 300) { // Sanity check: BPM should be reasonable
+                            return bpm;
+                        }
+                    } catch (NumberFormatException e) {
+                        // Not a valid number, ignore
+                    }
+                }
+            }
+        } catch (IOException | InterruptedException e) {
+            // Silently ignore - BPM detection is optional
+        }
+        return 0;
+    }
+
     private int getVerifiedTrackLength(File file, MP3File initialMp3File) {
         int duration = 0;
         try {
@@ -818,7 +867,7 @@ public class SettingsController implements Serializable {
     } 
 
     // -------------------------------
-    // Parallel reloadAllSongsMetadata
+    // Parallel reloadAllSongsMetadata (Phase 1: scan, Phase 2: sequential enrichment)
     // -------------------------------
     public void reloadAllSongsMetadata() {
         addLog("[org.jau.tag.id3] Reloading metadata for all songs...");
@@ -830,8 +879,9 @@ public class SettingsController implements Serializable {
             return;
         }
 
+        // Phase 1: Parallel file scanning (fast)
         ExecutorCompletionService<List<String>> completion = new ExecutorCompletionService<>(executor);
-        allSongs.forEach(song -> completion.submit(() -> reloadMetadataForSong(song)));
+        allSongs.forEach(song -> completion.submit(() -> reloadMetadataForSongNoEnrichment(song)));
 
         int updatedCount = 0;
         List<String> batchLogs = new ArrayList<>();
@@ -841,7 +891,6 @@ public class SettingsController implements Serializable {
                 List<String> logs = future.get();
                 if (logs != null && !logs.isEmpty()) {
                     batchLogs.addAll(logs);
-                    // A non-empty log list from this method implies success.
                     updatedCount++;
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -852,11 +901,101 @@ public class SettingsController implements Serializable {
         // Add all collected logs in a single batch
         addLogs(batchLogs);
 
-        addLog(String.format("[org.jau.tag.id3] Metadata reload completed. %d songs updated.", updatedCount));
+        addLog(String.format("[org.jau.tag.id3] File scan completed. %d songs processed.", updatedCount));
+        
+        // Phase 2: Sequential metadata enrichment (slow, runs after scan)
+        Settings settings = settingsService.getOrCreateSettings();
+        if (settings.getEnableMetadataEnrichment()) {
+            addLog("[org.jau.tag.id3] Starting sequential metadata enrichment...");
+            enrichMissingMetadataSequentially(allSongs);
+        }
+        
+        addLog(String.format("[org.jau.tag.id3] Metadata reload completed.", updatedCount));
         musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
-    private List<String> reloadMetadataForSong(Song song) {
+    // -------------------------------
+    // Sequential enrichment for songs with missing metadata (genre from APIs, BPM from FFmpeg)
+    // -------------------------------
+    private void enrichMissingMetadataSequentially(List<Song> allSongs) {
+        Settings settings = settingsService.getOrCreateSettings();
+        int genreEnrichedCount = 0;
+        int bpmExtractedCount = 0;
+        int skippedCount = 0;
+        
+        // Phase 1: Genre enrichment from APIs
+        if (settings.getEnableMetadataEnrichment()) {
+            addLog("[org.jau.tag.id3] Phase 1: Enriching missing genres from external APIs...");
+            for (Song song : allSongs) {
+                boolean needsGenreEnrichment = (song.getGenre() == null || song.getGenre().isBlank());
+                
+                if (!needsGenreEnrichment) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                if (song.getArtist() == null || song.getArtist().isBlank()
+                        || song.getTitle() == null || song.getTitle().isBlank()) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                try {
+                    EnhancedFreeMetadataService.EnhancedMetadataResult result = 
+                        enhancedFreeMetadataService.enrichMetadata(song.getArtist(), song.getTitle());
+                    
+                    if (result.isEnriched() && result.hasGenres()) {
+                        song.setGenre(result.getGenres().get(0));
+                        songService.persistSongInNewTx(song);
+                        genreEnrichedCount++;
+                        addLog("[Enrichment] Added genre '" + result.getGenres().get(0) + "' to: " + song.getTitle());
+                    }
+                } catch (org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException e) {
+                    addLog("[Enrichment] API rate limited - stopping genre enrichment");
+                    break;
+                } catch (Exception e) {
+                    addLog("[Enrichment] WARNING: Failed to enrich " + song.getTitle() + ": " + e.getMessage());
+                }
+            }
+        }
+        
+        // Phase 2: BPM extraction using FFmpeg
+        if (settings.getEnableBpmExtraction()) {
+            addLog("[org.jau.tag.id3] Phase 2: Extracting BPM using FFmpeg...");
+            int bpmProcessed = 0;
+            for (Song song : allSongs) {
+                // Only process songs that need BPM
+                if (song.getBpm() > 0) {
+                    continue;
+                }
+                
+                File songFile = new File(getMusicFolder(), song.getPath());
+                if (!(songFile.exists() && songFile.isFile())) {
+                    continue;
+                }
+                
+                int bpm = getBpmWithFFprobe(songFile);
+                if (bpm > 0) {
+                    song.setBpm(bpm);
+                    songService.persistSongInNewTx(song);
+                    bpmExtractedCount++;
+                    bpmProcessed++;
+                    if (bpmProcessed % 10 == 0) {
+                        addLog("[Enrichment] Extracted BPM for " + bpmProcessed + " songs...");
+                    }
+                }
+            }
+            addLog("[Enrichment] Extracted BPM for " + bpmExtractedCount + " songs");
+        }
+        
+        addLog(String.format("[org.jau.tag.id3] Enrichment completed. %d genres enriched, %d BPM extracted, %d skipped.", 
+            genreEnrichedCount, bpmExtractedCount, skippedCount));
+    }
+
+    // -------------------------------
+    // Parallel file scanning (no enrichment) - used in Phase 1
+    // -------------------------------
+    private List<String> reloadMetadataForSongNoEnrichment(Song song) {
         List<String> localLogs = new ArrayList<>();
         try {
             File songFile = new File(getMusicFolder(), song.getPath());
@@ -933,24 +1072,137 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            // Final fallback to ensure fields are not null
-            if (song.getTitle() == null || song.getTitle().isBlank()) {
-                song.setTitle("Unknown Title");
+            int duration = getVerifiedTrackLength(songFile, mp3File);
+            localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
+            song.setDurationSeconds(duration);
+
+            if ((song.getArtist() == null || song.getArtist().isBlank()) && song.getDurationSeconds() == 0) {
+                localLogs.add("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (no artist + 0:00): " + song.getPath());
+                return localLogs;
             }
-            if (song.getArtist() == null || song.getArtist().isBlank()) {
-                song.setArtist("Unknown Artist");
+
+            // Persist changes per-song
+            songService.persistSongInNewTx(song);
+            localLogs.add("[org.jau.tag.id3] Successfully reloaded metadata for: " + song.getPath());
+            return localLogs;
+        } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
+            localLogs.add("[org.jau.tag.id3] WARNING: Skipping " + song.getPath() + " — invalid audio frame: " + e.getMessage());
+            return localLogs;
+        } catch (IOException | CannotReadException | ReadOnlyFileException | TagException e) {
+            localLogs.add("[org.jau.tag.id3] ERROR: Failed to reload metadata for " + song.getPath() + ": " + e.getMessage());
+            return localLogs;
+        }
+    }
+
+    // Keep original method for backward compatibility (e.g., single song rescan)
+    private List<String> reloadMetadataForSong(Song song) {
+        List<String> localLogs = new ArrayList<>();
+        try {
+            File songFile = new File(getMusicFolder(), song.getPath());
+            if (!(songFile.exists() && songFile.isFile())) {
+                localLogs.add("[org.jau.tag.id3] Skipping metadata reload for missing file: " + song.getPath());
+                return localLogs;
             }
-            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
-                song.setAlbum("Unknown Album");
+
+            localLogs.add("[org.jau.tag.id3] Reading MP3 file: " + songFile.getName());
+            MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
+            Tag tag = mp3File.getTag();
+
+            // Reset fields before reloading to ensure fresh data
+            song.setTitle(null);
+            song.setArtist(null);
+            song.setAlbum(null);
+            
+            if (tag != null) {
+                song.setTitle(safeGet(tag, FieldKey.TITLE));
+                song.setArtist(safeGet(tag, FieldKey.ARTIST));
+                song.setAlbum(safeGet(tag, FieldKey.ALBUM));
+                song.setAlbumArtist(safeGet(tag, FieldKey.ALBUM_ARTIST));
+                song.setTrackNumber(parseInt(safeGet(tag, FieldKey.TRACK)));
+                song.setDiscNumber(parseInt(safeGet(tag, FieldKey.DISC_NO)));
+                song.setReleaseDate(safeGet(tag, FieldKey.YEAR));
+                song.setGenre(safeGet(tag, FieldKey.GENRE));
+                song.setLyrics(safeGet(tag, FieldKey.LYRICS));
+                song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
+
+                try {
+                    Artwork artwork = tag.getFirstArtwork();
+                    if (artwork != null) {
+                        byte[] data = artwork.getBinaryData();
+                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
+                    } else {
+                        song.setArtworkBase64(null);
+                    }
+                } catch (Exception artEx) {
+                    localLogs.add("[org.jau.tag.id3] WARNING: Failed to extract artwork for " + songFile.getName() + ": " + artEx.getMessage());
+                    song.setArtworkBase64(null);
+                }
+            }
+            
+            // If jaudiotagger failed or gave empty tags, try ffprobe
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                localLogs.add("[ffmpeg] INFO: jaudiotagger failed to provide title/artist for " + songFile.getName() + ". Trying ffprobe.");
+                FFprobeMetadata ffprobeData = getMetadataWithFFprobe(songFile);
+                if (ffprobeData != null) {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(ffprobeData.title());
+                    }
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                        song.setArtist(ffprobeData.artist());
+                    }
+                }
+            }
+
+            // If all taggers failed, fallback to filename parsing
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                localLogs.add("INFO: All metadata taggers failed for " + songFile.getName() + ". Falling back to filename parsing.");
+                String fileName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                int separatorIndex = fileName.indexOf(" - ");
+                if (separatorIndex != -1) {
+                    if (song.getArtist() == null || song.getArtist().isBlank()) {
+                         song.setArtist(fileName.substring(0, separatorIndex).trim());
+                    }
+                    if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName.substring(separatorIndex + 3).trim());
+                    }
+                } else {
+                     if (song.getTitle() == null || song.getTitle().isBlank()) {
+                        song.setTitle(fileName);
+                    }
+                }
+
+            }
+
+            // Enrich metadata from external APIs if genre is missing (only if enabled in settings)
+            boolean needsGenreEnrichment = (song.getGenre() == null || song.getGenre().isBlank());
+            Settings settings = settingsService.getOrCreateSettings();
+            
+            if (needsGenreEnrichment && settings.getEnableMetadataEnrichment()
+                    && song.getArtist() != null && !song.getArtist().isBlank()
+                    && song.getTitle() != null && !song.getTitle().isBlank()) {
+                
+                try {
+                    EnhancedFreeMetadataService.EnhancedMetadataResult result = 
+                        enhancedFreeMetadataService.enrichMetadata(song.getArtist(), song.getTitle());
+                    
+                    if (result.isEnriched() && result.hasGenres()) {
+                        song.setGenre(result.getGenres().get(0));
+                        localLogs.add("[Enrichment] Added genre: " + result.getGenres().get(0));
+                    }
+                } catch (org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException e) {
+                    // Circuit breaker open due to rate limiting - skip this song
+                    localLogs.add("[Enrichment] API rate limited - skipped for: " + song.getPath());
+                } catch (Exception e) {
+                    localLogs.add("[Enrichment] WARNING: Failed to enrich " + song.getPath() + ": " + e.getMessage());
+                }
             }
 
             int duration = getVerifiedTrackLength(songFile, mp3File);
             localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
             song.setDurationSeconds(duration);
 
-            if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
-                    && song.getDurationSeconds() == 0) {
-                localLogs.add("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (Unknown Artist + 0:00): " + song.getPath());
+            if ((song.getArtist() == null || song.getArtist().isBlank()) && song.getDurationSeconds() == 0) {
+                localLogs.add("[org.jau.tag.id3] WARNING: Skipping potentially corrupt song (no artist + 0:00): " + song.getPath());
                 return localLogs;
             }
 
