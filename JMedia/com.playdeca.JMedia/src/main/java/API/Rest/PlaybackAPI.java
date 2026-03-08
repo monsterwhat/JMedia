@@ -166,8 +166,9 @@ public class PlaybackAPI {
     @Path("/crossfade/{profileId}")
     public Response getCrossfade(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
-        if (userProfile == null) return Response.status(401).build();
-        int crossfade = playbackController.getCrossfadeDuration(userProfile.id);
+        Long targetProfileId = userProfile != null ? userProfile.id : profileId;
+        
+        int crossfade = playbackController.getCrossfadeDuration(targetProfileId);
         return Response.ok(ApiResponse.success(crossfade)).build();
     }
 
@@ -175,8 +176,9 @@ public class PlaybackAPI {
     @Path("/crossfade/{profileId}/{seconds}")
     public Response setCrossfade(@PathParam("profileId") Long profileId, @PathParam("seconds") int seconds, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
-        if (userProfile == null) return Response.status(401).build();
-        playbackController.setCrossfadeDuration(seconds, userProfile.id);
+        Long targetProfileId = userProfile != null ? userProfile.id : profileId;
+        
+        playbackController.setCrossfadeDuration(seconds, targetProfileId);
         return Response.ok(ApiResponse.success("Crossfade set to " + seconds + " seconds")).build();
     }
 }

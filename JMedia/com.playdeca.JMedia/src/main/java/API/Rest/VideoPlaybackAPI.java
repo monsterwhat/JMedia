@@ -4,6 +4,7 @@ import Controllers.VideoController;
 import Services.VideoStateService;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
@@ -149,6 +150,41 @@ public class VideoPlaybackAPI {
                        .entity("{\"success\":false,\"error\":\"Volume level parameter required\"}").build();
         }
         return setVolume(level.floatValue());
+    }
+
+    @POST
+    @Path("/progress")
+    @Blocking
+    @Transactional
+    public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing) {
+        try {
+            var state = videoStateService.getOrCreateState();
+            if (videoId != null) {
+                state.setCurrentVideoId(videoId);
+                
+                // Also update the specific video record for individual resume logic
+                Models.Video video = Models.Video.findById(videoId);
+                if (video != null) {
+                    video.lastWatched = java.time.LocalDateTime.now();
+                    if (video.duration != null && video.duration > 0) {
+                        video.watchProgress = seconds / (video.duration / 1000.0);
+                        if (video.watchProgress > 0.98) {
+                            video.watched = true;
+                            video.watchProgress = 1.0;
+                        }
+                    }
+                    video.persist();
+                }
+            }
+            state.setCurrentTime(seconds);
+            state.setPlaying(playing);
+            state.setLastUpdateTime(System.currentTimeMillis());
+            videoStateService.saveState(state);
+            return Response.ok("{\"success\":true}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+        }
     }
 
     @GET

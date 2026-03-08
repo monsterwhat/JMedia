@@ -9,6 +9,8 @@ import Services.SongService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import javax.swing.JFileChooser;
@@ -52,111 +54,171 @@ public class SettingsApi {
     private InstallationService installationService;
 
     @Inject
+    private Services.ProfileService profileService;
+
+    @Inject
     ManagedExecutor executor;
 
-    // -----------------------------
-    // BROWSE FOLDER
-    // -----------------------------
+    @POST
+    @Path("/{profileId}/sidebar-position")
+    public Response updateSidebarPosition(@PathParam("profileId") Long profileId, Map<String, String> data) {
+        String position = data.get("position");
+        if (position == null || (!position.equals("left") && !position.equals("right"))) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid position")).build();
+        }
+        profileService.updateSidebarPosition(profileId, position);
+        return Response.ok(ApiResponse.success("Sidebar position updated")).build();
+    }
+
+    @GET
+    @Path("/{profileId}/sidebar-position")
+    public Response getSidebarPosition(@PathParam("profileId") Long profileId) {
+        Models.Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Profile not found")).build();
+        }
+        return Response.ok(ApiResponse.success(profile.sidebarPosition)).build();
+    }
+
     @GET
     @Path("/{profileId}/browse-folder")
     public Response browseFolder(@PathParam("profileId") Long profileId) {
+        LOGGER.info("[SettingsApi] browseFolder called for profile {}", profileId);
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            LOGGER.error("Cannot open folder browser: Environment is headless");
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Folder browser is not available on this server configuration")).build();
+        }
+
         CompletableFuture<String> selectedPathFuture = new CompletableFuture<>();
 
         SwingUtilities.invokeLater(() -> {
-            JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setDialogTitle("Select Music Folder");
-            fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            fileChooser.setAcceptAllFileFilterUsed(false); // Disable "All Files" option
+            LOGGER.info("[SettingsApi] SwingUtilities.invokeLater executing for music folder");
+            try {
+                try {
+                    javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());
+                } catch (Exception ignore) {}
 
-            // Set initial directory if available
-            String currentPath = settingsController.getMusicLibraryPath();
-            if (currentPath != null && !currentPath.isBlank()) {
-                File currentDir = new File(currentPath);
-                if (currentDir.exists() && currentDir.isDirectory()) {
-                    fileChooser.setCurrentDirectory(currentDir);
+                JFileChooser fileChooser = new JFileChooser();
+                fileChooser.setDialogTitle("Select Music Folder");
+                fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                fileChooser.setAcceptAllFileFilterUsed(false);
+
+                String currentPath = settingsController.getMusicLibraryPath();
+                if (currentPath != null && !currentPath.isBlank()) {
+                    File currentDir = new File(currentPath);
+                    if (currentDir.exists() && currentDir.isDirectory()) {
+                        fileChooser.setCurrentDirectory(currentDir);
+                    }
                 }
-            }
 
-            int userSelection = fileChooser.showOpenDialog(null); // null for parent component
+                LOGGER.info("[SettingsApi] Showing JFileChooser dialog...");
+                int userSelection = fileChooser.showOpenDialog(null);
+                LOGGER.info("[SettingsApi] JFileChooser dialog closed with selection: {}", userSelection);
 
-            if (userSelection == JFileChooser.APPROVE_OPTION) {
-                File selectedFile = fileChooser.getSelectedFile();
-                selectedPathFuture.complete(selectedFile.getAbsolutePath());
-            } else {
-                selectedPathFuture.complete(null);
+                if (userSelection == JFileChooser.APPROVE_OPTION) {
+                    File selectedFile = fileChooser.getSelectedFile();
+                    selectedPathFuture.complete(selectedFile.getAbsolutePath());
+                } else {
+                    selectedPathFuture.complete(""); 
+                }
+            } catch (Exception e) {
+                LOGGER.error("Swing Error in browse-folder", e);
+                selectedPathFuture.completeExceptionally(e);
             }
         });
 
         try {
-            String selectedPath = selectedPathFuture.get(); // Block and wait for the result
-            if (selectedPath != null) {
-                return Response.ok(ApiResponse.success(selectedPath)).build();
-            } else {
-                return Response.status(Response.Status.NO_CONTENT).entity(ApiResponse.error("No folder selected")).build();
-            }
+            LOGGER.info("[SettingsApi] Waiting for folder selection (timeout 5m)...");
+            String selectedPath = selectedPathFuture.get(5, java.util.concurrent.TimeUnit.MINUTES);
+            LOGGER.info("[SettingsApi] Folder selection completed: {}", selectedPath);
+            return Response.ok(ApiResponse.success(selectedPath != null ? selectedPath : "")).build();
         } catch (Exception e) {
-            settingsController.addLog("Error opening folder chooser: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error opening folder chooser")).build();
+            LOGGER.error("Error waiting for folder selection", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error opening folder chooser: " + e.getMessage())).build();
         }
     }
 
     @GET
     @Path("/{profileId}/browse-video-folder")
     public Response browseVideoFolder(@PathParam("profileId") Long profileId) {
+        LOGGER.info("[SettingsApi] browseVideoFolder called for profile {}", profileId);
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            LOGGER.error("Cannot open folder browser: Environment is headless");
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Folder browser is not available on this server configuration")).build();
+        }
+
         CompletableFuture<String> selectedPathFuture = new CompletableFuture<>();
 
         SwingUtilities.invokeLater(() -> {
-            JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setDialogTitle("Select Video Folder");
-            fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            fileChooser.setAcceptAllFileFilterUsed(false); // Disable "All Files" option
+            LOGGER.info("[SettingsApi] SwingUtilities.invokeLater executing for video folder");
+            try {
+                try {
+                    javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName());
+                } catch (Exception ignore) {}
 
-            // Set initial directory if available
-            String currentPath = settingsController.getOrCreateSettings().getVideoLibraryPath();
-            if (currentPath != null && !currentPath.isBlank()) {
-                File currentDir = new File(currentPath);
-                if (currentDir.exists() && currentDir.isDirectory()) {
-                    fileChooser.setCurrentDirectory(currentDir);
+                JFileChooser fileChooser = new JFileChooser();
+                fileChooser.setDialogTitle("Select Video Folder");
+                fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                fileChooser.setAcceptAllFileFilterUsed(false);
+
+                String currentPath = settingsController.getOrCreateSettings().getVideoLibraryPath();
+                if (currentPath != null && !currentPath.isBlank()) {
+                    File currentDir = new File(currentPath);
+                    if (currentDir.exists() && currentDir.isDirectory()) {
+                        fileChooser.setCurrentDirectory(currentDir);
+                    }
                 }
-            }
 
-            int userSelection = fileChooser.showOpenDialog(null); // null for parent component
+                LOGGER.info("[SettingsApi] Showing JFileChooser dialog...");
+                int userSelection = fileChooser.showOpenDialog(null);
+                LOGGER.info("[SettingsApi] JFileChooser dialog closed with selection: {}", userSelection);
 
-            if (userSelection == JFileChooser.APPROVE_OPTION) {
-                File selectedFile = fileChooser.getSelectedFile();
-                selectedPathFuture.complete(selectedFile.getAbsolutePath());
-            } else {
-                selectedPathFuture.complete(null);
+                if (userSelection == JFileChooser.APPROVE_OPTION) {
+                    File selectedFile = fileChooser.getSelectedFile();
+                    selectedPathFuture.complete(selectedFile.getAbsolutePath());
+                } else {
+                    selectedPathFuture.complete("");
+                }
+            } catch (Exception e) {
+                LOGGER.error("Swing Error in browse-video-folder", e);
+                selectedPathFuture.completeExceptionally(e);
             }
         });
 
         try {
-            String selectedPath = selectedPathFuture.get(); // Block and wait for the result
-            if (selectedPath != null) {
-                return Response.ok(ApiResponse.success(selectedPath)).build();
-            } else {
-                return Response.status(Response.Status.NO_CONTENT).entity(ApiResponse.error("No folder selected")).build();
-            }
+            LOGGER.info("[SettingsApi] Waiting for video folder selection (timeout 5m)...");
+            String selectedPath = selectedPathFuture.get(5, java.util.concurrent.TimeUnit.MINUTES);
+            LOGGER.info("[SettingsApi] Video folder selection completed: {}", selectedPath);
+            return Response.ok(ApiResponse.success(selectedPath != null ? selectedPath : "")).build();
         } catch (Exception e) {
-            settingsController.addLog("Error opening folder chooser: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error opening folder chooser")).build();
+            LOGGER.error("Error waiting for video folder selection", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error opening folder chooser: " + e.getMessage())).build();
         }
     }
     
     @POST
     @Path("/{profileId}/video-library-path")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response setVideoLibraryPath(@PathParam("profileId") Long profileId, @FormParam("videoLibraryPathInput") String path) {
+    public Response setVideoLibraryPath(@PathParam("profileId") Long profileId, 
+                                       @FormParam("videoLibraryPathInput") String path,
+                                       @FormParam("tmdbApiKey") String tmdbApiKey) {
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Video library path cannot be empty")).build();
         }
-        
+
         Settings settings = settingsController.getOrCreateSettings();
         settings.setVideoLibraryPath(path);
-        settingsService.save(settings);
-        settingsController.addLog("Video library path updated to: " + path);
 
-        return Response.ok(ApiResponse.success("Video library path updated.")).build();
+        if (tmdbApiKey != null && !tmdbApiKey.isBlank()) {
+            settings.setTmdbApiKey(tmdbApiKey);
+        }
+
+        settingsService.save(settings);
+        settingsController.addLog("Video library settings updated. Path: " + path);
+
+        return Response.ok(ApiResponse.success("Video library settings updated.")).build();
     }
     
     // -----------------------------
@@ -238,7 +300,7 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("BPM tolerance settings updated")).build();
     }
 
-        // -----------------------------
+    // -----------------------------
     // IMPORT SOURCES CONFIGURATION
     // -----------------------------
     @POST
@@ -249,7 +311,6 @@ public class SettingsApi {
         try {
             Settings settings = settingsController.getOrCreateSettings();
             
-            // Update source configuration (using direct field access for now)
             if (sourcesDTO.getPrimarySource() != null) {
                 settings.setPrimarySource(sourcesDTO.getPrimarySource());
             }
@@ -276,7 +337,6 @@ public class SettingsApi {
                 settings.setMaxAcceptableWaitTimeMs(sourcesDTO.getMaxAcceptableWaitTimeMs());
             }
             
-            // YouTube advanced options
             settings.setYoutubeForceIpv4(sourcesDTO.isYoutubeForceIpv4());
             settings.setYoutubeForceIpv6(sourcesDTO.isYoutubeForceIpv6());
             if (sourcesDTO.getYoutubeUserAgent() != null) {
@@ -294,7 +354,10 @@ public class SettingsApi {
             if (sourcesDTO.getYoutubePlayerClient() != null) {
                 settings.setYoutubePlayerClient(sourcesDTO.getYoutubePlayerClient());
             }
-            
+            if (sourcesDTO.getTmdbApiKey() != null) {
+                settings.setTmdbApiKey(sourcesDTO.getTmdbApiKey());
+            }
+
             if (sourcesDTO.getPrimarySource() != null && sourcesDTO.getSecondarySource() != null
                 && sourcesDTO.getPrimarySource() != Settings.DownloadSource.NONE
                 && sourcesDTO.getSecondarySource() != Settings.DownloadSource.NONE
@@ -314,14 +377,9 @@ public class SettingsApi {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Failed to update import sources"))
                     .build();
-        } finally {
-            // Optional cleanup if needed
         }
     }
     
-    // -----------------------------
-    // UPDATE YT-DLP
-    // -----------------------------
     @POST
     @Path("/{profileId}/update-yt-dlp")
     @Transactional
@@ -338,7 +396,6 @@ public class SettingsApi {
             
             LOGGER.info("Updating yt-dlp to channel: {}", updateChannel.getChannelName());
             
-            // Run update in background and return immediately
             CompletableFuture.runAsync(() -> {
                 try {
                     installationService.updateYtDlp(updateChannel);
@@ -359,9 +416,6 @@ public class SettingsApi {
         }
     }
     
-    // -----------------------------
-    // GET MUSIC LIBRARY PATH
-    // -----------------------------
     @GET
     @Path("/{profileId}/music-library-path")
     public Response getMusicLibraryPath(@PathParam("profileId") Long profileId) {
@@ -373,9 +427,6 @@ public class SettingsApi {
         }
     } 
 
-    // -----------------------------
-    // TOGGLE RUN AS SERVICE
-    // -----------------------------
     @POST
     @Path("/{profileId}/toggle-run-as-service")
     @Transactional
@@ -385,9 +436,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 
-    // -----------------------------
-    // SET MUSIC LIBRARY PATH
-    // -----------------------------
     @POST
     @Path("/{profileId}/music-library-path") 
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -396,15 +444,11 @@ public class SettingsApi {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Music library path cannot be empty")).build();
         }
 
-        // Step 1: Update the path. This is transactional within the service.
         settingsController.setMusicLibraryPath(path);
-
-        // Step 2: Clear history and songs. These are transactional within their services.
         playbackHistoryService.clearHistoryForAllProfiles();
         songService.clearAllSongs();
         settingsController.addLog("Cleared existing songs and history.");
 
-        // Step 3: Trigger the scan asynchronously.
         executor.submit(() -> {
             settingsController.scanLibrary();
         });
@@ -412,9 +456,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Music library path updated and scan started.")).build();
     }
 
-    // -----------------------------
-    // RESET LIBRARY PATH
-    // -----------------------------
     @POST
     @Path("/{profileId}/resetLibrary")
     @Transactional
@@ -423,9 +464,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 
-    // -----------------------------
-    // SCAN LIBRARY
-    // -----------------------------
     @POST
     @Path("/{profileId}/scanLibrary")
     public Response scanLibrary(@PathParam("profileId") Long profileId) {
@@ -446,9 +484,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Incremental scan started")).build();
     }
 
-    // -----------------------------
-    // CLEAR LOGS
-    // -----------------------------
     @POST
     @Path("/{profileId}/clearLogs")
     @Transactional
@@ -457,9 +492,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 
-    // -----------------------------
-    // GET LOGS
-    // -----------------------------
     @GET
     @Path("/{profileId}/logs")
     @Transactional
@@ -467,9 +499,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success(settingsController.getLogs())).build();
     }
 
-    // -----------------------------
-    // CLEAR PLAYBACK HISTORY
-    // -----------------------------
     @POST
     @Consumes(MediaType.WILDCARD)
     @Path("/clearPlaybackHistory/{profileId}")
@@ -479,9 +508,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Playback history cleared")).build();
     }
 
-    // -----------------------------
-    // CLEAR SONGS DATABASE
-    // -----------------------------
     @POST
     @Path("/{profileId}/clearSongs")
     @Transactional
@@ -491,15 +517,11 @@ public class SettingsApi {
             settingsController.addLog("All songs cleared from database.");
             return Response.ok(ApiResponse.success("All songs deleted")).build();
         } catch (Exception e) {
-            e.printStackTrace();
             settingsController.addLog("Failed to clear songs DB: " + e.getMessage());
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to clear songs")).build();
         }
     }
 
-    // -----------------------------
-    // RELOAD METADATA
-    // -----------------------------
     @POST
     @Path("/{profileId}/reloadMetadata")
     public Response reloadMetadata(@PathParam("profileId") Long profileId) {
@@ -510,9 +532,6 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Metadata reload started")).build();
     }
 
-    // -----------------------------
-    // RESCAN SINGLE SONG METADATA
-    // -----------------------------
     @POST
     @Path("/{profileId}/rescan-song/{id}")
     public Response rescanSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
@@ -520,19 +539,12 @@ public class SettingsApi {
             songService.rescanSong(id);
             return Response.ok(ApiResponse.success("Song re-scan initiated for ID: " + id)).build();
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(ApiResponse.error(e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error(e.getMessage())).build();
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to re-scan song: " + e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to re-scan song: " + e.getMessage())).build();
         }
     }
 
-    // -----------------------------
-    // DELETE SINGLE SONG
-    // -----------------------------
     @DELETE
     @Path("/{profileId}/songs/{id}")
     public Response deleteSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
@@ -540,19 +552,12 @@ public class SettingsApi {
             songService.deleteSong(id);
             return Response.ok(ApiResponse.success("Song deleted with ID: " + id)).build();
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(ApiResponse.error(e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error(e.getMessage())).build();
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to delete song: " + e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete song: " + e.getMessage())).build();
         }
     }
 
-    // -----------------------------
-    // DELETE DUPLICATES
-    // -----------------------------
     @POST
     @Path("/{profileId}/deleteDuplicates")
     public Response deleteDuplicates(@PathParam("profileId") Long profileId) {
@@ -562,17 +567,13 @@ public class SettingsApi {
 
         return Response.ok(ApiResponse.success("Duplicate deletion started")).build();
     }
-    // -----------------------------
-    // INSTALL REQUIREMENTS
-    // -----------------------------
+
     @POST
     @Path("/{profileId}/install-requirements")
     @Consumes(MediaType.WILDCARD)
     public Response installRequirements(@PathParam("profileId") Long profileId) {
         try {
             settingsController.addLog("Installation process started for profile: " + profileId);
-            
-            // Start installation in background thread
             executor.submit(() -> {
                 try {
                     settingsController.getImportService().installRequirements(profileId);
@@ -581,55 +582,26 @@ public class SettingsApi {
                     settingsController.addLog("Installation failed: " + e.getMessage(), e);
                 }
             }, "InstallationThread");
-            
             return Response.ok(ApiResponse.success("Installation process started")).build();
         } catch (Exception e) {
             settingsController.addLog("Failed to start installation: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to start installation: " + e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to start installation: " + e.getMessage())).build();
         }
     }
     
-  @GET
+    @GET
     @Path("/{profileId}/install-status")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getInstallationStatus(@PathParam("profileId") Long profileId) {
         try {
-            // Check current installation status with timeout protection
             ImportInstallationStatus status;
             try {
-                // Create a thread with timeout to prevent hanging
                 java.util.concurrent.Future<ImportInstallationStatus> future = java.util.concurrent.Executors.newSingleThreadExecutor().submit(() -> {
                     return settingsController.getImportService().getInstallationStatus();
                 });
-                
-                // Wait maximum 10 seconds for status check
                 status = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.TimeoutException e) {
-                // Return default status if timeout occurs
-                status = new ImportInstallationStatus(
-                    false, false, false, false, false, false, false,
-                    "Status check timed out - Chocolatey may not be available",
-                    "Status check timed out - Python may not be available",
-                    "Status check timed out - Node.js may not be available",
-                    "Status check timed out - SpotDL status unknown",
-                    "Status check timed out - yt-dlp status unknown",
-                    "Status check timed out - FFmpeg status unknown",
-                    "Status check timed out - Whisper status unknown"
-                );
             } catch (Exception e) {
-                // Return default status if any other error occurs
-                status = new ImportInstallationStatus(
-                    false, false, false, false, false, false, false,
-                    "Status check failed: " + e.getMessage() + " - Chocolatey may not be available",
-                    "Status check failed: " + e.getMessage() + " - Python may not be available",
-                    "Status check failed: " + e.getMessage() + " - Node.js may not be available",
-                    "Status check failed: " + e.getMessage() + " - SpotDL status unknown",
-                    "Status check failed: " + e.getMessage() + " - yt-dlp status unknown",
-                    "Status check failed: " + e.getMessage() + " - FFmpeg status unknown",
-                    "Status check failed: " + e.getMessage() + " - Whisper status unknown"
-                );
+                status = new ImportInstallationStatus(false, false, false, false, false, false, false, "Status check failed", "Status check failed", "Status check failed", "Status check failed", "Status check failed", "Status check failed", "Status check failed");
             }
             
             java.util.Map<String, Object> response = new java.util.HashMap<>();
@@ -639,39 +611,14 @@ public class SettingsApi {
             response.put("ffmpegInstalled", status.ffmpegInstalled);
             response.put("whisperInstalled", status.whisperInstalled);
             response.put("allInstalled", status.isAllInstalled());
-            response.put("messages", java.util.List.of(
-                status.chocoMessage,
-                status.pythonMessage,
-                status.spotdlMessage,
-                status.ffmpegMessage,
-                status.whisperMessage
-            ));
+            response.put("messages", java.util.List.of(status.chocoMessage, status.pythonMessage, status.spotdlMessage, status.ffmpegMessage, status.whisperMessage));
             
             return Response.ok(ApiResponse.success(response)).build();
         } catch (Exception e) {
-            // Final fallback - always return a response, never throw
-            java.util.Map<String, Object> fallbackResponse = new java.util.HashMap<>();
-            fallbackResponse.put("chocoInstalled", false);
-            fallbackResponse.put("pythonInstalled", false);
-            fallbackResponse.put("spotdlInstalled", false);
-            fallbackResponse.put("ffmpegInstalled", false);
-            fallbackResponse.put("whisperInstalled", false);
-            fallbackResponse.put("allInstalled", false);
-            fallbackResponse.put("messages", java.util.List.of(
-                "Critical error checking Chocolatey: " + e.getMessage(),
-                "Critical error checking Python: " + e.getMessage(),
-                "Critical error checking SpotDL: " + e.getMessage(),
-                "Critical error checking FFmpeg: " + e.getMessage(),
-                "Critical error checking Whisper: " + e.getMessage()
-            ));
-            
-            return Response.ok(ApiResponse.success(fallbackResponse)).build();
+            return Response.ok(ApiResponse.success(new java.util.HashMap<>())).build();
         }
     }
     
-    // -----------------------------
-    // CHECK IMPORT CAPABILITY
-    // -----------------------------
     @GET
     @Path("/{profileId}/import-capability")
     public Response getImportCapabilityStatus(@PathParam("profileId") Long profileId) {
@@ -679,72 +626,34 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success(isInstalled)).build();
     }
 
-    // -----------------------------
-    // COOKIES MANAGEMENT
-    // -----------------------------
     @POST
     @Path("/{profileId}/upload-cookies")
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
     public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request) {
         try {
-            LOGGER.info("Received cookies upload request for profile: {}", profileId);
-            
             String cookiesContent = request.get("cookiesContent");
             if (cookiesContent == null || cookiesContent.trim().isEmpty()) {
-                LOGGER.warn("No cookies content provided");
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("No cookies content provided"))
-                        .build();
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("No cookies content provided")).build();
             }
 
             PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
             String cookiesStoragePath = platformOps.getCookiesStoragePath();
-            LOGGER.info("Using cookies storage path: {}", cookiesStoragePath);
-
             java.nio.file.Path cookiesDir = java.nio.file.Paths.get(cookiesStoragePath).getParent();
-            if (!java.nio.file.Files.exists(cookiesDir)) {
-                LOGGER.info("Creating cookies directory: {}", cookiesDir);
-                java.nio.file.Files.createDirectories(cookiesDir);
-            }
-
+            if (!java.nio.file.Files.exists(cookiesDir)) java.nio.file.Files.createDirectories(cookiesDir);
             java.nio.file.Files.writeString(java.nio.file.Paths.get(cookiesStoragePath), cookiesContent);
-            LOGGER.info("Cookies file written, validating...");
 
             if (!platformOps.validateCookiesFile(cookiesStoragePath)) {
-                LOGGER.warn("Cookies file validation failed");
                 java.nio.file.Files.deleteIfExists(java.nio.file.Paths.get(cookiesStoragePath));
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("Invalid cookies file format. Make sure it's in Netscape format with tab-separated values."))
-                        .build();
-            }
-
-            java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesStoragePath);
-            try {
-                java.nio.file.attribute.PosixFileAttributeView attrs = java.nio.file.Files.getFileAttributeView(cookiesPath, java.nio.file.attribute.PosixFileAttributeView.class);
-                if (attrs != null) {
-                    attrs.setPermissions(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-                }
-            } catch (Exception e) {
-                LOGGER.warn("Could not set secure permissions on cookies file: " + e.getMessage());
-                settingsController.addLog("Warning: Could not set secure permissions on cookies file: " + e.getMessage());
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid cookies file format.")).build();
             }
 
             Settings settings = settingsController.getOrCreateSettings();
             settings.setCookiesFilePath(cookiesStoragePath);
             settingsService.save(settings);
-
-            LOGGER.info("Cookies file uploaded successfully");
-            settingsController.addLog("Cookies file uploaded successfully: " + cookiesStoragePath);
-
             return Response.ok(ApiResponse.success("Cookies file uploaded successfully")).build();
-
         } catch (Exception e) {
-            LOGGER.error("Failed to upload cookies file: {}", e.getMessage(), e);
-            settingsController.addLog("Failed to upload cookies file: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to upload cookies file: " + e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to upload cookies file: " + e.getMessage())).build();
         }
     }
 
@@ -755,38 +664,20 @@ public class SettingsApi {
         try {
             Settings settings = settingsController.getOrCreateSettings();
             String cookiesFilePath = settings.getCookiesFilePath();
-            
             java.util.Map<String, Object> status = new java.util.HashMap<>();
-            
             if (cookiesFilePath != null && !cookiesFilePath.isBlank()) {
                 java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesFilePath);
                 status.put("configured", true);
                 status.put("exists", java.nio.file.Files.exists(cookiesPath));
                 status.put("path", cookiesFilePath);
-                
-                if (java.nio.file.Files.exists(cookiesPath)) {
-                    try {
-                        java.nio.file.attribute.BasicFileAttributes attrs = java.nio.file.Files.readAttributes(cookiesPath, java.nio.file.attribute.BasicFileAttributes.class);
-                        status.put("lastModified", attrs.lastModifiedTime().toString());
-                        status.put("size", attrs.size());
-                    } catch (Exception e) {
-                        status.put("readable", false);
-                    }
-                }
             } else {
                 status.put("configured", false);
                 status.put("exists", false);
             }
-            
             status.put("isLinux", System.getProperty("os.name").toLowerCase().contains("linux"));
-            
             return Response.ok(ApiResponse.success(status)).build();
-            
         } catch (Exception e) {
-            settingsController.addLog("Failed to get cookies status: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get cookies status: " + e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get cookies status")).build();
         }
     }
 
@@ -797,28 +688,15 @@ public class SettingsApi {
         try {
             Settings settings = settingsController.getOrCreateSettings();
             String cookiesFilePath = settings.getCookiesFilePath();
-            
             if (cookiesFilePath != null && !cookiesFilePath.isBlank()) {
                 java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesFilePath);
-                if (java.nio.file.Files.exists(cookiesPath)) {
-                    java.nio.file.Files.delete(cookiesPath);
-                    settingsController.addLog("Cookies file deleted: " + cookiesFilePath);
-                }
+                if (java.nio.file.Files.exists(cookiesPath)) java.nio.file.Files.delete(cookiesPath);
             }
-            
-            // Clear the path from settings
             settings.setCookiesFilePath(null);
             settingsService.save(settings);
-            
             return Response.ok(ApiResponse.success("Cookies file deleted successfully")).build();
-            
         } catch (Exception e) {
-            settingsController.addLog("Failed to delete cookies file: " + e.getMessage(), e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to delete cookies file: " + e.getMessage()))
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete cookies file")).build();
         }
     }
-   
-  
 }

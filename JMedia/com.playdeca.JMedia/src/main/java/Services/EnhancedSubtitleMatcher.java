@@ -123,18 +123,22 @@ public class EnhancedSubtitleMatcher {
     }
     
     private boolean isSubtitleForVideo(String subtitleBasename, String videoBasename) {
-        // Exact match: movie.srt ↔ movie.mp4
-        if (subtitleBasename.equalsIgnoreCase(videoBasename)) {
+        String subName = subtitleBasename.toLowerCase();
+        String vidName = videoBasename.toLowerCase();
+        
+        // Exact match
+        if (subName.equals(vidName)) {
             return true;
         }
         
-        // Contains match: movie.en.srt ↔ movie.mp4
-        if (subtitleBasename.startsWith(videoBasename)) {
-            return true;
+        // Check if subtitle starts with video name followed by a delimiter
+        if (subName.startsWith(vidName)) {
+            char nextChar = subName.charAt(vidName.length());
+            // Valid delimiters: . _ - (space)
+            return nextChar == '.' || nextChar == '_' || nextChar == '-' || nextChar == ' ';
         }
         
-        // Loose match: contains video basename anywhere
-        return subtitleBasename.toLowerCase().contains(videoBasename.toLowerCase());
+        return false;
     }
     
     private void extractLanguageAndTags(String filename, SubtitleTrack track) {

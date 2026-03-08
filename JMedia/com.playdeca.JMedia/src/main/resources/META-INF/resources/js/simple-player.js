@@ -1,0 +1,306 @@
+class SimplePlayer {
+    constructor(config) {
+        console.log('[SimplePlayer] Initializing with Persistence...', config);
+        this.container = document.getElementById(config.containerId);
+        this.video = document.getElementById(config.videoId);
+        this.videoId = config.currentVideoId;
+        
+        if (!this.container || !this.video) return;
+
+        this.profileId = localStorage.getItem('activeProfileId') || '1';
+        this.volumeKey = 'jmedia_video_volume_' + this.profileId;
+        this.muteKey = 'jmedia_video_mute_' + this.profileId;
+        this.userActiveTimeout = null;
+        
+        const savedVol = localStorage.getItem(this.volumeKey);
+        const savedMute = localStorage.getItem(this.muteKey) === 'true';
+        
+        this.state = {
+            playing: false,
+            volume: savedVol !== null ? parseFloat(savedVol) : 0.7,
+            muted: savedMute,
+            duration: 0,
+            currentTime: 0
+        };
+
+        this.init();
+    }
+
+    init() {
+        this.buildUI();
+        this.attachEvents();
+        this.loadSubtitles();
+        
+        // Restore Audio
+        this.video.volume = Math.pow(this.state.volume, 2);
+        this.video.muted = this.state.muted;
+        this.updateVolumeUI();
+        
+        // Restore Time
+        const savedTime = this.container.dataset.startTime;
+        if (savedTime && parseFloat(savedTime) > 0) {
+            this.video.currentTime = parseFloat(savedTime);
+        }
+
+        this.showControls();
+    }
+
+    buildUI() {
+        const old = this.container.querySelectorAll('.controls-container, .media-info, .big-play-btn, .subtitle-menu, .buffering-overlay');
+        old.forEach(el => el.remove());
+
+        // Use app logo for big play button
+        const uiHTML = `
+            <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
+            <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
+
+            <div class="media-info">
+                <div class="info-title">${this.container.dataset.title || 'Video'}</div>
+                <div class="info-meta">${this.container.dataset.meta || ''}</div>
+            </div>
+
+            <div class="controls-container">
+                <div class="progress-container">
+                    <div class="progress-filled" style="width: 0%;"></div>
+                </div>
+                
+                <div class="controls-row">
+                    <button class="control-btn" id="playPauseBtn"><i class="pi pi-play"></i></button>
+                    
+                    <button class="control-btn skip-btn" data-skip="-30"><i class="pi pi-angle-double-left"></i><span class="skip-val">-30</span></button>
+                    <button class="control-btn skip-btn" data-skip="-15"><i class="pi pi-angle-double-left"></i><span class="skip-val">-15</span></button>
+                    <button class="control-btn skip-btn" data-skip="15"><i class="pi pi-angle-double-right"></i><span class="skip-val">+15</span></button>
+                    <button class="control-btn skip-btn" data-skip="30"><i class="pi pi-angle-double-right"></i><span class="skip-val">+30</span></button>
+
+                    <div class="volume-container">
+                        <button class="control-btn" id="muteBtn"><i class="pi pi-volume-up"></i></button>
+                        <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="${this.state.volume}">
+                    </div>
+
+                    <div class="time-display">
+                        <span id="currentTime">0:00</span> / <span id="totalTime">0:00</span>
+                    </div>
+
+                    <div class="spacer"></div>
+
+                    <button class="control-btn" id="subtitleBtn"><i class="pi pi-comments"></i></button>
+                    <button class="control-btn" id="fullscreenBtn"><i class="pi pi-expand"></i></button>
+                </div>
+            </div>
+
+            <div class="subtitle-menu" id="subtitleMenu">
+                <div class="subtitle-list" id="subtitleList">
+                    <div class="subtitle-option selected" id="sub-off">Off</div>
+                </div>
+                <div class="subtitle-actions" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 5px;">
+                    <div class="subtitle-option action-opt" id="sub-generate"><i class="pi pi-bolt"></i> Generate (AI)</div>
+                    <div class="subtitle-option action-opt" id="sub-download"><i class="pi pi-search"></i> Search (Web)</div>
+                </div>
+            </div>
+        `;
+
+        this.container.insertAdjacentHTML('beforeend', uiHTML);
+
+        this.playBtn = this.container.querySelector('#playPauseBtn');
+        this.playIcon = this.playBtn.querySelector('i');
+        this.bigPlay = this.container.querySelector('.big-play-btn');
+        this.progressBar = this.container.querySelector('.progress-filled');
+        this.progressContainer = this.container.querySelector('.progress-container');
+        this.timeCurrent = this.container.querySelector('#currentTime');
+        this.timeTotal = this.container.querySelector('#totalTime');
+        this.volSlider = this.container.querySelector('.volume-slider');
+        this.muteBtn = this.container.querySelector('#muteBtn');
+        this.subtitleBtn = this.container.querySelector('#subtitleBtn');
+        this.subtitleMenu = this.container.querySelector('#subtitleMenu');
+        this.subtitleList = this.container.querySelector('#subtitleList');
+        this.fullscreenBtn = this.container.querySelector('#fullscreenBtn');
+        this.buffering = this.container.querySelector('.buffering-overlay');
+
+        const offBtn = this.container.querySelector('#sub-off');
+        offBtn.onclick = (e) => { e.stopPropagation(); this.selectSubtitle('off', offBtn); };
+
+        this.container.querySelector('#sub-generate').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('generate', e.target); };
+        this.container.querySelector('#sub-download').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('download', e.target); };
+    }
+
+    attachEvents() {
+        const toggle = () => {
+            if (this.video.paused) this.video.play().catch(() => {});
+            else this.video.pause();
+        };
+
+        this.video.onplay = () => {
+            this.container.classList.remove('paused');
+            this.playIcon.className = 'pi pi-pause';
+            this.bigPlay.style.display = 'none';
+            this.reportProgress(true);
+        };
+        this.video.onpause = () => {
+            this.container.classList.add('paused');
+            this.playIcon.className = 'pi pi-play';
+            this.bigPlay.style.display = 'flex';
+            this.reportProgress(false);
+        };
+        this.video.onwaiting = () => this.buffering.style.display = 'block';
+        this.video.onplaying = () => this.buffering.style.display = 'none';
+        
+        // Progress Bar FIX: Ensure it updates visually
+        this.video.ontimeupdate = () => {
+            if (!this.video.duration) return;
+            const pct = (this.video.currentTime / this.video.duration) * 100;
+            this.progressBar.style.width = pct + '%';
+            this.timeCurrent.innerText = this.formatTime(this.video.currentTime);
+        };
+
+        this.video.onloadedmetadata = () => {
+            this.timeTotal.innerText = this.formatTime(this.video.duration);
+        };
+
+        this.playBtn.onclick = (e) => { e.stopPropagation(); toggle(); };
+        this.bigPlay.onclick = (e) => { e.stopPropagation(); toggle(); };
+        
+        this.container.onclick = (e) => {
+            if (e.target.closest('.controls-container') || e.target.closest('.subtitle-menu')) return;
+            toggle();
+        };
+
+        this.container.querySelectorAll('.skip-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                this.video.currentTime += parseFloat(btn.dataset.skip);
+                this.showControls();
+                this.reportProgress(!this.video.paused);
+            };
+        });
+
+        this.progressContainer.onclick = (e) => {
+            e.stopPropagation();
+            const rect = this.progressContainer.getBoundingClientRect();
+            const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            this.video.currentTime = pos * this.video.duration;
+            this.reportProgress(!this.video.paused);
+        };
+
+        this.volSlider.oninput = (e) => {
+            const val = parseFloat(e.target.value);
+            this.state.volume = val;
+            this.video.volume = Math.pow(val, 2);
+            this.video.muted = false;
+            localStorage.setItem(this.volumeKey, val);
+            localStorage.setItem(this.muteKey, 'false');
+            this.updateVolumeUI();
+        };
+
+        this.muteBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.video.muted = !this.video.muted;
+            localStorage.setItem(this.muteKey, this.video.muted);
+            this.updateVolumeUI();
+        };
+
+        this.subtitleBtn.onclick = (e) => { e.stopPropagation(); this.subtitleMenu.classList.toggle('active'); };
+        this.fullscreenBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (!document.fullscreenElement) this.container.requestFullscreen().catch(() => {});
+            else document.exitFullscreen();
+        };
+
+        this.container.onmousemove = () => this.showControls();
+        
+        this._keyHandler = (e) => {
+            if (!document.getElementById(this.container.id)) {
+                document.removeEventListener('keydown', this._keyHandler);
+                return;
+            }
+            if (e.target.tagName === 'INPUT') return;
+            const key = e.key.toLowerCase();
+            if (key === ' ') { e.preventDefault(); toggle(); }
+            else if (key === 'arrowleft') { this.video.currentTime -= 10; this.showControls(); this.reportProgress(!this.video.paused); }
+            else if (key === 'arrowright') { this.video.currentTime += 10; this.showControls(); this.reportProgress(!this.video.paused); }
+            else if (key === 'f') this.fullscreenBtn.click();
+            else if (key === 'm') this.muteBtn.click();
+        };
+        document.addEventListener('keydown', this._keyHandler);
+
+        // Frequent Heartbeat for Seamless Reload
+        this._heartbeat = setInterval(() => {
+            if (this.video && !this.video.paused) {
+                this.reportProgress(true);
+            }
+        }, 3000);
+    }
+
+    async reportProgress(isPlaying) {
+        try {
+            await fetch(`/api/video/playback/progress?videoId=${this.videoId}&time=${this.video.currentTime}&playing=${isPlaying}`, { method: 'POST' });
+        } catch (e) {}
+    }
+
+    showControls() {
+        this.container.classList.add('user-active');
+        clearTimeout(this.userActiveTimeout);
+        this.userActiveTimeout = setTimeout(() => {
+            if (!this.video.paused) this.container.classList.remove('user-active');
+        }, 3000);
+    }
+
+    updateVolumeUI() {
+        const isMuted = this.video.muted || this.state.volume === 0;
+        if (isMuted) { this.muteBtn.innerHTML = '<i class="pi pi-volume-off"></i>'; this.volSlider.value = 0; }
+        else { this.muteBtn.innerHTML = this.state.volume < 0.5 ? '<i class="pi pi-volume-down"></i>' : '<i class="pi pi-volume-up"></i>'; this.volSlider.value = this.state.volume; }
+    }
+
+    formatTime(s) {
+        if (!s || isNaN(s)) return "0:00";
+        const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = Math.floor(s % 60);
+        return (h > 0 ? h + ":" : "") + (h > 0 ? m.toString().padStart(2, '0') : m) + ":" + sec.toString().padStart(2, '0');
+    }
+
+    async loadSubtitles() {
+        try {
+            const res = await fetch(`/api/video/subtitles/${this.videoId}`);
+            const data = await res.json();
+            while (this.subtitleList.children.length > 1) this.subtitleList.removeChild(this.subtitleList.lastChild);
+            if (data.tracks) {
+                data.tracks.forEach(t => {
+                    const track = document.createElement('track');
+                    const label = t.displayName || t.languageName || t.languageCode || 'Unknown';
+                    Object.assign(track, { kind: 'subtitles', label: label, srclang: t.languageCode, src: `/api/video/subtitles/track/${t.id}` });
+                    this.video.appendChild(track);
+                    const opt = document.createElement('div');
+                    opt.className = 'subtitle-option';
+                    opt.innerText = label;
+                    opt.onclick = (e) => { e.stopPropagation(); this.selectSubtitle(t.languageCode, opt); };
+                    this.subtitleList.appendChild(opt);
+                });
+            }
+        } catch (e) {}
+    }
+
+    async triggerSubtitleAction(type, el) {
+        const originalText = el.innerText;
+        el.innerText = type === 'generate' ? 'Generating...' : 'Searching...';
+        el.style.pointerEvents = 'none';
+        el.style.opacity = '0.5';
+        try {
+            const url = `/api/video/subtitles/${this.videoId}/${type}`;
+            const res = await fetch(url, { method: 'POST' });
+            if (res.ok) {
+                if (window.showToast) window.showToast(`${type === 'generate' ? 'Transcription' : 'Search'} started...`, 'info');
+                setTimeout(() => { this.loadSubtitles(); el.innerText = originalText; el.style.pointerEvents = 'auto'; el.style.opacity = '1'; }, 10000);
+            }
+        } catch (e) { el.innerText = originalText; el.style.pointerEvents = 'auto'; el.style.opacity = '1'; }
+    }
+
+    selectSubtitle(lang, optEl) {
+        this.subtitleMenu.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('selected'));
+        optEl.classList.add('selected');
+        this.subtitleMenu.classList.remove('active');
+        for (let i = 0; i < this.video.textTracks.length; i++) {
+            const t = this.video.textTracks[i];
+            t.mode = (lang !== 'off' && (t.language === lang || t.label === lang)) ? 'showing' : 'disabled';
+        }
+    }
+}
+
+window.SimplePlayer = SimplePlayer;

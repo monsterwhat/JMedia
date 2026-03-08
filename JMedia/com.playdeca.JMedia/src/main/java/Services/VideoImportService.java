@@ -2,9 +2,12 @@ package Services;
 
 import Models.MediaFile;
 import Models.Video;
+import Models.PendingMedia;
+import Models.VideoHistory;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -32,6 +35,12 @@ public class VideoImportService {
     @Inject
     UnifiedVideoEntityCreationService entityCreationService;
 
+    @Inject
+    SettingsService settingsService;
+
+    @Inject
+    EntityManager em;
+
     private static final int THREADS = Math.max(4, Math.max(1, Runtime.getRuntime().availableProcessors() / 2));
     private static final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
     
@@ -40,7 +49,11 @@ public class VideoImportService {
         loggingService.addLog("Starting video scan of directory: " + directory);
         
         try {
-            // First collect all video files (like music scanning does)
+            // Get root path from settings for relativization
+            String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            Path rootPath = libPathStr != null ? Paths.get(libPathStr) : directory;
+
+            // First collect all video files
             List<Path> videoFiles = new ArrayList<>();
             try (Stream<Path> paths = Files.walk(directory)) {
                 paths.filter(Files::isRegularFile)
@@ -48,16 +61,16 @@ public class VideoImportService {
                      .forEach(videoFiles::add);
             }
             
-            loggingService.addLog("Found " + videoFiles.size() + " video files in directory. Starting parallel processing...");
+            loggingService.addLog("Found " + videoFiles.size() + " video files. Starting discovery phase...");
             
             if (videoFiles.isEmpty()) {
                 loggingService.addLog("No video files found to process");
                 return;
             }
             
-            // Process files in parallel with progress tracking (like music scanning)
+            // Process files in parallel
             ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(executor);
-            videoFiles.forEach(path -> completion.submit(() -> processVideoFile(path, metadataOnly)));
+            videoFiles.forEach(path -> completion.submit(() -> processVideoFile(path, rootPath, metadataOnly)));
             
             int totalProcessed = 0;
             int totalAdded = 0;
@@ -73,7 +86,7 @@ public class VideoImportService {
                     
                     if (result != null) {
                         batchLogs.add(result);
-                        if (result.startsWith("ADDED:")) {
+                        if (result.startsWith("DISCOVERED:")) {
                             totalAdded++;
                         } else if (result.startsWith("SKIPPED:")) {
                             totalSkipped++;
@@ -82,36 +95,56 @@ public class VideoImportService {
                         }
                     }
                     
-                    // Progress reporting every 50 files (like music scanning)
                     if ((i + 1) % 50 == 0) {
-                        loggingService.addLog("Processed " + (i + 1) + " / " + videoFiles.size() + " video files (Added: " + totalAdded + ", Skipped: " + totalSkipped + ", Failed: " + totalFailed + ")...");
+                        loggingService.addLog("Discovered " + (i + 1) + " / " + videoFiles.size() + " files...");
                     }
                 } catch (Exception e) {
-                    batchLogs.add("FAILED: Error processing video file in parallel: " + e.getMessage());
+                    batchLogs.add("FAILED: Error during parallel discovery: " + e.getMessage());
                     totalFailed++;
                     totalProcessed++;
                 }
             }
             
-            // Add batch logs for detailed results
             loggingService.addLogs(batchLogs);
-            
-            loggingService.addLog("Video scan completed. Total processed: " + totalProcessed + 
-                               ", Added: " + totalAdded + ", Skipped: " + totalSkipped + ", Failed: " + totalFailed);
+            loggingService.addLog("Discovery phase completed. Total: " + totalProcessed + 
+                               ", New: " + totalAdded + ", Skipped: " + totalSkipped + ", Failed: " + totalFailed);
             
         } catch (IOException e) {
             loggingService.addLog("Error scanning directory: " + directory, e);
         }
     }
     
+    @Inject
+    VideoStateService videoStateService; 
+    
     @Transactional
     public void resetVideoDatabase() {
         loggingService.addLog("Resetting video database...");
         
-        // Delete all Video entities
-        Video.deleteAll();
+        // Reset playback state first
+        try {
+            videoStateService.resetState();
+        } catch (Exception e) {
+            loggingService.addLog("Warning: Could not reset video playback state: " + e.getMessage());
+        }
+
+        // Delete in correct order to respect foreign keys
+        PendingMedia.deleteAll();
+        VideoHistory.deleteAll();
         
-        // Delete all MediaFile entities  
+        // Clear genres junction table (if using VideoGenre entity)
+        try {
+            em.createNativeQuery("DELETE FROM video_genres").executeUpdate();
+        } catch (Exception e) {
+            // Table might not exist or be named differently
+        }
+
+        // Subtitles are cascade deleted with Video, but let's be safe
+        try {
+            Models.SubtitleTrack.deleteAll();
+        } catch (Exception e) {}
+
+        Video.deleteAll();
         MediaFile.deleteAll();
         
         loggingService.addLog("Video database reset completed");
@@ -130,19 +163,28 @@ public class VideoImportService {
     
     @Transactional
     @ActivateRequestContext
-    protected String processVideoFile(Path filePath, boolean metadataOnly) {
+    protected String processVideoFile(Path filePath, Path rootPath, boolean metadataOnly) {
         String filePathStr = filePath.toString();
         String filename = filePath.getFileName().toString();
         
         try {
-            // Check if already processed
+            // Check if MediaFile already exists
             MediaFile existingFile = MediaFile.find("path", filePathStr).firstResult();
+            
             if (existingFile != null) {
-                if (!metadataOnly) {
-                    return "SKIPPED: File already processed: " + filename;
+                // If it exists, check if it has a Video entity associated
+                Video existingVideo = Video.find("path", filePathStr).firstResult();
+                if (existingVideo != null && !metadataOnly) {
+                    return "SKIPPED: Already in library: " + filename;
                 }
-                // For metadata only, we could update existing MediaFile here if needed
-                return "SKIPPED: Metadata only mode for existing file: " + filename;
+                
+                // Ensure PendingMedia exists for existing files that might need metadata update
+                if (PendingMedia.findByMediaFile(existingFile) == null) {
+                    mediaPreProcessor.createPendingMedia(existingFile, filePath, rootPath);
+                    return "DISCOVERED: Created missing PendingMedia for existing file: " + filename;
+                }
+                
+                return "SKIPPED: Already pending: " + filename;
             }
             
             if (!metadataOnly) {
@@ -151,39 +193,28 @@ public class VideoImportService {
                 mediaFile.path = filePathStr;
                 mediaFile.type = "video";
                 
-                // Extract basic metadata using file properties
                 try {
                     mediaFile.lastModified = java.nio.file.Files.getLastModifiedTime(filePath).toMillis();
                     mediaFile.size = java.nio.file.Files.size(filePath);
                 } catch (IOException e) {
-                    return "FAILED: Error reading file attributes for " + filename + ": " + e.getMessage();
+                    return "FAILED: Attributes read error for " + filename;
                 }
                 
                 mediaFile.persist();
                 
-                // Create Video entity
-                try {
-                    Video video = entityCreationService.createVideoFromMediaFile(mediaFile);
-                    if (video != null) {
-                        return "ADDED: Created video entity for: " + filename;
-                    } else {
-                        return "FAILED: Failed to create video entity (null result) for: " + filename;
-                    }
-                } catch (Exception e) {
-                    return "FAILED: Error creating video entity for " + filename + ": " + e.getMessage();
-                }
+                // Create PendingMedia for smart processing (Phase 2)
+                mediaPreProcessor.createPendingMedia(mediaFile, filePath, rootPath);
+                
+                return "DISCOVERED: New file found: " + filename;
             }
             
-            return "SKIPPED: Metadata only mode for: " + filename;
+            return "SKIPPED: Metadata only mode: " + filename;
             
         } catch (Exception e) {
-            return "FAILED: Critical error processing " + filename + ": " + e.getMessage();
+            return "FAILED: " + filename + ": " + e.getMessage();
         }
     }
     
-    /**
-     * Shutdown method to properly close the executor service
-     */
     @PreDestroy
     public void shutdownExecutor() {
         try {

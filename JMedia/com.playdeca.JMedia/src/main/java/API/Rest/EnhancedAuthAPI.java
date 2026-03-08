@@ -5,6 +5,9 @@ import Models.Session;
 import Models.User;
 import Services.AuthService;
 import Services.SessionService;
+import Services.RateLimitService;
+import Utils.IpResolutionUtils;
+import io.vertx.core.http.HttpServerRequest;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -13,6 +16,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.NewCookie;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
+import jakarta.ws.rs.container.ContainerRequestContext;
 import java.time.Instant;
 import java.util.Map;
 
@@ -26,13 +30,28 @@ public class EnhancedAuthAPI {
     @Inject
     SessionService sessionService;
     
+    @Inject
+    RateLimitService rateLimitService;
+    
+    @Inject
+    HttpServerRequest vertxRequest;
+    
     @POST
     @Path("/login")
     @Consumes(MediaType.APPLICATION_JSON)
-    public Response login(LoginRequest loginRequest, @Context UriInfo uriInfo) {
+    public Response login(LoginRequest loginRequest, @Context UriInfo uriInfo, @Context ContainerRequestContext requestContext) {
         if (loginRequest == null || loginRequest.username == null || loginRequest.password == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("Username and password are required"))
+                    .build();
+        }
+        
+        String ipAddress = IpResolutionUtils.getClientIp(requestContext, vertxRequest);
+        
+        // 1. Check rate limit before authentication
+        if (rateLimitService.isBlocked(ipAddress, loginRequest.username)) {
+            return Response.status(429)
+                    .entity(ApiResponse.error("Too many failed login attempts. Try again later."))
                     .build();
         }
         
@@ -40,7 +59,9 @@ public class EnhancedAuthAPI {
         
         if (authResult.isPresent()) {
             User user = authResult.get();
-            String ipAddress = getClientIp(uriInfo);
+            
+            // Clear rate limit on success
+            rateLimitService.recordSuccessfulLogin(ipAddress, user.getUsername());
             
             // Create session
             Session session = sessionService.createSession(String.valueOf(user.id), user.getUsername(), ipAddress);
@@ -56,20 +77,15 @@ public class EnhancedAuthAPI {
                     .comment("JMedia authentication session")
                     .build();
             
-            // Determine redirect URL
-            String redirectUrl = "/";
-            if (loginRequest.redirectUrl != null && !loginRequest.redirectUrl.trim().isEmpty()) {
-                redirectUrl = loginRequest.redirectUrl;
-            }
-            
             return Response.ok()
                     .entity(ApiResponse.success(Map.of("message", "Login successful")))
                     .cookie(sessionCookie)
                     .build();
         }
         
-        // Log failed login attempt
-        logFailedLoginAttempt(loginRequest.username, getClientIp(uriInfo), "Invalid credentials");
+        // 2. Record failed attempt
+        rateLimitService.recordFailedAttempt(ipAddress, loginRequest.username);
+        logFailedLoginAttempt(loginRequest.username, ipAddress, "Invalid credentials");
         
         return Response.status(Response.Status.UNAUTHORIZED)
                 .entity(ApiResponse.error("Invalid username or password"))
@@ -107,7 +123,7 @@ public class EnhancedAuthAPI {
     
     @GET
     @Path("/status")
-    public Response status(@Context HttpHeaders headers) {
+    public Response status(@Context HttpHeaders headers, @Context ContainerRequestContext requestContext) {
         String sessionId = null;
         if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
             sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
@@ -119,7 +135,9 @@ public class EnhancedAuthAPI {
                     .build();
         }
         
-        if (sessionService.validateSession(sessionId, "localhost")) { // Simplified for now
+        String ipAddress = IpResolutionUtils.getClientIp(requestContext, vertxRequest);
+        
+        if (sessionService.validateSession(sessionId, ipAddress)) {
             Session session = Session.findBySessionId(sessionId);
             return Response.ok()
                     .entity(ApiResponse.success(session))
@@ -208,16 +226,6 @@ public class EnhancedAuthAPI {
                 .entity(ApiResponse.success(Map.of("isAdmin", isAdmin)))
                 .build();
     }
-    
-    private String getClientIp(UriInfo uriInfo) {
-        String clientIp = uriInfo.getRequestUri().getHost();
-        if (clientIp == null || clientIp.equals("localhost") || clientIp.startsWith("127.") || clientIp.startsWith("192.168.") || clientIp.startsWith("10.")) {
-            return "local";
-        }
-        return clientIp;
-    }
-    
-
     
     private void logFailedLoginAttempt(String username, String ipAddress, String reason) {
         // In a real implementation, you would log to database

@@ -97,14 +97,14 @@ public class VideoService {
     }
 
     private List<Video> findByType(String type) {
-        return Video.list("type", type, "isActive", true, Sort.by("releaseYear", Sort.Direction.Descending));
+        return Video.list("type = ?1 and isActive = ?2", Sort.by("releaseYear", Sort.Direction.Descending), type, true);
     }
 
     // ========== SERIES/SPECIFIC QUERIES ==========
 
     @Transactional
     public List<String> findAllSeriesTitles() {
-        return Video.<Video>list("type", "episode")
+        return Video.<Video>list("type = ?1", "episode")
                 .stream()
                 .map(v -> v.seriesTitle)
                 .filter(Objects::nonNull)
@@ -203,7 +203,7 @@ public class VideoService {
     @Transactional
     public Map<String, List<Video>> getAllGenreCarousels(Long userId, int itemsPerGenre) {
         Map<String, List<Video>> carousels = new HashMap<>();
-        List<Genre> activeGenres = Genre.list("isActive", true, Sort.by("sortOrder", Sort.Direction.Ascending));
+        List<Genre> activeGenres = Genre.list("isActive = ?1", Sort.by("sortOrder", Sort.Direction.Ascending), true);
 
         for (Genre genre : activeGenres) {
             List<Video> genreVideos = findByGenre(genre.slug, 1, itemsPerGenre);
@@ -493,15 +493,15 @@ public class VideoService {
     
     @Transactional
     public PaginatedVideos findPaginatedByMediaType(String mediaType, int page, int limit) {
-        List<Video> videos = Video.<Video>list("type", mediaType,
-                Sort.by("dateAdded", Sort.Direction.Descending))
+        List<Video> videos = Video.<Video>list("type = ?1",
+                Sort.by("dateAdded", Sort.Direction.Descending), mediaType)
                 .stream()
                 .skip((page - 1) * limit)
                 .limit(limit)
                 .collect(Collectors.toList());
         
         // Get total count
-        long totalCount = Video.count("type", mediaType);
+        long totalCount = Video.count("type = ?1", mediaType);
         
         return new PaginatedVideos(videos, totalCount);
     }

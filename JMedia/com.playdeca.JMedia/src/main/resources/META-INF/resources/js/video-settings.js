@@ -1,96 +1,89 @@
 document.addEventListener("DOMContentLoaded", () => {
+    console.log("[VideoSettings] Initializing...");
+    
     const browseVideoFolderBtn = document.getElementById("browseVideoFolderBtn");
     if (browseVideoFolderBtn) {
         browseVideoFolderBtn.onclick = async () => {
             try {
-                const res = await fetch(`/api/settings/${globalActiveProfileId}/browse-video-folder`);
-                
-                // Handle case where user cancels folder selection (NO_CONTENT status)
-                if (res.status === 204) {
-                    console.log("[Settings] Video folder selection cancelled by user");
-                    return; // Silently return - no notification needed for cancel
-                }
-                
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                }
+                const res = await fetch(`/api/settings/${window.globalActiveProfileId}/browse-video-folder`);
+                if (res.status === 204) return;
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 
                 const json = await res.json();
                 if (json.data) {
-                    const pathInputElem = document.getElementById("videoLibraryPathInput");
-                    if (pathInputElem) {
-                        pathInputElem.value = json.data;
-                    }
-                } else {
-                    console.error("[Settings] No data in response:", json);
-                    Toast.info("No folder selected");
+                    const input = document.getElementById("videoLibraryPathInput");
+                    if (input) input.value = json.data;
                 }
             } catch (error) {
                 console.error("[Settings] Failed to browse video folder:", error);
-                Toast.error("Failed to browse video folder: " + error.message);
+                Toast.error("Failed to browse video folder");
             }
         };
     }
 
     const saveVideoLibraryPathBtn = document.getElementById("saveVideoLibraryPathBtn");
-    if(saveVideoLibraryPathBtn) {
+    if (saveVideoLibraryPathBtn) {
+        saveVideoLibraryPathBtn.addEventListener('htmx:configRequest', function(evt) {
+            const tmdbApiKey = document.getElementById('tmdbApiKeyInput')?.value;
+            if (tmdbApiKey) evt.detail.parameters['tmdbApiKey'] = tmdbApiKey;
+        });
         saveVideoLibraryPathBtn.addEventListener('htmx:afterRequest', function(evt) {
-            if (evt.detail.successful) {
-                Toast.success("Video library path saved successfully");
-            } else {
-                Toast.error("Failed to save video library path");
-            }
+            if (evt.detail.successful) Toast.success("Video settings saved");
+            else Toast.error("Failed to save video settings");
         });
     }
 
     const scanVideoLibraryBtn = document.getElementById("scanVideoLibrary");
     if (scanVideoLibraryBtn) {
         scanVideoLibraryBtn.addEventListener('htmx:afterRequest', function (evt) {
-            if (evt.detail.successful) {
-                Toast.success("Video library scan started");
-            } else {
-                Toast.error("Failed to start video library scan");
-            }
+            if (evt.detail.successful) Toast.success("Video scan started");
+            else Toast.error("Failed to start scan");
         });
     }
     
     const reloadVideoMetadataBtn = document.getElementById("reloadVideoMetadata");
     if (reloadVideoMetadataBtn) {
         reloadVideoMetadataBtn.addEventListener('htmx:afterRequest', function (evt) {
-            if (evt.detail.successful) {
-                Toast.success("Video metadata reload started");
-            } else {
-                Toast.error("Failed to start video metadata reload");
-            }
+            if (evt.detail.successful) Toast.success("Metadata reload started");
+            else Toast.error("Failed to start reload");
         });
     }
 
     const resetVideoDbBtn = document.getElementById("resetVideoDb");
     if (resetVideoDbBtn) {
-        resetVideoDbBtn.addEventListener("click", async () => {
-            if (confirm("Are you sure you want to reset the video database? This will delete all video, movie, episode, show, and season data from the database. This action cannot be undone.")) {
+        resetVideoDbBtn.onclick = async () => {
+            if (confirm("Reset video database? This cannot be undone.")) {
                 try {
-                    const response = await fetch("/api/video/reset-database", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        }
-                    });
-                    const result = await response.json();
-                    if (response.ok) {
-                        Toast.success(result.data || "Video database reset successfully");
-                    } else {
-                        Toast.error("Error resetting video database: " + (result.error || "Unknown error"));
-                    }
+                    const res = await fetch("/api/video/reset-database", { method: "POST" });
+                    if (res.ok) Toast.success("Video database reset");
+                    else Toast.error("Failed to reset database");
                 } catch (error) {
-                    Toast.error("An unexpected error occurred while resetting the video database: " + error.message);
+                    Toast.error("Error resetting database");
                 }
             }
-        });
+        };
     }
 
+    // Video library toggle functionality
+    const toggle = document.getElementById("enableVideoLibraryToggle");
+    const options = document.getElementById("videoLibraryOptions");
+    
+    if (toggle && options) {
+        const applyState = (enabled) => {
+            if (enabled) options.classList.remove('is-hidden');
+            else options.classList.add('is-hidden');
+        };
 
+        // Initial state from localStorage
+        const isEnabled = localStorage.getItem('videoLibraryEnabled') === 'true';
+        toggle.checked = isEnabled;
+        applyState(isEnabled);
 
-
-
+        toggle.addEventListener('change', function() {
+            applyState(this.checked);
+            localStorage.setItem('videoLibraryEnabled', this.checked);
+            if (this.checked) Toast.success("Video library enabled");
+            else Toast.info("Video library disabled");
+        });
+    }
 });

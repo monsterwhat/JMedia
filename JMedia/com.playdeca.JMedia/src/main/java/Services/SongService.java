@@ -1,5 +1,6 @@
 package Services;
 
+import Models.Profile;
 import Models.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -32,6 +33,9 @@ public class SongService {
     PlaybackHistoryService playbackHistoryService;
 
     @Inject
+    PlaybackStateService playbackStateService;
+
+    @Inject
     ImportService importService; // Inject ImportService
 
     @Inject
@@ -48,6 +52,17 @@ public class SongService {
 
     @Transactional
     public void clearAllSongs() {
+        // Reset playback state for all profiles
+        List<Profile> profiles = Profile.listAll();
+        for (Profile p : profiles) {
+            try {
+                playbackStateService.resetState(p.id);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Could not reset playback state for profile " + p.id);
+            }
+        }
+
+        playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
         em.createQuery("DELETE FROM Song").executeUpdate();
     }

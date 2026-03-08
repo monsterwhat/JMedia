@@ -34,6 +34,7 @@ public class ImportSettingsDTO {
     private String youtubeImpersonate;
     private Settings.YtDlpUpdateChannel youtubeUpdateChannel;
     private String youtubePlayerClient;
+    private String tmdbApiKey;
     
     // Getters and setters for Lombok issues
     public Settings.DownloadSource getPrimarySource() { return primarySource; }
@@ -100,4 +101,7 @@ public class ImportSettingsDTO {
     
     public String getYoutubePlayerClient() { return youtubePlayerClient; }
     public void setYoutubePlayerClient(String youtubePlayerClient) { this.youtubePlayerClient = youtubePlayerClient; }
+
+    public String getTmdbApiKey() { return tmdbApiKey; }
+    public void setTmdbApiKey(String tmdbApiKey) { this.tmdbApiKey = tmdbApiKey; }
 }

@@ -4,6 +4,7 @@ import Models.PendingMedia;
 import Models.PendingMedia.ProcessingStatus;
 import Services.MediaPreProcessor;
 import Services.SmartNamingService;
+import Services.UnifiedVideoEntityCreationService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -159,6 +160,9 @@ public class NamingController {
         return true;
     }
 
+    @Inject
+    UnifiedVideoEntityCreationService entityCreationService;
+
     /**
      * Creates final media entities (Movie/Episode) from approved pending media
      */
@@ -166,11 +170,13 @@ public class NamingController {
     public int finalizeApprovedMedia() {
         List<PendingMedia> approvedList = PendingMedia.list("status", ProcessingStatus.USER_APPROVED);
         
+        int count = 0;
         for (PendingMedia pending : approvedList) {
             try {
-                createFinalMediaEntity(pending);
+                entityCreationService.createVideoFromPendingMedia(pending);
                 pending.status = ProcessingStatus.COMPLETED;
                 pending.persist();
+                count++;
             } catch (Exception e) {
                 LOGGER.error("Error finalizing media entity for pending {}: {}", 
                            pending.id, e.getMessage(), e);
@@ -180,66 +186,8 @@ public class NamingController {
             }
         }
         
-        LOGGER.info("Finalized {} approved media entities", approvedList.size());
-        return approvedList.size();
-    }
-
-    /**
-     * Creates the final Movie or Episode entity from pending media
-     */
-    private void createFinalMediaEntity(PendingMedia pending) {
-        String mediaType = pending.getFinalMediaType();
-        
-        if ("episode".equals(mediaType)) {
-            createEpisodeEntity(pending);
-        } else if ("movie".equals(mediaType)) {
-            createMovieEntity(pending);
-        } else {
-            throw new IllegalArgumentException("Unknown media type: " + mediaType);
-        }
-    }
-
-    /**
-     * Creates Episode entity from pending media
-     */
-    private void createEpisodeEntity(PendingMedia pending) {
-        // This would use the existing episode creation logic
-        // but with the final names from the pending media
-        
-        // For now, we'll just log what would happen
-        LOGGER.info("Would create Episode entity for pending {}: Show={}, S{}E{}, Title={}", 
-                   pending.id, 
-                   pending.getFinalShowName(),
-                   pending.getFinalSeason(),
-                   pending.getFinalEpisode(),
-                   pending.getFinalTitle());
-        
-        // In a complete implementation, this would:
-        // 1. Find or create Show entity
-        // 2. Find or create Season entity
-        // 3. Create Episode entity with all properties
-        // 4. Handle subtitles
-        // 5. Persist the entity
-    }
-
-    /**
-     * Creates Movie entity from pending media
-     */
-    private void createMovieEntity(PendingMedia pending) {
-        // This would use the existing movie creation logic
-        // but with the final names from the pending media
-        
-        // For now, we'll just log what would happen
-        LOGGER.info("Would create Movie entity for pending {}: Title={}, Year={}", 
-                   pending.id,
-                   pending.getFinalTitle(),
-                   pending.getFinalYear());
-        
-        // In a complete implementation, this would:
-        // 1. Create Movie entity with title and year
-        // 2. Set the video path
-        // 3. Handle subtitles
-        // 4. Persist the entity
+        LOGGER.info("Finalized {} approved media entities", count);
+        return count;
     }
 
     /**

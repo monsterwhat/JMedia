@@ -3,12 +3,9 @@ package API.Rest;
 import API.ApiResponse;
 import Models.DTOs.PaginatedMovieResponse;
 import Services.SettingsService;
-import Services.ThumbnailService;
-import Services.Thumbnail.ThumbnailProcessingStatus;
+import Services.ThumbnailService; 
 import Services.VideoImportService;
-import Services.VideoService;
-import Services.MediaPreProcessor;
-import Models.PendingMedia;
+import Services.VideoService; 
 import Controllers.NamingController;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -94,12 +91,15 @@ public class VideoAPI {
                 return Response.status(Response.Status.BAD_REQUEST).build();
             }
 
-            // Normalize the path and remove any directory traversal attempts
-            String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
-            // Remove any leading slashes to prevent absolute paths
-            normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
+            // Safe path resolution: handle both absolute and relative paths stored in DB
+            String fullPath;
+            java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+            if (vPath.isAbsolute()) {
+                fullPath = vPath.toString();
+            } else {
+                fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
+            }
 
-            String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
             String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
             
             if (thumbnailUrl != null && !thumbnailUrl.contains("picsum.photos")) {
@@ -149,19 +149,15 @@ public class VideoAPI {
                     if (video != null) {
                         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                         if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                            // Validate and sanitize the video path to prevent directory traversal
-                            if (video.path == null || video.path.trim().isEmpty()) {
-                                LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
-                                thumbnailUrls.add("https://picsum.photos/seed/error" + videoId + "/300/450.jpg");
-                                continue;
+                            // Safe path resolution
+                            String fullPath;
+                            java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+                            if (vPath.isAbsolute()) {
+                                fullPath = vPath.toString();
+                            } else {
+                                fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
                             }
-
-                            // Normalize the path and remove any directory traversal attempts
-                            String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
-                            // Remove any leading slashes to prevent absolute paths
-                            normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
-
-                            String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
+                            
                             String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
                             thumbnailUrls.add(thumbnailUrl != null ? thumbnailUrl : "https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
                         } else {
@@ -215,12 +211,11 @@ public class VideoAPI {
                     .entity("Invalid video path").build();
         }
 
-        // Normalize the path and remove any directory traversal attempts
-        String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
-        // Remove any leading slashes to prevent absolute paths
-        normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
-
-        java.nio.file.Path filePath = Paths.get(videoLibraryPath, normalizedVideoPath);
+        // Safe path resolution
+        java.nio.file.Path baseFilePath = java.nio.file.Paths.get(video.path);
+        final java.nio.file.Path filePath = baseFilePath.isAbsolute() ? 
+                baseFilePath : java.nio.file.Paths.get(videoLibraryPath, video.path);
+        
         File videoFile = filePath.toFile();
 
         // Additional security check: ensure the resolved file is within the video library
@@ -299,6 +294,9 @@ public class VideoAPI {
                 .header("Content-Length", fileLength)
                 .build();
     }
+
+    @Inject
+    private Services.VideoHistoryService videoHistoryService;
 
     @POST
     @Path("/scan")
@@ -401,7 +399,21 @@ public class VideoAPI {
     @Path("/reset-database")
     public Response resetVideoDatabase() {
         videoImportService.resetVideoDatabase();
-        return Response.ok(ApiResponse.success("Video database has been reset.")).build();
+        return Response.ok(ApiResponse.success("Video database and history have been reset.")).build();
+    }
+
+    @POST
+    @Path("/clear-history")
+    public Response clearVideoHistory() {
+        videoHistoryService.clearHistory();
+        return Response.ok(ApiResponse.success("Video playback history cleared")).build();
+    }
+
+    @POST
+    @Path("/clear-all")
+    public Response clearAllVideos() {
+        videoImportService.resetVideoDatabase();
+        return Response.ok(ApiResponse.success("All video records cleared from database")).build();
     }
 
     @POST
@@ -419,18 +431,14 @@ public class VideoAPI {
                 if (video != null) {
                     String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                     if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                        // Validate and sanitize the video path to prevent directory traversal
-                        if (video.path == null || video.path.trim().isEmpty()) {
-                            LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
-                            return;
+                        // Safe path resolution
+                        String fullPath;
+                        java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+                        if (vPath.isAbsolute()) {
+                            fullPath = vPath.toString();
+                        } else {
+                            fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
                         }
-
-                        // Normalize the path and remove any directory traversal attempts
-                        String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
-                        // Remove any leading slashes to prevent absolute paths
-                        normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
-
-                        String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
                         thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
                     }
                 }
@@ -516,19 +524,14 @@ public class VideoAPI {
                         .entity(ApiResponse.error("Video library path not configured")).build();
             }
 
-            // Validate and sanitize the video path to prevent directory traversal
-            if (video.path == null || video.path.trim().isEmpty()) {
-                LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("Invalid video path")).build();
+            // Safe path resolution
+            String fullPath;
+            java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+            if (vPath.isAbsolute()) {
+                fullPath = vPath.toString();
+            } else {
+                fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
             }
-
-            // Normalize the path and remove any directory traversal attempts
-            String normalizedVideoPath = video.path.replace("..", "").replace("//", "/");
-            // Remove any leading slashes to prevent absolute paths
-            normalizedVideoPath = normalizedVideoPath.replaceFirst("^[/\\\\]+", "");
-
-            String fullPath = java.nio.file.Paths.get(videoLibraryPath, normalizedVideoPath).toString();
             
             // Delete existing thumbnail first to force regeneration
             thumbnailService.deleteExistingThumbnail(videoId.toString(), video.type);
@@ -597,7 +600,7 @@ public class VideoAPI {
     @Path("/shows")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllSeriesTitles() {
-        List<String> seriesTitles = Models.Video.<Models.Video>list("type", "episode")
+        List<String> seriesTitles = Models.Video.<Models.Video>list("type = ?1", "episode")
             .stream()
             .map(v -> v.seriesTitle)
             .filter(title -> title != null && !title.isBlank())
@@ -637,7 +640,7 @@ public class VideoAPI {
             @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
 
-        List<Models.Video> movies = Models.Video.<Models.Video>list("type", "movie");
+        List<Models.Video> movies = Models.Video.<Models.Video>list("type = ?1", "movie");
         long totalItems = movies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
 

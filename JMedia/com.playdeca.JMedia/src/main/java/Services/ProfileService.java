@@ -53,4 +53,13 @@ public class ProfileService {
             profile.delete();
         }
     }
+
+    @Transactional
+    public void updateSidebarPosition(Long profileId, String position) {
+        Profile profile = Profile.findById(profileId);
+        if (profile != null) {
+            profile.sidebarPosition = position;
+            profile.persist();
+        }
+    }
 }

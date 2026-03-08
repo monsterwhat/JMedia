@@ -22,6 +22,8 @@ public class Profile extends PanacheEntity {
     @Column(nullable = false)
     public boolean isMainProfile;
     
+    public String sidebarPosition = "left"; // "left" or "right"
+    
     public Long userId;
     
     @Column(length = 2048)

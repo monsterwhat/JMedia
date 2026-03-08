@@ -3,22 +3,21 @@ package Services;
 import Models.Video;
 import Services.Thumbnail.ThumbnailJob;
 import Services.Thumbnail.ThumbnailProcessingStatus;
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.imageio.ImageIO;
@@ -31,6 +30,12 @@ public class ThumbnailService {
     
     @Inject
     EntityManager entityManager;
+
+    @Inject
+    VideoMetadataService metadataService;
+
+    @Inject
+    SettingsService settingsService;
     
     private final ConcurrentHashMap<Long, String> thumbnailCache = new ConcurrentHashMap<>();
     private final BlockingQueue<ThumbnailJob> thumbnailQueue = new LinkedBlockingQueue<>();
@@ -39,51 +44,132 @@ public class ThumbnailService {
     @Transactional
     public String generateThumbnail(Long videoId, String videoPath) {
         try {
-            // Check if thumbnail already exists
+            // Check if thumbnail already exists in cache and on disk
             String cachedPath = thumbnailCache.get(videoId);
             if (cachedPath != null && Files.exists(Paths.get(cachedPath))) {
-                LOGGER.debug("Using cached thumbnail for video ID: " + videoId);
                 return cachedPath;
             }
             
-            // Generate thumbnail path
-            String thumbnailFileName = "video_" + videoId + ".jpg";
-            String thumbnailPath = THUMBNAIL_DIR + File.separator + thumbnailFileName;
-            
-            LOGGER.info("Generating thumbnail for video ID: " + videoId + " from: " + videoPath);
-            
             // Create thumbnail directory if it doesn't exist
-            Path thumbnailDir = Paths.get(THUMBNAIL_DIR);
-            if (!Files.exists(thumbnailDir)) {
-                Files.createDirectories(thumbnailDir);
-                LOGGER.info("Created thumbnail directory: " + THUMBNAIL_DIR);
-            }
+            Path thumbnailDir = getThumbnailDirectory();
             
-            // Generate thumbnail using FFmpeg or similar
-            LOGGER.debug("Starting thumbnail extraction for: " + videoPath);
-            boolean success = extractVideoFrame(videoPath, thumbnailPath);
+            // Generate unique thumbnail path for this video
+            String thumbnailFileName = "video_" + videoId + ".jpg";
+            Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+            
+            // 1. STRATEGY A: Try to find local sidecar artwork (common Plex/Kodi convention)
+            Path videoFilePath = Paths.get(videoPath);
+            Path videoDir = videoFilePath.getParent();
+            if (videoDir != null && Files.exists(videoDir)) {
+                String[] sidecarNames = {"poster.jpg", "poster.png", "folder.jpg", "cover.jpg", "poster.webp"};
+                for (String name : sidecarNames) {
+                    Path sidecar = videoDir.resolve(name);
+                    if (Files.exists(sidecar)) {
+                        LOGGER.info("Found local sidecar artwork for ID {}: {}", videoId, name);
+                        Files.copy(sidecar, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        return finalizeThumbnail(videoId, outputPath.toString());
+                    }
+                }
+            }
+
+            // 2. STRATEGY B: Try to fetch from online API (TMDb)
+            Video video = entityManager.find(Video.class, videoId);
+            if (video != null && settingsService.getOrCreateSettings().getThumbnailPreferApi()) {
+                String type = video.type != null ? video.type : "movie";
+                String title = video.title != null ? video.title : video.seriesTitle;
+                if (title != null) {
+                    LOGGER.info("Attempting online artwork fetch for: {}", title);
+                    Optional<String> apiUrl = metadataService.fetchPosterUrl(type, title, video.releaseYear);
+                    if (apiUrl.isPresent()) {
+                        downloadImage(apiUrl.get(), outputPath);
+                        return finalizeThumbnail(videoId, outputPath.toString());
+                    }
+                }
+            }
+
+            // 3. STRATEGY C: Fallback to FFmpeg extraction at a meaningful time
+            LOGGER.info("No artwork found for ID {}, falling back to FFmpeg extraction", videoId);
+            boolean success = extractVideoFrame(videoPath, outputPath.toString());
             
             if (success) {
-                thumbnailCache.put(videoId, thumbnailPath);
-                LOGGER.info("Thumbnail generated successfully: " + thumbnailPath);
-                
-                // Update video record with thumbnail path
-                Video video = entityManager.find(Video.class, videoId);
-                if (video != null) {
-                    video.setThumbnailPath(thumbnailPath);
-                    entityManager.persist(video);
-                    LOGGER.debug("Updated video record with thumbnail path for ID: " + videoId);
-                }
-                
-                return thumbnailPath;
-            } else {
-                LOGGER.warn("Failed to generate thumbnail for video ID: " + videoId);
+                return finalizeThumbnail(videoId, outputPath.toString());
             }
             
         } catch (Exception e) {
             LOGGER.error("Error generating thumbnail for video " + videoId + ": " + e.getMessage());
         }
         
+        return null;
+    }
+
+    private String finalizeThumbnail(Long videoId, String path) {
+        thumbnailCache.put(videoId, path);
+        // Update video record with thumbnail path
+        Video video = entityManager.find(Video.class, videoId);
+        if (video != null) {
+            video.setThumbnailPath(path);
+            entityManager.persist(video);
+        }
+        return path;
+    }
+
+    private void downloadImage(String url, Path outputPath) throws IOException {
+        java.net.URL imageUrl = new java.net.URL(url);
+        try (java.io.InputStream in = imageUrl.openStream()) {
+            Files.copy(in, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private boolean extractVideoFrame(String videoPath, String outputPath) {
+        try {
+            // Seek to 10% of the video or 120 seconds, whichever is less, to get a "meaningful" shot
+            // We'll use a default of 10 seconds if duration is unknown
+            long seekSeconds = 10;
+            Video video = Video.find("path", videoPath).firstResult();
+            if (video != null && video.duration != null && video.duration > 0) {
+                seekSeconds = Math.min(120, (video.duration / 1000) / 10);
+            }
+
+            String ffmpegPath = findFFmpegExecutable();
+            if (ffmpegPath == null) {
+                LOGGER.error("FFmpeg not found - cannot extract frames");
+                return false;
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath,
+                "-ss", String.valueOf(seekSeconds),
+                "-i", videoPath,
+                "-frames:v", "1",
+                "-q:v", "2",
+                "-vf", "scale=480:-1",
+                "-y",
+                outputPath
+            );
+            
+            Process process = pb.start();
+            boolean finished = process.waitFor(20, TimeUnit.SECONDS);
+            
+            if (finished && process.exitValue() == 0) {
+                return true;
+            } else {
+                LOGGER.warn("FFmpeg frame extraction failed for: {}", videoPath);
+                return false;
+            }
+            
+        } catch (Exception e) {
+            LOGGER.error("FFmpeg extraction failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private String findFFmpegExecutable() {
+        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
+        for (String p : paths) {
+            try {
+                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
+            } catch (Exception ignored) {}
+        }
         return null;
     }
     
@@ -95,13 +181,21 @@ public class ThumbnailService {
                 return cachedPath;
             }
             
-            // Generate on-demand if not cached
+            // Try to find on disk even if not in memory cache
+            String thumbnailFileName = "video_" + id + ".jpg";
+            Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
+            if (Files.exists(diskPath)) {
+                thumbnailCache.put(id, diskPath.toString());
+                return diskPath.toString();
+            }
+            
+            // Generate on-demand if not found
             String thumbnailPath = generateThumbnail(id, fullPath);
             if (thumbnailPath != null) {
                 return thumbnailPath;
             }
             
-            // Fallback to placeholder
+            // Fallback to placeholder if all else fails
             return "https://picsum.photos/seed/video" + videoId + "/300/450.jpg";
             
         } catch (Exception e) {
@@ -126,19 +220,14 @@ public class ThumbnailService {
     @Transactional
     public void queueAllVideosForRegeneration() {
         try {
-            // Clear existing queue
             thumbnailQueue.clear();
-            
-            // Add all videos to queue for regeneration
             Video.listAll().forEach(videoObj -> {
                 Video video = (Video) videoObj;
                 ThumbnailJob job = new ThumbnailJob(video.id, video.path, video.type);
-                job.priority = false; // Background processing
+                job.priority = false;
                 thumbnailQueue.offer(job);
             });
-            
             LOGGER.info("Queued all videos for thumbnail regeneration");
-            
         } catch (Exception e) {
             LOGGER.error("Error queueing videos for regeneration: " + e.getMessage());
         }
@@ -148,15 +237,9 @@ public class ThumbnailService {
         return processingStatus;
     }
     
-    public void deleteExistingThumbnail(String videoPath, String videoType) {
-        // Extract video ID from path (assuming last part is ID)
+    public void deleteExistingThumbnail(String videoId, String videoType) {
         try {
-            String[] parts = videoPath.split("[\\\\/]");
-            String filename = parts[parts.length - 1];
-            String videoId = filename.replaceAll("_" + videoType + "\\.[^.]+$", "");
-            
             deleteThumbnail(Long.parseLong(videoId));
-            
         } catch (Exception e) {
             LOGGER.error("Error deleting existing thumbnail: " + e.getMessage());
         }
@@ -167,33 +250,11 @@ public class ThumbnailService {
     }
     
     public String processApiFirstThumbnail(ThumbnailJob job) {
-        String mediaTitle = job.title != null ? job.title : (job.showName != null ? job.showName + " S" + job.season + "E" + job.episode : "Video " + job.videoId);
-        
-        // Try to get thumbnail from API first, fallback to local
-        try {
-            LOGGER.info("Attempting API thumbnail generation for: " + mediaTitle);
-            
-            // This would implement API-based thumbnail retrieval
-            // For now, fallback to local generation
-            LOGGER.info("API not available, falling back to local generation for: " + mediaTitle);
-            return generateLocalThumbnail(job);
-            
-        } catch (Exception e) {
-            LOGGER.error("Error processing API-first thumbnail for " + mediaTitle + ": " + e.getMessage());
-            return null;
-        }
+        return generateLocalThumbnail(job);
     }
     
     public String generateLocalThumbnail(ThumbnailJob job) {
-        String mediaTitle = job.title != null ? job.title : (job.showName != null ? job.showName + " S" + job.season + "E" + job.episode : "Video " + job.videoId);
-        LOGGER.info("Starting local thumbnail generation for: " + mediaTitle);
-        String result = generateThumbnail(job.videoId, job.videoPath);
-        if (result != null) {
-            LOGGER.info("Local thumbnail generation completed for: " + mediaTitle);
-        } else {
-            LOGGER.warn("Local thumbnail generation failed for: " + mediaTitle);
-        }
-        return result;
+        return generateThumbnail(job.videoId, job.videoPath);
     }
     
     public boolean isQueueEmpty() {
@@ -202,31 +263,6 @@ public class ThumbnailService {
     
     public ThumbnailJob getNextJob() throws InterruptedException {
         return thumbnailQueue.take();
-    }
-    
-    private boolean extractVideoFrame(String videoPath, String outputPath) {
-        try {
-            // This is a placeholder implementation
-            // In a real implementation, you would use FFmpeg or a similar library
-            // to extract a frame from the video
-            
-            // For now, create a simple placeholder image
-            BufferedImage placeholderImage = new BufferedImage(320, 240, BufferedImage.TYPE_INT_RGB);
-            
-            // Create a simple gray placeholder
-            for (int x = 0; x < 320; x++) {
-                for (int y = 0; y < 240; y++) {
-                    placeholderImage.setRGB(x, y, 0x808080);
-                }
-            }
-            
-            File outputFile = new File(outputPath);
-            return ImageIO.write(placeholderImage, "jpg", outputFile);
-            
-        } catch (IOException e) {
-            LOGGER.error("Error extracting frame: " + e.getMessage());
-            return false;
-        }
     }
     
     public byte[] getThumbnailBytes(Long videoId) {
@@ -243,7 +279,12 @@ public class ThumbnailService {
     
     public boolean hasThumbnail(Long videoId) {
         String path = thumbnailCache.get(videoId);
-        return path != null && Files.exists(Paths.get(path));
+        if (path == null) {
+            String thumbnailFileName = "video_" + videoId + ".jpg";
+            Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
+            return Files.exists(diskPath);
+        }
+        return Files.exists(Paths.get(path));
     }
     
     @Transactional
@@ -252,6 +293,9 @@ public class ThumbnailService {
             String thumbnailPath = thumbnailCache.remove(videoId);
             if (thumbnailPath != null) {
                 Files.deleteIfExists(Paths.get(thumbnailPath));
+            } else {
+                String thumbnailFileName = "video_" + videoId + ".jpg";
+                Files.deleteIfExists(getThumbnailDirectory().resolve(thumbnailFileName));
             }
         } catch (IOException e) {
             LOGGER.error("Error deleting thumbnail: " + e.getMessage());

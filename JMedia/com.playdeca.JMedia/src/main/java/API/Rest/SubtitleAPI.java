@@ -17,6 +17,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import Services.WhisperService;
+import Services.SubtitleDownloadService;
+
 @Path("/api/video/subtitles")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
@@ -31,7 +34,45 @@ public class SubtitleAPI {
     @Inject
     private SubtitleFormatConverter formatConverter;
     
+    @Inject
+    private WhisperService whisperService;
+    
+    @Inject
+    private SubtitleDownloadService downloadService;
+    
     // ========== SUBTITLE ENDPOINTS ==========
+    
+    @POST
+    @Path("/{videoId}/generate")
+    public Response generateSubtitle(@PathParam("videoId") Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
+        }
+        
+        if (!whisperService.isWhisperAvailable()) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity("Whisper is not available on this server").build();
+        }
+        
+        whisperService.generateSubtitle(video);
+        
+        return Response.ok(createSuccessResponse("Subtitle generation started")).build();
+    }
+    
+    @POST
+    @Path("/{videoId}/download")
+    public Response downloadSubtitle(@PathParam("videoId") Long videoId, 
+                                   @QueryParam("language") @DefaultValue("en") String language) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
+        }
+        
+        downloadService.downloadSubtitle(video, language);
+        
+        return Response.ok(createSuccessResponse("Subtitle download started")).build();
+    }
     
     @GET
     @Path("/{videoId}")

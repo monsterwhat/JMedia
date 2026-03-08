@@ -41,6 +41,7 @@ public class Settings extends PanacheEntity {
     private Integer thumbnailProcessingThreads = 2; // Number of thumbnail processing threads
     private Boolean thumbnailPreferApi = true;   // Prefer API thumbnails over local extraction
     private Boolean thumbnailRegenerateOnReload = true; // Regenerate all thumbnails during metadata reload
+    private String tmdbApiKey; // TMDb API key for video metadata and artwork
     
     // Cookies file path for yt-dlp on Linux
     private String cookiesFilePath;
@@ -346,6 +347,14 @@ public class Settings extends PanacheEntity {
     
     public void setYoutubePlayerClient(String youtubePlayerClient) {
         this.youtubePlayerClient = youtubePlayerClient;
+    }
+
+    public String getTmdbApiKey() {
+        return tmdbApiKey;
+    }
+
+    public void setTmdbApiKey(String tmdbApiKey) {
+        this.tmdbApiKey = tmdbApiKey;
     }
       
 }

@@ -6,8 +6,9 @@
         <title id="pageTitle">JMedia Videos</title>
 
         <script src="/js/theme-initializer.js"></script>
+        <script src="/js/htmx.min.js"></script>
         
-<!-- Alpine.js for profiles -->
+        <!-- Alpine.js for profiles -->
         <script defer src="/lib/alpine.min.js"></script>
         <script>
             document.addEventListener('alpine:init', () => {
@@ -22,203 +23,131 @@
         <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/custom.css"/>
         
-        <!-- Video.js -->
-        <link href="/lib/video-js.css" rel="stylesheet">
-        
-        <!-- Streaming Platform Styles -->
-        <style>
-            .search-suggestions-dropdown {
-                position: absolute;
-                top: 100%;
-                left: 0;
-                right: 0;
-                background: rgba(30, 30, 30, 0.95);
-                backdrop-filter: blur(20px);
-                border-radius: 8px;
-                margin-top: 4px;
-                max-height: 300px;
-                overflow-y: auto;
-                z-index: 1000;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            }
-            
-            .search-suggestion-item {
-                padding: 12px 16px;
-                cursor: pointer;
-                transition: background-color 0.2s ease;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }
-            
-            .search-suggestion-item:hover {
-                background: rgba(255, 255, 255, 0.1);
-            }
-            
-            .search-suggestion-item:last-child {
-                border-bottom: none;
-            }
-            
-            .search-suggestion-poster {
-                width: 40px;
-                height: 60px;
-                object-fit: cover;
-                border-radius: 4px;
-            }
-            
-            .search-suggestion-info {
-                flex: 1;
-            }
-            
-            .search-suggestion-title {
-                color: white;
-                font-weight: 600;
-                margin-bottom: 4px;
-            }
-            
-            .search-suggestion-meta {
-                color: rgba(255, 255, 255, 0.7);
-                font-size: 0.8rem;
-            }
-            
-            .search-loading-indicator {
-                position: absolute;
-                top: 50%;
-                right: 40px;
-                transform: translateY(-50%);
-                color: rgba(255, 255, 255, 0.6);
-            }
-            
-            .video-page {
-                background: linear-gradient(135deg, #1a1a1a 0%, #2d1b4e 100%);
-                min-height: 100vh;
-            }
-            
-            .spa-content {
-                background: transparent;
-                max-width: 95vw;
-                margin: 0 auto;
-                padding: 0 1rem;
-            }
-        </style>
-
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
     </head>
     <body class="video-page">
 
-        <!-- Hero layout -->
-        <section class="hero is-fullheight">
+        <!-- HTMX + Alpine Integration -->
+        <script>
+            document.addEventListener('htmx:afterSettle', (evt) => {
+                // Ensure Alpine.js processes newly added HTMX content (Alpine v3 way)
+                if (window.Alpine && evt.detail.target) {
+                    window.Alpine.initTree(evt.detail.target);
+                }
+            });
+        </script>
 
-            <!-- Hero Head (Navbar) -->
-            <div class="hero-head">
-                <nav class="navbar" role="navigation">
-                    <div class="navbar-brand">
-                        <a class="navbar-item" href="/"><span class="icon"><i class="pi pi-home"></i></span><strong>JMedia</strong></a>
-                        <a role="button" class="navbar-item" id="themeToggle">
-                            <i class="pi pi-sun" id="themeIcon"></i>
+        <!-- Plex/YouTube Style Layout -->
+        <div class="plex-layout" id="plex-layout">
+            
+            <!-- Persistent Sidebar -->
+            <aside class="plex-sidebar" id="plex-sidebar">
+                <div class="sidebar-brand">
+                    <img src="/logo.png" alt="JMedia" class="sidebar-logo" onclick="videoSPA.goHome()">
+                    <span class="sidebar-brand-text" onclick="videoSPA.goHome()">JMedia</span>
+                    
+                    <button id="themeToggle" class="button is-ghost theme-toggle-btn" title="Toggle Theme">
+                        <i id="themeIcon" class="pi pi-sun"></i>
+                    </button>
+
+                    <button class="button is-ghost sidebar-toggle" onclick="videoSPA.toggleSidebar()">
+                        <i class="pi pi-bars"></i>
+                    </button>
+                </div>
+                
+                <nav class="sidebar-nav">
+                    <div class="nav-group">
+                        <p class="nav-label">Video Library</p>
+                        <a href="javascript:void(0)" class="nav-item active" id="nav-home" onclick="videoSPA.goHome()">
+                            <i class="pi pi-video"></i> <span>Videos</span>
                         </a>
-                        <a role="button" class="navbar-item" id="playerToggle">
-                            <i class="pi pi-expand" id="playerIcon"></i>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-movies" onclick="videoSPA.switchSection('movies')">
+                            <i class="pi pi-ticket"></i> <span>Movies</span>
                         </a>
-<a role="button" class="navbar-item" href="/video">
-                            <i class="pi pi-video"></i>
-                        </a>
-                        <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navMenu">
-                            <span aria-hidden="true"></span>
-                            <span aria-hidden="true"></span>
-                            <span aria-hidden="true"></span>
-                        </a>
-                        <a role="button" class="navbar-item is-hidden-desktop is-hidden-mobile" id="sidebarToggle">
-                            <i class="pi pi-bars"></i>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-shows" onclick="videoSPA.switchSection('shows')">
+                            <i class="pi pi-desktop"></i> <span>TV Shows</span>
                         </a>
                     </div>
-                    <div id="navMenu" class="navbar-menu">
-                        <div class="navbar-start">
-                        </div>
-                        <div class="navbar-item is-expanded" style="justify-content: center;">
-                            <div class="navbar-search-container">
-                                <div class="control has-icons-right" style="flex-grow: 1; position: relative;">
-                                    <input class="input is-rounded" type="text" placeholder="Search all videos..." name="search" id="globalSearchInput"
-                                           hx-get="/api/video/ui/search-suggest"
-                                           hx-trigger="keyup changed delay:300ms from:this"
-                                           hx-target="#searchSuggestions"
-                                           hx-swap="innerHTML"
-                                           hx-include="[name='search']"
-                                           hx-indicator="#searchLoading">
-                                    <span class="icon is-small is-right is-clickable" id="clearSearchIcon" style="pointer-events: auto;">
-                                        <i class="pi pi-times"></i>
-                                    </span>
-                                    
-                                    <!-- Search Suggestions Dropdown -->
-                                    <div id="searchSuggestions" class="search-suggestions-dropdown"></div>
-                                    <div id="searchLoading" class="search-loading-indicator" style="display: none;">
-                                        <i class="pi pi-spin pi-spinner"></i>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="navbar-end">
-                            <a class="navbar-item" id="openProfileModalBtn">
-                                <span class="icon"><i class="pi pi-user"></i></span>
-                                <span id="currentProfileName">Loading...</span>
-                            </a>
-<a class="navbar-item" href="/settings">
-                                <span class="icon"><i class="pi pi-cog"></i></span>
-                                <span>Settings</span>
-                            </a>
-                        </div>
+
+                    <div class="nav-group">
+                        <p class="nav-label">Personal</p>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-history" onclick="videoSPA.switchSection('history')">
+                            <i class="pi pi-history"></i> <span>History</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-watchlist" onclick="videoSPA.switchSection('watchlist')">
+                            <i class="pi pi-bookmark"></i> <span>Watchlist</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-group">
+                        <p class="nav-label">Music Library</p>
+                        <a href="/" class="nav-item">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-group mt-auto" style="margin-top: auto; padding-top: 2rem;">
+                        <a href="/settings" class="nav-item">
+                            <i class="pi pi-cog"></i> <span>Settings</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="openProfileModalBtn">
+                            <i class="pi pi-user"></i> <span id="currentProfileName">Profile</span>
+                        </a>
                     </div>
                 </nav>
-            </div>
+            </aside>
 
-            <!-- Hero Body (SPA Content) -->
-            <div class="hero-body">
-                <div id="spa-container" class="spa-container">
-                    <!-- Loading State -->
-                    <div id="loading-state" class="loading-overlay" style="display: none;">
-                        <div class="loading-content">
-                            <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
-                            <span class="loading-text">Loading content...</span>
+            <!-- Main Scrollable Area -->
+            <div class="plex-main">
+                <!-- Top Header -->
+                <header class="plex-header">
+                    <div class="search-container">
+                        <div class="control has-icons-left">
+                            <input class="input is-rounded plex-search" type="text" placeholder="Search library..." name="search" id="globalSearchInput"
+                                   hx-get="/api/video/ui/search-suggest"
+                                   hx-trigger="keyup changed delay:300ms from:this"
+                                   hx-target="#searchSuggestions"
+                                   hx-swap="innerHTML">
+                            <span class="icon is-left"><i class="pi pi-search"></i></span>
                         </div>
+                        <div id="searchSuggestions" class="search-suggestions-dropdown"></div>
                     </div>
-                    
-                    <!-- Content Container -->
+                </header>
+
+                <!-- SPA Content -->
+                <main id="spa-container" class="plex-content">
+                    <div id="loading-state" class="loading-overlay" style="display: none;">
+                        <i class="pi pi-spin pi-spinner" style="font-size: 2.5rem; color: #48c774;"></i>
+                    </div>
+
                     <div id="spa-content" class="spa-content">
-                        <!-- Hero Section -->
+                        <!-- Hero Section (HTMX loaded) -->
                         <div id="hero-section" 
                              hx-get="/api/video/ui/hero-fragment"
                              hx-trigger="load"
                              hx-target="#hero-section"
                              hx-swap="innerHTML">
-                            <!-- Hero content will be loaded here -->
                         </div>
                         
-                        <!-- Optimized Carousels -->
+                        <!-- Main Video Content (HTMX loaded) -->
                         <div id="carousels-section" 
                              hx-get="/api/video/ui/optimized-carousels"
                              hx-trigger="load delay:100ms"
                              hx-target="#carousels-section"
-                             hx-swap="innerHTML"
-                             class="carousels-container">
-                            <!-- Carousel content will be loaded here -->
+                             hx-swap="innerHTML">
                         </div>
                     </div>
-                </div>
+                </main>
             </div>
-        </section>
+        </div>
 
         <script src="/js/toast.js"></script>
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
         <script src="/js/videoContextMenu.js"></script>
         
-        <!-- Video.js -->
-        <script src="/lib/video.min.js"></script>
         <script>
-            // Define globalActiveProfileId as a property of the window object
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
         </script>
         
@@ -226,87 +155,91 @@
         <script>
             class VideoSPA {
                 constructor() {
-                    this.currentSection = 'carousels';
-                    this.currentVideo = null;
-                    this.isLoading = false;
+                    this.currentSection = 'home';
                     this.sections = {
-                        hero: '/api/video/ui/hero-fragment',
-                        carousels: '/api/video/ui/optimized-carousels',
-                        details: '/api/video/ui/details-fragment/{videoId}',
-                        playback: '/api/video/ui/playback-fragment?videoId={videoId}'
+                        home: 'home',
+                        movies: '/api/video/ui/movies-fragment',
+                        shows: '/api/video/ui/shows-fragment',
+                        history: '/api/video/ui/history-fragment',
+                        watchlist: '/api/video/ui/watchlist-fragment',
+                        details: '/api/video/ui/details-fragment/\{videoId\}',
+                        playback: '/api/video/ui/playback-fragment?videoId=\{videoId\}'
                     };
                 }
                 
                 async switchSection(section, params = {}) {
                     this.showLoading();
+                    
+                    if (section === 'home') {
+                        this.goHome();
+                        return;
+                    }
+
+                    this.updateNavState(section);
                     const url = this.buildUrl(section, params);
                     try {
                         const html = await this.fetchContent(url);
                         this.updateContent(html);
-                        this.hideLoading(); // Hide loading after successful content update
+                        this.hideLoading();
                         this.currentSection = section;
-                        this.updateNavState(section);
                     } catch (error) {
                         this.handleError(error);
                     }
                 }
                 
-                async loadSection(section, targetId, params = {}) {
-                    const url = this.buildUrl(section, params);
-                    try {
-                        const html = await this.fetchContent(url);
-                        const targetElement = document.getElementById(targetId);
-                        if (targetElement) {
-                            targetElement.innerHTML = html;
-                            this.executeScripts(targetElement);
-                        }
-                    } catch (error) {
-                        console.error(`Failed to load ${section}:`, error);
+                goHome() {
+                    this.updateNavState('home');
+                    this.updateContent(`
+                        <div id="hero-section" 
+                             hx-get="/api/video/ui/hero-fragment"
+                             hx-trigger="load"
+                             hx-target="#hero-section"
+                             hx-swap="innerHTML">
+                        </div>
+                        <div id="carousels-section" 
+                             hx-get="/api/video/ui/optimized-carousels"
+                             hx-trigger="load delay:100ms"
+                             hx-target="#carousels-section"
+                             hx-swap="innerHTML">
+                        </div>
+                    `);
+                    if (window.htmx) {
+                        htmx.process(document.getElementById('spa-content'));
                     }
+                    this.currentSection = 'home';
+                    this.hideLoading();
                 }
-                
+
                 async selectItem(item, action) {
+                    const videoId = (typeof item === 'object') ? item.id : item;
+                    if (!videoId) return;
+
                     switch(action) {
                         case 'play':
-                            await this.playVideo(item);
+                            await this.playVideo(videoId);
                             break;
                         case 'details':
-                            await this.switchSection('details', {videoId: item.id});
-                            break;
-                        case 'queue-add':
-                            await this.addToQueue(item.id);
+                            await this.switchSection('details', {videoId: videoId});
                             break;
                     }
                 }
                 
-                async playVideo(item) {
-                    // Update playback state via API
-                    await fetch('/api/video/playback/play/' + item.id, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    // Switch to playback view
-                    await this.switchSection('playback', {videoId: item.id});
-                }
-                
-                async addToQueue(videoId) {
+                async playVideo(videoId) {
+                    this.showLoading();
                     try {
-                        const response = await fetch('/api/video/queue/add/' + videoId, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        if (response.ok) {
-                            console.log('Added to queue:', videoId);
-                        }
+                        await fetch('/api/video/playback/play/' + videoId, { method: 'POST' });
+                        await this.switchSection('playback', {videoId: videoId});
                     } catch (error) {
-                        console.error('Failed to add to queue:', error);
+                        this.handleError(error);
                     }
                 }
                 
+                updateNavState(section) {
+                    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                    const activeNav = document.getElementById('nav-' + section);
+                    if (activeNav) activeNav.classList.add('active');
+                }
+
                 buildUrl(section, params) {
                     let url = this.sections[section] || section;
                     for (const [key, value] of Object.entries(params)) {
@@ -317,9 +250,7 @@
                 
                 async fetchContent(url) {
                     const response = await fetch(url);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
                     return await response.text();
                 }
                 
@@ -332,34 +263,24 @@
                 }
                 
                 executeScripts(container) {
-                    // Execute any scripts in the new content
                     const scripts = container.querySelectorAll('script');
                     scripts.forEach(script => {
                         const newScript = document.createElement('script');
-                        if (script.src) {
-                            newScript.src = script.src;
-                        } else {
-                            newScript.textContent = script.textContent;
-                        }
+                        if (script.src) newScript.src = script.src;
+                        else newScript.textContent = script.textContent;
                         document.head.appendChild(newScript);
                         document.head.removeChild(newScript);
                     });
                 }
                 
                 showLoading() {
-                    this.isLoading = true;
                     const loadingDiv = document.getElementById('loading-state');
-                    const contentDiv = document.getElementById('spa-content');
                     if (loadingDiv) loadingDiv.style.display = 'flex';
-                    if (contentDiv) contentDiv.style.opacity = '0.3';
                 }
                 
                 hideLoading() {
-                    this.isLoading = false;
                     const loadingDiv = document.getElementById('loading-state');
-                    const contentDiv = document.getElementById('spa-content');
                     if (loadingDiv) loadingDiv.style.display = 'none';
-                    if (contentDiv) contentDiv.style.opacity = '1';
                 }
                 
                 handleError(error) {
@@ -367,127 +288,112 @@
                     this.hideLoading();
                     const contentDiv = document.getElementById('spa-content');
                     if (contentDiv) {
-                        contentDiv.innerHTML = `
-                            <div class="notification is-danger">
-                                <strong>Error:</strong> ${error.message}
-                                <button class="delete" onclick="this.parentElement.remove()"></button>
-                            </div>
-                        `;
+                        contentDiv.innerHTML = '<div class="notification is-danger"><strong>Error:</strong> ' + error.message + '</div>';
                     }
                 }
-                
-                updateNavState(section) {
-                    // Update navigation active states if needed
-                    // This could be expanded to highlight current section in nav
+
+                toggleSidebar() {
+                    const layout = document.getElementById('plex-layout');
+                    layout.classList.toggle('collapsed');
+                    // Store preference
+                    localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
+                }
+
+                async checkResumePlayback() {
+                    try {
+                        const res = await fetch('/api/video/playback/current');
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        
+                        // Also apply sidebar preference while we're checking state
+                        this.applySidebarPreference();
+
+                        if (data.success && data.video && data.video.id && data.video.playing) {
+                            console.log('[VideoSPA] Resuming playback for video:', data.video.id);
+                            this.switchSection('playback', {videoId: data.video.id});
+                        }
+                    } catch (e) {
+                        console.error('[VideoSPA] Failed to check resume playback:', e);
+                    }
+                }
+
+                async applySidebarPreference() {
+                    try {
+                        const profileId = localStorage.getItem('activeProfileId') || '1';
+                        const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
+                        const json = await res.json();
+                        if (res.ok && json.data) {
+                            const layout = document.getElementById('plex-layout');
+                            if (json.data === 'right') {
+                                layout.classList.add('sidebar-right');
+                            } else {
+                                layout.classList.remove('sidebar-right');
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[VideoSPA] Failed to apply sidebar preference:', e);
+                    }
                 }
             }
 
-            // Initialize SPA
             const videoSPA = new VideoSPA();
 
-            // Global functions for template compatibility
             window.selectItem = (item, action) => videoSPA.selectItem(item, action);
             window.switchSection = (section, params) => videoSPA.switchSection(section, params);
-            window.addToWatchlist = (item) => {
-                console.log('Add to watchlist:', item);
-                // Implementation would depend on your watchlist system
+            window.addToWatchlist = (title, id) => {
+                if (window.showToast) window.showToast(title + ' added to watchlist', 'success');
             };
             window.scrollCarousel = (carouselId, direction) => {
                 const carousel = document.getElementById(carouselId);
                 if (carousel) {
-                    const scrollAmount = 300;
-                    carousel.scrollBy({
-                        left: scrollAmount * direction,
-                        behavior: 'smooth'
-                    });
+                    const amount = 400;
+                    carousel.scrollBy({ left: direction === 'left' ? -amount : amount, behavior: 'smooth' });
                 }
-            };
-            window.scanLibrary = () => {
-                console.log('Scanning library...');
-                // Implementation would trigger library scan
             };
 
-            // Initialize on page load
             document.addEventListener('DOMContentLoaded', () => {
-                // Load hero section first
-                videoSPA.loadSection('hero', 'hero-section');
-                // Then load carousels
-                setTimeout(() => {
-                    videoSPA.loadSection('carousels', 'carousels-section');
-                }, 100);
-                
-                // Initialize keyboard navigation
                 initKeyboardNavigation();
-                
-                // Initialize search clear functionality
                 initSearchClear();
+                
+                // Restore sidebar state
+                if (localStorage.getItem('sidebarCollapsed') === 'true') {
+                    document.getElementById('plex-layout').classList.add('collapsed');
+                }
+
+                // Auto-resume playback if applicable
+                videoSPA.applySidebarPreference();
+                videoSPA.checkResumePlayback();
             });
-            
-            // Keyboard Navigation
+
             function initKeyboardNavigation() {
-                document.addEventListener('keydown', (event) => {
-                    // Focus search on '/' key
-                    if (event.key === '/' && document.activeElement.tagName !== 'INPUT') {
-                        event.preventDefault();
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+                        e.preventDefault();
                         document.getElementById('globalSearchInput').focus();
                     }
-                    
-                    // Clear search on 'Escape' key
-                    if (event.key === 'Escape' && document.activeElement.id === 'globalSearchInput') {
-                        document.getElementById('globalSearchInput').value = '';
-                        document.getElementById('searchSuggestions').innerHTML = '';
-                        document.getElementById('globalSearchInput').blur();
-                    }
                 });
             }
             
-            // Search Clear Functionality
             function initSearchClear() {
-                const searchInput = document.getElementById('globalSearchInput');
-                const clearIcon = document.getElementById('clearSearchIcon');
-                
-                clearIcon.addEventListener('click', () => {
-                    searchInput.value = '';
-                    document.getElementById('searchSuggestions').innerHTML = '';
-                    searchInput.focus();
-                });
-                
-                // Hide suggestions when clicking outside
-                document.addEventListener('click', (event) => {
-                    if (!event.target.closest('.control')) {
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.search-container')) {
                         document.getElementById('searchSuggestions').innerHTML = '';
                     }
                 });
-            }
-            
-            // Carousel scrolling functions
-            function scrollCarousel(button, direction) {
-                const carousel = button.closest('.streaming-carousel-section').querySelector('.streaming-carousel');
-                if (!carousel) return;
-                
-                const scrollAmount = carousel.clientWidth * 0.8;
-                if (direction === 'left') {
-                    carousel.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
-                } else {
-                    carousel.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-                }
             }
         </script>
     
     <!-- Profile Management Modal -->
     <div id="profileModal" class="modal">
       <div class="modal-background" onclick="document.getElementById('profileModal').classList.remove('is-active');"></div>
-    <div class="modal-card glass-modal">
-      <header class="modal-card-head glass-modal-header">
+      <div class="modal-card glass-modal">
+        <header class="modal-card-head glass-modal-header">
           <p class="modal-card-title">Manage Profiles</p>
           <button class="delete" aria-label="close" onclick="document.getElementById('profileModal').classList.remove('is-active');"></button>
         </header>
         <section class="modal-card-body glass-modal-body">
           <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
-          <h6 class="title is-6 mt-4">All Profiles:</h6>
-          <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList">
-            <!-- Profiles will be dynamically loaded here as circular buttons -->
-          </div>
+          <div class="field is-grouped is-grouped-multiline is-justify-content-center" id="profileList"></div>
           <hr>
           <div class="field has-addons">
               <div class="control is-expanded">
@@ -499,7 +405,8 @@
           </div>
           <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Current Profile</button>
         </section>
-        <footer class="modal-card-foot glass-modal-footer">
+        <footer class="modal-card-foot glass-modal-footer" style="justify-content: space-between;">
+          <button class="button is-danger" onclick="handleLogout()">Logout</button>
           <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
         </footer>
       </div>

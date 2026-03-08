@@ -102,4 +102,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Re-fetch and update visibility when a profile is switched (e.g., from modal)
     document.body.addEventListener('profileSwitched', fetchCurrentProfileAndThenUpdateNavbar);
+
+    window.handleLogout = function() {
+        fetch('/api/auth/logout', { method: 'POST' }).then(() => location.href = '/login.html');
+    };
 });

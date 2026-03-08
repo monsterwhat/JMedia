@@ -1,16 +1,22 @@
 package Services;
 
 import Models.*;
+import Models.PendingMedia.ProcessingStatus;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class UnifiedVideoEntityCreationService {
     
+    private static final Logger LOG = LoggerFactory.getLogger(UnifiedVideoEntityCreationService.class);
+
     @Inject
     VideoService videoService;
     
@@ -20,19 +26,111 @@ public class UnifiedVideoEntityCreationService {
     @Inject
     UserInteractionService userInteractionService;
     
+    @Inject
+    ThumbnailService thumbnailService;
+    
     // ========== UNIFIED VIDEO CREATION ==========
     
+    /**
+     * Finalizes processing by creating/updating a Video entity from analyzed PendingMedia
+     */
+    @Transactional
+    public Video createVideoFromPendingMedia(PendingMedia pending) {
+        if (pending == null || pending.mediaFile == null) return null;
+        
+        // Check if video already exists
+        Video video = Video.find("path", pending.mediaFile.path).firstResult();
+        if (video == null) {
+            video = new Video();
+            video.path = pending.mediaFile.path;
+            video.dateAdded = java.time.LocalDateTime.now();
+        }
+        
+        // Apply discovered metadata
+        video.filename = pending.originalFilename;
+        video.type = pending.getFinalMediaType();
+        video.title = pending.getFinalTitle();
+        video.seriesTitle = pending.getFinalShowName();
+        video.seasonNumber = pending.getFinalSeason();
+        video.episodeNumber = pending.getFinalEpisode();
+        video.releaseYear = pending.getFinalYear();
+        
+        // Fallback for episode title
+        if ("episode".equalsIgnoreCase(video.type) && video.title == null) {
+            video.title = video.seriesTitle + " - S" + video.seasonNumber + "E" + video.episodeNumber;
+        }
+        
+        // Technical metadata from MediaFile
+        video.resolution = pending.mediaFile.getResolutionString();
+        video.displayResolution = calculateDisplayResolution(pending.mediaFile.getResolutionString());
+        video.videoCodec = pending.mediaFile.videoCodec;
+        video.audioCodec = pending.mediaFile.audioCodec;
+        video.duration = pending.mediaFile.durationSeconds * 1000L;
+        video.size = pending.mediaFile.size;
+        video.lastModified = pending.mediaFile.lastModified;
+        video.quality = pending.mediaFile.getQualityIndicator();
+        video.container = extractContainer(video.filename);
+        
+        // Discover and associate subtitle tracks if not already present
+        if (video.subtitleTracks == null || video.subtitleTracks.isEmpty()) {
+            List<SubtitleTrack> subtitleTracks = subtitleMatcher.discoverSubtitleTracks(
+                    java.nio.file.Path.of(video.path), video);
+            if (!subtitleTracks.isEmpty()) {
+                video.subtitleTracks = subtitleTracks;
+            }
+        }
+        
+        // Set default audio language
+        if (pending.mediaFile.audioLanguage != null && !pending.mediaFile.audioLanguage.isEmpty()) {
+            video.primaryAudioLanguage = pending.mediaFile.audioLanguage;
+        }
+        
+        video.autoSelectSubtitles = true;
+        
+        Video persisted = videoService.persist(video);
+        
+        // Generate thumbnail
+        try {
+            thumbnailService.generateThumbnail(persisted.id, persisted.path);
+        } catch (Exception e) {
+            LOG.error("Failed to generate thumbnail for finalized video: " + e.getMessage());
+        }
+        
+        return persisted;
+    }
+    
+    @Transactional
+    public void importExistingVideos() {
+        LOG.info("Starting Phase 3: Finalizing video entities from pending media...");
+        
+        // Find all COMPLETED or USER_APPROVED pending media
+        List<PendingMedia> readyToFinalize = PendingMedia.list("status = ?1 OR status = ?2", 
+                ProcessingStatus.COMPLETED, ProcessingStatus.USER_APPROVED);
+        
+        int count = 0;
+        for (PendingMedia pending : readyToFinalize) {
+            try {
+                createVideoFromPendingMedia(pending);
+                count++;
+            } catch (Exception e) {
+                LOG.error("Error finalizing video for " + pending.originalFilename + ": " + e.getMessage());
+            }
+        }
+        
+        LOG.info("Phase 3 completed. Finalized {} video entities.", count);
+    }
+
+    /**
+     * Legacy method, kept for compatibility but should use createVideoFromPendingMedia
+     */
     @Transactional
     public Video createVideoFromMediaFile(Models.MediaFile mediaFile) {
         Video video = new Video();
-        
-        // Core identification
         video.path = mediaFile.path;
         video.filename = extractFilenameFromPath(mediaFile.path);
         video.type = detectVideoType(mediaFile);
         video.dateAdded = java.time.LocalDateTime.now();
         
-        // Technical metadata from MediaFile
         video.resolution = mediaFile.getResolutionString();
         video.displayResolution = calculateDisplayResolution(mediaFile.getResolutionString());
         video.videoCodec = mediaFile.videoCodec;
@@ -41,48 +139,14 @@ public class UnifiedVideoEntityCreationService {
         video.size = mediaFile.size;
         video.lastModified = mediaFile.lastModified;
         video.quality = mediaFile.getQualityIndicator();
-        video.container = extractContainer(extractFilenameFromPath(mediaFile.path));
-        
-        // Discover and associate subtitle tracks
-        List<SubtitleTrack> subtitleTracks = subtitleMatcher.discoverSubtitleTracks(
-                java.nio.file.Path.of(mediaFile.path), video);
-        if (!subtitleTracks.isEmpty()) {
-            video.subtitleTracks = subtitleTracks;
-        }
-        
-        // Set default audio language from MediaFile
-        if (mediaFile.audioLanguage != null && !mediaFile.audioLanguage.isEmpty()) {
-            video.primaryAudioLanguage = mediaFile.audioLanguage;
-        }
-        
-        // Auto-select subtitles by default
-        video.autoSelectSubtitles = true;
+        video.container = extractContainer(video.filename);
         
         return videoService.persist(video);
-    }
-    
-    @Transactional
-    public void createVideosFromMediaFiles(List<Models.MediaFile> mediaFiles) {
-        for (Models.MediaFile mediaFile : mediaFiles) {
-            try {
-                createVideoFromMediaFile(mediaFile);
-            } catch (Exception e) {
-                System.err.println("Error creating video from media file: " + e.getMessage());
-            }
-        }
-    }
-    
-    @Transactional
-    public void importExistingVideos() {
-        // Import logic for existing media files that don't have videos yet
-        // This would scan for MediaFile entities and create Video entities
-        // Implementation depends on your current MediaFile structure
     }
     
     // ========== UTILITY METHODS ==========
     
     private String detectVideoType(Models.MediaFile mediaFile) {
-        // Simple type detection based on naming and metadata
         String filename = extractFilenameFromPath(mediaFile.path);
         if (filename.toLowerCase().contains("movie") || 
             mediaFile.path.toLowerCase().contains("movies") ||
@@ -91,7 +155,7 @@ public class UnifiedVideoEntityCreationService {
         } else if (mediaFile.isTypicalEpisodeDuration()) {
             return "episode";
         }
-        return "movie"; // Default fallback
+        return "movie";
     }
     
     private String extractFilenameFromPath(String path) {
@@ -104,14 +168,11 @@ public class UnifiedVideoEntityCreationService {
     
     private String calculateDisplayResolution(String resolution) {
         if (resolution == null) return null;
-        
         String[] parts = resolution.split("x");
         if (parts.length != 2) return resolution;
         
         try {
-            int width = Integer.parseInt(parts[0]);
             int height = Integer.parseInt(parts[1]);
-            
             if (height >= 2160) return "4K";
             if (height >= 1440) return "2K";
             if (height >= 1080) return "Full HD";
@@ -122,15 +183,12 @@ public class UnifiedVideoEntityCreationService {
         }
     }
     
-    private String detectQuality(Models.MediaFile mediaFile) {
-        return mediaFile.getQualityIndicator();
-    }
-    
     private String extractContainer(String filename) {
+        if (filename == null) return "mp4";
         int lastDot = filename.lastIndexOf('.');
         if (lastDot > 0 && lastDot < filename.length() - 1) {
             return filename.substring(lastDot + 1).toLowerCase();
         }
-        return "mp4"; // Default fallback
+        return "mp4";
     }
 }

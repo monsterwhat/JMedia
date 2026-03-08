@@ -532,6 +532,13 @@ public class PlaybackController {
         currentSettings.addLog("Playback toggled.");
         System.out.println("Toggle");
         PlaybackState state = getState(profileId);
+
+        // If no song is selected and we want to start playing, trigger 'advance' to get a song
+        if (state.getCurrentSongId() == null && !state.isPlaying()) {
+            advanceSong(true, false, profileId);
+            return; // advanceSong updates state and starts timer
+        }
+
         playbackQueueController.togglePlay(state, profileId);
 
         if (state.isPlaying()) {
@@ -539,6 +546,7 @@ public class PlaybackController {
         } else {
             stopPlaybackTimer(profileId);
         }
+
         updateState(profileId, state, true);
     }
 

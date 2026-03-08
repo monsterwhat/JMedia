@@ -1,6 +1,6 @@
 <!-- Subtitle Track Selector Component -->
 <div class="subtitle-track-selector" id="subtitleTrackSelector">
-    <div class="subtitle-track-button" onclick="toggleSubtitleTrackMenu()" title="Subtitles">
+    <div class="subtitle-track-button" onclick="window.toggleSubtitleTrackMenu()" title="Subtitles">
         <i class="pi pi-closed-captioning"></i>
         <span class="current-track" id="currentTrackDisplay">Off</span>
     </div>
@@ -8,14 +8,14 @@
     <div class="subtitle-track-menu" id="subtitleTrackMenu" style="display: none;">
         <div class="track-list-header">Subtitle Tracks</div>
         <div class="track-list" id="trackList">
-            <div class="track-item" data-track="off" onclick="selectTrack('off')">
+            <div class="track-item" data-track="off" onclick="window.selectTrack('off')">
                 <span class="track-name">Off</span>
                 <i class="pi pi-check track-selected" style="display: none;"></i>
             </div>
         </div>
         
         <div class="track-actions">
-            <button class="settings-btn" onclick="openSubtitleSettings()">
+            <button class="settings-btn" onclick="window.openSubtitleSettings()">
                 <i class="pi pi-cog"></i> Settings
             </button>
         </div>
@@ -27,65 +27,63 @@ let currentTrackId = 'off';
 let availableTracks = [];
 
 // Initialize subtitle track selector
-function initializeSubtitleTrackSelector() {
-    if (player) {
-        loadAvailableTracks();
-        updateCurrentTrackDisplay();
+window.initializeSubtitleTrackSelector = function() \{
+    if (window.player) \{
+        window.loadAvailableTracks();
+        window.updateCurrentTrackDisplay();
         
         // Listen for track changes
-        player.ready(() => {
-            const tracks = player.textTracks();
-            tracks.addEventListener('change', updateCurrentTrackDisplay);
-        });
-    }
-}
+        window.player.ready(() => \{
+            const tracks = window.player.textTracks();
+            tracks.addEventListener('change', window.updateCurrentTrackDisplay);
+        \});
+    \}
+\}
 
 // Load available subtitle tracks
-async function loadAvailableTracks() {
-    try {
+window.loadAvailableTracks = async function() \{
+    try \{
         const userId = getCurrentUserId();
-        const response = await fetch(`/api/video/subtitles/${currentVideoId}`, {
-            headers: userId ? { 'X-User-ID': userId } : {}
-        });
+        const response = await fetch('/api/video/subtitles/' + (window.currentVideoId || ''), \{
+            headers: userId ? \{ 'X-User-ID': userId \} : \{\}
+        \});
         
-        if (response.ok) {
+        if (response.ok) \{
             const data = await response.json();
             availableTracks = data.tracks || [];
-            populateTrackMenu();
-        }
-    } catch (error) {
+            window.populateTrackMenu();
+        \}
+    \} catch (error) \{
         console.error('Error loading subtitle tracks:', error);
-    }
-}
+    \}
+\}
 
 // Populate the track menu with available tracks
-function populateTrackMenu() {
+window.populateTrackMenu = function() \{
     const trackList = document.getElementById('trackList');
     
-    // Clear existing tracks (keep "Off" option)
-    while (trackList.children.length > 1) {
+    // Clear existing tracks (keep \"Off\" option)
+    while (trackList.children.length > 1) \{
         trackList.removeChild(trackList.lastChild);
-    }
+    \}
     
     // Add available tracks
-    availableTracks.forEach(track => {
+    availableTracks.forEach(track => \{
         const trackItem = document.createElement('div');
         trackItem.className = 'track-item';
         trackItem.dataset.track = track.id;
-        trackItem.innerHTML = `
-            <span class="track-name">${track.displayName || track.languageName || track.languageCode}</span>
-            <i class="pi pi-check track-selected" style="display: none;"></i>
-        `;
-        trackItem.onclick = () => selectTrack(track.id);
+        trackItem.innerHTML = '<span class=\"track-name\">' + (track.displayName || track.languageName || track.languageCode) + '</span>' +
+            '<i class=\"pi pi-check track-selected\" style=\"display: none;\"></i>';
+        trackItem.onclick = () => window.selectTrack(track.id);
         trackList.appendChild(trackItem);
-    });
+    \});
     
     // Update selection indicators
-    updateTrackSelection();
-}
+    window.updateTrackSelection();
+\}
 
 // Toggle track menu visibility
-function toggleSubtitleTrackMenu() {
+window.toggleSubtitleTrackMenu = function() \{
     const menu = document.getElementById('subtitleTrackMenu');
     const isVisible = menu.style.display !== 'none';
     
@@ -94,190 +92,183 @@ function toggleSubtitleTrackMenu() {
     
     menu.style.display = isVisible ? 'none' : 'block';
     
-    if (!isVisible) {
-        loadAvailableTracks(); // Refresh tracks when opening
-    }
-}
+    if (!isVisible) \{
+        window.loadAvailableTracks(); // Refresh tracks when opening
+    \}
+\}
 
 // Select a subtitle track
-function selectTrack(trackId) {
-    if (trackId === 'off') {
+window.selectTrack = function(trackId) \{
+    if (!window.player) return;
+
+    if (trackId === 'off') \{
         // Turn off all subtitles
-        const tracks = player.textTracks();
-        for (let i = 0; i < tracks.length; i++) {
-            if (tracks[i].kind === 'subtitles') {
+        const tracks = window.player.textTracks();
+        for (let i = 0; i < tracks.length; i++) \{
+            if (tracks[i].kind === 'subtitles') \{
                 tracks[i].mode = 'hidden';
-            }
-        }
-    } else {
+            \}
+        \}
+    \} else \{
         // Find and enable the selected track
-        const tracks = player.textTracks();
+        const tracks = window.player.textTracks();
         let trackFound = false;
         
-        for (let i = 0; i < tracks.length; i++) {
-            if (tracks[i].kind === 'subtitles') {
+        for (let i = 0; i < tracks.length; i++) \{
+            if (tracks[i].kind === 'subtitles') \{
                 if (tracks[i].language && tracks[i].id && 
-                    availableTracks.some(at => at.id == trackId && at.languageCode === tracks[i].language)) {
+                    availableTracks.some(at => at.id == trackId && at.languageCode === tracks[i].language)) \{
                     tracks[i].mode = 'showing';
                     trackFound = true;
-                } else {
+                \} else \{
                     tracks[i].mode = 'hidden';
-                }
-            }
-        }
+                \}
+            \}
+        \}
         
-        if (!trackFound) {
+        if (!trackFound) \{
             // If track not found in player, try to add it dynamically
             const trackInfo = availableTracks.find(t => t.id == trackId);
-            if (trackInfo) {
-                const trackElement = {
+            if (trackInfo) \{
+                const trackElement = \{
                     kind: 'subtitles',
                     label: trackInfo.displayName || trackInfo.languageName,
                     language: trackInfo.languageCode,
-                    src: `/api/video/subtitles/track/${trackInfo.id}`,
+                    src: '/api/video/subtitles/track/' + trackInfo.id,
                     default: trackInfo.isDefault
-                };
+                \};
                 
-                player.addRemoteTextTrack(trackElement, true);
-            }
-        }
-    }
+                window.player.addRemoteTextTrack(trackElement, true);
+            \}
+        \}
+    \}
     
     currentTrackId = trackId;
-    updateTrackSelection();
-    updateCurrentTrackDisplay();
+    window.updateTrackSelection();
+    window.updateCurrentTrackDisplay();
     
     // Save preference
-    saveTrackPreference(trackId);
+    window.saveTrackPreference(trackId);
     
     // Close menu
     document.getElementById('subtitleTrackMenu').style.display = 'none';
-}
+\}
 
 // Update track selection indicators
-function updateTrackSelection() {
-    document.querySelectorAll('.track-item').forEach(item => {
+window.updateTrackSelection = function() \{
+    document.querySelectorAll('.track-item').forEach(item => \{
         const trackId = item.dataset.track;
         const checkIcon = item.querySelector('.track-selected');
         
-        if (trackId === currentTrackId.toString()) {
+        if (trackId === currentTrackId.toString()) \{
             checkIcon.style.display = 'inline';
             item.classList.add('selected');
-        } else {
+        \} else \{
             checkIcon.style.display = 'none';
             item.classList.remove('selected');
-        }
-    });
-}
+        \}
+    \});
+\}
 
 // Update current track display
-function updateCurrentTrackDisplay() {
+window.updateCurrentTrackDisplay = function() \{
     const display = document.getElementById('currentTrackDisplay');
     
-    if (currentTrackId === 'off') {
+    if (currentTrackId === 'off') \{
         display.textContent = 'Off';
-    } else {
+    \} else \{
         const track = availableTracks.find(t => t.id == currentTrackId);
-        if (track) {
+        if (track) \{
             display.textContent = track.displayName || track.languageName || track.languageCode;
-        } else {
+        \} else \{
             display.textContent = 'Off';
-        }
-    }
-}
+        \}
+    \}
+\}
 
 // Save track preference
-async function saveTrackPreference(trackId) {
-    try {
+window.saveTrackPreference = async function(trackId) \{
+    try \{
         const userId = getCurrentUserId();
-        if (userId && trackId !== 'off') {
-            await fetch('/api/video/subtitles/per-video-preference', {
+        if (userId && trackId !== 'off') \{
+            await fetch('/api/video/subtitles/per-video-preference', \{
                 method: 'POST',
-                headers: {
+                headers: \{
                     'Content-Type': 'application/json',
                     'X-User-ID': userId
-                },
-                body: JSON.stringify({
+                \},
+                body: JSON.stringify(\{
                     userId: userId,
-                    videoId: currentVideoId,
+                    videoId: window.currentVideoId,
                     trackId: trackId
-                })
-            });
-        }
-    } catch (error) {
+                \})
+            \});
+        \}
+    \} catch (error) \{
         console.error('Error saving track preference:', error);
-    }
-}
+    \}
+\}
 
 // Open subtitle settings
-function openSubtitleSettings() {
+window.openSubtitleSettings = function() \{
     // Hide track menu
     document.getElementById('subtitleTrackMenu').style.display = 'none';
     
     // Open settings panel if it exists
-    if (typeof toggleSubtitleSettings === 'function') {
-        toggleSubtitleSettings();
-    }
-}
+    if (typeof window.toggleSubtitleSettings === 'function') \{
+        window.toggleSubtitleSettings();
+    \}
+\}
 
 // Close menu when clicking outside
-document.addEventListener('click', function(e) {
+document.addEventListener('click', function(e) \{
     const selector = document.getElementById('subtitleTrackSelector');
     const menu = document.getElementById('subtitleTrackMenu');
-    
-    if (!selector.contains(e.target) && menu.style.display !== 'none') {
+    if (selector && menu && !selector.contains(e.target) && menu.style.display !== 'none') \{
         menu.style.display = 'none';
-    }
-});
+    \}
+\});
 
 // Keyboard shortcut for quick track switching (C key)
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'c' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+document.addEventListener('keydown', function(e) \{
+    if (e.key === 'c' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') \{
         e.preventDefault();
         
-        if (availableTracks.length > 0) {
+        if (availableTracks.length > 0) \{
             // Cycle through tracks: Off -> Track 1 -> Track 2 -> ... -> Off
             let nextTrackId = 'off';
             
-            if (currentTrackId === 'off') {
+            if (currentTrackId === 'off') \{
                 nextTrackId = availableTracks[0].id;
-            } else {
+            \} else \{
                 const currentIndex = availableTracks.findIndex(t => t.id == currentTrackId);
-                if (currentIndex >= 0 && currentIndex < availableTracks.length - 1) {
+                if (currentIndex >= 0 && currentIndex < availableTracks.length - 1) \{
                     nextTrackId = availableTracks[currentIndex + 1].id;
-                }
-            }
+                \}
+            \}
             
-            selectTrack(nextTrackId);
-        }
-    }
-});
+            window.selectTrack(nextTrackId);
+        \}
+    \}
+\});
 
-// Auto-refresh when player loads new video
-const originalLoadSubtitleTracks = window.loadSubtitleTracks;
-if (typeof originalLoadSubtitleTracks === 'function') {
-    window.loadSubtitleTracks = function() {
-        originalLoadSubtitleTracks();
-        setTimeout(() => {
-            loadAvailableTracks();
-            updateCurrentTrackDisplay();
-        }, 1000);
-    };
-}
-
-// Initialize when page loads
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(initializeSubtitleTrackSelector, 1000);
-});
+// Initialize immediately if loaded after DOMContentLoaded
+if (document.readyState === 'complete' || document.readyState === 'interactive') \{
+    setTimeout(window.initializeSubtitleTrackSelector, 500);
+\} else \{
+    document.addEventListener('DOMContentLoaded', function() \{
+        setTimeout(window.initializeSubtitleTrackSelector, 1000);
+    \});
+\}
 </script>
 
 <style>
-.subtitle-track-selector {
+.subtitle-track-selector \{
     position: relative;
     display: inline-block;
-}
+\}
 
-.subtitle-track-button {
+.subtitle-track-button \{
     display: flex;
     align-items: center;
     gap: 6px;
@@ -290,23 +281,23 @@ document.addEventListener('DOMContentLoaded', function() {
     font-size: 0.9em;
     transition: all 0.2s;
     backdrop-filter: blur(10px);
-}
+\}
 
-.subtitle-track-button:hover {
+.subtitle-track-button:hover \{
     background: rgba(255, 255, 255, 0.2);
     border-color: rgba(255, 255, 255, 0.3);
-}
+\}
 
-.current-track {
+.current-track \{
     font-size: 0.8em;
     opacity: 0.9;
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
+\}
 
-.subtitle-track-menu {
+.subtitle-track-menu \{
     position: absolute;
     bottom: 100%;
     left: 0;
@@ -319,22 +310,22 @@ document.addEventListener('DOMContentLoaded', function() {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(20px);
     z-index: 1000;
-}
+\}
 
-.track-list-header {
+.track-list-header \{
     padding: 12px 16px 8px;
     font-size: 0.9em;
     font-weight: 600;
     color: #ccc;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
+\}
 
-.track-list {
+.track-list \{
     max-height: 200px;
     overflow-y: auto;
-}
+\}
 
-.track-item {
+.track-item \{
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -342,33 +333,33 @@ document.addEventListener('DOMContentLoaded', function() {
     cursor: pointer;
     transition: background-color 0.2s;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
+\}
 
-.track-item:hover {
+.track-item:hover \{
     background: rgba(255, 255, 255, 0.1);
-}
+\}
 
-.track-item.selected {
+.track-item.selected \{
     background: rgba(50, 115, 220, 0.2);
-}
+\}
 
-.track-name {
+.track-name \{
     flex: 1;
     color: white;
     font-size: 0.9em;
-}
+\}
 
-.track-selected {
+.track-selected \{
     color: #3273dc;
     font-size: 0.8em;
-}
+\}
 
-.track-actions {
+.track-actions \{
     padding: 8px 16px 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
+\}
 
-.settings-btn {
+.settings-btn \{
     width: 100%;
     padding: 8px;
     background: rgba(255, 255, 255, 0.05);
@@ -382,41 +373,41 @@ document.addEventListener('DOMContentLoaded', function() {
     justify-content: center;
     gap: 6px;
     transition: all 0.2s;
-}
+\}
 
-.settings-btn:hover {
+.settings-btn:hover \{
     background: rgba(255, 255, 255, 0.1);
     color: white;
-}
+\}
 
 /* Scrollbar styling */
-.track-list::-webkit-scrollbar {
+.track-list::-webkit-scrollbar \{
     width: 4px;
-}
+\}
 
-.track-list::-webkit-scrollbar-track {
+.track-list::-webkit-scrollbar-track \{
     background: rgba(255, 255, 255, 0.05);
-}
+\}
 
-.track-list::-webkit-scrollbar-thumb {
+.track-list::-webkit-scrollbar-thumb \{
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
-}
+\}
 
-.track-list::-webkit-scrollbar-thumb:hover {
+.track-list::-webkit-scrollbar-thumb:hover \{
     background: rgba(255, 255, 255, 0.3);
-}
+\}
 
 /* Responsive */
-@media (max-width: 768px) {
-    .subtitle-track-menu {
+@media (max-width: 768px) \{
+    .subtitle-track-menu \{
         right: 0;
         left: auto;
         min-width: 180px;
-    }
+    \}
     
-    .current-track {
+    .current-track \{
         max-width: 60px;
-    }
-}
+    \}
+\}
 </style>

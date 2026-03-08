@@ -15,7 +15,7 @@ public class NavigationController {
     
     @GET
     public Response serveIndex(@Context UriInfo uriInfo) {
-        return servePage("indexProtected.html", "Index page");
+        return servePage("indexNew.html", "Index page");
     }
     
     @GET

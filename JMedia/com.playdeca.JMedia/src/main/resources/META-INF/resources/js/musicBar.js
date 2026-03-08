@@ -391,7 +391,7 @@ function updateMusicBar() {
 // either currentTime (if not dragging) or the dragged value (if dragging)
         const currentSliderValue = parseFloat(timeSlider.value);
         const progress = (currentSliderValue / duration) * 100;
-        timeSlider.style.setProperty('--progress-value', `${progress}%`);
+        timeSlider.style.setProperty('--slider-progress', `${progress}%`);
     }
 
     const volumeSlider = document.getElementById('volumeProgressBar'); // Use getElementById
@@ -404,7 +404,7 @@ function updateMusicBar() {
 // Always update the progress bar's visual fill, regardless of dragging state
         const currentSliderValue = parseFloat(volumeSlider.value);
         const progress = (currentSliderValue / 100) * 100; // Volume max is 100
-        volumeSlider.style.setProperty('--progress-value', `${progress}%`);
+        volumeSlider.style.setProperty('--slider-progress', `${progress}%`);
     }
 
     const shuffleIcon = document.getElementById('shuffleIcon');
@@ -503,6 +503,10 @@ function bindAudioTimeUpdate() {
             if (slider && slider !== document.activeElement) {
                 slider.max = duration;
                 slider.value = currentTime;
+                
+                // Update green played area via CSS variable
+                const progress = (currentTime / duration) * 100;
+                slider.style.setProperty('--slider-progress', `${progress}%`);
             }
             
             // Save state periodically (every 5 seconds)
@@ -1251,7 +1255,7 @@ function handleSeek(newTime) {
 }
 
 function bindTimeSlider() {
-    const slider = document.querySelector('input[name="seconds"]');
+    const slider = document.getElementById('playbackProgressBar') || document.querySelector('input[name="seconds"]');
     if (!slider)
         return;
     slider.onmousedown = slider.ontouchstart = () => draggingSeconds = true;
@@ -1260,12 +1264,18 @@ function bindTimeSlider() {
         handleSeek(parseInt(slider.value, 10));
     };
     slider.oninput = e => {
-        setPlaybackTime(parseInt(e.target.value, 10), true);
+        const val = parseInt(e.target.value, 10);
+        const max = parseInt(e.target.max, 10) || 1;
+        const progress = (val / max) * 100;
+        e.target.style.setProperty('--slider-progress', `${progress}%`);
+        
+        const timeEl = document.getElementById('currentTime');
+        if (timeEl) timeEl.innerText = formatTime(val);
     };
 }
 
 function bindVolumeSlider() {
-    const slider = document.querySelector('input[name="level"]');
+    const slider = document.getElementById('volumeProgressBar') || document.querySelector('input[name="level"]');
     if (!slider)
         return;
     const volumeExponent = 2; // Adjust this value to change the curve (e.g., 2 for quadratic, 3 for cubic)
@@ -1298,6 +1308,11 @@ function bindVolumeSlider() {
         }
         musicState.volume = vol;
         audio.volume = vol;
+        
+        // Update visual fill
+        const progress = (parseInt(e.target.value, 10) / 100) * 100;
+        e.target.style.backgroundSize = `${progress}% 100%`;
+        
         updateMusicBar();
         // Do not send volume to server (Phase: per-device only)
     };

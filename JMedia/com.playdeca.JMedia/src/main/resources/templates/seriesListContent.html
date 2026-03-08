@@ -1,31 +1,34 @@
+<div class="library-header">
+    <h1 class="library-title">TV Shows</h1>
+    <p class="nav-label">{seriesTitleEntries.size} Shows</p>
+</div>
+
 <div id="seriesList">
     {#if seriesTitleEntries.empty}
-        <div class="has-text-centered py-4">
-            <p>No shows found.</p>
+        <div class="carousel-empty-state">
+            <i class="pi pi-desktop"></i>
+            <h3>No shows found</h3>
+            <p>Try scanning your library</p>
         </div>
     {#else}
-        {#for entry in seriesTitleEntries}
-            <div class="video-entry"
-                 hx-get="/api/video/ui/shows/{entry.encodedTitle}/seasons-fragment"
-                 hx-trigger="click"
-                 hx-target="next .nested-list"
-                 hx-swap="innerHTML"
-                 hx-on:htmx:beforeRequest="console.log('Loading seasons for:', '{entry.rawTitle}');"
-                 hx-on:htmx:afterRequest="console.log('Seasons loaded'); this.nextElementSibling.classList.toggle('is-hidden');"
-                 hx-on:htmx:responseError="console.error('Error loading seasons:', event.detail);"
-                 hx-on:click="this.querySelector('i').classList.toggle('pi-angle-right'); this.querySelector('i').classList.toggle('pi-angle-down');"
-                 hx-indicator="#loadingIndicator_{entry.cssId}">
-                <span class="icon is-small"><i class="pi pi-angle-right"></i></span>
-                <span class="video-title">{entry.rawTitle}</span>
-                <span id="loadingIndicator_{entry.cssId}" class="htmx-indicator ml-2">Loading...</span>
-            </div>
-            <div class="nested-list is-hidden">
-                <!-- Seasons will be loaded here via HTMX -->
-                <div class="has-text-centered py-2">
-                    <i class="pi pi-spin pi-spinner" style="font-size: 1.2rem;"></i>
-                    <p>Loading seasons...</p>
+        <div class="plex-grid">
+            {#for entry in seriesTitleEntries}
+                <div class="plex-card" onclick="window.switchSection('/api/video/ui/shows/{entry.encodedTitle}/seasons-fragment')">
+                    <div class="plex-card-poster">
+                        {#if entry.sampleVideoId}
+                            <img class="poster-img" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy">
+                        {#else}
+                            <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
+                                <i class="pi pi-image"></i>
+                            </div>
+                        {/if}
+                    </div>
+                    <div class="plex-card-info">
+                        <div class="plex-card-title">{entry.rawTitle}</div>
+                        <div class="plex-card-meta">Series</div>
+                    </div>
                 </div>
-            </div>
-        {/for}
+            {/for}
+        </div>
     {/if}
 </div>

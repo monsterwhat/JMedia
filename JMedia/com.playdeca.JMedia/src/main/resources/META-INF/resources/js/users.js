@@ -11,30 +11,34 @@ async function checkIsAdmin() {
     }
 }
 
-async function loadUsers() {
+window.loadUsers = async function() {
+    console.log('[Users] Loading users...');
     const tableBody = document.getElementById('usersTableBody');
     const loading = document.getElementById('usersLoading');
     const error = document.getElementById('usersError');
     
-    if (!tableBody || !loading || !error) return;
+    if (!tableBody) return;
     
     try {
-        loading.style.display = 'block';
+        if (loading) loading.style.display = 'block';
         tableBody.innerHTML = '';
-        error.style.display = 'none';
+        if (error) error.style.display = 'none';
         
         const response = await fetch('/api/users');
         const result = await response.json();
         
-        loading.style.display = 'none';
+        if (loading) loading.style.display = 'none';
         
         if (!response.ok) {
-            error.textContent = result.error || 'Failed to load users';
-            error.style.display = 'block';
+            if (error) {
+                error.textContent = result.error || 'Failed to load users';
+                error.style.display = 'block';
+            }
             return;
         }
         
         const users = result.data || [];
+        console.log('[Users] Received users:', users.length);
         
         if (users.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="3" class="has-text-centered">No users found</td></tr>';
@@ -49,10 +53,10 @@ async function loadUsers() {
                 <td><span class="tag ${isAdmin ? 'is-danger' : 'is-info'}">${escapeHtml(user.groupName || 'user')}</span></td>
                 <td>
                     <div class="buttons are-small">
-                        <button class="button is-info is-small" onclick="openEditUserModal(${user.id}, '${escapeHtml(user.username)}', '${escapeHtml(user.groupName || 'user')}')">
+                        <button class="button is-info is-small" onclick="window.openEditUserModal(${user.id}, '${escapeHtml(user.username)}', '${escapeHtml(user.groupName || 'user')}')">
                             <span class="icon"><i class="pi pi-pencil"></i></span>
                         </button>
-                        <button class="button is-danger is-small" onclick="deleteUser(${user.id})" ${isAdmin ? 'disabled title="Cannot delete admin users"' : ''}>
+                        <button class="button is-danger is-small" onclick="window.deleteUser(${user.id})" ${isAdmin ? 'disabled title="Cannot delete admin users"' : ''}>
                             <span class="icon"><i class="pi pi-trash"></i></span>
                         </button>
                     </div>
@@ -63,13 +67,15 @@ async function loadUsers() {
         
     } catch (e) {
         console.error('Error loading users:', e);
-        loading.style.display = 'none';
-        error.textContent = 'Error loading users';
-        error.style.display = 'block';
+        if (loading) loading.style.display = 'none';
+        if (error) {
+            error.textContent = 'Error loading users';
+            error.style.display = 'block';
+        }
     }
 }
 
-function openCreateUserModal() {
+window.openCreateUserModal = function() {
     document.getElementById('userModalTitle').textContent = 'Create User';
     document.getElementById('editUserId').value = '';
     document.getElementById('userUsername').value = '';
@@ -80,7 +86,7 @@ function openCreateUserModal() {
     document.getElementById('userModal').classList.add('is-active');
 }
 
-function openEditUserModal(id, username, groupName) {
+window.openEditUserModal = function(id, username, groupName) {
     document.getElementById('userModalTitle').textContent = 'Edit User';
     document.getElementById('editUserId').value = id;
     document.getElementById('userUsername').value = username;
@@ -91,11 +97,11 @@ function openEditUserModal(id, username, groupName) {
     document.getElementById('userModal').classList.add('is-active');
 }
 
-function closeUserModal() {
+window.closeUserModal = function() {
     document.getElementById('userModal').classList.remove('is-active');
 }
 
-async function saveUser() {
+window.saveUser = async function() {
     const userId = document.getElementById('editUserId').value;
     const username = document.getElementById('userUsername').value.trim();
     const password = document.getElementById('userPassword').value;
@@ -139,8 +145,8 @@ async function saveUser() {
             return;
         }
         
-        closeUserModal();
-        loadUsers();
+        window.closeUserModal();
+        window.loadUsers();
         Toast.success(userId ? 'User updated successfully' : 'User created successfully');
         
     } catch (e) {
@@ -150,7 +156,7 @@ async function saveUser() {
     }
 }
 
-async function deleteUser(id) {
+window.deleteUser = async function(id) {
     if (!confirm('Are you sure you want to delete this user?')) {
         return;
     }
@@ -167,7 +173,7 @@ async function deleteUser(id) {
             return;
         }
         
-        loadUsers();
+        window.loadUsers();
         Toast.success('User deleted successfully');
         
     } catch (e) {
@@ -182,40 +188,3 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
-
-document.addEventListener('DOMContentLoaded', async () => {
-    const isAdmin = await checkIsAdmin();
-    
-    if (!isAdmin) {
-        const userTab = document.querySelector('li[data-tab="user-management"]');
-        if (userTab) {
-            userTab.style.display = 'none';
-        }
-        return;
-    }
-    
-    const createUserBtn = document.getElementById('createUserBtn');
-    if (createUserBtn) {
-        createUserBtn.onclick = openCreateUserModal;
-    }
-    
-    const saveUserBtn = document.getElementById('saveUserBtn');
-    if (saveUserBtn) {
-        saveUserBtn.onclick = saveUser;
-    }
-    
-    const userTabButton = document.querySelector('li[data-tab="user-management"]');
-    if (userTabButton) {
-        userTabButton.addEventListener('click', function() {
-            loadUsers();
-        });
-    }
-    
-    const userModal = document.getElementById('userModal');
-    if (userModal) {
-        const modalBg = userModal.querySelector('.modal-background');
-        if (modalBg) {
-            modalBg.onclick = closeUserModal;
-        }
-    }
-});

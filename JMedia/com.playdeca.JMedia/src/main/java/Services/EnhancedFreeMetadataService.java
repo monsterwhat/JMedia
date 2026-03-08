@@ -81,6 +81,10 @@ public class EnhancedFreeMetadataService {
 
             // Primary: MusicBrainz search with retries
             try {
+                // MusicBrainz allows only 1 request per second. 
+                // Adding a small sleep here to prevent rate limiting during batch processing.
+                try { Thread.sleep(1100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                
                 Optional<MusicBrainzData> mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
                 if (mbResult.isPresent()) {
                     mergeMusicBrainzResult(result, mbResult.get());
