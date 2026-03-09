@@ -57,6 +57,10 @@ public class VideoUiApi {
     Template detailsFragment;
     @Inject @io.quarkus.qute.Location("playbackFragment.html")
     Template playbackFragment;
+    @Inject @io.quarkus.qute.Location("videoHistoryFragment.html")
+    Template videoHistoryFragment;
+    @Inject @io.quarkus.qute.Location("videoWatchlistFragment.html")
+    Template videoWatchlistFragment;
     @Inject @io.quarkus.qute.Location("subtitleTrackSelector.html")
     Template subtitleTrackSelector;
     @Inject @io.quarkus.qute.Location("subtitleSettingsComponent.html")
@@ -156,32 +160,51 @@ public class VideoUiApi {
     @Blocking
     public String getSeriesFragment() {
         List<String> seriesTitles = videoService.findAllSeriesTitles();
-        StringBuilder html = new StringBuilder();
-        html.append("<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>");
         
+        // If empty, try finding with case-insensitive check if some are stored as 'Episode' or 'EPISODE'
         if (seriesTitles.isEmpty()) {
-            html.append("<div class='carousel-empty-state'><i class='pi pi-desktop'></i><h3>No shows found</h3></div>");
-        } else {
-            html.append("<div class='plex-grid'>");
-            // Optimize by getting all episodes first
-            List<Models.Video> allEpisodes = videoService.findEpisodes();
-            for (String title : seriesTitles) {
-                Models.Video sample = allEpisodes.stream()
-                        .filter(v -> title.equals(v.seriesTitle))
-                        .findFirst().orElse(null);
-                
-                if (sample != null) {
-                    html.append("<div class='plex-card' onclick=\"window.switchSection('/api/video/ui/shows/").append(URLEncoder.encode(title, StandardCharsets.UTF_8)).append("/seasons-fragment')\">");
-                    html.append("<div class='plex-card-poster'>");
-                    html.append("<img class='poster-img' src='/api/video/thumbnail/").append(sample.id).append("' alt='").append(escapeHtml(title)).append("' loading='lazy'>");
-                    html.append("</div><div class='plex-card-info'>");
-                    html.append("<div class='plex-card-title'>").append(escapeHtml(title)).append("</div>");
-                    html.append("<div class='plex-card-meta'>Series</div></div></div>");
-                }
-            }
-            html.append("</div>");
+            seriesTitles = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
+                    .map(v -> v.seriesTitle)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .sorted()
+                    .collect(Collectors.toList());
         }
-        return html.toString();
+
+        if (seriesTitles.isEmpty()) {
+            return "<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>" +
+                   "<div class='carousel-empty-state'><i class='pi pi-desktop'></i><h3>No shows found</h3><p>Try scanning your library or check if your episodes have series titles.</p></div>";
+        }
+
+        List<Models.Video> allEpisodes = videoService.findEpisodes();
+        // If findEpisodes returned nothing, try the case-insensitive version
+        if (allEpisodes.isEmpty()) {
+            allEpisodes = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
+                    .collect(Collectors.toList());
+        }
+
+        List<SeriesTitleEntry> entries = new ArrayList<>();
+        for (String title : seriesTitles) {
+            final String currentTitle = title;
+            Models.Video sample = allEpisodes.stream()
+                    .filter(v -> currentTitle.equals(v.seriesTitle))
+                    .findFirst().orElse(null);
+            
+            if (sample != null) {
+                entries.add(new SeriesTitleEntry(
+                    title, 
+                    URLEncoder.encode(title, StandardCharsets.UTF_8),
+                    "series-" + Math.abs(title.hashCode()),
+                    sample.id
+                ));
+            }
+        }
+
+        return seriesListContent
+                .data("series", entries)
+                .render();
     }
 
     @GET
@@ -189,6 +212,18 @@ public class VideoUiApi {
     @Blocking
     public String getSeasonsFragment(@PathParam("seriesTitle") String seriesTitle) {
         List<Integer> seasonNumbers = videoService.findSeasonNumbersForSeries(seriesTitle);
+        
+        // Case-insensitive fallback for season numbers
+        if (seasonNumbers.isEmpty()) {
+             seasonNumbers = Models.Video.<Models.Video>listAll().stream()
+                .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && seriesTitle.equalsIgnoreCase(v.seriesTitle))
+                .map(v -> v.seasonNumber)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        }
+
         return seasonListContent
                 .data("seriesTitle", seriesTitle)
                 .data("encodedSeriesTitle", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8))
@@ -203,6 +238,17 @@ public class VideoUiApi {
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
         List<Models.Video> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+        
+        // Case-insensitive fallback
+        if (episodes.isEmpty()) {
+            episodes = Models.Video.<Models.Video>listAll().stream()
+                .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
+                        seriesTitle.equalsIgnoreCase(v.seriesTitle) && 
+                        seasonNumber.equals(v.seasonNumber))
+                .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
+                .collect(Collectors.toList());
+        }
+
         return episodeListContent
                 .data("episodes", episodes)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
@@ -216,7 +262,6 @@ public class VideoUiApi {
     public String getHistoryFragment() {
         List<Models.VideoHistory> history = Models.VideoHistory.list("order by playedAt desc");
         
-        // Map history to unique Videos by matching paths
         java.util.Set<String> seenPaths = new java.util.HashSet<>();
         List<Models.Video> videos = new ArrayList<>();
         
@@ -225,24 +270,22 @@ public class VideoUiApi {
                 Models.Video v = Models.Video.find("path", h.mediaFile.path).firstResult();
                 if (v != null) videos.add(v);
             }
-            if (videos.size() >= 40) break;
+            if (videos.size() >= 50) break;
         }
         
-        return "<div class='library-header'><h1 class='library-title'>History</h1></div>" +
-               (videos.isEmpty() ? "<div class='carousel-empty-state'><i class='pi pi-history'></i><h3>No history yet</h3></div>" :
-               "<div class='plex-grid'>" + videos.stream().map(this::createSimpleCardHTML).collect(Collectors.joining()) + "</div>");
+        return videoHistoryFragment
+                .data("videos", videos)
+                .render();
     }
 
     @GET
     @Path("/watchlist-fragment")
     @Blocking
     public String getWatchlistFragment() {
-        // Find videos marked as favorite
         List<Models.Video> watchlist = Models.Video.list("favorite", true);
-        
-        return "<div class='library-header'><h1 class='library-title'>Watchlist</h1></div>" +
-               (watchlist.isEmpty() ? "<div class='carousel-empty-state'><i class='pi pi-bookmark'></i><h3>Your watchlist is empty</h3><p>Add content to watch it later.</p></div>" :
-               "<div class='plex-grid'>" + watchlist.stream().map(this::createSimpleCardHTML).collect(Collectors.joining()) + "</div>");
+        return videoWatchlistFragment
+                .data("videos", watchlist)
+                .render();
     }
 
     @GET
@@ -302,10 +345,10 @@ public class VideoUiApi {
     private String createSimpleCardHTML(Models.Video item) {
         String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Unknown");
         return String.format(
-            "<div class='plex-card' onclick=\"window.selectItem(%d, 'details')\">" +
-            "<div class='plex-card-poster'><img class='poster-img' src='/api/video/thumbnail/%d' loading='lazy'>" +
-            "<div class='plex-card-overlay'><div class='plex-play-btn' onclick=\"event.stopPropagation(); window.selectItem(%d, 'play')\"><i class='pi pi-play'></i></div></div>" +
-            "</div><div class='plex-card-info'><div class='plex-card-title'>%s</div><div class='plex-card-meta'>%s</div></div></div>",
+            "<div class='streaming-card' onclick=\"window.selectItem(%d, 'details')\">" +
+            "<div class='card-image-container'><img class='card-image' src='/api/video/thumbnail/%d' loading='lazy'>" +
+            "<div class='card-play-overlay'><div class='card-play-btn' onclick=\"event.stopPropagation(); window.selectItem(%d, 'play')\"><i class='pi pi-play'></i></div></div>" +
+            "</div><div class='card-content'><div class='card-title'>%s</div><div class='card-meta'>%s</div></div></div>",
             item.id, item.id, item.id, escapeHtml(title), item.releaseYear != null ? item.releaseYear : ""
         );
     }
@@ -328,10 +371,10 @@ public class VideoUiApi {
         List<Models.Video> all = videoService.findAll();
         Map<String, Object> data = new HashMap<>();
         data.put("newReleases", all.stream().sorted((v1, v2) -> (v2.dateAdded != null ? v2.dateAdded : java.time.LocalDateTime.MIN).compareTo(v1.dateAdded != null ? v1.dateAdded : java.time.LocalDateTime.MIN)).limit(20).collect(Collectors.toList()));
-        data.put("movies", all.stream().filter(v -> "movie".equalsIgnoreCase(v.type)).limit(20).collect(Collectors.toList()));
+        data.put("movies", all.stream().filter(v -> v.type != null && "movie".equalsIgnoreCase(v.type)).limit(20).collect(Collectors.toList()));
         java.util.Set<String> seenShows = new java.util.HashSet<>();
         data.put("tvShows", all.stream()
-            .filter(v -> "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null)
+            .filter(v -> v.type != null && "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null)
             .filter(v -> seenShows.add(v.seriesTitle))
             .limit(20).collect(Collectors.toList()));
         data.put("trending", all.stream().skip(Math.min(10, all.size())).limit(15).collect(Collectors.toList()));

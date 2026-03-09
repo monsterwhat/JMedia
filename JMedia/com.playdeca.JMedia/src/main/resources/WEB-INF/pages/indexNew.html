@@ -3,20 +3,12 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-status-bar-style" content="default">
-        <meta name="theme-color" content="#48c78e">
         <title id="pageTitle">JMedia Music</title>
 
         <!-- Scripts -->
         <script src="/js/theme-initializer.js"></script>
         <script src="/js/htmx.min.js"></script>
         <script defer src="/lib/alpine.min.js"></script>
-        <script>
-            document.addEventListener('alpine:init', () => {
-                Alpine.store('profile', { currentProfile: null });
-            });
-        </script>
 
         <!-- CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css">
@@ -42,64 +34,110 @@
             .music-main-wrapper {
                 flex: 1;
                 overflow-y: auto !important;
-                padding: 0 !important; /* Set to 0 */
-                min-height: 0; /* CRITICAL for flex scrolling */
-            }
-
-            .mobile-song-list {
                 padding: 0 !important;
-                margin-left: 0.25rem !important;
-                margin-right: 0.25rem !important;
+                min-height: 0;
             }
 
-            .mobile-pagination-simple {
-                margin: 0 !important;
+            /* Narrower, Taller Squared Grid */
+            .mobile-song-list {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, 160px);
+                justify-content: center;
+                gap: 2rem;
+                padding: 2rem;
+                list-style: none;
+                margin: 0;
+            }
+
+            /* Ensure fragments also use the same layout if they contain song lists */
+            #queueContent:not(.is-hidden), #historyContent:not(.is-hidden) {
+                display: block;
+            }
+
+            .mobile-song-item {
                 display: flex !important;
-                flex-direction: column !important; /* Stack vertically */
+                flex-direction: column !important;
+                background: rgba(255,255,255,0.02) !important;
+                border: 1px solid rgba(255,255,255,0.05) !important;
+                border-radius: 12px !important;
+                cursor: pointer !important;
+                transition: all 0.2s ease !important;
+                overflow: hidden !important; 
+                padding: 0 !important; 
+                width: 160px !important;
+                height: 240px !important; 
+                flex-shrink: 0 !important;
+            }
+
+            .mobile-song-item:hover {
+                background: rgba(255,255,255,0.08) !important;
+                transform: translateY(-5px) !important;
+                border-color: rgba(72, 199, 116, 0.4) !important;
+                box-shadow: 0 15px 35px rgba(0,0,0,0.5) !important;
+            }
+
+            .mobile-song-artwork {
+                width: 160px !important;
+                height: 160px !important; 
+                background: #000 !important;
+                display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                gap: 1rem !important;
-                padding: 1.5rem !important;
-                border-top: 1px solid rgba(255,255,255,0.1);
+                border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+                flex-shrink: 0 !important;
             }
 
-            .mobile-pagination-info {
-                font-size: 0.8rem;
-                opacity: 0.5;
-                margin-bottom: 0.25rem;
+            .mobile-song-artwork img {
+                width: 100% !important;
+                height: 100% !important;
+                object-fit: cover !important;
             }
 
-            .mobile-pagination-controls {
+            .mobile-song-info {
+                padding: 0.75rem !important;
+                width: 100% !important;
+                text-align: left !important;
+                flex-grow: 1 !important;
                 display: flex !important;
-                flex-direction: row !important;
-                align-items: center !important;
-                gap: 1rem !important;
+                flex-direction: column !important;
+                justify-content: center !important;
+                overflow: hidden !important;
             }
 
-            .mobile-pagination-pages {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-wrap: nowrap !important;
-                gap: 0.5rem !important;
+            .mobile-song-title {
+                font-weight: 700 !important;
+                font-size: 0.85rem !important;
+                color: #fff !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                margin-bottom: 0.15rem !important;
             }
 
-            .mobile-pagination-prev, .mobile-pagination-next {
-                background: rgba(255,255,255,0.05) !important;
-                border: 1px solid rgba(255,255,255,0.1) !important;
-                color: white !important;
-                width: 40px;
-                height: 40px;
+            .mobile-song-artist {
+                font-size: 0.75rem !important;
+                color: #48c774 !important;
+                opacity: 0.8 !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+
+            /* SIDEBAR PLAYLISTS FIX */
+            .nav-sub-group { padding-left: 0.5rem; margin-top: 0.25rem; }
+            .nav-sub-item {
                 display: flex;
                 align-items: center;
-                justify-content: center;
-                border-radius: 8px;
+                gap: 0.75rem;
+                padding: 0.6rem 1rem !important;
+                font-size: 0.85rem;
+                color: rgba(255,255,255,0.5);
+                border-radius: 6px;
+                transition: 0.2s;
                 cursor: pointer;
             }
-
-            .mobile-pagination-prev:disabled, .mobile-pagination-next:disabled {
-                opacity: 0.3;
-                cursor: not-allowed;
-            }
+            .nav-sub-item:hover, .nav-sub-item.active { background: rgba(255,255,255,0.05); color: #48c774; }
+            .nav-label { padding: 0 1rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: rgba(255,255,255,0.3); margin-top: 1.5rem; }
 
             /* PLAYER BAR */
             .persistent-music-player {
@@ -109,156 +147,112 @@
                 backdrop-filter: blur(40px);
                 border-top: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 0 !important;
-                z-index: 10;
-                box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
-                position: relative;
+                z-index: 1000;
                 display: flex;
                 flex-direction: column;
+                overflow: visible !important;
             }
 
-            .mobile-player {
-                width: 100% !important;
-                flex: 1;
-                display: flex !important;
-                align-items: center !important;
-                padding: 0 2rem !important;
-                max-width: none !important;
-                background: transparent !important;
-                box-shadow: none !important;
-                border: none !important;
-                position: relative !important;
-                z-index: 5;
-            }
-
-            .mobile-player-info {
-                display: flex !important;
-                align-items: center !important;
-                gap: 1rem !important;
-                flex: 0 1 30% !important;
-                min-width: 0;
-            }
-
-            .mobile-player-artwork {
-                width: 50px !important;
-                height: 50px !important;
-                border-radius: 8px !important;
-                flex-shrink: 0 !important;
-                background: rgba(255,255,255,0.05);
-                overflow: hidden;
-                display: flex !important;
-                align-items: center;
-                justify-content: center;
-            }
-
+            .mobile-player { width: 100% !important; flex: 1; display: flex !important; align-items: center !important; padding: 0 2rem !important; position: relative !important; }
+            .mobile-player-info { display: flex !important; align-items: center !important; gap: 1rem !important; flex: 0 1 30% !important; min-width: 0; }
+            .mobile-player-artwork { width: 50px !important; height: 50px !important; border-radius: 8px !important; flex-shrink: 0 !important; background: rgba(255,255,255,0.05); overflow: hidden; }
             .mobile-player-artwork img { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-
-            .mobile-player-details { flex: 1 !important; min-width: 0; }
-            .mobile-player-title { font-size: 1rem !important; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0 !important; }
-            .mobile-player-artist { font-size: 0.85rem !important; color: #48c774; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; margin: 0 !important; }
-
+            
             .mobile-player-controls {
                 position: absolute !important;
-                left: calc(50% - (var(--sidebar-width) / 2)) !important; /* Center to screen when sidebar is on left */
+                left: 50% !important;
                 top: 50% !important;
                 transform: translate(-50%, -50%) !important;
                 display: flex !important;
                 align-items: center !important;
                 gap: 2rem !important;
-                z-index: 10;
-                margin: 0 !important;
-                transition: left 0.2s ease;
-            }
-
-            .plex-layout.sidebar-right .mobile-player-controls {
-                left: calc(50% + (var(--sidebar-width) / 2)) !important; /* Center to screen when sidebar is on right */
             }
 
             .mobile-player-right-side {
-                flex: 1 !important;
                 display: flex !important;
-                justify-content: flex-end !important;
                 align-items: center !important;
+                margin-left: auto !important;
+                gap: 1.5rem !important;
             }
 
-            .mobile-btn {
-                background: transparent !important;
-                border: none !important;
-                cursor: pointer !important;
-                padding: 5px !important;
-            }
-
-            .mobile-btn i { font-size: 1.2rem !important; color: white !important; }
-            .mobile-btn-primary { 
-                width: 40px !important; 
-                height: 40px !important; 
-                background: #48c774 !important; 
-                border-radius: 50% !important; 
-                display: flex !important; 
-                align-items: center; 
-                justify-content: center; 
-            }
+            .mobile-btn { transition: 0.2s; cursor: pointer; background: transparent; border: none; }
+            .mobile-btn i { font-size: 1.2rem; color: white; }
+            .mobile-btn-primary { width: 44px; height: 44px; background: #48c774; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
             .mobile-btn-primary i { color: black !important; font-size: 1.4rem !important; }
 
-            /* VOLUME VERTICAL HOVER - ROTATED RANGE */
-            .mobile-volume-wrapper {
-                position: relative;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 40px;
-                height: 40px;
-            }
+            .shuffle-on i, .repeat-all i { color: #48c774 !important; text-shadow: 0 0 10px rgba(72, 199, 116, 0.5); }
+            .shuffle-smart i { color: #3298dc !important; }
+            .repeat-one i { color: #ffdd57 !important; }
 
-            .volume-slider-container {
+            /* VOLUME SLIDER STYLES */
+            .mobile-volume-wrapper { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
+            .volume-slider-container { 
+                position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); 
+                width: 40px; height: 140px; background: rgba(15, 15, 15, 0.98); backdrop-filter: blur(15px);
+                border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; 
+                display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 2000;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            }
+            /* Bridge the gap for hover */
+            .volume-slider-container::after {
+                content: "";
                 position: absolute;
-                bottom: 100%;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(20, 20, 20, 0.95);
-                backdrop-filter: blur(10px);
-                padding: 20px 10px;
-                border-radius: 8px;
-                border: 1px solid rgba(255,255,255,0.1);
-                display: none;
-                z-index: 1001;
-                height: 150px;
-                pointer-events: auto;
+                top: 100%;
+                left: 0;
+                width: 100%;
+                height: 30px; /* Cover the 10px gap + button area */
+                background: transparent;
             }
-
-            .mobile-volume-wrapper:hover .volume-slider-container {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-
-            .vertical-volume#volumeProgressBar {
-                appearance: none;
-                -webkit-appearance: none;
-                width: 100px;
-                height: 6px;
-                background: rgba(255,255,255,0.1) !important;
+            .mobile-volume-wrapper:hover .volume-slider-container { display: flex; }
+            .vertical-volume { 
+                appearance: none; -webkit-appearance: none; width: 100px; height: 6px;
+                background: rgba(255,255,255,0.1) !important; 
                 background-image: linear-gradient(#48c774, #48c774) !important;
-                background-size: var(--slider-progress, 0%) 100% !important;
-                background-repeat: no-repeat !important;
+                background-size: var(--slider-progress, 0%) 100% !important; 
+                background-repeat: no-repeat !important; 
                 outline: none;
-                border-radius: 3px;
-                transform: rotate(-90deg); /* Standard rotation */
+                border-radius: 3px; 
+                transform: rotate(-90deg); 
                 cursor: pointer;
+                margin: 0 !important;
                 position: absolute;
                 top: 50%;
+                left: 50%;
+                transform-origin: center;
+                transform: translate(-50%, -50%) rotate(-90deg);
             }
+            .vertical-volume::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 14px; height: 14px; background: #48c774; border-radius: 50%; cursor: pointer; }
 
-            /* PROGRESS AT BOTTOM - ENHANCED CLICK AREA */
+            /* CONTEXT MENU */
+            .context-menu {
+                position: fixed !important;
+                z-index: 100000 !important;
+                background: rgba(20, 20, 20, 0.95) !important;
+                backdrop-filter: blur(15px) !important;
+                border: 1px solid rgba(255,255,255,0.1) !important;
+                border-radius: 8px !important;
+                padding: 5px 0 !important;
+                min-width: 200px !important;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.6) !important;
+                display: none;
+            }
+            .context-menu-item { padding: 10px 20px !important; color: white !important; cursor: pointer !important; font-size: 0.9rem !important; display: flex; align-items: center; gap: 12px; }
+            .context-menu-item:hover { background: rgba(72, 199, 116, 0.2); color: #48c774; }
+            .submenu { position: absolute; left: 100%; top: 0; background: rgba(20, 20, 20, 0.98); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; min-width: 180px; display: none; }
+            .context-menu-item.has-submenu:hover .submenu { display: block; }
+
+            /* PROGRESS BAR AT ABSOLUTE EDGE */
             .mobile-progress-container {
                 width: 100% !important;
-                height: 12px; /* Increased container height for better hover/click */
-                margin: 0 !important;
-                padding: 0 !important;
-                position: relative;
-                z-index: 10;
+                height: 4px; /* Even thinner */
+                position: absolute;
+                bottom: 0; /* ABSOLUTE BOTTOM */
+                left: 0; right: 0;
+                z-index: 1500;
                 cursor: pointer;
+                display: flex;
+                align-items: center;
             }
-
             .mobile-progress#playbackProgressBar {
                 width: 100% !important;
                 height: 4px !important;
@@ -266,66 +260,38 @@
                 background-image: linear-gradient(#48c774, #48c774) !important;
                 background-size: var(--slider-progress, 0%) 100% !important;
                 background-repeat: no-repeat !important;
-                cursor: pointer !important;
-                -webkit-appearance: none !important;
-                position: absolute;
-                bottom: 0; left: 0; /* Pin to absolute bottom */
-                margin: 0 !important;
-                z-index: 11;
+                appearance: none; -webkit-appearance: none; margin: 0;
+                transition: background-size 0.2s linear !important;
             }
-
-            .mobile-progress::-webkit-slider-thumb {
-                -webkit-appearance: none !important;
-                width: 14px;
-                height: 14px;
-                background: #48c774;
-                border-radius: 50%;
-                cursor: pointer;
-                opacity: 0;
-                transition: opacity 0.2s;
-                margin-top: -5px; /* Center on 4px track */
-            }
-
-            .mobile-progress-container:hover .mobile-progress::-webkit-slider-thumb {
-                opacity: 1;
-            }
-
             .mobile-progress-time {
                 position: absolute;
-                bottom: 12px; /* Above the bar */
-                left: 2rem;
-                right: 2rem;
+                bottom: 12px;
+                left: 2rem; right: 2rem;
+                display: flex; justify-content: space-between;
+                font-size: 0.7rem; color: rgba(255,255,255,0.5); pointer-events: none;
+            }
+
+            /* EMPTY STATE */
+            .empty-state-container {
                 display: flex;
-                justify-content: space-between;
-                font-size: 0.7rem;
-                color: rgba(255,255,255,0.5);
-                pointer-events: none;
-                z-index: 12;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 4rem 2rem;
+                text-align: center;
+                height: 100%;
+                min-height: 400px;
             }
-
-            /* Sidebar Playlist Styles */
-            .nav-sub-group { padding-left: 1.5rem; margin-top: 0.25rem; max-height: 300px; overflow-y: auto; }
-            .nav-sub-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.5); border-radius: 6px; transition: 0.2s; }
-            .nav-sub-item:hover { color: white; background: rgba(255,255,255,0.05); }
-            .nav-sub-item.active { color: #48c774; background: rgba(72, 199, 116, 0.1); }
-
-            /* Minimized Sidebar State */
-            .plex-layout.collapsed .nav-sub-item span {
-                display: block !important;
-                width: 100% !important;
-                text-align: center !important;
-                font-weight: 900 !important;
-                font-size: 1.1rem !important;
-                text-transform: uppercase !important;
-                overflow: hidden;
-                max-width: 1ch;
-                margin: 0 auto;
+            .empty-state-icon {
+                font-size: 4rem;
+                color: rgba(255,255,255,0.1);
+                margin-bottom: 1.5rem;
             }
-            .plex-layout.collapsed .nav-sub-item i,
-            .plex-layout.collapsed .create-playlist-btn,
-            .plex-layout.collapsed .theme-toggle-btn,
-            .plex-layout.collapsed .nav-label {
-                display: none !important;
+            .empty-state-text {
+                font-size: 1.25rem;
+                font-weight: 600;
+                color: rgba(255,255,255,0.6);
+                margin-bottom: 2rem;
             }
         </style>
     </head>
@@ -390,10 +356,10 @@
                     <div class="persistent-music-player">
                         <div class="mobile-player">
                             <div class="mobile-player-info">
-                                <div class="mobile-player-artwork" id="songCoverImageContainer"><img id="songCoverImage" src="/logo.png" alt="Cover"><i class="pi pi-music" id="songCoverFallback" style="display: none;"></i></div>
+                                <div class="mobile-player-artwork" id="songCoverImageContainer"><img id="songCoverImage" src="/logo.png" alt="Cover"></div>
                                 <div class="mobile-player-details">
                                     <p id="songTitle" class="mobile-player-title">Loading...</p>
-                                    <p id="songArtist" class="mobile-player-artist" onclick="filterByArtist()">Unknown Artist</p>
+                                    <p id="songArtist" class="mobile-player-artist">Unknown Artist</p>
                                 </div>
                             </div>
                             
@@ -429,29 +395,34 @@
 
         <audio id="audioPlayer" preload="auto"></audio>
 
-        <!-- Modals -->
-        <div id="mobileProfileModal" class="modal">
-            <div class="modal-background" onclick="closeMobileProfileModal()"></div>
-            <div class="modal-card glass-modal">
-                <header class="modal-card-head">
-                    <p class="modal-card-title">Profiles</p>
-                    <button class="delete" aria-label="close" onclick="closeMobileProfileModal()"></button>
-                </header>
-                <div class="modal-card-body"><div id="mobileProfileList" class="profile-list-container"></div></div>
-                <footer class="modal-card-foot" style="justify-content: space-between;">
-                    <button class="button is-danger is-small" onclick="handleLogout()">Logout</button>
-                    <button class="button is-small" onclick="closeMobileProfileModal()">Close</button>
-                </footer>
+        <!-- Modals & Menus -->
+        <div id="customContextMenu" class="context-menu">
+            <div class="context-menu-item" data-action="queue">Queue Song</div>
+            <div class="context-menu-item" data-action="queue-similar">Queue Similar</div>
+            <div class="context-menu-item has-submenu" data-action="playlist">
+                Add to Playlist
+                <div class="submenu" id="playlistSubMenu"></div>
             </div>
+            <div class="context-menu-item" data-action="rescan">Re-Scan</div>
+            <div class="context-menu-item" data-action="enrich">Update Metadata</div>
+            <div class="context-menu-item has-text-danger" data-action="delete">Delete Song</div>
+        </div>
+
+        <div id="mobileContextMenu" class="mobile-context-menu" style="display: none;">
+            <ul class="mobile-context-list">
+                <li data-action="queue"><i class="pi pi-plus"></i> Queue Song</li>
+                <li data-action="playlist"><i class="pi pi-folder-plus"></i> Add to Playlist</li>
+                <li data-action="rescan"><i class="pi pi-sync"></i> Re-Scan</li>
+                <li data-action="delete"><i class="pi pi-trash"></i> Delete Song</li>
+            </ul>
+            <div class="mobile-context-backdrop" onclick="window.hideMobileContextMenu()"></div>
         </div>
 
         <div id="playlistModal" class="modal">
             <div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div>
             <div class="modal-card glass-modal">
                 <header class="modal-card-head"><p class="modal-card-title">New Playlist</p></header>
-                <div class="modal-card-body">
-                    <input class="input" type="text" id="newPlaylistName" placeholder="Playlist Name">
-                </div>
+                <div class="modal-card-body"><input class="input" type="text" id="newPlaylistName" placeholder="Playlist Name"></div>
                 <footer class="modal-card-foot">
                     <button class="button is-success" onclick="confirmCreatePlaylist()">Create</button>
                     <button class="button" onclick="this.closest('.modal').classList.remove('is-active')">Cancel</button>
@@ -460,150 +431,79 @@
         </div>
 
         <script src="/js/toast.js"></script>
-        <script type="module" src="/js/musicBar.js"></script>
-        <script type="module" src="/js/mediaSession.js"></script>
-        <script type="module" src="/js/mobile.js"></script>
+        <script src="/js/musicBar.js"></script>
+        <script src="/js/mediaSession.js"></script>
 
         <script>
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
 
             document.addEventListener('DOMContentLoaded', () => {
+                if (window.Toast && typeof window.Toast.init === 'function') {
+                    window.Toast.init();
+                } else if (typeof ToastSystem !== 'undefined') {
+                    window.Toast = new ToastSystem();
+                    window.Toast.init();
+                }
+
                 const layout = document.getElementById('plex-layout');
                 const toggleBtn = document.getElementById('toggleSidebarBtn');
-                
-                if (toggleBtn) {
-                    toggleBtn.onclick = () => {
-                        layout.classList.toggle('collapsed');
-                        localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
-                    };
-                }
+                if (toggleBtn) toggleBtn.onclick = () => { layout.classList.toggle('collapsed'); localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed')); };
                 if (localStorage.getItem('sidebarCollapsed') === 'true') layout.classList.add('collapsed');
 
                 const applySidebar = (pos) => {
                     if (pos === 'right') layout.classList.add('sidebar-right');
                     else layout.classList.remove('sidebar-right');
                 };
-                
                 const cachedPos = localStorage.getItem('sidebarPosition');
                 if (cachedPos) applySidebar(cachedPos);
-                
-                fetch(`/api/settings/${window.globalActiveProfileId}/sidebar-position`)
-                    .then(r => r.json()).then(json => { if(json.data) applySidebar(json.data); });
+                fetch(`/api/settings/${window.globalActiveProfileId}/sidebar-position`).then(r => r.json()).then(json => { if(json.data) { applySidebar(json.data); localStorage.setItem('sidebarPosition', json.data); } });
 
                 fetchMobileCurrentProfile();
-                initMobileMiniVolumeControl();
                 loadMobilePlaylists();
+                setTimeout(() => { loadMobilePlaylistSongs(0); }, 100);
             });
 
             function loadMobilePlaylists() {
-                fetch(`/api/music/playlists/${window.globalActiveProfileId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        const playlists = data.data || data;
-                        const list = document.getElementById('sidebarPlaylistList');
-                        if (!list) return;
-                        list.innerHTML = playlists.map(p => `
-                            <a href="javascript:void(0)" class="nav-sub-item" id="nav-playlist-${p.id}" onclick="loadMobilePlaylistSongs(${p.id})">
-                                <span>${p.name}</span>
-                            </a>
-                        `).join('');
-                    });
+                fetch(`/api/music/playlists/${window.globalActiveProfileId}`).then(r => r.json()).then(data => {
+                    const list = document.getElementById('sidebarPlaylistList');
+                    if (!list) return;
+                    list.innerHTML = (data.data || data).map(p => `<a href="javascript:void(0)" class="nav-sub-item" id="nav-playlist-${p.id}" onclick="loadMobilePlaylistSongs(${p.id})"><span>${p.name}</span></a>`).join('');
+                });
             }
 
             function loadMobilePlaylistSongs(id) {
-                const isListVisible = !document.getElementById('mobileSongList').classList.contains('is-hidden');
-                if (id === window.currentPlaylistId && isListVisible) return;
-
                 document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
                 if (id === 0) document.getElementById('nav-music').classList.add('active');
                 else document.getElementById(`nav-playlist-${id}`)?.classList.add('active');
-
                 document.getElementById('mobileSongList').classList.remove('is-hidden');
                 document.getElementById('queueContent').classList.add('is-hidden');
                 document.getElementById('historyContent').classList.add('is-hidden');
-
-                if (window.htmx) {
-                    window.htmx.ajax('GET', `/api/music/ui/tbody/${window.globalActiveProfileId}/${id}`, {
-                        target: '#mobileSongList',
-                        swap: 'innerHTML'
-                    });
-                    window.currentPlaylistId = id;
-                }
+                if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${window.globalActiveProfileId}/${id}`, { target: '#mobileSongList', swap: 'innerHTML' });
             }
 
             function switchToTab(tab) {
-                const targetPane = document.getElementById(`${tab}Content`);
-                if (!targetPane) return;
-                if (window.activeTab === tab && !targetPane.classList.contains('is-hidden')) return;
-
                 document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
                 document.getElementById(`nav-${tab}`)?.classList.add('active');
-
                 document.getElementById('mobileSongList').classList.add('is-hidden');
                 document.getElementById('queueContent').classList.add('is-hidden');
                 document.getElementById('historyContent').classList.add('is-hidden');
-
-                targetPane.classList.remove('is-hidden');
-                window.activeTab = tab;
-                window.currentPlaylistId = null;
-
-                if (window.htmx) {
-                    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
-                    const endpoint = tab === 'queue' ? `/api/music/ui/mobile-queue-fragment/${profileId}` : `/api/music/ui/mobile-history-fragment/${profileId}`;
-                    window.htmx.ajax('GET', endpoint, { target: `#${tab}Content`, swap: 'innerHTML' });
-                }
+                const targetId = tab === 'queue' ? 'queueContent' : 'historyContent';
+                const endpoint = tab === 'queue' ? 'mobile-queue-fragment' : 'mobile-history-fragment';
+                document.getElementById(targetId).classList.remove('is-hidden');
+                if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/${endpoint}/${window.globalActiveProfileId}`, { target: `#${targetId}`, swap: 'innerHTML' });
             }
 
             function openCreatePlaylistModal() { document.getElementById('playlistModal').classList.add('is-active'); }
-
             async function confirmCreatePlaylist() {
                 const name = document.getElementById('newPlaylistName').value.trim();
                 if (!name) return;
-                const res = await fetch(`/api/music/playlists/${window.globalActiveProfileId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
-                });
-                if (res.ok) { document.getElementById('playlistModal').classList.remove('is-active'); loadMobilePlaylists(); Toast.success('Playlist created'); }
+                const res = await fetch(`/api/music/playlists/${window.globalActiveProfileId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+                if (res.ok) { document.getElementById('playlistModal').classList.remove('is-active'); loadMobilePlaylists(); window.Toast.success('Playlist created'); }
             }
-
-            function closeMobileProfileModal() { document.getElementById('mobileProfileModal').classList.remove('is-active'); }
             function fetchMobileCurrentProfile() { fetch('/api/profiles/current').then(r => r.json()).then(p => { document.getElementById('currentProfileName').textContent = p.name || 'Profile'; }); }
             function handleLogout() { fetch('/api/auth/logout', { method: 'POST' }).then(() => location.href = '/login.html'); }
-
-            function openMobileProfileModal() {
-                document.getElementById('mobileProfileModal').classList.add('is-active');
-                fetch('/api/profiles').then(r => r.json()).then(data => {
-                    document.getElementById('mobileProfileList').innerHTML = data.map(p => `
-                        <div class="profile-item" onclick="switchToMobileProfile(${p.id})">
-                            <div class="profile-avatar"><i class="pi pi-user"></i></div>
-                            <div class="profile-item-name">${p.name}</div>
-                        </div>
-                    `).join('');
-                });
-            }
-
-            function switchToMobileProfile(profileId) { fetch(`/api/profiles/switch/${profileId}`, { method: 'POST' }).then(() => { localStorage.setItem('activeProfileId', profileId); location.reload(); }); }
-
-            function initMobileMiniVolumeControl() {
-                const volumeSlider = document.getElementById('volumeProgressBar');
-                const audioPlayer = document.getElementById('audioPlayer');
-                if (!volumeSlider || !audioPlayer) return;
-                
-                // Initial fill
-                const initialProgress = (volumeSlider.value / 100) * 100;
-                volumeSlider.style.setProperty('--slider-progress', `${initialProgress}%`);
-
-                volumeSlider.oninput = function() {
-                    const val = Math.pow(this.value / 100, 2);
-                    audioPlayer.volume = val;
-                    
-                    // Update green fill via CSS variable
-                    const progress = (this.value / 100) * 100;
-                    this.style.setProperty('--slider-progress', `${progress}%`);
-                };
-            }
+            function openMobileProfileModal() { /* logic */ }
         </script>
-        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 99999;"></div>
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 2000000;"></div>
     </body>
 </html>

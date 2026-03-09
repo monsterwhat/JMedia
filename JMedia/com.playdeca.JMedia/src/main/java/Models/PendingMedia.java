@@ -2,8 +2,7 @@ package Models;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.Entity;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToOne;
+import jakarta.persistence.ManyToOne; 
 import java.time.LocalDateTime;
 
 @Entity
@@ -33,6 +32,8 @@ public class PendingMedia extends PanacheEntity {
     public Double confidenceScore;
     
     // Processing status
+    @jakarta.persistence.Column(name = "status", length = 50)
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
     public ProcessingStatus status;
     public LocalDateTime createdAt;
     public LocalDateTime processedAt;
@@ -66,6 +67,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Gets the final show name to use, prioritizing user corrections
+     * @return 
      */
     public String getFinalShowName() {
         if (correctedShowName != null && !correctedShowName.trim().isEmpty()) {
@@ -79,6 +81,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Gets the final title to use, prioritizing user corrections
+     * @return 
      */
     public String getFinalTitle() {
         if (correctedTitle != null && !correctedTitle.trim().isEmpty()) {
@@ -92,6 +95,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Gets the final media type to use, prioritizing user corrections
+     * @return 
      */
     public String getFinalMediaType() {
         if (correctedMediaType != null && !correctedMediaType.trim().isEmpty()) {
@@ -105,6 +109,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Gets the final season number, prioritizing user corrections
+     * @return 
      */
     public Integer getFinalSeason() {
         if (correctedSeason != null) {
@@ -118,6 +123,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Gets the final episode number, prioritizing user corrections
+     * @return 
      */
     public Integer getFinalEpisode() {
         if (correctedEpisode != null) {
@@ -131,6 +137,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Gets the final release year, prioritizing user corrections
+     * @return 
      */
     public Integer getFinalYear() {
         if (correctedYear != null) {
@@ -144,6 +151,7 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Checks if this pending media needs user attention
+     * @return 
      */
     public boolean needsUserAttention() {
         return status == ProcessingStatus.USER_CORRECTION_NEEDED ||
@@ -152,23 +160,28 @@ public class PendingMedia extends PanacheEntity {
     
     /**
      * Finds pending media that needs processing
+     * @return 
      */
     public static java.util.List<PendingMedia> findPendingProcessing() {
-        return list("status", ProcessingStatus.PENDING);
+        return find("status = :status", 
+                   io.quarkus.panache.common.Parameters.with("status", ProcessingStatus.PENDING)).list();
     }
     
     /**
      * Finds pending media that needs user attention
+     * @return 
      */
     public static java.util.List<PendingMedia> findNeedingUserAttention() {
-        return list("status = ?1 OR (status = ?2 AND confidenceScore < ?3)", 
-                   ProcessingStatus.USER_CORRECTION_NEEDED, 
-                   ProcessingStatus.COMPLETED, 
-                   0.7);
+        return find("status = :status1 OR (status = :status2 AND confidenceScore < :score)", 
+                   io.quarkus.panache.common.Parameters.with("status1", ProcessingStatus.USER_CORRECTION_NEEDED)
+                                            .and("status2", ProcessingStatus.COMPLETED)
+                                            .and("score", 0.7)).list();
     }
     
     /**
      * Finds pending media by media file
+     * @param mediaFile
+     * @return 
      */
     public static PendingMedia findByMediaFile(MediaFile mediaFile) {
         return find("mediaFile", mediaFile).firstResult();

@@ -554,4 +554,25 @@ public class MacOSPlatformOperations implements PlatformOperations {
             return false;
         }
     }
+
+    @Override
+    public java.util.List<java.util.Map<String, String>> listFolders(String path) throws Exception {
+        java.util.List<java.util.Map<String, String>> folders = new java.util.ArrayList<>();
+        java.io.File currentDir = (path == null || path.trim().isEmpty()) ? new java.io.File("/") : new java.io.File(path);
+        
+        if (currentDir.exists() && currentDir.isDirectory()) {
+            java.io.File[] files = currentDir.listFiles(java.io.File::isDirectory);
+            if (files != null) {
+                java.util.Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+                for (java.io.File f : files) {
+                    if (f.getName().startsWith(".")) continue;
+                    java.util.Map<String, String> map = new java.util.HashMap<>();
+                    map.put("name", f.getName());
+                    map.put("path", f.getAbsolutePath());
+                    folders.add(map);
+                }
+            }
+        }
+        return folders;
+    }
 }

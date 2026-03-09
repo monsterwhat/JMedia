@@ -169,6 +169,7 @@ public class QueueAPI {
                 return false;
             })
             .filter(song -> {
+                if (bpm == 0) return true; // Skip BPM filtering if source BPM is unknown
                 int songBpm = song.getBpm();
                 return songBpm > 0 && Math.abs(songBpm - bpm) <= bpmTolerance;
             })

@@ -67,9 +67,14 @@ public class UnifiedVideoEntityCreationService {
         video.audioCodec = pending.mediaFile.audioCodec;
         video.duration = pending.mediaFile.durationSeconds * 1000L;
         video.size = pending.mediaFile.size;
+        video.fileSize = pending.mediaFile.size; // Set legacy field
         video.lastModified = pending.mediaFile.lastModified;
         video.quality = pending.mediaFile.getQualityIndicator();
         video.container = extractContainer(video.filename);
+        video.hasSubtitles = pending.mediaFile.hasEmbeddedSubtitles;
+        video.releaseGroup = pending.mediaFile.releaseGroup;
+        video.source = pending.mediaFile.source;
+        video.confidenceScore = pending.confidenceScore;
         
         // Discover and associate subtitle tracks if not already present
         if (video.subtitleTracks == null || video.subtitleTracks.isEmpty()) {
@@ -99,19 +104,45 @@ public class UnifiedVideoEntityCreationService {
         return persisted;
     }
     
-    @Transactional
+    @jakarta.enterprise.context.control.ActivateRequestContext
     public void importExistingVideos() {
         LOG.info("Starting Phase 3: Finalizing video entities from pending media...");
         
+        // --- DIAGNOSTIC LOGGING ---
+        try {
+            long total = PendingMedia.count();
+            long pending = PendingMedia.count("status", PendingMedia.ProcessingStatus.PENDING);
+            long processing = PendingMedia.count("status", PendingMedia.ProcessingStatus.PROCESSING);
+            long completed = PendingMedia.count("status", PendingMedia.ProcessingStatus.COMPLETED);
+            long approved = PendingMedia.count("status", PendingMedia.ProcessingStatus.USER_APPROVED);
+            long failed = PendingMedia.count("status", PendingMedia.ProcessingStatus.FAILED);
+            LOG.info("PendingMedia Statistics: TOTAL: {}, PENDING: {}, PROCESSING: {}, COMPLETED: {}, APPROVED: {}, FAILED: {}", 
+                    total, pending, processing, completed, approved, failed);
+        } catch (Exception e) {
+            LOG.warn("Failed to generate diagnostic statistics: " + e.getMessage());
+        }
+        // ---------------------------
+
         // Find all COMPLETED or USER_APPROVED pending media
-        List<PendingMedia> readyToFinalize = PendingMedia.list("status = ?1 OR status = ?2", 
-                ProcessingStatus.COMPLETED, ProcessingStatus.USER_APPROVED);
+        // IMPORTANT: We do NOT use @Transactional on this method anymore.
+        // Each loop iteration will handle its own transaction.
+        List<PendingMedia> readyToFinalize = PendingMedia.find("status = :status1 OR status = :status2", 
+                io.quarkus.panache.common.Parameters.with("status1", PendingMedia.ProcessingStatus.COMPLETED)
+                                         .and("status2", PendingMedia.ProcessingStatus.USER_APPROVED)).list();
+        
+        LOG.info("Found {} pending media items ready to finalize", readyToFinalize.size());
         
         int count = 0;
         for (PendingMedia pending : readyToFinalize) {
             try {
-                createVideoFromPendingMedia(pending);
-                count++;
+                // This method is @Transactional and will handle its own commit
+                Video v = createVideoFromPendingMedia(pending);
+                if (v != null) {
+                    count++;
+                    if (count % 50 == 0) {
+                        LOG.info("Progress: Finalized {} video entities...", count);
+                    }
+                }
             } catch (Exception e) {
                 LOG.error("Error finalizing video for " + pending.originalFilename + ": " + e.getMessage());
             }
@@ -140,6 +171,9 @@ public class UnifiedVideoEntityCreationService {
         video.lastModified = mediaFile.lastModified;
         video.quality = mediaFile.getQualityIndicator();
         video.container = extractContainer(video.filename);
+        video.hasSubtitles = mediaFile.hasEmbeddedSubtitles;
+        video.releaseGroup = mediaFile.releaseGroup;
+        video.source = mediaFile.source;
         
         return videoService.persist(video);
     }

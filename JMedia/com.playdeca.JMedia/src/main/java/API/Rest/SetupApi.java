@@ -17,7 +17,21 @@ import java.util.Map;
 public class SetupApi {
 
     @Inject
-    private SetupController setupController;
+    private Controllers.SetupController setupController;
+
+    private boolean checkAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
+        String sessionId = null;
+        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
+        }
+        
+        if (sessionId == null) return false;
+        Models.Session session = Models.Session.findBySessionId(sessionId);
+        if (session == null || !session.active) return false;
+        
+        Models.User user = Models.User.find("username", session.username).firstResult();
+        return user != null && "admin".equals(user.getGroupName());
+    }
 
     // -----------------------------
     // CHECK SETUP STATUS
@@ -32,15 +46,16 @@ public class SetupApi {
         return Response.ok(ApiResponse.success(response)).build();
     }
 
-
-
     // -----------------------------
     // VALIDATE PATHS
     // -----------------------------
     @POST
     @Path("/validate-paths")
     @Transactional
-    public Response validatePaths(Map<String, String> paths) {
+    public Response validatePaths(Map<String, String> paths, @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).build();
+        }
         Map<String, Boolean> validation = new HashMap<>();
         
         String musicPath = paths.get("musicLibraryPath");
@@ -71,7 +86,12 @@ public class SetupApi {
             @FormParam("outputFormat") String outputFormat,
             @FormParam("downloadThreads") Integer downloadThreads,
             @FormParam("searchThreads") Integer searchThreads,
-            @FormParam("runAsService") Boolean runAsService) {
+            @FormParam("runAsService") Boolean runAsService,
+            @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
+        
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
         
         try {
             setupController.completeSetup(musicLibraryPath, videoLibraryPath, 
@@ -96,7 +116,10 @@ public class SetupApi {
     @POST
     @Path("/install-requirements")
     @Consumes(MediaType.WILDCARD)
-    public Response installRequirements() {
+    public Response installRequirements(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).build();
+        }
         try {
             // Start installation in background thread
             new Thread(() -> {
@@ -121,7 +144,10 @@ public class SetupApi {
     @POST
     @Path("/reset")
     @Transactional
-    public Response resetSetup() {
+    public Response resetSetup(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).build();
+        }
         try {
             setupController.resetSetup();
             return Response.ok(ApiResponse.success("Setup reset successfully")).build();

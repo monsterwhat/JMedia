@@ -261,11 +261,223 @@ body {
     margin-left: 0;
 }
 
+.spa-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: min-content;
+}
+
 .plex-content { 
     flex: 1; 
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow-y: auto; /* Enable vertical scrolling */
+    padding-bottom: 2rem;
+}
+
+.plex-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.plex-content::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.plex-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+.plex-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* ==================== CAROUSEL COMPONENTS ==================== */
+.streaming-carousel-section {
+    margin-bottom: 3rem;
+    position: relative;
+    padding: 0 1rem;
+}
+
+.carousel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding: 0 1rem;
+}
+
+.carousel-title-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.carousel-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: white;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.carousel-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.carousel-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.carousel-nav-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+}
+
+.carousel-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+.carousel-nav-btn i {
+    font-size: 1.2rem;
+}
+
+.carousel-container {
+    position: relative;
+    overflow: visible;
+}
+
+.streaming-carousel {
+    display: flex;
+    gap: 1.5rem;
+    padding: 1rem;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    scrollbar-width: none; /* Hide scrollbar for Firefox */
+    -ms-overflow-style: none; /* Hide scrollbar for IE/Edge */
+}
+
+.streaming-carousel::-webkit-scrollbar {
+    display: none; /* Hide scrollbar for Chrome/Safari */
+}
+
+.streaming-card {
+    flex: 0 0 auto;
+    width: 200px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    position: relative;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.streaming-card:hover {
+    transform: scale(1.08) translateY(-10px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    z-index: 10;
+}
+
+.card-image-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2/3;
+    overflow: hidden;
+}
+
+.card-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.6s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.streaming-card:hover .card-image {
+    transform: scale(1.1);
+}
+
+.card-play-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.streaming-card:hover .card-play-overlay {
+    opacity: 1;
+}
+
+.card-play-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--plex-accent);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: scale(0.8);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.streaming-card:hover .card-play-btn {
+    transform: scale(1);
+}
+
+.card-content {
+    padding: 1rem;
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: white;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-meta {
+    font-size: 0.85rem;
+    color: var(--plex-text-dim);
 }
 
 .music-main-wrapper {
@@ -289,19 +501,170 @@ body {
 .search-container { flex: 1; max-width: 600px; margin: 0 2rem; position: relative; }
 .plex-search { background: rgba(255, 255, 255, 0.05) !important; border: 1px solid var(--glass-border) !important; color: white !important; width: 100% !important; }
 
-/* ==================== PLEX COMPONENTS ==================== */
-.plex-spotlight { position: relative; height: 500px; border-radius: 15px; overflow: hidden; margin-bottom: 3rem; }
-.spotlight-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(40px) brightness(0.4); }
-.spotlight-content { position: relative; z-index: 2; height: 100%; display: flex; align-items: center; padding: 4rem; gap: 3rem; }
-.spotlight-poster { height: 100%; aspect-ratio: 2/3; border-radius: 10px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); object-fit: cover; }
-.spotlight-title { font-size: 4rem; font-weight: 900; line-height: 1; margin-bottom: 1rem; color: white; }
-.spotlight-description { color: rgba(255,255,255,0.8); line-height: 1.6; margin-bottom: 2rem; }
+/* ==================== LIBRARY GRID & CARDS ==================== */
+.plex-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 2rem;
+    padding: 2rem;
+}
+
+.plex-card {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.plex-card:hover {
+    transform: translateY(-8px);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+
+.plex-card-poster {
+    position: relative;
+    aspect-ratio: 2/3;
+    overflow: hidden;
+}
+
+.poster-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+.plex-card:hover .poster-img {
+    transform: scale(1.05);
+}
+
+.plex-card-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.plex-card:hover .plex-card-overlay {
+    opacity: 1;
+}
+
+.plex-play-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--plex-accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    transform: scale(0.8);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.plex-card:hover .plex-play-btn {
+    transform: scale(1);
+}
+
+.plex-card-info {
+    padding: 1rem;
+}
+
+.plex-card-title {
+    font-weight: 600;
+    font-size: 1rem;
+    color: white;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.plex-card-meta {
+    font-size: 0.85rem;
+    color: var(--plex-text-dim);
+}
+
+/* Library Headers */
+.library-header {
+    padding: 3rem 2rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 1rem;
+}
+
+.library-title {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: white;
+    margin-bottom: 0.5rem;
+}
+
+/* ==================== SPOTLIGHT / HERO ==================== */
+.plex-spotlight {
+    position: relative;
+    height: 500px;
+    border-radius: 20px;
+    overflow: hidden;
+    margin: 2rem;
+    background: #0a0a0a;
+    display: flex;
+    align-items: center;
+}
+
+.spotlight-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.3;
+    filter: blur(40px) brightness(0.4);
+}
+
+.spotlight-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    gap: 3rem;
+    padding: 0 4rem;
+    align-items: center;
+    width: 100%;
+}
+
+.spotlight-poster {
+    width: 250px;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.spotlight-info {
+    flex: 1;
+}
 
 .spotlight-badge {
     display: inline-block;
+    padding: 4px 12px;
     background: var(--plex-accent);
     color: black;
-    padding: 4px 12px;
     border-radius: 4px;
     font-size: 0.8rem;
     font-weight: 800;
@@ -310,10 +673,37 @@ body {
     margin-bottom: 1rem;
 }
 
-.plex-card { width: 180px; flex-shrink: 0; cursor: pointer; transition: transform 0.2s; }
-.plex-card:hover { transform: scale(1.05); }
-.plex-card-poster { position: relative; aspect-ratio: 2/3; border-radius: 6px; overflow: hidden; background: #151515; }
-.plex-card-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s; }
+.spotlight-title {
+    font-size: 3.5rem;
+    font-weight: 800;
+    color: white;
+    margin-bottom: 1rem;
+    line-height: 1.1;
+}
+
+.spotlight-meta {
+    display: flex;
+    gap: 1.5rem;
+    color: var(--plex-text-dim);
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+}
+
+.spotlight-description {
+    font-size: 1.2rem;
+    color: rgba(255, 255, 255, 0.8);
+    max-width: 800px;
+    margin-bottom: 2rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.spotlight-actions {
+    display: flex;
+    gap: 1rem;
+}
 .plex-card:hover .plex-card-overlay { opacity: 1; }
 .plex-play-btn { width: 45px; height: 45px; background: var(--plex-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; }
 .plex-card-info { padding: 0.75rem 0; }

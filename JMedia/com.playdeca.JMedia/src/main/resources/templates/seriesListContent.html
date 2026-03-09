@@ -1,18 +1,18 @@
 <div class="library-header">
     <h1 class="library-title">TV Shows</h1>
-    <p class="nav-label">{seriesTitleEntries.size} Shows</p>
+    <p class="nav-label">{series.size} Shows</p>
 </div>
 
 <div id="seriesList">
-    {#if seriesTitleEntries.empty}
+    {#if series.empty}
         <div class="carousel-empty-state">
             <i class="pi pi-desktop"></i>
             <h3>No shows found</h3>
-            <p>Try scanning your library</p>
+            <p>Try scanning your library or check if your episodes have series titles.</p>
         </div>
     {#else}
         <div class="plex-grid">
-            {#for entry in seriesTitleEntries}
+            {#for entry in series}
                 <div class="plex-card" onclick="window.switchSection('/api/video/ui/shows/{entry.encodedTitle}/seasons-fragment')">
                     <div class="plex-card-poster">
                         {#if entry.sampleVideoId}

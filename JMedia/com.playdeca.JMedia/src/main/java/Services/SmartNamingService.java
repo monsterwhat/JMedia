@@ -29,12 +29,12 @@ public class SmartNamingService {
     
     // Quality indicators that suggest movies
     private static final List<String> MOVIE_QUALITY_INDICATORS = Arrays.asList(
-        "bluray", "bdrip", "dvdrip", "web-dl", "webrip", "hdcam", "ts", "tc"
+        "bluray", "bdrip", "dvdrip", "web-dl", "webrip", "hdcam", "ts", "tc", "yts", "yify", "imax"
     );
     
     // TV show indicators in filenames
     private static final List<String> TV_SHOW_INDICATORS = Arrays.asList(
-        "season", "episode", "ep", "series", "show", "complete"
+        "season", "episode", "ep", "series", "show", "complete", "hdtv", "webrip"
     );
     
     public static class NamingResult {
@@ -103,8 +103,8 @@ public class SmartNamingService {
             mediaTypeDecision, episodeDetection, techAnalysis, pathAnalysis
         );
         
-        LOGGER.info("Smart naming completed for {}: {} -> {} (confidence: {:.2f})", 
-                   filename, mediaTypeDecision.type, finalTitle, finalConfidence);
+        LOGGER.info("Smart naming completed for {}: {} -> {} (confidence: {})", 
+                   filename, mediaTypeDecision.type, finalTitle, String.format("%.2f", finalConfidence));
         
         return new NamingResult(
             mediaTypeDecision.type,
@@ -127,8 +127,22 @@ public class SmartNamingService {
         Path path = Paths.get(relativePath);
         int pathDepth = path.getNameCount();
         analysis.pathDepth = pathDepth;
-        analysis.parentFolder = pathDepth > 1 ? path.getParent().getFileName().toString() : "";
-        analysis.grandParentFolder = pathDepth > 2 ? path.getParent().getParent().getFileName().toString() : "";
+        analysis.parentFolder = pathDepth > 1 ? path.getName(pathDepth - 2).toString() : "";
+        analysis.grandParentFolder = pathDepth > 2 ? path.getName(pathDepth - 3).toString() : "";
+        
+        // Scan all path segments for explicit "Movies" or "TV Shows" indicators
+        // This takes high precedence as users often organize libraries this way
+        for (int i = 0; i < path.getNameCount(); i++) {
+            String segment = path.getName(i).toString().toLowerCase();
+            if (segment.equals("movies") || segment.equals("movie") || segment.equals("films") || segment.equals("film")) {
+                analysis.directoryTypeHint = "movie";
+                break;
+            }
+            if (segment.equals("tv shows") || segment.equals("tv") || segment.equals("shows") || segment.equals("tvshow") || segment.equals("tvseries") || segment.equals("series")) {
+                analysis.directoryTypeHint = "episode";
+                break;
+            }
+        }
         
         // Check for season folder patterns
         analysis.hasSeasonFolder = analysis.parentFolder.matches("(?i)season[s]?[-_.]?\\d{1,3}");
@@ -156,15 +170,15 @@ public class SmartNamingService {
     private TechnicalAnalysis analyzeTechnicalMetadata(MediaFile mediaFile, String filename) {
         TechnicalAnalysis analysis = new TechnicalAnalysis();
         
-        analysis.duration = mediaFile.durationSeconds;
-        analysis.resolution = mediaFile.getResolutionString();
-        analysis.quality = mediaFile.getQualityIndicator();
-        analysis.isHighQuality = mediaFile.isHighQuality();
-        analysis.isTypicalMovieDuration = mediaFile.isTypicalMovieDuration();
-        analysis.isTypicalEpisodeDuration = mediaFile.isTypicalEpisodeDuration();
-        analysis.hasMultipleAudio = mediaFile.hasMultipleAudioTracks;
-        analysis.hasSubtitles = mediaFile.hasEmbeddedSubtitles;
-        analysis.isWidescreen = mediaFile.isWidescreen();
+        analysis.duration = mediaFile != null ? mediaFile.durationSeconds : 0;
+        analysis.resolution = mediaFile != null ? mediaFile.getResolutionString() : "Unknown";
+        analysis.quality = mediaFile != null ? mediaFile.getQualityIndicator() : "Unknown";
+        analysis.isHighQuality = mediaFile != null && mediaFile.isHighQuality();
+        analysis.isTypicalMovieDuration = mediaFile != null && mediaFile.isTypicalMovieDuration();
+        analysis.isTypicalEpisodeDuration = mediaFile != null && mediaFile.isTypicalEpisodeDuration();
+        analysis.hasMultipleAudio = mediaFile != null && mediaFile.hasMultipleAudioTracks;
+        analysis.hasSubtitles = mediaFile != null && mediaFile.hasEmbeddedSubtitles;
+        analysis.isWidescreen = mediaFile != null && mediaFile.isWidescreen();
         
         // Check for movie quality indicators in filename
         String filenameLower = filename.toLowerCase();
@@ -184,25 +198,43 @@ public class SmartNamingService {
     private EpisodeDetection detectEpisodeInfo(String filename, PathAnalysis pathAnalysis) {
         EpisodeDetection detection = new EpisodeDetection();
         
-        // Try episode detection with multiple patterns
-        Pattern[] episodePatterns = {
-            Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)"),
-            Pattern.compile("(?i)(.*?)(\\d{1,2})[x×](\\d{1,3})(.*)"),
-            Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)"),
-            Pattern.compile("(?i)(.*?)(\\d{1,3})[\\s\\._-]*of[\\s\\._-]*(\\d{1,3})(.*)")
-        };
-        
-        for (Pattern pattern : episodePatterns) {
-            Matcher matcher = pattern.matcher(filename);
-            if (matcher.matches()) {
-                detection.season = matcher.groupCount() > 2 ? Integer.parseInt(matcher.group(2)) : null;
-                detection.episode = Integer.parseInt(matcher.groupCount() > 2 ? matcher.group(3) : matcher.group(2));
-                detection.titleHint = matcher.groupCount() > 3 ? matcher.group(4).trim() : null;
-                detection.hasEpisodePattern = true;
-                detection.detectionMethod = "RegexPattern";
-                detection.confidence = 0.8;
-                return detection;
-            }
+        // 1. S01E01 Pattern
+        Pattern s01e01 = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
+        Matcher m1 = s01e01.matcher(filename);
+        if (m1.matches()) {
+            detection.season = Integer.parseInt(m1.group(2));
+            detection.episode = Integer.parseInt(m1.group(3));
+            detection.titleHint = m1.group(4).trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "SxxExx";
+            detection.confidence = 0.9;
+            return detection;
+        }
+
+        // 2. 1x01 Pattern
+        Pattern simpleX = Pattern.compile("(?i)(.*?)(\\d{1,2})[x×](\\d{1,3})(.*)");
+        Matcher m2 = simpleX.matcher(filename);
+        if (m2.matches()) {
+            detection.season = Integer.parseInt(m2.group(2));
+            detection.episode = Integer.parseInt(m2.group(3));
+            detection.titleHint = m2.group(4).trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "XxY";
+            detection.confidence = 0.8;
+            return detection;
+        }
+
+        // 3. "Episode 01" Pattern
+        Pattern epOnly = Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)");
+        Matcher m3 = epOnly.matcher(filename);
+        if (m3.matches()) {
+            detection.season = null;
+            detection.episode = Integer.parseInt(m3.group(2));
+            detection.titleHint = m3.group(3).trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "EpisodeOnly";
+            detection.confidence = 0.7;
+            return detection;
         }
         
         // Check path structure for episode indicators
@@ -226,6 +258,15 @@ public class SmartNamingService {
         double movieScore = 0.0;
         double episodeScore = 0.0;
         StringBuilder reasoning = new StringBuilder();
+
+        // 0. DIRECTORY HINT (Highest precedence)
+        if ("movie".equals(pathAnalysis.directoryTypeHint)) {
+            movieScore += 2.0;
+            reasoning.append("Directory hint: Movie (+2.0); ");
+        } else if ("episode".equals(pathAnalysis.directoryTypeHint)) {
+            episodeScore += 2.0;
+            reasoning.append("Directory hint: TV Show (+2.0); ");
+        }
         
         // Start with raw detection
         if ("episode".equals(rawMediaType)) {
@@ -285,7 +326,7 @@ public class SmartNamingService {
         }
         
         String finalType = episodeScore > movieScore ? "episode" : "movie";
-        double confidence = Math.max(episodeScore, movieScore) / (episodeScore + movieScore);
+        double confidence = Math.max(episodeScore, movieScore) / (episodeScore + movieScore + 0.1);
         
         return new MediaTypeDecision(finalType, confidence, reasoning.toString());
     }
@@ -296,34 +337,44 @@ public class SmartNamingService {
     private String extractShowName(String rawShowName, String filename, PathAnalysis pathAnalysis, 
                                   EpisodeDetection episodeDetection) {
         
-        // Try folder names with simple cleaning
+        // 1. If we have a grandparent folder and parent is a season folder, grandparent is almost certainly the show name
         if (pathAnalysis.hasSeasonFolder && !pathAnalysis.grandParentFolder.isEmpty()) {
             String folderShowName = cleanShowName(pathAnalysis.grandParentFolder);
-            if (!folderShowName.equals("Unknown Show")) {
+            if (!folderShowName.equals("Unknown Show") && !folderShowName.equalsIgnoreCase("tv shows") && !folderShowName.equalsIgnoreCase("shows")) {
                 return folderShowName;
             }
         }
         
+        // 2. If parent folder is not a season folder and not a generic "TV Shows" folder, it might be the show name
         if (!pathAnalysis.parentFolder.isEmpty()) {
             String folderShowName = cleanShowName(pathAnalysis.parentFolder);
-            if (!folderShowName.equals("Unknown Show")) {
+            if (!folderShowName.equals("Unknown Show") && 
+                !folderShowName.equalsIgnoreCase("tv shows") && 
+                !folderShowName.equalsIgnoreCase("shows") &&
+                !folderShowName.equalsIgnoreCase("movies") &&
+                !pathAnalysis.hasSeasonFolder) {
                 return folderShowName;
             }
         }
         
-        // Fall back to raw show name with cleaning
+        // 3. Extract from filename if it has SxxExx pattern (the part before SxxExx)
+        Pattern s01e01 = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})");
+        Matcher m = s01e01.matcher(filename);
+        if (m.find()) {
+            String nameFromFilename = cleanShowName(m.group(1));
+            if (!nameFromFilename.equals("Unknown Show")) {
+                return nameFromFilename;
+            }
+        }
+        
+        // 4. Fall back to raw show name
         if (rawShowName != null && !rawShowName.trim().isEmpty()) {
             return cleanShowName(rawShowName);
         }
         
-        // Last resort: try to extract from parent folder
-        if (!pathAnalysis.parentFolder.isEmpty()) {
-            return cleanShowName(pathAnalysis.parentFolder);
-        }
-        
         return "Unknown Show";
     }
-    
+
     /**
      * Extracts the best possible title
      */
@@ -351,7 +402,7 @@ public class SmartNamingService {
         }
         
         // Use simple cleaning for final result
-        return cleanShowName(filenameWithoutExt);
+        return cleanTitle(filenameWithoutExt);
     }
     
     /**
@@ -427,19 +478,33 @@ public class SmartNamingService {
             return "Unknown Show";
         }
         
-        // Remove year patterns
-        String cleaned = name.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        String cleaned = name;
+
+        // 1. Remove bracketed content (usually release groups) at the beginning or end
+        cleaned = cleaned.replaceAll("(?i)^[\\[\\(].*?[\\]\\)]\\s*", "");
+        cleaned = cleaned.replaceAll("(?i)\\s*[\\[\\(].*?[\\]\\)]$", "");
+
+        // 2. Remove anything that looks like metadata inside brackets/parentheses
+        cleaned = cleaned.replaceAll("(?i)[\\[\\(].*?(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|x264|x265|hevc|aac|ac3|dts).*?[\\]\\)]", " ");
         
-        // Remove quality indicators
-        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv)\\b", "");
+        // 3. Remove leading sequence numbers (e.g. "01. ", "1. ", "1 - ")
+        cleaned = cleaned.replaceAll("^\\d+[\\s\\.\\-_]+", "");
+
+        // 4. Remove year patterns in parentheses like (2024)
+        cleaned = cleaned.replaceAll("\\((19|20)\\d{2}\\)", "");
+        // Or standalone year
+        cleaned = cleaned.replaceAll("\\b(19|20)\\d{2}\\b", "");
+
+        // 5. Remove quality and release indicators (Comprehensive list)
+        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|hybrid|remastered|extended|collector|ultimate|proper|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|yify\\.tv|shiniori|dual-audio|multi-audio|sub|dub|galaxyrg|neonoir|mzabi|psa|pahe|800mb|10bit|tri-audio|multi-subs|bonkai77|pahe\\.in)\\b", " ");
         
-        // Remove season/episode patterns
-        cleaned = cleaned.replaceAll("(?i)\\b(season|s|episode|e|part)\\s*[\\d\\-]+", "");
+        // 6. Remove season/episode patterns
+        cleaned = cleaned.replaceAll("(?i)\\b(season|s|episode|e|part)\\s*[\\d\\-]+", " ");
         
-        // Remove special characters and clean up
+        // 7. Remove special characters and clean up
         cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
         
-        // Remove extra spaces and capitalize properly
+        // 8. Remove extra spaces and capitalize properly
         cleaned = cleaned.replaceAll("\\s+", " ");
         cleaned = toTitleCase(cleaned.trim());
         
@@ -454,19 +519,31 @@ public class SmartNamingService {
             return "Unknown Title";
         }
         
-        // Remove year if already stored separately
-        String cleaned = title.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        String cleaned = title;
+
+        // 1. Remove leading release groups in brackets
+        cleaned = cleaned.replaceAll("(?i)^[\\[\\(].*?[\\]\\)]\\s*", "");
+
+        // 2. Remove metadata in brackets/parentheses
+        cleaned = cleaned.replaceAll("(?i)[\\[\\(].*?(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|x264|x265|hevc|aac|ac3|dts).*?[\\]\\)]", " ");
+
+        // 3. Remove sequence numbers
+        cleaned = cleaned.replaceAll("^\\d+[\\s\\.\\-_]+", "");
+
+        // 4. Remove year
+        cleaned = cleaned.replaceAll("\\((19|20)\\d{2}\\)", "");
+        cleaned = cleaned.replaceAll("\\b(19|20)\\d{2}\\b", "");
         
-        // Remove quality indicators
-        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|4k|bluray|bdrip|dvdrip|web-dl|webrip)\\b", "");
+        // 5. Remove quality indicators
+        cleaned = cleaned.replaceAll("(?i)\\b(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|hybrid|remastered|extended|collector|ultimate|proper|repack|x264|x265|hevc|aac|ac3|dts|yts\\.mx|yts\\.am|shiniori|dual-audio|multi-audio|sub|dub|galaxyrg|neonoir|mzabi|psa|pahe|800mb|10bit|tri-audio|multi-subs|bonkai77|pahe\\.in)\\b", " ");
         
-        // Remove common release info
-        cleaned = cleaned.replaceAll("(?i)\\b(proper|repack|extended|uncut|unrated|directors?.cut)\\b", "");
+        // 6. Remove common release info
+        cleaned = cleaned.replaceAll("(?i)\\b(proper|repack|extended|uncut|unrated|directors?.cut)\\b", " ");
         
-        // Clean up separators and special characters
+        // 7. Clean up separators and special characters
         cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
         
-        // Remove extra spaces
+        // 8. Remove extra spaces
         cleaned = cleaned.replaceAll("\\s+", " ");
         
         return toTitleCase(cleaned.trim());
@@ -548,6 +625,7 @@ public class SmartNamingService {
         public boolean hasSeasonFolder;
         public boolean hasTvIndicator;
         public boolean hasMovieFolderPattern;
+        public String directoryTypeHint; // "movie" or "episode"
     }
     
     private static class TechnicalAnalysis {

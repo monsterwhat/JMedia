@@ -36,6 +36,9 @@ public class EnhancedAuthAPI {
     @Inject
     HttpServerRequest vertxRequest;
     
+    @Inject
+    Controllers.SetupController setupController;
+
     @POST
     @Path("/login")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -77,8 +80,14 @@ public class EnhancedAuthAPI {
                     .comment("JMedia authentication session")
                     .build();
             
+            boolean isAdmin = "admin".equals(user.getGroupName());
+            boolean needsSetup = isAdmin && setupController.isFirstTimeSetup();
+            
             return Response.ok()
-                    .entity(ApiResponse.success(Map.of("message", "Login successful")))
+                    .entity(ApiResponse.success(Map.of(
+                        "message", "Login successful",
+                        "needsSetup", needsSetup
+                    )))
                     .cookie(sessionCookie)
                     .build();
         }

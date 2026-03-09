@@ -498,7 +498,7 @@ public class MusicUiApi {
             }
 
             if (totalSongs == 0) {
-                return "<tr><td colspan='1' class='has-text-centered'>No songs found.</td></tr>";
+                return "<div class='p-6 has-text-centered opacity-50'><i class='pi pi-info-circle mb-3' style='font-size: 2rem;'></i><p>No songs found in this library.</p></div>";
             }
             int totalPages = (int) Math.ceil((double) totalSongs / limit);
             int currentPage = Math.max(1, Math.min(page, totalPages));

@@ -133,8 +133,12 @@ public class AuthController {
                 "                if (!data.error) {\n" +
                 "                    successMessage.textContent = 'Login successful! Redirecting...';\n" +
                 "                    successMessage.classList.remove('is-hidden');\n" +
+                "                    \n" +
+                "                    // Redirect to setup if admin and first time\n" +
+                "                    const targetUrl = (data.data && data.data.needsSetup) ? '/setup' : redirectUrl;\n" +
+                "                    \n" +
                 "                    setTimeout(() => {\n" +
-                "                        window.location.href = redirectUrl;\n" +
+                "                        window.location.href = targetUrl;\n" +
                 "                    }, 1000);\n" +
                 "                } else {\n" +
                 "                    errorMessage.textContent = data.error || 'Login failed';\n" +

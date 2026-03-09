@@ -3,7 +3,7 @@
 {#if featured.size > 0}
 <div class="hero-container">
     <div class="hero is-fullheight">
-        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: '/images/placeholders/hero.jpg'});"></div>
+        <div class="hero-background" style="background-image: url('/api/video/thumbnail/{featured[0].id}');"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
@@ -36,65 +36,71 @@
 {#if genreCarousels?size > 0}
 <div class="genre-carousels-container">
     {#for genreCarousel in genreCarousels}
-    <div class="carousel-section genre-carousel">
+    <div class="carousel-section genre-carousel streaming-carousel-section">
         <div class="carousel-header">
-            <h2 class="carousel-title genre-title">
-                <i class="pi pi-tag" style="color: {genreCarousel.color ?: '#3273dc'};"></i>
-                {genreCarousel.genreName}
-                <span class="genre-count">({genreCarousel.videos?size})</span>
-            </h2>
+            <div class="carousel-title-section">
+                <h2 class="carousel-title genre-title">
+                    <i class="pi pi-tag" style="color: {genreCarousel.color ?: '#3273dc'};"></i>
+                    {genreCarousel.genreName}
+                    <span class="genre-count">({genreCarousel.videos?size})</span>
+                </h2>
+            </div>
             <div class="carousel-actions">
-                <button class="carousel-nav-btn genre-nav" onclick="window.scrollCarousel('genreCarousel_{genreCarousel.genreId}', -1)">
-                    <i class="pi pi-chevron-left"></i>
-                </button>
-                <button class="carousel-nav-btn genre-nav" onclick="window.scrollCarousel('genreCarousel_{genreCarousel.genreId}', 1)">
-                    <i class="pi pi-chevron-right"></i>
-                </button>
-                <button class="view-all-btn" onclick="window.viewGenreContent('{genreCarousel.genreSlug}', '{genreCarousel.genreName}')">
-                    View All
-                </button>
+                <div class="carousel-controls">
+                    <button class="carousel-nav-btn genre-nav" onclick="window.scrollCarousel('genreCarousel_{genreCarousel.genreId}', 'left')">
+                        <i class="pi pi-chevron-left"></i>
+                    </button>
+                    <button class="carousel-nav-btn genre-nav" onclick="window.scrollCarousel('genreCarousel_{genreCarousel.genreId}', 'right')">
+                        <i class="pi pi-chevron-right"></i>
+                    </button>
+                    <button class="view-all-btn" onclick="window.viewGenreContent('{genreCarousel.genreSlug}', '{genreCarousel.genreName}')">
+                        View All
+                    </button>
+                </div>
             </div>
         </div>
         
         <div class="carousel-container">
-            <div class="carousel" id="genreCarousel_{genreCarousel.genreId}">
+            <div class="streaming-carousel" id="genreCarousel_{genreCarousel.genreId}">
                 {#for item in genreCarousel.videos}
-                <div class="content-card video-card genre-card" data-video-id="{item.id}" 
+                <div class="streaming-card genre-card" data-video-id="{item.id}" 
                      data-genre="{genreCarousel.genreName}"
                      onclick="window.selectItem({json.apply(item)}, 'details')">
-                    <img class="card-image" 
-                          src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}"
-                         alt="{item.title ?: item.seriesTitle}">
-                    
-                    <!-- Genre Badge -->
-                    <div class="genre-badge" style="background: {genreCarousel.color ?: '#3273dc'};">
-                        {genreCarousel.genreName}
+                    <div class="card-image-container">
+                        <img class="card-image" 
+                              src="/api/video/thumbnail/{item.id}"
+                             alt="{item.title ?: item.seriesTitle}">
+                        
+                        <!-- Genre Badge -->
+                        <div class="genre-badge" style="background: {genreCarousel.color ?: '#3273dc'};">
+                            {genreCarousel.genreName}
+                        </div>
+                        
+                        <div class="card-play-overlay">
+                            <div class="card-play-btn">
+                                <i class="pi pi-play"></i>
+                            </div>
+                        </div>
                     </div>
                     
-                    <div class="play-icon">
-                        <i class="pi pi-play"></i>
-                    </div>
-                    
-                    <div class="card-overlay">
-                        <div class="card-info">
-                            <div class="card-badges">
-                                {#if item.type == 'Episode'}
-                                <span class="card-badge">S{item.seasonNumber}E{item.episodeNumber}</span>
-                                {/if}
-                                {#if item.releaseYear > (now?year - 1)}
-                                <span class="card-badge new-badge">NEW</span>
-                                {/if}
-                                {#if item.imdbRating && item.imdbRating >= 8.0}
-                                <span class="card-badge rating-badge">⭐ {item.imdbRating}</span>
-                                {/if}
-                            </div>
-                            <div class="card-title">{item.title ?: item.seriesTitle}</div>
-                            <div class="card-meta">
-                                {item.type ?: 'Movie'}
-                                {#if item.releaseYear}
-                                <span>• {item.releaseYear}</span>
-                                {/if}
-                            </div>
+                    <div class="card-content">
+                        <div class="card-badges">
+                            {#if item.type == 'Episode'}
+                            <span class="card-badge">S{item.seasonNumber}E{item.episodeNumber}</span>
+                            {/if}
+                            {#if item.releaseYear > (now?year - 1)}
+                            <span class="card-badge new-badge">NEW</span>
+                            {/if}
+                            {#if item.imdbRating && item.imdbRating >= 8.0}
+                            <span class="card-badge rating-badge">⭐ {item.imdbRating}</span>
+                            {/if}
+                        </div>
+                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                        <div class="card-meta">
+                            {item.type ?: 'Movie'}
+                            {#if item.releaseYear}
+                            <span>• {item.releaseYear}</span>
+                            {/if}
                         </div>
                     </div>
                 </div>
@@ -108,39 +114,43 @@
 
 <!-- Recently Added Carousel -->
 {#if newReleases.size > 0}
-<div class="carousel-section">
+<div class="streaming-carousel-section">
     <div class="carousel-header">
-        <h2 class="carousel-title">
-            <i class="pi pi-sparkles" style="color: #ffd700;"></i>
-            Recently Added
-        </h2>
-        <div class="carousel-actions">
-            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', -1)">
+        <div class="carousel-title-section">
+            <h2 class="carousel-title">
+                <i class="pi pi-sparkles" style="color: #ffd700;"></i>
+                Recently Added
+            </h2>
+        </div>
+        <div class="carousel-controls">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', 'left')">
                 <i class="pi pi-chevron-left"></i>
             </button>
-            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', 1)">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('newReleasesCarousel', 'right')">
                 <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
     <div class="carousel-container">
-        <div class="carousel" id="newReleasesCarousel">
+        <div class="streaming-carousel" id="newReleasesCarousel">
             {#for item in newReleases}
-            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
-                <img class="card-image" 
-                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
-                     alt="{item.title ?: item.seriesTitle}">
-                <div class="play-icon">
-                    <i class="pi pi-play"></i>
-                </div>
-                <div class="card-overlay">
-                    <div class="card-info">
-                        <div class="card-badges">
-                            <span class="card-badge new-badge">NEW</span>
+            <div class="streaming-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
+                <div class="card-image-container">
+                    <img class="card-image" 
+                         src="/api/video/thumbnail/{item.id}" 
+                         alt="{item.title ?: item.seriesTitle}">
+                    <div class="card-play-overlay">
+                        <div class="card-play-btn">
+                            <i class="pi pi-play"></i>
                         </div>
-                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
-                        <div class="card-meta">{item.type ?: 'Movie'}</div>
                     </div>
+                </div>
+                <div class="card-content">
+                    <div class="card-badges">
+                        <span class="card-badge new-badge">NEW</span>
+                    </div>
+                    <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                    <div class="card-meta">{item.type ?: 'Movie'}</div>
                 </div>
             </div>
             {/for}
@@ -151,42 +161,46 @@
 
 <!-- Continue Watching Carousel -->
 {#if continueWatching.size > 0}
-<div class="carousel-section">
+<div class="streaming-carousel-section">
     <div class="carousel-header">
-        <h2 class="carousel-title">
-            <i class="pi pi-history" style="color: #ff6b6b;"></i>
-            Continue Watching
-        </h2>
-        <div class="carousel-actions">
-            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', -1)">
+        <div class="carousel-title-section">
+            <h2 class="carousel-title">
+                <i class="pi pi-history" style="color: #ff6b6b;"></i>
+                Continue Watching
+            </h2>
+        </div>
+        <div class="carousel-controls">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', 'left')">
                 <i class="pi pi-chevron-left"></i>
             </button>
-            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', 1)">
+            <button class="carousel-nav-btn" onclick="window.scrollCarousel('continueWatchingCarousel', 'right')">
                 <i class="pi pi-chevron-right"></i>
             </button>
         </div>
     </div>
     <div class="carousel-container">
-        <div class="carousel" id="continueWatchingCarousel">
+        <div class="streaming-carousel" id="continueWatchingCarousel">
             {#for item in continueWatching}
-            <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
-                <img class="card-image" 
-                     src="{item.thumbnailPath ?: '/images/placeholders/thumbnail.jpg'}" 
-                     alt="{item.title ?: item.seriesTitle}">
-                <div class="play-icon">
-                    <i class="pi pi-play"></i>
-                </div>
-                <div class="card-overlay">
-                    <div class="card-info">
-                        <div class="card-badges">
-                            <span class="card-badge continue-badge">CONTINUE</span>
+            <div class="streaming-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
+                <div class="card-image-container">
+                    <img class="card-image" 
+                         src="/api/video/thumbnail/{item.id}" 
+                         alt="{item.title ?: item.seriesTitle}">
+                    <div class="card-play-overlay">
+                        <div class="card-play-btn">
+                            <i class="pi pi-play"></i>
                         </div>
-                        <div class="card-title">{item.title ?: item.seriesTitle}</div>
-                        <div class="card-meta">{item.type ?: 'Movie'}</div>
                     </div>
                 </div>
-                <div class="continue-progress">
-                    <div class="progress-bar" style="width: {item.watchProgress ? (item.watchProgress * 100) : 0}%;"></div>
+                <div class="card-content">
+                    <div class="card-badges">
+                        <span class="card-badge continue-badge">CONTINUE</span>
+                    </div>
+                    <div class="card-title">{item.title ?: item.seriesTitle}</div>
+                    <div class="card-meta">{item.type ?: 'Movie'}</div>
+                </div>
+                <div class="continue-progress" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.2);">
+                    <div class="progress-bar" style="width: {item.watchProgress ? (item.watchProgress * 100) : 0}%; height: 100%; background: var(--plex-accent);"></div>
                 </div>
             </div>
             {/for}

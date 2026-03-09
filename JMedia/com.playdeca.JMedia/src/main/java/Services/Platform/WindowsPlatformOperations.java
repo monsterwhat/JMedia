@@ -720,4 +720,34 @@ public class WindowsPlatformOperations implements PlatformOperations {
             return false;
         }
     }
+
+    @Override
+    public java.util.List<java.util.Map<String, String>> listFolders(String path) throws Exception {
+        java.util.List<java.util.Map<String, String>> folders = new java.util.ArrayList<>();
+        
+        if (path == null || path.trim().isEmpty()) {
+            File[] roots = File.listRoots();
+            for (File root : roots) {
+                java.util.Map<String, String> f = new java.util.HashMap<>();
+                f.put("name", root.getPath());
+                f.put("path", root.getAbsolutePath());
+                folders.add(f);
+            }
+        } else {
+            File currentDir = new File(path);
+            if (currentDir.exists() && currentDir.isDirectory()) {
+                File[] files = currentDir.listFiles(File::isDirectory);
+                if (files != null) {
+                    java.util.Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+                    for (File f : files) {
+                        java.util.Map<String, String> map = new java.util.HashMap<>();
+                        map.put("name", f.getName());
+                        map.put("path", f.getAbsolutePath());
+                        folders.add(map);
+                    }
+                }
+            }
+        }
+        return folders;
+    }
 }

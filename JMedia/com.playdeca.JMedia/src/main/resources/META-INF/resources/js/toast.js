@@ -202,6 +202,7 @@ class ToastSystem {
 
 // Create global Toast instance
 const Toast = new ToastSystem();
+window.Toast = Toast; // EXPLICIT GLOBAL EXPORT
 
 // Backward compatibility functions for existing code
 window.showToast = function(message, type = 'info', duration = null, clickHandler = null) {

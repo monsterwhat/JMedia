@@ -383,141 +383,117 @@ public class PlaybackController {
     }
 
     // Helper method to advance song
-    private synchronized void advanceSong(boolean forward, boolean fromSongEnd, Long profileId) { // Added fromSongEnd parameter
+    private synchronized void advanceSong(boolean forward, boolean fromSongEnd, Long profileId) {
         PlaybackState st = getState(profileId);
-
-// DON'T auto-populate primary queue when empty
-        // Let the dual-queue system handle it through PlaybackQueueController.advance()
 
         // Handle RepeatMode.ONE when song ends naturally
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
-            st.setCurrentTime(0); // Restart current song
-            st.setPlaying(true); // Ensure it keeps playing
-            updateState(profileId, st, true); // Persist and broadcast
+            st.setCurrentTime(0);
+            st.setPlaying(true);
+            updateState(profileId, st, true);
             return;
         }
 
-        // Determine if this was an early skip (user skipped before 20% of song played)
-        boolean skippedEarly = false;
-        if (!fromSongEnd && st.getDuration() > 0) {
-            double percentPlayed = (st.getCurrentTime() / st.getDuration()) * 100.0;
-            if (percentPlayed < 20.0) {
-                skippedEarly = true;
+        // Iterative approach to handle missing songs without recursion depth issues
+        int maxAttempts = 2000;
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            boolean skippedEarly = false;
+            if (!fromSongEnd && st.getDuration() > 0) {
+                double percentPlayed = (st.getCurrentTime() / st.getDuration()) * 100.0;
+                if (percentPlayed < 20.0) {
+                    skippedEarly = true;
+                }
+            }
+
+            Long nextSongId = playbackQueueController.advance(st, forward, skippedEarly, profileId);
+
+            if (nextSongId == null) {
+                if (!forward) {
+                    // We reached the beginning of the queue and want to go previous
+                    List<Long> historyIds = playbackHistoryService.getRecentlyPlayedSongIds(10, profileId);
+                    if (!historyIds.isEmpty()) {
+                        Long songIdToPlay = null;
+                        for (Long hId : historyIds) {
+                            if (!hId.equals(st.getCurrentSongId())) {
+                                songIdToPlay = hId;
+                                break;
+                            }
+                        }
+                        
+                        if (songIdToPlay != null) {
+                            Song historySong = findSong(songIdToPlay);
+                            if (historySong != null) {
+                                st.setCurrentSongId(songIdToPlay);
+                                st.setArtistName(historySong.getArtist());
+                                st.setSongName(historySong.getTitle());
+                                st.setDuration(historySong.getDurationSeconds());
+                                st.setPlaying(true);
+                                st.setCurrentTime(0);
+                                updateState(profileId, st, true);
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                LOGGER.info("No next song found for profile " + profileId + ". Stopping playback.");
+                st.setPlaying(false);
+                st.setCurrentSongId(null);
+                updateState(profileId, st, true);
+                return;
+            }
+
+            Song newSong = findSong(nextSongId);
+            if (newSong != null) {
+                // Found a valid song!
+                if (st.getCurrentSongId() != null && !st.getCurrentSongId().equals(nextSongId)) {
+                    Song currentSong = findSong(st.getCurrentSongId());
+                    if (currentSong != null) {
+                        playbackHistoryService.add(currentSong, profileId);
+                        ws.broadcastHistoryUpdate(profileId);
+                    }
+                }
+
+                st.setCurrentSongId(nextSongId);
+                st.setArtistName(newSong.getArtist());
+                st.setSongName(newSong.getTitle());
+                st.setDuration(newSong.getDurationSeconds());
+                st.setPlaying(true);
+                st.setCurrentTime(0);
+                
+                startPlaybackTimer(profileId);
+                updateState(profileId, st, true);
+                return;
+            } else {
+                LOGGER.warning("Song with ID " + nextSongId + " not found in database. Removing from queue and trying next (attempt " + (attempt + 1) + ")");
+                // nextSongId was invalid, remove it from queue so we don't hit it again
+                playbackQueueController.removeFromQueue(st, nextSongId, profileId);
+                // the loop continues to the next attempt, advance() will be called again on the updated queue
             }
         }
 
-        Long nextSongId = playbackQueueController.advance(st, forward, skippedEarly, profileId);
-
-        if (nextSongId == null) {
-            stopPlayback(profileId);
-            return;
-        }
-
-        // Save the current song to history before advancing to the next one
-        if (st.getCurrentSongId() != null) {
-            Song currentSong = findSong(st.getCurrentSongId());
-            if (currentSong != null) {
-                playbackHistoryService.add(currentSong, profileId);
-                // Broadcast history update to all connected clients
-                ws.broadcastHistoryUpdate(profileId);
-            }
-        }
-
-        st.setCurrentSongId(nextSongId);
-        Song newSong = findSong(nextSongId);
-        st.setArtistName(newSong != null ? newSong.getArtist() : "Unknown Artist");
-        st.setSongName(newSong != null ? newSong.getTitle() : "Unknown Title");
-        st.setDuration(newSong != null ? newSong.getDurationSeconds() : 0);
-        st.setPlaying(true);
-        st.setCurrentTime(0); // Always reset time for a new song
-        startPlaybackTimer(profileId); // Ensure timer is running for new song
-
-        updateState(profileId, st, true); // persists + broadcasts
+        LOGGER.severe("Maximum attempts reached while trying to find a valid next song for profile " + profileId);
+        stopPlayback(profileId);
     }
 
     public synchronized void next(Long profileId) {
         currentSettings.addLog("Skipped to next song.");
-        System.out.println("Next");
-        advanceSong(true, false, profileId); // Explicit user action
+        advanceSong(true, false, profileId);
     }
 
     public synchronized void previous(Long profileId) {
         currentSettings.addLog("Skipped to previous song.");
-        System.out.println("Previous");
         PlaybackState st = getState(profileId);
 
-        // If song has been playing for more than 3 seconds, just restart it.
+        // 1. If song has been playing for more than 3 seconds, just restart it.
         if (st.getCurrentTime() > 3) {
             st.setCurrentTime(0);
             updateState(profileId, st, true);
             return;
         }
 
-        // Try to go to previous in queue first
-        if (st.getCueIndex() > 0) {
-            advanceSong(false, false, profileId);
-            return;
-        }
-
-// We are at the beginning of the queue, try history.
-        List<Long> historyIds = playbackHistoryService.getRecentlyPlayedSongIds(2, profileId);
-
-        Long songIdToPlay = null;
-        if (!historyIds.isEmpty()) {
-            if (historyIds.get(0).equals(st.getCurrentSongId()) && historyIds.size() > 1) {
-                songIdToPlay = historyIds.get(1);
-            } else if (!historyIds.get(0).equals(st.getCurrentSongId())) {
-                songIdToPlay = historyIds.get(0);
-            }
-        }
-
-        if (songIdToPlay != null) {
-            Song songFromHistory = findSong(songIdToPlay);
-            if (songFromHistory != null) {
-                // Save the current song to history before playing from history
-                if (st.getCurrentSongId() != null) {
-                    Song currentSong = findSong(st.getCurrentSongId());
-                    if (currentSong != null && !currentSong.id.equals(songFromHistory.id)) {
-                        playbackHistoryService.add(currentSong, profileId);
-                        // Broadcast history update to all connected clients
-                        ws.broadcastHistoryUpdate(profileId);
-                    }
-                }
-
-                // We found a song in history. Let's play it.
-                // We should also probably put it at the beginning of the cue.
-                List<Long> cue = st.getCue();
-                if (cue == null) {
-                    cue = new ArrayList<>();
-                    st.setCue(cue);
-                }
-
-                Long songId = songFromHistory.id;
-
-                // remove from cue if it exists
-                cue.remove(songId);
-                // add to beginning
-                cue.add(0, songId);
-                st.setCueIndex(0);
-
-                st.setCurrentSongId(songId);
-                st.setCurrentTime(0);
-                st.setPlaying(true);
-
-                // Need to update song details in state
-                st.setArtistName(songFromHistory.getArtist());
-                st.setSongName(songFromHistory.getTitle());
-                st.setDuration(songFromHistory.getDurationSeconds());
-
-                updateState(profileId, st, true);
-                startPlaybackTimer(profileId);
-                return; // We are done
-            }
-        }
-
-        // No previous song in queue and no suitable history, just restart current song.
-        st.setCurrentTime(0);
-        updateState(profileId, st, true);
+        // 2. Try to go to previous in current queue (primary or secondary)
+        advanceSong(false, false, profileId);
     }
 
     @Transactional

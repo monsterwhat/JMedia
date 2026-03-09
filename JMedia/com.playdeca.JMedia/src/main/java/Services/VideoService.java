@@ -13,12 +13,17 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
+import java.io.File;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class VideoService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(VideoService.class);
 
     @PersistenceContext
     private EntityManager em;
@@ -38,7 +43,80 @@ public class VideoService {
 
     @Transactional
     public Video find(Long id) {
-        return Video.findById(id);
+        Video video = Video.findById(id);
+        if (video != null && (video.duration == null || video.duration <= 0)) {
+            probeVideoDuration(video);
+        }
+        return video;
+    }
+
+    @Transactional
+    public void probeVideoDuration(Video video) {
+        if (video == null || video.path == null) return;
+        
+        String ffmpegPath = findFFmpegExecutable();
+        if (ffmpegPath == null) return;
+
+        try {
+            // Use ffprobe if available, otherwise fallback to ffmpeg
+            String probePath = ffmpegPath.replace("ffmpeg", "ffprobe");
+            ProcessBuilder pb;
+            
+            if (new File(probePath).exists() || !probePath.equals(ffmpegPath)) {
+                pb = new ProcessBuilder(
+                    probePath, 
+                    "-v", "error", 
+                    "-show_entries", "format=duration", 
+                    "-of", "default=noprint_wrappers=1:nokey=1", 
+                    video.path
+                );
+            } else {
+                // Fallback to ffmpeg
+                pb = new ProcessBuilder(ffmpegPath, "-i", video.path);
+            }
+
+            Process process = pb.start();
+            java.util.Scanner scanner = new java.util.Scanner(process.getInputStream());
+            if (scanner.hasNextDouble()) {
+                double durationSeconds = scanner.nextDouble();
+                video.duration = (long) (durationSeconds * 1000);
+                Video.persist(video);
+                LOGGER.info("Successfully probed and updated duration for video ID {}: {}ms", video.id, video.duration);
+            } else {
+                // Try to parse from stderr if using ffmpeg fallback
+                java.util.Scanner errScanner = new java.util.Scanner(process.getErrorStream());
+                while (errScanner.hasNextLine()) {
+                    String line = errScanner.nextLine();
+                    if (line.contains("Duration:")) {
+                        // Format is Duration: 00:01:23.45
+                        String durationStr = line.split("Duration:")[1].split(",")[0].trim();
+                        String[] parts = durationStr.split(":");
+                        if (parts.length == 3) {
+                            double h = Double.parseDouble(parts[0]);
+                            double m = Double.parseDouble(parts[1]);
+                            double s = Double.parseDouble(parts[2]);
+                            video.duration = (long) ((h * 3600 + m * 60 + s) * 1000);
+                            Video.persist(video);
+                            LOGGER.info("Successfully parsed duration for video ID {}: {}ms", video.id, video.duration);
+                            break;
+                        }
+                    }
+                }
+            }
+            process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            LOGGER.error("Error probing duration for video {}: {}", video.id, e.getMessage());
+        }
+    }
+
+    private String findFFmpegExecutable() {
+        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
+        for (String p : paths) {
+            try {
+                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
+            } catch (Exception ignored) {}
+        }
+        return null;
     }
 
     @Transactional
@@ -374,6 +452,9 @@ public class VideoService {
         video.size = mediaFile.size;
         video.lastModified = mediaFile.lastModified;
         video.quality = detectQuality(mediaFile);
+        video.hasSubtitles = mediaFile.hasEmbeddedSubtitles;
+        video.releaseGroup = mediaFile.releaseGroup;
+        video.source = mediaFile.source;
         
         // Discover and associate subtitle tracks
         List<SubtitleTrack> subtitleTracks = subtitleMatcher.discoverSubtitleTracks(

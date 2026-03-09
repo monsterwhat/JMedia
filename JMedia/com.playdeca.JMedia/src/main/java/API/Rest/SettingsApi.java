@@ -59,9 +59,85 @@ public class SettingsApi {
     @Inject
     ManagedExecutor executor;
 
+    @Inject
+    Services.CertificateService certificateService;
+
+    @GET
+    @Path("/https/status")
+    public Response getHttpsStatus(@Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        return Response.ok(ApiResponse.success(certificateService.isHttpsConfigured())).build();
+    }
+
+    @POST
+    @Path("/https/generate")
+    public Response generateHttpsCert(@Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        boolean success = certificateService.generateSelfSignedCertificate();
+        if (success) {
+            return Response.ok(ApiResponse.success("Certificate generated and applied. Restart required.")).build();
+        } else {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to generate certificate")).build();
+        }
+    }
+
+    private boolean checkAdmin(HttpHeaders headers) {
+        String sessionId = null;
+        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
+            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
+        }
+        
+        if (sessionId == null) return false;
+        Models.Session session = Models.Session.findBySessionId(sessionId);
+        if (session == null || !session.active) return false;
+        
+        Models.User user = Models.User.find("username", session.username).firstResult();
+        return user != null && "admin".equals(user.getGroupName());
+    }
+
+    @Inject
+    Controllers.SetupController setupController;
+
+    @GET
+    @Path("/browse/list-folders")
+    public Response listFolders(@QueryParam("path") String path, @Context HttpHeaders headers) {
+        // Allow access if it's first-time setup OR if the user is an admin
+        if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+
+        try {
+            PlatformOperations ops = platformOperationsFactory.getPlatformOperations();
+            java.util.List<Map<String, String>> folders = ops.listFolders(path);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("folders", folders);
+            
+            // Handle current path and parent path for navigation
+            File currentDir = (path == null || path.trim().isEmpty()) ? null : new File(path);
+            if (currentDir == null || !currentDir.exists()) {
+                response.put("currentPath", "");
+                response.put("parentPath", null);
+            } else {
+                response.put("currentPath", currentDir.getAbsolutePath());
+                response.put("parentPath", currentDir.getParent() != null ? currentDir.getParent() : "");
+            }
+            
+            return Response.ok(ApiResponse.success(response)).build();
+        } catch (Exception e) {
+            LOGGER.error("Error listing folders", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error(e.getMessage())).build();
+        }
+    }
+
     @POST
     @Path("/{profileId}/sidebar-position")
-    public Response updateSidebarPosition(@PathParam("profileId") Long profileId, Map<String, String> data) {
+    public Response updateSidebarPosition(@PathParam("profileId") Long profileId, Map<String, String> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         String position = data.get("position");
         if (position == null || (!position.equals("left") && !position.equals("right"))) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid position")).build();
@@ -72,7 +148,8 @@ public class SettingsApi {
 
     @GET
     @Path("/{profileId}/sidebar-position")
-    public Response getSidebarPosition(@PathParam("profileId") Long profileId) {
+    public Response getSidebarPosition(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Models.Profile profile = profileService.findById(profileId);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Profile not found")).build();
@@ -82,7 +159,8 @@ public class SettingsApi {
 
     @GET
     @Path("/{profileId}/browse-folder")
-    public Response browseFolder(@PathParam("profileId") Long profileId) {
+    public Response browseFolder(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         LOGGER.info("[SettingsApi] browseFolder called for profile {}", profileId);
         if (java.awt.GraphicsEnvironment.isHeadless()) {
             LOGGER.error("Cannot open folder browser: Environment is headless");
@@ -141,7 +219,8 @@ public class SettingsApi {
 
     @GET
     @Path("/{profileId}/browse-video-folder")
-    public Response browseVideoFolder(@PathParam("profileId") Long profileId) {
+    public Response browseVideoFolder(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         LOGGER.info("[SettingsApi] browseVideoFolder called for profile {}", profileId);
         if (java.awt.GraphicsEnvironment.isHeadless()) {
             LOGGER.error("Cannot open folder browser: Environment is headless");
@@ -203,7 +282,11 @@ public class SettingsApi {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response setVideoLibraryPath(@PathParam("profileId") Long profileId, 
                                        @FormParam("videoLibraryPathInput") String path,
-                                       @FormParam("tmdbApiKey") String tmdbApiKey) {
+                                       @FormParam("tmdbApiKey") String tmdbApiKey,
+                                       @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Video library path cannot be empty")).build();
         }
@@ -226,7 +309,10 @@ public class SettingsApi {
     // -----------------------------
     @POST
     @Path("/{profileId}/validate-paths")
-    public Response validatePaths(@PathParam("profileId") Long profileId, Map<String, String> paths) {
+    public Response validatePaths(@PathParam("profileId") Long profileId, Map<String, String> paths, @Context HttpHeaders headers) {
+        if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
         Map<String, Boolean> validation = new HashMap<>();
         
         String musicPath = paths.get("musicLibraryPath");
@@ -279,7 +365,8 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/bpm-tolerance")
     @Transactional
-    public Response setBpmTolerance(@PathParam("profileId") Long profileId, Map<String, Object> bpmSettings) {
+    public Response setBpmTolerance(@PathParam("profileId") Long profileId, Map<String, Object> bpmSettings, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Settings settings = settingsController.getOrCreateSettings();
         
         if (bpmSettings.containsKey("default")) {
@@ -300,14 +387,12 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("BPM tolerance settings updated")).build();
     }
 
-    // -----------------------------
-    // IMPORT SOURCES CONFIGURATION
-    // -----------------------------
     @POST
     @Path("/{profileId}/import-sources")
     @Transactional
     public Response updateImportSources(@PathParam("profileId") Long profileId, 
-                                 ImportSettingsDTO sourcesDTO) {
+                                 ImportSettingsDTO sourcesDTO, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings settings = settingsController.getOrCreateSettings();
             
@@ -379,12 +464,13 @@ public class SettingsApi {
                     .build();
         }
     }
-    
+
     @POST
     @Path("/{profileId}/update-yt-dlp")
     @Transactional
     public Response updateYtDlp(@PathParam("profileId") Long profileId, 
-                                 @QueryParam("channel") String channel) {
+                                 @QueryParam("channel") String channel, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings.YtDlpUpdateChannel updateChannel;
             if (channel == null || channel.isBlank()) {
@@ -415,23 +501,13 @@ public class SettingsApi {
                     .build();
         }
     }
-    
-    @GET
-    @Path("/{profileId}/music-library-path")
-    public Response getMusicLibraryPath(@PathParam("profileId") Long profileId) {
-        String path = settingsController.getMusicLibraryPath();
-        if (path != null && !path.isBlank()) {
-            return Response.ok(ApiResponse.success(path)).build();
-        } else {
-            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Music library path not configured")).build();
-        }
-    } 
 
     @POST
     @Path("/{profileId}/toggle-run-as-service")
     @Transactional
     @Consumes(MediaType.WILDCARD)
-    public Response toggleRunAsService(@PathParam("profileId") Long profileId) {
+    public Response toggleRunAsService(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.toggleAsService();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -439,7 +515,8 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/music-library-path") 
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response setMusicLibraryPath(@PathParam("profileId") Long profileId, @FormParam("musicLibraryPathInput") String path) {
+    public Response setMusicLibraryPath(@PathParam("profileId") Long profileId, @FormParam("musicLibraryPathInput") String path, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Music library path cannot be empty")).build();
         }
@@ -459,14 +536,16 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/resetLibrary")
     @Transactional
-    public Response resetLibrary(@PathParam("profileId") Long profileId) {
+    public Response resetLibrary(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.resetMusicLibrary();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
 
     @POST
     @Path("/{profileId}/scanLibrary")
-    public Response scanLibrary(@PathParam("profileId") Long profileId) {
+    public Response scanLibrary(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         executor.submit(() -> {
             settingsController.scanLibrary();
         }, "LibraryScanThread");
@@ -475,35 +554,20 @@ public class SettingsApi {
     }
 
     @POST
-    @Path("/{profileId}/scanLibraryIncremental")
-    public Response scanLibraryIncremental(@PathParam("profileId") Long profileId) {
-        executor.submit(() -> {
-            settingsController.scanLibraryIncremental();
-        }, "IncrementalScanThread");
-
-        return Response.ok(ApiResponse.success("Incremental scan started")).build();
-    }
-
-    @POST
     @Path("/{profileId}/clearLogs")
     @Transactional
-    public Response clearLogs(@PathParam("profileId") Long profileId) {
+    public Response clearLogs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.clearLogs();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
-    }
-
-    @GET
-    @Path("/{profileId}/logs")
-    @Transactional
-    public Response getLogs(@PathParam("profileId") Long profileId) {
-        return Response.ok(ApiResponse.success(settingsController.getLogs())).build();
     }
 
     @POST
     @Consumes(MediaType.WILDCARD)
     @Path("/clearPlaybackHistory/{profileId}")
     @Transactional
-    public Response clearPlaybackHistory(@PathParam("profileId") Long profileId) {
+    public Response clearPlaybackHistory(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         playbackHistoryService.clearHistory(profileId);
         return Response.ok(ApiResponse.success("Playback history cleared")).build();
     }
@@ -511,7 +575,8 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/clearSongs")
     @Transactional
-    public Response clearSongs(@PathParam("profileId") Long profileId) {
+    public Response clearSongs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             songService.clearAllSongs();
             settingsController.addLog("All songs cleared from database.");
@@ -524,7 +589,8 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/reloadMetadata")
-    public Response reloadMetadata(@PathParam("profileId") Long profileId) {
+    public Response reloadMetadata(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         executor.submit(() -> {
             settingsController.reloadAllSongsMetadata();
         }, "MetadataReloadThread");
@@ -533,34 +599,9 @@ public class SettingsApi {
     }
 
     @POST
-    @Path("/{profileId}/rescan-song/{id}")
-    public Response rescanSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
-        try {
-            songService.rescanSong(id);
-            return Response.ok(ApiResponse.success("Song re-scan initiated for ID: " + id)).build();
-        } catch (NotFoundException e) {
-            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error(e.getMessage())).build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to re-scan song: " + e.getMessage())).build();
-        }
-    }
-
-    @DELETE
-    @Path("/{profileId}/songs/{id}")
-    public Response deleteSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id) {
-        try {
-            songService.deleteSong(id);
-            return Response.ok(ApiResponse.success("Song deleted with ID: " + id)).build();
-        } catch (NotFoundException e) {
-            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error(e.getMessage())).build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete song: " + e.getMessage())).build();
-        }
-    }
-
-    @POST
     @Path("/{profileId}/deleteDuplicates")
-    public Response deleteDuplicates(@PathParam("profileId") Long profileId) {
+    public Response deleteDuplicates(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         executor.submit(() -> {
             settingsController.deleteDuplicateSongs();
         }, "DeleteDuplicatesThread");
@@ -571,7 +612,8 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/install-requirements")
     @Consumes(MediaType.WILDCARD)
-    public Response installRequirements(@PathParam("profileId") Long profileId) {
+    public Response installRequirements(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             settingsController.addLog("Installation process started for profile: " + profileId);
             executor.submit(() -> {
@@ -588,49 +630,13 @@ public class SettingsApi {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to start installation: " + e.getMessage())).build();
         }
     }
-    
-    @GET
-    @Path("/{profileId}/install-status")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Response getInstallationStatus(@PathParam("profileId") Long profileId) {
-        try {
-            ImportInstallationStatus status;
-            try {
-                java.util.concurrent.Future<ImportInstallationStatus> future = java.util.concurrent.Executors.newSingleThreadExecutor().submit(() -> {
-                    return settingsController.getImportService().getInstallationStatus();
-                });
-                status = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (Exception e) {
-                status = new ImportInstallationStatus(false, false, false, false, false, false, false, "Status check failed", "Status check failed", "Status check failed", "Status check failed", "Status check failed", "Status check failed", "Status check failed");
-            }
-            
-            java.util.Map<String, Object> response = new java.util.HashMap<>();
-            response.put("chocoInstalled", status.chocoInstalled);
-            response.put("pythonInstalled", status.pythonInstalled);
-            response.put("spotdlInstalled", status.spotdlInstalled);
-            response.put("ffmpegInstalled", status.ffmpegInstalled);
-            response.put("whisperInstalled", status.whisperInstalled);
-            response.put("allInstalled", status.isAllInstalled());
-            response.put("messages", java.util.List.of(status.chocoMessage, status.pythonMessage, status.spotdlMessage, status.ffmpegMessage, status.whisperMessage));
-            
-            return Response.ok(ApiResponse.success(response)).build();
-        } catch (Exception e) {
-            return Response.ok(ApiResponse.success(new java.util.HashMap<>())).build();
-        }
-    }
-    
-    @GET
-    @Path("/{profileId}/import-capability")
-    public Response getImportCapabilityStatus(@PathParam("profileId") Long profileId) {
-        boolean isInstalled = settingsController.getImportService().getInstallationStatus().isAllInstalled();
-        return Response.ok(ApiResponse.success(isInstalled)).build();
-    }
 
     @POST
     @Path("/{profileId}/upload-cookies")
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
-    public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request) {
+    public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             String cookiesContent = request.get("cookiesContent");
             if (cookiesContent == null || cookiesContent.trim().isEmpty()) {
@@ -657,34 +663,39 @@ public class SettingsApi {
         }
     }
 
-    @GET
-    @Path("/{profileId}/cookies-status")
+    @POST
+    @Path("/{profileId}/rescan-song/{id}")
     @Transactional
-    public Response getCookiesStatus(@PathParam("profileId") Long profileId) {
+    public Response rescanSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
-            Settings settings = settingsController.getOrCreateSettings();
-            String cookiesFilePath = settings.getCookiesFilePath();
-            java.util.Map<String, Object> status = new java.util.HashMap<>();
-            if (cookiesFilePath != null && !cookiesFilePath.isBlank()) {
-                java.nio.file.Path cookiesPath = java.nio.file.Paths.get(cookiesFilePath);
-                status.put("configured", true);
-                status.put("exists", java.nio.file.Files.exists(cookiesPath));
-                status.put("path", cookiesFilePath);
-            } else {
-                status.put("configured", false);
-                status.put("exists", false);
-            }
-            status.put("isLinux", System.getProperty("os.name").toLowerCase().contains("linux"));
-            return Response.ok(ApiResponse.success(status)).build();
+            songService.rescanSong(id);
+            settingsController.addLog("Rescan started for song ID: " + id);
+            return Response.ok(ApiResponse.success("Rescan started")).build();
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get cookies status")).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to rescan song: " + e.getMessage())).build();
+        }
+    }
+
+    @DELETE
+    @Path("/{profileId}/songs/{id}")
+    @Transactional
+    public Response deleteSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            songService.deleteSong(id);
+            settingsController.addLog("Song deleted with ID: " + id);
+            return Response.ok(ApiResponse.success("Song deleted")).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete song: " + e.getMessage())).build();
         }
     }
 
     @DELETE
     @Path("/{profileId}/cookies")
     @Transactional
-    public Response deleteCookies(@PathParam("profileId") Long profileId) {
+    public Response deleteCookies(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings settings = settingsController.getOrCreateSettings();
             String cookiesFilePath = settings.getCookiesFilePath();
@@ -698,5 +709,4 @@ public class SettingsApi {
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete cookies file")).build();
         }
-    }
-}
+    }}

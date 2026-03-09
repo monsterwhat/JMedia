@@ -41,12 +41,12 @@ public class Video extends PanacheEntity {
     public String overview;
     
     // Entertainment Metadata
-    public Double imdbRating;
-    public Double tmdbRating;
-    public Double userRating;
+    public Double imdbRating = 0.0;
+    public Double tmdbRating = 0.0;
+    public Double userRating = 0.0;
     public String mpaaRating; // "PG-13", "R", etc.
-    public Integer voteCount;
-    public Double popularityScore;
+    public Integer voteCount = 0;
+    public Double popularityScore = 0.0;
     
     // People Information
     @ElementCollection
@@ -84,22 +84,26 @@ public class Video extends PanacheEntity {
     public String displayResolution; // "1080p"
     public String videoCodec;
     public String videoProfile;
-    public Integer bitrate;
-    public Integer frameRate;
-    public Double aspectRatio;
+    public Integer bitrate = 0;
+    public Integer frameRate = 0;
+    public Double aspectRatio = 0.0;
+    public String releaseGroup;
+    public String source; // WEB-DL, BluRay, etc.
+    public Double confidenceScore = 0.0;
     
     public String audioCodec;
     public String audioProfile;
-    public Integer audioChannels;
+    public Integer audioChannels = 0;
     public String primaryAudioLanguage; // Primary audio language
-    public Integer audioBitrate;
+    public Integer audioBitrate = 0;
     
     public String container; // "mp4", "mkv", "avi"
     public String format; // Legacy compatibility
-    public Long duration; // milliseconds
-    public Long size; // bytes
+    public Long duration = 0L; // milliseconds
+    public Long size = 0L; // bytes
+    public Long fileSize = 0L; // Legacy DB column compatibility
     public String quality; // "HD", "Full HD", "4K", "8K"
-    public Long lastModified;
+    public Long lastModified = 0L;
 
     /**
      * Helper for templates to get duration in seconds.
@@ -121,48 +125,33 @@ public class Video extends PanacheEntity {
     
     public Long defaultSubtitleTrackId;
     public String preferredSubtitleLanguage; // User preference
+    public boolean hasSubtitles; // Whether video has embedded/sidecar subtitles
     public boolean autoSelectSubtitles; // Enable auto-selection based on audio
     
     // User Interaction Fields
     public LocalDateTime dateAdded;
     public LocalDateTime lastWatched;
     public LocalDateTime dateModified;
-    public Double watchProgress; // 0.0 to 1.0
-    public boolean watched;
-    public boolean favorite;
+    public Double watchProgress = 0.0; // 0.0 to 1.0
+    public Double watchProgressDouble = 0.0; // Compatibility field
+    public boolean watched = false;
+    public boolean favorite = false;
     public LocalDateTime favoritedAt;
-    public Integer watchCount;
-    public Long totalWatchTime; // milliseconds
+    public Integer watchCount = 0;
+    public Long totalWatchTime = 0L; // milliseconds
     
     // User Ratings and Preferences
-    public Integer userRatingStars; // 1-10 stars
+    public Integer userRatingStars = 0; // 1-10 stars
     public LocalDateTime userRatingDate;
     public String userNotes;
     
     // Playback Statistics
-    public Integer playCount;
-    public Double averagePlaybackSpeed;
-    public boolean skipIntroEnabled;
-    public boolean autoplayNext;
+    public Integer playCount = 0;
+    public Double averagePlaybackSpeed = 1.0;
+    public boolean skipIntroEnabled = false;
+    public boolean autoplayNext = false;
     
     // System Fields
     public boolean isActive = true;
-    
-    // Legacy compatibility fields (deprecated but kept for compatibility)
-    @Deprecated
-    public boolean hasSubtitles;
-    @Deprecated
-    public String subtitlePath;
-    @Deprecated
-    public String genre;
-    @Deprecated
-    public String rating;
-    @Deprecated
-    public String dateAddedString; // String version, replaced by LocalDateTime
-    @Deprecated
-    public String lastWatchedString; // String version, replaced by LocalDateTime
-    @Deprecated
-    public double fileSize; // Replaced by Long size
-    @Deprecated
-    public double watchProgressDouble; // Replaced by Double for precision
+     
 }

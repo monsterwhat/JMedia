@@ -34,9 +34,6 @@ public class VideoMetadataService {
     // TVMaze (Free, no key)
     private static final String TVMAZE_SEARCH = "https://api.tvmaze.com/singlesearch/shows?q=%s";
 
-    // Common community key for fallback
-    private static final String DEFAULT_TMDB_KEY = "a75591961cc2625500e9cf4c7aa00653";
-
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -48,21 +45,39 @@ public class VideoMetadataService {
         if (key == null || key.isBlank()) {
             key = System.getenv("TMDB_API_KEY");
         }
-        if (key == null || key.isBlank()) {
-            return DEFAULT_TMDB_KEY;
-        }
         return key;
     }
 
     public Optional<String> fetchPosterUrl(String type, String title, Integer year) {
+        if (title == null || title.isBlank()) return Optional.empty();
+        
+        // Deep clean for search: ensure all common tags are stripped
+        String cleanSearchTitle = title.replaceAll("(?i)\\b(yts\\.?mx|yts\\.?am|yify|imax|hybrid|1080p|720p|2160p|4k|bluray|brrip|dvdrip|web-dl|webrip|hdtv|x264|x265|hevc|aac|ac3|dts|5\\s*1|7\\s*1|galaxyrg|neonoir|mzabi)\\b", "")
+                                      .replaceAll("[._\\-\\[\\]\\(\\)]+", " ")
+                                      .replaceAll("\\s+", " ")
+                                      .trim();
+
         if ("episode".equalsIgnoreCase(type)) {
-            // Prefer TVMaze for TV shows (Free, no key required)
-            Optional<String> tvmazePoster = fetchTVMazePoster(title);
+            Optional<String> tvmazePoster = fetchTVMazePoster(cleanSearchTitle);
             if (tvmazePoster.isPresent()) return tvmazePoster;
         }
 
-        // Fallback to TMDb (with key or default key)
-        return fetchTmdbPoster(type, title, year);
+        String apiKey = getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.warn("No TMDb API key provided. Skipping TMDb search for: {}", cleanSearchTitle);
+            return Optional.empty();
+        }
+
+        // Try TMDb with year first
+        Optional<String> result = fetchTmdbPoster(type, cleanSearchTitle, year);
+        
+        // If no result and we had a year, try again without the year (broader search)
+        if (result.isEmpty() && year != null) {
+            LOG.info("No match with year {}, retrying broader search for: {}", year, cleanSearchTitle);
+            result = fetchTmdbPoster(type, cleanSearchTitle, null);
+        }
+
+        return result;
     }
 
     private Optional<String> fetchTVMazePoster(String title) {
@@ -99,6 +114,7 @@ public class VideoMetadataService {
                 url += "episode".equalsIgnoreCase(type) ? "&first_air_date_year=" + year : "&year=" + year;
             }
 
+            LOG.info("TMDb Request: {}", url.replace(apiKey, "HIDDEN"));
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             
@@ -108,9 +124,12 @@ public class VideoMetadataService {
                 if (results.isArray() && results.size() > 0) {
                     String posterPath = results.get(0).path("poster_path").asText();
                     if (posterPath != null && !posterPath.equals("null") && !posterPath.isEmpty()) {
+                        LOG.info("Found poster on TMDb for: {}", title);
                         return Optional.of(TMDB_IMAGE_BASE + posterPath);
                     }
                 }
+            } else {
+                LOG.warn("TMDb API returned status {}: {}", response.statusCode(), response.body());
             }
         } catch (Exception e) {
             LOG.error("Error fetching poster from TMDb: {}", e.getMessage());

@@ -80,6 +80,10 @@ public class ThumbnailService {
                 if (title != null) {
                     LOGGER.info("Attempting online artwork fetch for: {}", title);
                     Optional<String> apiUrl = metadataService.fetchPosterUrl(type, title, video.releaseYear);
+                    
+                    // RATE LIMITING: Pause briefly to respect API limits (TMDb/TVMaze)
+                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+
                     if (apiUrl.isPresent()) {
                         downloadImage(apiUrl.get(), outputPath);
                         return finalizeThumbnail(videoId, outputPath.toString());
@@ -107,8 +111,17 @@ public class ThumbnailService {
         // Update video record with thumbnail path
         Video video = entityManager.find(Video.class, videoId);
         if (video != null) {
-            video.setThumbnailPath(path);
-            entityManager.persist(video);
+            // ONLY update if no thumbnail exists OR if the current one is already in the thumbnails directory (meaning it's a generated one)
+            if (video.thumbnailPath == null || video.thumbnailPath.isBlank() || 
+                video.thumbnailPath.contains(File.separator + THUMBNAIL_DIR + File.separator) ||
+                video.thumbnailPath.contains("/" + THUMBNAIL_DIR + "/")) {
+                
+                video.setThumbnailPath(path);
+                entityManager.persist(video);
+                LOGGER.info("Updated thumbnail path for video ID {}: {}", videoId, path);
+            } else {
+                LOGGER.info("Skipping thumbnail path update for video ID {} because a custom path is already set: {}", videoId, video.thumbnailPath);
+            }
         }
         return path;
     }

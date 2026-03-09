@@ -64,4 +64,7 @@ public interface PlatformOperations {
     // Cookies management
     String getCookiesStoragePath();
     boolean validateCookiesFile(String cookiesPath);
+
+    // File system operations
+    java.util.List<java.util.Map<String, String>> listFolders(String path) throws Exception;
 }

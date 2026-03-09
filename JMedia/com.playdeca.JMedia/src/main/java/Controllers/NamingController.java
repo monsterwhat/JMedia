@@ -55,10 +55,21 @@ public class NamingController {
     /**
      * Processes all pending media items
      */
-    @Transactional
+    @jakarta.enterprise.context.control.ActivateRequestContext
     public void processAllPendingMedia() {
-        LOGGER.info("Starting batch processing of all pending media");
-        mediaPreProcessor.processPendingMedia();
+        LOGGER.info("Starting individual processing of all pending media");
+        List<PendingMedia> pendingList = PendingMedia.findPendingProcessing();
+        int count = 0;
+        for (PendingMedia pending : pendingList) {
+            try {
+                // Process each one in its own transaction (managed inside processPendingMedia)
+                processPendingMedia(pending.id);
+                count++;
+            } catch (Exception e) {
+                LOGGER.error("Error processing pending media {}: {}", pending.id, e.getMessage());
+            }
+        }
+        LOGGER.info("Batch processing completed. Processed {} items.", count);
     }
 
     /**
@@ -168,7 +179,8 @@ public class NamingController {
      */
     @Transactional
     public int finalizeApprovedMedia() {
-        List<PendingMedia> approvedList = PendingMedia.list("status", ProcessingStatus.USER_APPROVED);
+        List<PendingMedia> approvedList = PendingMedia.find("status = :status", 
+                io.quarkus.panache.common.Parameters.with("status", ProcessingStatus.USER_APPROVED)).list();
         
         int count = 0;
         for (PendingMedia pending : approvedList) {

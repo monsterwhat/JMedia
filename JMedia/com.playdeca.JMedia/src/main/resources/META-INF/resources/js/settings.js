@@ -347,24 +347,75 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     ['Music', 'Video'].forEach(t => {
         const btn = document.getElementById(`browse${t}FolderBtn`);
-        if (btn) btn.onclick = async () => {
-            const endpoint = t === 'Music' ? 'browse-folder' : 'browse-video-folder';
-            try {
-                const res = await fetch(`/api/settings/${window.globalActiveProfileId}/${endpoint}`);
-                const json = await res.json();
-                if (res.ok) {
-                    if (json.data) {
-                        document.getElementById(`${t.toLowerCase()}LibraryPathInput`).value = json.data;
-                        Toast.success(`${t} folder selected`);
-                    }
-                } else {
-                    Toast.error(json.error || `Failed to open ${t.toLowerCase()} folder browser`);
-                }
-            } catch (e) {
-                Toast.error(`Connection error opening folder browser`);
-            }
-        };
+        if (btn) btn.onclick = () => window.openFolderBrowser(t);
     });
+
+// Web Folder Browser Logic
+let currentBrowserTarget = null;
+let currentBrowserPath = '';
+
+window.openFolderBrowser = function(target) {
+    currentBrowserTarget = target;
+    const currentInput = document.getElementById(`${target.toLowerCase()}LibraryPathInput`);
+    const initialPath = currentInput ? currentInput.value : '';
+    
+    document.getElementById('folderBrowserModal').classList.add('is-active');
+    window.loadFolders(initialPath === '(not set)' ? '' : initialPath);
+};
+
+window.closeFolderBrowser = function() {
+    document.getElementById('folderBrowserModal').classList.remove('is-active');
+};
+
+window.loadFolders = async function(path) {
+    const list = document.getElementById('folderBrowserList');
+    list.innerHTML = '<div class="p-4 has-text-centered"><i class="pi pi-spin pi-spinner"></i> Listing folders...</div>';
+    
+    try {
+        const res = await fetch(`/api/settings/browse/list-folders?path=${encodeURIComponent(path || '')}`);
+        const json = await res.json();
+        
+        if (res.ok && json.data) {
+            currentBrowserPath = json.data.currentPath || '';
+            document.getElementById('currentFolderPathDisplay').value = currentBrowserPath || 'System Roots';
+            
+            const parentPath = json.data.parentPath;
+            window._parentPath = parentPath;
+            
+            const folders = json.data.folders || [];
+            if (folders.length === 0) {
+                list.innerHTML = '<div class="p-4 has-text-centered opacity-50">No subfolders found</div>';
+            } else {
+                list.innerHTML = folders.map(f => `
+                    <div class="p-3 is-clickable folder-item" onclick="window.loadFolders('${f.path.replace(/\\/g, '\\\\')}')" 
+                         style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: 0.2s;">
+                        <i class="pi pi-folder mr-3" style="color: #48c774;"></i>
+                        <span>${f.name}</span>
+                    </div>
+                `).join('');
+            }
+        } else {
+            list.innerHTML = `<div class="p-4 has-text-danger">Error: ${json.error || 'Access denied'}</div>`;
+        }
+    } catch (e) {
+        list.innerHTML = `<div class="p-4 has-text-danger">Connection error</div>`;
+    }
+};
+
+window.navigateUpFolder = function() {
+    if (window._parentPath !== undefined && window._parentPath !== null) {
+        window.loadFolders(window._parentPath);
+    }
+};
+
+window.confirmFolderSelection = function() {
+    if (currentBrowserTarget && currentBrowserPath) {
+        const input = document.getElementById(`${currentBrowserTarget.toLowerCase()}LibraryPathInput`);
+        if (input) input.value = currentBrowserPath;
+        Toast.success(`${currentBrowserTarget} folder selected`);
+        window.closeFolderBrowser();
+    }
+};
 // HTMX Logic
 document.body.addEventListener('htmx:configRequest', (evt) => {
     const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
@@ -402,4 +453,49 @@ document.body.addEventListener('htmx:afterRequest', (e) => {
     window.loadUiSettings();
     window.refreshSettingsUI();
     window.setupLogWebSocket();
+    window.checkHttpsStatus();
 });
+
+window.checkHttpsStatus = async function() {
+    try {
+        const res = await fetch('/api/settings/https/status');
+        const json = await res.json();
+        const badge = document.getElementById('httpsStatusBadge');
+        const generateBtn = document.getElementById('generateHttpsBtn');
+        
+        if (badge) {
+            if (json.data) {
+                badge.className = 'tag is-success';
+                badge.innerText = 'Enabled (Restart Required if just generated)';
+                if (generateBtn) generateBtn.style.display = 'none'; // Hide button if already configured
+            } else {
+                badge.className = 'tag is-danger';
+                badge.innerText = 'Disabled';
+                if (generateBtn) generateBtn.style.display = 'inline-flex';
+            }
+        }
+    } catch (e) { console.error('Failed to check HTTPS status', e); }
+};
+
+const generateBtn = document.getElementById('generateHttpsBtn');
+if (generateBtn) {
+    generateBtn.onclick = async () => {
+        if (!confirm('This will generate a self-signed certificate and update your configuration. You will need to manually restart the app afterward. Continue?')) return;
+        
+        generateBtn.classList.add('is-loading');
+        try {
+            const res = await fetch('/api/settings/https/generate', { method: 'POST' });
+            const json = await res.json();
+            if (res.ok) {
+                alert('Certificate generated successfully!\n\n1. Please close the console/app.\n2. Start JMedia again.\n3. Access via https://localhost:8443\n\n(Standard HTTP on 8080 will still work)');
+                window.checkHttpsStatus();
+            } else {
+                Toast.error(json.error || 'Failed to generate certificate');
+            }
+        } catch (e) {
+            Toast.error('Connection error during certificate generation');
+        } finally {
+            generateBtn.classList.remove('is-loading');
+        }
+    };
+}

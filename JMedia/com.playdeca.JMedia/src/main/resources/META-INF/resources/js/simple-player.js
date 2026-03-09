@@ -23,6 +23,11 @@ class SimplePlayer {
             currentTime: 0
         };
 
+        this.storyboard = {
+            metadata: null,
+            loaded: false
+        };
+
         this.init();
     }
 
@@ -30,6 +35,7 @@ class SimplePlayer {
         this.buildUI();
         this.attachEvents();
         this.loadSubtitles();
+        this.loadStoryboard();
         
         // Restore Audio
         this.video.volume = Math.pow(this.state.volume, 2);
@@ -60,6 +66,10 @@ class SimplePlayer {
             </div>
 
             <div class="controls-container">
+                <div class="preview-container" id="scrollPreview">
+                    <div class="preview-time" id="previewTime">0:00</div>
+                </div>
+
                 <div class="progress-container">
                     <div class="progress-filled" style="width: 0%;"></div>
                 </div>
@@ -106,6 +116,8 @@ class SimplePlayer {
         this.bigPlay = this.container.querySelector('.big-play-btn');
         this.progressBar = this.container.querySelector('.progress-filled');
         this.progressContainer = this.container.querySelector('.progress-container');
+        this.previewContainer = this.container.querySelector('#scrollPreview');
+        this.previewTime = this.container.querySelector('#previewTime');
         this.timeCurrent = this.container.querySelector('#currentTime');
         this.timeTotal = this.container.querySelector('#totalTime');
         this.volSlider = this.container.querySelector('.volume-slider');
@@ -181,6 +193,35 @@ class SimplePlayer {
             this.reportProgress(!this.video.paused);
         };
 
+        this.progressContainer.onmousemove = (e) => {
+            if (!this.storyboard.loaded || !this.storyboard.metadata) return;
+            
+            const rect = this.progressContainer.getBoundingClientRect();
+            const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const time = pos * this.video.duration;
+            
+            const meta = this.storyboard.metadata;
+            const tileIndex = Math.floor(time / meta.interval);
+            const clampedIndex = Math.max(0, Math.min(meta.totalTiles - 1, tileIndex));
+            
+            const col = clampedIndex % meta.columns;
+            const row = Math.floor(clampedIndex / meta.columns);
+            
+            const posX = col * meta.tileWidth;
+            const posY = row * meta.tileHeight;
+            
+            this.previewContainer.style.display = 'block';
+            this.previewContainer.style.left = `${(pos * 100)}%`;
+            this.previewContainer.style.transform = `translateX(-50%)`;
+            this.previewContainer.style.backgroundImage = `url(/api/video/storyboard/${this.videoId})`;
+            this.previewContainer.style.backgroundPosition = `-${posX}px -${posY}px`;
+            this.previewTime.innerText = this.formatTime(time);
+        };
+
+        this.progressContainer.onmouseleave = () => {
+            this.previewContainer.style.display = 'none';
+        };
+
         this.volSlider.oninput = (e) => {
             const val = parseFloat(e.target.value);
             this.state.volume = val;
@@ -228,6 +269,22 @@ class SimplePlayer {
                 this.reportProgress(true);
             }
         }, 3000);
+    }
+
+    async loadStoryboard() {
+        try {
+            const res = await fetch(`/api/video/storyboard/${this.videoId}/metadata`);
+            if (res.ok) {
+                const data = await res.json();
+                this.storyboard.metadata = data.data;
+                this.storyboard.loaded = true;
+                // Preload image
+                const img = new Image();
+                img.src = `/api/video/storyboard/${this.videoId}`;
+            }
+        } catch (e) {
+            console.warn('[SimplePlayer] Failed to load storyboard:', e);
+        }
     }
 
     async reportProgress(isPlaying) {
