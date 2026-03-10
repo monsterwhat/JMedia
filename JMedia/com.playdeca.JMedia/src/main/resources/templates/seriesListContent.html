@@ -1,6 +1,6 @@
 <div class="library-header">
     <h1 class="library-title">TV Shows</h1>
-    <p class="nav-label">{series.size} Shows</p>
+    <p class="nav-label">{totalItems} Shows</p>
 </div>
 
 <div id="seriesList">
@@ -13,7 +13,7 @@
     {#else}
         <div class="plex-grid">
             {#for entry in series}
-                <div class="plex-card" onclick="window.switchSection('/api/video/ui/shows/{entry.encodedTitle}/seasons-fragment')">
+                <div class="plex-card" onclick="window.switchSection('seasons', \{encodedTitle: '{entry.encodedTitle}'\})">
                     <div class="plex-card-poster">
                         {#if entry.sampleVideoId}
                             <img class="poster-img" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy">
@@ -30,5 +30,18 @@
                 </div>
             {/for}
         </div>
+
+        {#if totalPages > 1}
+        <nav class="pagination is-centered mt-6" role="navigation" aria-label="pagination">
+            <a class="pagination-previous"
+               hx-get="/api/video/ui/shows-fragment?page={currentPage - 1}&limit={limit}"
+               hx-target="#spa-content"
+               {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>Previous</a>
+            <a class="pagination-next"
+               hx-get="/api/video/ui/shows-fragment?page={currentPage + 1}&limit={limit}"
+               hx-target="#spa-content"
+               {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>Next page</a>
+        </nav>
+        {/if}
     {/if}
 </div>

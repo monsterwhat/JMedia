@@ -312,6 +312,10 @@ window.checkAdminStatus = async function() {
     } catch (e) {}
 };
 
+window.handleLogout = function() {
+    fetch('/api/auth/logout', { method: 'POST' }).then(() => location.href = '/login.html');
+};
+
 // --- Initialization ---
 document.addEventListener("DOMContentLoaded", async () => {
     window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';

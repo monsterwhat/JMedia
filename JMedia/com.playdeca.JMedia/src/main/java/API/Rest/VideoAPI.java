@@ -358,7 +358,10 @@ public class VideoAPI {
                         try {
                             // Run in its own context to ensure immediate commit
                             namingController.processPendingMedia(pending.id);
-                            unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending);
+                            
+                            // Let the creation service handle its own reload internally within a transaction
+                            // to avoid stale data and context issues
+                            unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
                         } catch (Exception e) {
                             LOG.error("Error processing video {}: {}", pending.originalFilename, e.getMessage());
                         }
@@ -400,7 +403,7 @@ public class VideoAPI {
                     for (Models.PendingMedia pending : discovered) {
                         try {
                             namingController.processPendingMedia(pending.id);
-                            unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending);
+                            unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
                         } catch (Exception e) {
                             LOG.error("Error reloading metadata for {}: {}", pending.originalFilename, e.getMessage());
                         }
@@ -580,7 +583,7 @@ public class VideoAPI {
                     Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
                     if (pending != null) {
                         namingController.processPendingMedia(pending.id);
-                        unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending);
+                        unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
                         LOG.info("Metadata reloaded for video: {}", video.title);
                     }
                 } catch (Exception e) {
@@ -826,6 +829,9 @@ public class VideoAPI {
     public Response getStoryboard(@PathParam("videoId") Long videoId) {
         File file = storyboardService.getStoryboardImage(videoId);
         if (file == null || !file.exists()) {
+            if (storyboardService.isGenerating(videoId)) {
+                return Response.status(Response.Status.ACCEPTED).entity("Storyboard is being generated").build();
+            }
             return Response.status(Response.Status.NOT_FOUND).build();
         }
         return Response.ok(file).build();
@@ -835,6 +841,7 @@ public class VideoAPI {
     @Path("/storyboard/{videoId}/metadata")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getStoryboardMetadata(@PathParam("videoId") Long videoId) {
+        LOG.debug("Storyboard metadata request for video {}", videoId);
         Services.VideoStoryboardService.StoryboardMetadata metadata = storyboardService.getMetadata(videoId);
         if (metadata == null) {
             return Response.status(Response.Status.NOT_FOUND).build();

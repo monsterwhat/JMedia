@@ -39,7 +39,7 @@ public class AuthController {
                 "    <title>JMedia - Login</title>\n" +
                 "    <link rel=\"stylesheet\" href=\"/css/bulma.min.css\">\n" +
                 "    <link rel=\"stylesheet\" href=\"https://unpkg.com/primeicons@7.0.0/primeicons.css\">\n" +
-                "    <link rel=\"stylesheet\" href=\"/css/custom.css\">\n" +
+                "    <link rel=\"stylesheet\" href=\"/css/jmedia-unified.css\">\n" +
                 "    <link rel=\"icon\" type=\"image/x-icon\" href=\"logo.png\">\n" +
                 "</head>\n" +
                 "<body class=\"has-background-light\">\n" +

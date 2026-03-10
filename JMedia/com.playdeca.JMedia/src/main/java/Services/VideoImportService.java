@@ -169,7 +169,7 @@ public class VideoImportService {
         String fileName = path.getFileName().toString().toLowerCase();
         return fileName.endsWith(".mp4") || fileName.endsWith(".mkv") || fileName.endsWith(".avi") ||
                fileName.endsWith(".mov") || fileName.endsWith(".wmv") || fileName.endsWith(".flv") ||
-               fileName.endsWith(".webm");
+               fileName.endsWith(".webm") || fileName.endsWith(".srt");
     }
 
     @Transactional
@@ -181,6 +181,11 @@ public class VideoImportService {
             if (existingPaths.contains(filePathStr)) {
                 MediaFile existingFile = MediaFile.find("path", filePathStr).firstResult();
                 if (existingFile != null) {
+                    // For subtitles, we don't need a PendingMedia/Video entity
+                    if (filename.toLowerCase().endsWith(".srt")) {
+                        return null; 
+                    }
+                    
                     Video existingVideo = Video.find("path", filePathStr).firstResult();
                     if (existingVideo != null && !metadataOnly) {
                         return null;
@@ -196,14 +201,18 @@ public class VideoImportService {
             if (!metadataOnly) {
                 MediaFile mediaFile = new MediaFile();
                 mediaFile.path = filePathStr;
-                mediaFile.type = "video";
+                mediaFile.type = filename.toLowerCase().endsWith(".srt") ? "subtitle" : "video";
                 mediaFile.lastModified = Files.getLastModifiedTime(filePath).toMillis();
                 mediaFile.size = Files.size(filePath);
                 mediaFile.persist();
-                return mediaPreProcessor.createPendingMedia(mediaFile, filePath, rootPath);
+                
+                // Only create pending media for videos
+                if ("video".equals(mediaFile.type)) {
+                    return mediaPreProcessor.createPendingMedia(mediaFile, filePath, rootPath);
+                }
             }
         } catch (Exception e) {
-            LOGGER.error("Error processing video file {}: {}", filename, e.getMessage());
+            LOGGER.error("Error processing file {}: {}", filename, e.getMessage());
         }
         return null;
     }

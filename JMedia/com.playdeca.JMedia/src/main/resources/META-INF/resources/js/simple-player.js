@@ -1,11 +1,14 @@
 class SimplePlayer {
     constructor(config) {
-        console.log('[SimplePlayer] Initializing with Persistence...', config);
+        console.log('[SimplePlayer] Initializing...', config);
         this.container = document.getElementById(config.containerId);
         this.video = document.getElementById(config.videoId);
         this.videoId = config.currentVideoId;
         
-        if (!this.container || !this.video) return;
+        if (!this.container || !this.video) {
+            console.error('[SimplePlayer] Container or Video element not found!');
+            return;
+        }
 
         this.profileId = localStorage.getItem('activeProfileId') || '1';
         this.volumeKey = 'jmedia_video_volume_' + this.profileId;
@@ -35,7 +38,9 @@ class SimplePlayer {
         this.buildUI();
         this.attachEvents();
         this.loadSubtitles();
-        this.loadStoryboard();
+        
+        // Add a small delay before loading storyboard to avoid network rush
+        setTimeout(() => this.loadStoryboard(), 1000);
         
         // Restore Audio
         this.video.volume = Math.pow(this.state.volume, 2);
@@ -55,13 +60,17 @@ class SimplePlayer {
         const old = this.container.querySelectorAll('.controls-container, .media-info, .big-play-btn, .subtitle-menu, .buffering-overlay');
         old.forEach(el => el.remove());
 
-        // Use app logo for big play button
         const uiHTML = `
             <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
             <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
 
             <div class="media-info">
-                <div class="info-title">${this.container.dataset.title || 'Video'}</div>
+                <div class="back-button-container">
+                    <button class="back-btn" id="backBtn" title="Go Back">
+                        <i class="pi pi-arrow-left"></i>
+                    </button>
+                </div>
+                <div class="info-title" id="videoTitleLink" style="cursor: pointer;" title="View Details">${this.container.dataset.title || 'Video'}</div>
                 <div class="info-meta">${this.container.dataset.meta || ''}</div>
             </div>
 
@@ -127,9 +136,18 @@ class SimplePlayer {
         this.subtitleList = this.container.querySelector('#subtitleList');
         this.fullscreenBtn = this.container.querySelector('#fullscreenBtn');
         this.buffering = this.container.querySelector('.buffering-overlay');
+        this.backBtn = this.container.querySelector('#backBtn');
+        this.titleLink = this.container.querySelector('#videoTitleLink');
 
         const offBtn = this.container.querySelector('#sub-off');
         offBtn.onclick = (e) => { e.stopPropagation(); this.selectSubtitle('off', offBtn); };
+
+        if (this.backBtn) {
+            this.backBtn.onclick = (e) => { e.stopPropagation(); this.goBack(); };
+        }
+        if (this.titleLink) {
+            this.titleLink.onclick = (e) => { e.stopPropagation(); this.goToDetails(); };
+        }
 
         this.container.querySelector('#sub-generate').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('generate', e.target); };
         this.container.querySelector('#sub-download').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('download', e.target); };
@@ -156,7 +174,6 @@ class SimplePlayer {
         this.video.onwaiting = () => this.buffering.style.display = 'block';
         this.video.onplaying = () => this.buffering.style.display = 'none';
         
-        // Progress Bar FIX: Ensure it updates visually
         this.video.ontimeupdate = () => {
             if (!this.video.duration) return;
             const pct = (this.video.currentTime / this.video.duration) * 100;
@@ -194,32 +211,37 @@ class SimplePlayer {
         };
 
         this.progressContainer.onmousemove = (e) => {
-            if (!this.storyboard.loaded || !this.storyboard.metadata) return;
-            
             const rect = this.progressContainer.getBoundingClientRect();
             const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
             const time = pos * this.video.duration;
             
-            const meta = this.storyboard.metadata;
-            const tileIndex = Math.floor(time / meta.interval);
-            const clampedIndex = Math.max(0, Math.min(meta.totalTiles - 1, tileIndex));
-            
-            const col = clampedIndex % meta.columns;
-            const row = Math.floor(clampedIndex / meta.columns);
-            
-            const posX = col * meta.tileWidth;
-            const posY = row * meta.tileHeight;
-            
-            this.previewContainer.style.display = 'block';
-            this.previewContainer.style.left = `${(pos * 100)}%`;
-            this.previewContainer.style.transform = `translateX(-50%)`;
-            this.previewContainer.style.backgroundImage = `url(/api/video/storyboard/${this.videoId})`;
-            this.previewContainer.style.backgroundPosition = `-${posX}px -${posY}px`;
+            this.previewContainer.style.setProperty('display', 'block', 'important');
+            this.previewContainer.style.setProperty('left', `${(pos * 100)}%`, 'important');
+            this.previewContainer.style.setProperty('transform', 'translateX(-50%)', 'important');
             this.previewTime.innerText = this.formatTime(time);
+
+            if (this.storyboard.loaded && this.storyboard.metadata) {
+                const meta = this.storyboard.metadata;
+                const tileIndex = Math.floor(time / meta.interval);
+                const clampedIndex = Math.max(0, Math.min(meta.totalTiles - 1, tileIndex));
+                
+                const col = clampedIndex % meta.columns;
+                const row = Math.floor(clampedIndex / meta.columns);
+                
+                const posX = col * meta.tileWidth;
+                const posY = row * meta.tileHeight;
+                
+                this.previewContainer.style.setProperty('background-image', `url(/api/video/storyboard/${this.videoId})`, 'important');
+                this.previewContainer.style.setProperty('background-position', `-${posX}px -${posY}px`, 'important');
+                this.previewContainer.style.setProperty('background-size', `${meta.columns * 100}% auto`, 'important');
+            } else {
+                this.previewContainer.style.setProperty('background-image', 'none', 'important');
+                this.previewContainer.style.setProperty('background-color', 'rgba(0,0,0,0.8)', 'important');
+            }
         };
 
         this.progressContainer.onmouseleave = () => {
-            this.previewContainer.style.display = 'none';
+            this.previewContainer.style.setProperty('display', 'none', 'important');
         };
 
         this.volSlider.oninput = (e) => {
@@ -263,7 +285,6 @@ class SimplePlayer {
         };
         document.addEventListener('keydown', this._keyHandler);
 
-        // Frequent Heartbeat for Seamless Reload
         this._heartbeat = setInterval(() => {
             if (this.video && !this.video.paused) {
                 this.reportProgress(true);
@@ -271,19 +292,37 @@ class SimplePlayer {
         }, 3000);
     }
 
-    async loadStoryboard() {
+    async loadStoryboard(retryCount = 0) {
+        if (!this.videoId) return;
         try {
+            console.log(`[SimplePlayer] Fetching storyboard metadata for ${this.videoId} (Attempt ${retryCount + 1})`);
             const res = await fetch(`/api/video/storyboard/${this.videoId}/metadata`);
+            
             if (res.ok) {
                 const data = await res.json();
-                this.storyboard.metadata = data.data;
-                this.storyboard.loaded = true;
-                // Preload image
-                const img = new Image();
-                img.src = `/api/video/storyboard/${this.videoId}`;
+                if (data.success && data.data) {
+                    this.storyboard.metadata = data.data;
+                    this.storyboard.loaded = true;
+                    // Preload image
+                    const img = new Image();
+                    img.src = `/api/video/storyboard/${this.videoId}`;
+                    console.log('[SimplePlayer] Storyboard metadata loaded successfully');
+                    return;
+                }
+            }
+            
+            if ((res.status === 202 || res.status === 404) && retryCount < 15) {
+                const delay = Math.min(2000 * Math.pow(1.3, retryCount), 20000);
+                console.log(`[SimplePlayer] Storyboard still generating or not found (Status ${res.status}). Retrying in ${Math.round(delay/1000)}s...`);
+                setTimeout(() => this.loadStoryboard(retryCount + 1), delay);
+            } else if (res.status !== 200) {
+                console.warn(`[SimplePlayer] Stopped retrying storyboard. Final status: ${res.status}`);
             }
         } catch (e) {
-            console.warn('[SimplePlayer] Failed to load storyboard:', e);
+            console.warn('[SimplePlayer] Storyboard metadata fetch error:', e);
+            if (retryCount < 5) {
+                setTimeout(() => this.loadStoryboard(retryCount + 1), 5000);
+            }
         }
     }
 
@@ -313,7 +352,24 @@ class SimplePlayer {
         return (h > 0 ? h + ":" : "") + (h > 0 ? m.toString().padStart(2, '0') : m) + ":" + sec.toString().padStart(2, '0');
     }
 
+    goBack() {
+        if (window.videoSPA) {
+            window.videoSPA.switchSection('details', {videoId: this.videoId});
+        } else if (window.switchSection) {
+            window.switchSection('details', {videoId: this.videoId});
+        }
+    }
+
+    goToDetails() {
+        if (window.videoSPA) {
+            window.videoSPA.switchSection('details', {videoId: this.videoId});
+        } else if (window.switchSection) {
+            window.switchSection('details', {videoId: this.videoId});
+        }
+    }
+
     async loadSubtitles() {
+        if (!this.videoId) return;
         try {
             const res = await fetch(`/api/video/subtitles/${this.videoId}`);
             const data = await res.json();

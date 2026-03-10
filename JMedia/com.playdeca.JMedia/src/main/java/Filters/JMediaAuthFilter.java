@@ -93,6 +93,8 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
         String originalUrl = uriInfo.getRequestUri().toString();
         String loginUrl = "/login.html?redirect=" + java.net.URLEncoder.encode(originalUrl, java.nio.charset.StandardCharsets.UTF_8);
 
+        LOG.info("🛑 Access Denied to '{}': Redirecting to login.html", path);
+
         requestContext.abortWith(Response.status(Response.Status.TEMPORARY_REDIRECT)
                 .header("Location", loginUrl)
                 .header("Cache-Control", "no-cache, no-store, must-revalidate")

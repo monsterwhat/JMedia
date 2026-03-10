@@ -35,7 +35,8 @@ public class UnifiedVideoEntityCreationService {
      * Finalizes processing by creating/updating a Video entity from analyzed PendingMedia
      */
     @Transactional
-    public Video createVideoFromPendingMedia(PendingMedia pending) {
+    public Video createVideoFromPendingMedia(Long pendingId) {
+        PendingMedia pending = PendingMedia.findById(pendingId);
         if (pending == null || pending.mediaFile == null) return null;
         
         // Check if video already exists
@@ -136,7 +137,7 @@ public class UnifiedVideoEntityCreationService {
         for (PendingMedia pending : readyToFinalize) {
             try {
                 // This method is @Transactional and will handle its own commit
-                Video v = createVideoFromPendingMedia(pending);
+                Video v = createVideoFromPendingMedia(pending.id);
                 if (v != null) {
                     count++;
                     if (count % 50 == 0) {
@@ -182,9 +183,24 @@ public class UnifiedVideoEntityCreationService {
     
     private String detectVideoType(Models.MediaFile mediaFile) {
         String filename = extractFilenameFromPath(mediaFile.path);
+        String pathLower = mediaFile.path.toLowerCase().replace('\\', '/');
+        
+        // Priority 1: Strong folder hints
+        if (pathLower.contains("/tv shows/") || pathLower.contains("/tvseries/") || 
+            pathLower.contains("/tv/") || pathLower.contains("/season") || 
+            pathLower.contains("/series") || pathLower.contains("/libro") ||
+            pathLower.contains("/book") || pathLower.contains("/temporada")) {
+            return "episode";
+        }
+        
         if (filename.toLowerCase().contains("movie") || 
-            mediaFile.path.toLowerCase().contains("movies") ||
+            pathLower.contains("/movies/") ||
             mediaFile.isTypicalMovieDuration()) {
+            
+            // Re-check for episode patterns in filename (stronger than generic "movie" path)
+            if (filename.matches(".*[sS]\\d+[eE]\\d+.*") || filename.matches(".*\\d+[x×]\\d+.*")) {
+                return "episode";
+            }
             return "movie";
         } else if (mediaFile.isTypicalEpisodeDuration()) {
             return "episode";

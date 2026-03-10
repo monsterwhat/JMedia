@@ -38,6 +38,7 @@ public class ThumbnailService {
     SettingsService settingsService;
     
     private final ConcurrentHashMap<Long, String> thumbnailCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> showThumbnailCache = new ConcurrentHashMap<>();
     private final BlockingQueue<ThumbnailJob> thumbnailQueue = new LinkedBlockingQueue<>();
     private ThumbnailProcessingStatus processingStatus = new ThumbnailProcessingStatus();
     
@@ -48,6 +49,17 @@ public class ThumbnailService {
             String cachedPath = thumbnailCache.get(videoId);
             if (cachedPath != null && Files.exists(Paths.get(cachedPath))) {
                 return cachedPath;
+            }
+            
+            // Check if video already has a thumbnail in the database
+            Video existingVideo = entityManager.find(Video.class, videoId);
+            if (existingVideo != null && existingVideo.thumbnailPath != null && !existingVideo.thumbnailPath.isBlank()) {
+                Path existingPath = Paths.get(existingVideo.thumbnailPath);
+                if (Files.exists(existingPath)) {
+                    thumbnailCache.put(videoId, existingVideo.thumbnailPath);
+                    LOGGER.info("Using existing thumbnail for video ID {}: {}", videoId, existingVideo.thumbnailPath);
+                    return existingVideo.thumbnailPath;
+                }
             }
             
             // Create thumbnail directory if it doesn't exist
@@ -76,8 +88,26 @@ public class ThumbnailService {
             Video video = entityManager.find(Video.class, videoId);
             if (video != null && settingsService.getOrCreateSettings().getThumbnailPreferApi()) {
                 String type = video.type != null ? video.type : "movie";
-                String title = video.title != null ? video.title : video.seriesTitle;
+                
+                // For episodes, we want to fetch the show's poster, not the episode's title
+                String title;
+                if ("episode".equalsIgnoreCase(type) && video.seriesTitle != null && !video.seriesTitle.isBlank()) {
+                    title = video.seriesTitle;
+                } else {
+                    title = video.title != null ? video.title : video.seriesTitle;
+                }
+                
                 if (title != null) {
+                    // Check show-level cache first
+                    String normalizedTitle = title.toLowerCase().trim();
+                    String cachedApiUrl = showThumbnailCache.get(normalizedTitle);
+                    
+                    if (cachedApiUrl != null) {
+                        LOGGER.info("Using cached poster URL for show: {}", title);
+                        downloadImage(cachedApiUrl, outputPath);
+                        return finalizeThumbnail(videoId, outputPath.toString());
+                    }
+                    
                     LOGGER.info("Attempting online artwork fetch for: {}", title);
                     Optional<String> apiUrl = metadataService.fetchPosterUrl(type, title, video.releaseYear);
                     
@@ -85,6 +115,8 @@ public class ThumbnailService {
                     try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
                     if (apiUrl.isPresent()) {
+                        // Cache the API URL for this show
+                        showThumbnailCache.put(normalizedTitle, apiUrl.get());
                         downloadImage(apiUrl.get(), outputPath);
                         return finalizeThumbnail(videoId, outputPath.toString());
                     }

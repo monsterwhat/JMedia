@@ -48,6 +48,23 @@ public class VideoHistoryService {
         history.persist();
     }
 
+    /**
+     * Records history using a Video entity ID
+     */
+    @Transactional
+    public void addFromVideoId(Long videoId) {
+        if (videoId == null) return;
+        
+        Models.Video video = Models.Video.findById(videoId);
+        if (video == null || video.path == null) return;
+        
+        // Find the media file associated with this video path
+        MediaFile mediaFile = MediaFile.find("path", video.path).firstResult();
+        if (mediaFile != null) {
+            add(mediaFile.id);
+        }
+    }
+
     @Transactional
     public void clearHistory() {
         if (isMainProfileActive()) {

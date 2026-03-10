@@ -41,11 +41,11 @@ public class MediaFile extends PanacheEntity {
     }
     
     public boolean isTypicalMovieDuration() {
-        return durationSeconds >= 70 * 60 && durationSeconds <= 240 * 60; // 70-240 minutes
+        return durationSeconds >= 40 * 60 && durationSeconds <= 300 * 60; // 40-300 minutes
     }
     
     public boolean isTypicalEpisodeDuration() {
-        return durationSeconds >= 18 * 60 && durationSeconds <= 65 * 60; // 18-65 minutes
+        return durationSeconds >= 5 * 60 && durationSeconds <= 120 * 60; // 5-120 minutes
     }
     
     public String getQualityIndicator() {

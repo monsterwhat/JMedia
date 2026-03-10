@@ -155,11 +155,8 @@ async function UpdateAudioSource(currentSong, prevSong, nextSong, play, backendT
 
     const profileId = window.globalActiveProfileId || '1';
     const newSrc = `/api/music/stream/${profileId}/${currentSong.id}`;
-    if (audio.src !== new URL(newSrc, window.location.origin).href) {
-        audio.src = newSrc;
-        audio.load();
-    }
 
+    // Update state immediately
     musicState.currentSongId = currentSong.id;
     musicState.songName = currentSong.title;
     musicState.artist = currentSong.artist;
@@ -174,15 +171,48 @@ async function UpdateAudioSource(currentSong, prevSong, nextSong, play, backendT
         window.updateMediaSessionMetadata(currentSong.title, currentSong.artist, artworkUrl);
     }
 
-    audio.onloadedmetadata = () => {
+    updateMusicBar();
+
+    // Finalize update function
+    const finalizeUpdate = () => {
         if (activeAudioOperation !== opId) return;
-        audio.currentTime = backendTime || 0;
+        
+        // Only seek if we have a valid backend time and it's significantly different
+        if (backendTime !== undefined && backendTime !== null) {
+            const drift = Math.abs(audio.currentTime - backendTime);
+            if (drift > 2.0 || audio.currentTime === 0) {
+                audio.currentTime = backendTime;
+            }
+        }
+        
         audio.volume = deviceVolumes[deviceId] !== undefined ? deviceVolumes[deviceId] : 0.8;
-        if (play) audio.play().catch(() => {});
-        else audio.pause();
+        
+        if (play) {
+            audio.play().catch(err => {
+                console.log("Auto-play prevented or failed:", err);
+                musicState.playing = false;
+                updateMusicBar();
+            });
+        } else {
+            audio.pause();
+        }
+        
         isUpdatingAudioSource = false;
         updateMusicBar();
     };
+
+    if (audio.src !== new URL(newSrc, window.location.origin).href) {
+        audio.src = newSrc;
+        audio.onloadedmetadata = finalizeUpdate;
+        audio.load();
+    } else {
+        // If src is the same, check if metadata is already there
+        if (audio.readyState >= 1) {
+            finalizeUpdate();
+        } else {
+            audio.onloadedmetadata = finalizeUpdate;
+        }
+    }
 }
 
 // --- WS & API ---

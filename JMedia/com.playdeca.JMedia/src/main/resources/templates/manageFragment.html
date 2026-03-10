@@ -1,0 +1,158 @@
+<div class="library-header">
+    <div class="is-flex is-justify-content-between is-align-items-center is-flex-wrap-wrap" style="gap: 1rem;">
+        <div>
+            <h1 class="library-title">Manage Library</h1>
+            <p class="subtitle is-6 has-text-grey-light">Total: {totalCount} items (Showing top 100)</p>
+        </div>
+        <div class="field is-grouped is-flex-wrap-wrap">
+            <div class="control has-icons-left">
+                <input class="input is-dark" type="text" name="search" placeholder="Search title, file..." 
+                       value="{search ?: ''}"
+                       hx-get="/api/video/manage" 
+                       hx-trigger="keyup changed delay:500ms" 
+                       hx-target="#spa-content"
+                       style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white; width: 250px;">
+                <span class="icon is-left">
+                    <i class="pi pi-search"></i>
+                </span>
+            </div>
+            <div class="control">
+                <div class="select is-dark">
+                    <select name="type" hx-get="/api/video/manage" hx-target="#spa-content" hx-include="[name='search']"
+                            style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+                        <option value="all" {#if type == 'all' || !type}selected{/if}>All Types</option>
+                        <option value="movie" {#if type == 'movie'}selected{/if}>Movies</option>
+                        <option value="episode" {#if type == 'episode'}selected{/if}>TV Shows</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="columns is-multiline mt-4">
+    {#if shows}
+        {#for show in shows}
+        <div class="column is-12-mobile is-6-tablet is-4-desktop is-3-widescreen">
+            <div class="manage-grid-card clickable-card" 
+                 hx-get="/api/video/manage/series/{show.seriesTitle}"
+                 hx-target="#spa-content"
+                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden; cursor: pointer;">
+                
+                <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
+                    <img src="/api/video/thumbnail/{show.representativeId}" style="width: 100%; height: 100%; object-fit: cover;">
+                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--plex-accent); border: 1px solid var(--plex-accent);">
+                        SHOW
+                    </div>
+                </div>
+
+                <div class="card-body p-3" style="flex: 1;">
+                    <h3 class="has-text-weight-bold has-text-white" style="font-size: 0.95rem; margin-bottom: 4px; line-height: 1.2;">
+                        {show.seriesTitle}
+                    </h3>
+                    
+                    <p class="is-size-7" style="color: var(--plex-accent); margin-bottom: 4px;">
+                        <i class="pi pi-desktop mr-1"></i> {show.episodeCount} Episodes
+                        <span class="has-text-grey-light ml-2">{show.seasonCount} Seasons</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+        {/for}
+    {#else}
+        {#for video in videos}
+        <div class="column is-12-mobile is-6-tablet is-4-desktop is-3-widescreen">
+            <div class="manage-grid-card" 
+                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden;">
+                
+                <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
+                    <img src="/api/video/thumbnail/{video.id}" style="width: 100%; height: 100%; object-fit: cover;">
+                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--plex-accent); border: 1px solid var(--plex-accent);">
+                        {video.type.toUpperCase()}
+                    </div>
+                    <div class="card-actions-overlay" style="position: absolute; top: 0; right: 0; padding: 8px; display: flex; gap: 8px;">
+                        <button class="button is-small is-info is-rounded" onclick="openEditModal({video.id})" title="Edit Metadata">
+                            <i class="pi pi-pencil"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card-body p-3" style="flex: 1;">
+                    <h3 class="has-text-weight-bold has-text-white" style="font-size: 0.95rem; margin-bottom: 4px; line-height: 1.2;">
+                        {video.title ?: (video.episodeTitle ?: video.filename)}
+                    </h3>
+                    
+                    {#if video.type == 'episode'}
+                    <p class="is-size-7" style="color: var(--plex-accent); margin-bottom: 4px;">
+                        <i class="pi pi-desktop mr-1"></i> {video.seriesTitle ?: 'Unknown Series'}
+                        <span class="has-text-grey-light ml-2">S{video.seasonNumber ?: 0} E{video.episodeNumber ?: 0}</span>
+                    </p>
+                    {/if}
+
+                    <div class="file-info mt-2" style="background: rgba(0,0,0,0.2); padding: 6px; border-radius: 6px;">
+                        <p class="is-size-7 has-text-grey-light" style="word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">
+                            <i class="pi pi-file mr-1" style="font-size: 0.6rem;"></i> {video.path}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {/for}
+    {/if}
+</div>
+
+{#if (videos && videos.isEmpty()) || (shows && shows.isEmpty())}
+<div class="has-text-centered p-6">
+    <i class="pi pi-search" style="font-size: 3rem; color: rgba(255,255,255,0.1); margin-bottom: 1rem;"></i>
+    <p class="has-text-grey">No videos found matching your criteria</p>
+</div>
+{/if}
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal">
+    <div class="modal-background" onclick="closeEditModal()"></div>
+    <div class="modal-card glass-modal" style="max-width: 650px; width: 95%;">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Edit Metadata</p>
+            <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
+        </header>
+        <section class="modal-card-body" id="editModalBody" style="background: #1a1a1a; color: white;">
+            <div class="is-flex is-justify-content-center p-6">
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--plex-accent);"></i>
+            </div>
+        </section>
+    </div>
+</div>
+
+<style>
+    .manage-grid-card:hover {
+        transform: translateY(-5px);
+        background: rgba(255,255,255,0.08) !important;
+        border-color: var(--plex-accent) !important;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+    }
+</style>
+
+<script>
+    function openEditModal(id) {
+        const modal = document.getElementById('editModal');
+        modal.classList.add('is-active');
+        
+        htmx.ajax('GET', '/api/video/manage/edit/' + id, {
+            target: '#editModalBody',
+            swap: 'innerHTML'
+        });
+    }
+    
+    function closeEditModal() {
+        document.getElementById('editModal').classList.remove('is-active');
+    }
+    
+    document.addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.successful && evt.detail.pathInfo.requestPath.includes('/update/')) {
+            window.Toast.success("Metadata saved!");
+            closeEditModal();
+            htmx.trigger('[name="search"]', 'changed');
+        }
+    });
+</script>

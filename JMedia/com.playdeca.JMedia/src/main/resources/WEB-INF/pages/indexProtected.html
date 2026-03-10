@@ -13,281 +13,8 @@
 
         <!-- CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css">
-        <link rel="stylesheet" href="/css/mobile.css">
+        <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link rel="stylesheet" href="/lib/font-awesome/all.min.css">
-        <link rel="stylesheet" href="/lib/primeicons.css">
-
-        <!-- Favicon -->
-        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
-
-        <!-- Apple Touch Icon -->
-        <link rel="apple-touch-icon" href="logo.png">
-
-        <!-- Manifest -->
-        <link rel="manifest" href="/manifest.json">
-
-        <style>
-            /* Toast styles for mobile */
-            .toast {
-                background: rgba(0, 0, 0, 0.8);
-                color: white;
-                padding: 12px 16px;
-                border-radius: 8px;
-                margin-bottom: 8px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                transform: translateX(100%);
-                transition: transform 0.3s ease;
-                max-width: 300px;
-                font-size: 14px;
-            }
-
-            .toast.show {
-                opacity: 1 !important;
-                transform: translateX(0);
-            }
-
-            .toast-icon {
-                font-size: 16px;
-            }
-
-            .toast.success {
-                background: rgba(72, 199, 142, 0.9);
-            }
-
-            .toast.error {
-                background: rgba(241, 70, 104, 0.9);
-            }
-
-            .toast.info {
-                background: rgba(50, 152, 220, 0.9);
-            }
-
-            .mr-2 {
-                margin-right: 0.5rem;
-            }
-
-
-
-            /* Playlist CRUD Styles */
-            .mobile-playlist-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 16px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            }
-
-            .mobile-section-title {
-                margin: 0;
-                font-size: 18px;
-                font-weight: 600;
-            }
-
-            .mobile-playlist-item {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px 16px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-                cursor: pointer;
-                transition: background-color 0.2s ease;
-            }
-
-            .mobile-playlist-item:hover {
-                background-color: rgba(72, 199, 142, 0.1);
-            }
-
-            .mobile-playlist-info {
-                flex: 1;
-                min-width: 0;
-            }
-
-            .mobile-playlist-name {
-                font-weight: 500;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-
-            .mobile-playlist-details {
-                font-size: 12px;
-                color: #666;
-                margin-top: 2px;
-            }
-
-            .mobile-playlist-actions {
-                display: flex;
-                gap: 8px;
-            }
-
-            .mobile-btn-small {
-                padding: 6px 8px;
-                font-size: 12px;
-                min-width: auto;
-            }
-
-            .mobile-btn-danger {
-                background-color: #f14668;
-                color: white;
-            }
-
-            .mobile-btn-danger:hover {
-                background-color: #dc2f48;
-            }
-
-            .mobile-empty-state,
-            .mobile-error-state {
-                text-align: center;
-                padding: 40px 20px;
-                color: #999;
-            }
-
-            .mobile-empty-state p,
-            .mobile-error-state p {
-                margin: 8px 0;
-            }
-
-            .mobile-form-group {
-                margin-bottom: 16px;
-            }
-
-            .mobile-label {
-                display: block;
-                margin-bottom: 6px;
-                font-weight: 500;
-                color: #333;
-                font-size: 14px;
-            }
-
-            .mobile-input.error {
-                border-color: #f14668;
-                background-color: rgba(241, 70, 104, 0.05);
-            }
-
-            .mobile-modal {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                z-index: 1000;
-                display: none;
-            }
-
-            .mobile-modal.is-active {
-                display: block;
-            }
-
-            .mobile-modal-overlay {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.5);
-                backdrop-filter: blur(2px);
-            }
-
-            .mobile-modal-card {
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                width: 90%;
-                max-width: 400px;
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-                max-height: 80vh;
-                overflow-y: auto;
-            }
-
-            .mobile-modal-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 16px 20px;
-                border-bottom: 1px solid #eee;
-            }
-
-            .mobile-modal-title {
-                margin: 0;
-                font-size: 18px;
-                font-weight: 600;
-                color: #333;
-            }
-
-            .mobile-modal-close {
-                background: none;
-                border: none;
-                font-size: 16px;
-                cursor: pointer;
-                padding: 4px;
-                color: #666;
-            }
-
-            .mobile-modal-body {
-                padding: 20px;
-            }
-
-            .mobile-btn-block {
-                width: 100%;
-                justify-content: center;
-            }
-
-            /* Mini Volume Control */
-            .mobile-volume-mini {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-right: 8px;
-            }
-
-            .mobile-volume-slider {
-                width: 80px;
-                -webkit-appearance: none;
-                appearance: none;
-                height: 3px;
-                background: rgba(255, 255, 255, 0.3);
-                border-radius: 2px;
-                outline: none;
-                cursor: pointer;
-                transition: opacity 0.2s ease;
-            }
-
-            .mobile-volume-slider::-webkit-slider-thumb {
-                -webkit-appearance: none;
-                appearance: none;
-                width: 12px;
-                height: 12px;
-                background: #48c78e;
-                border-radius: 50%;
-                cursor: pointer;
-                transition: all 0.2s ease;
-            }
-
-            .mobile-volume-slider::-webkit-slider-thumb:hover {
-                transform: scale(1.2);
-                background: #3abb7d;
-            }
-
-            .mobile-volume-slider::-moz-range-thumb {
-                width: 12px;
-                height: 12px;
-                background: #48c78e;
-                border-radius: 50%;
-                cursor: pointer;
-                border: none;
-                transition: all 0.2s ease;
-            }
-
-            .mobile-volume-slider::-moz-range-thumb:hover {
-                transform: scale(1.2);
-                background: #3abb7d;
-            }
-        </style>
 
     </head>
     <body x-data>
@@ -316,10 +43,13 @@
                     <a href="/" class="mobile-logo">JMedia</a>
                 </div>
                 <div class="mobile-header-right">
-                    <a href="/settings" class="mobile-nav-toggle">
+                    <a href="/video" class="mobile-nav-toggle" title="Videos">
+                        <i class="pi pi-video"></i>
+                    </a>
+                    <a href="/settings" class="mobile-nav-toggle" title="Settings">
                         <i class="pi pi-cog"></i>
                     </a>
-                    <button class="mobile-nav-toggle" id="mobileNavToggle">
+                    <button class="mobile-nav-toggle" id="mobileNavToggle" title="Menu">
                         <i class="pi pi-bars"></i>
                     </button>
                 </div>
@@ -410,18 +140,17 @@
                 </div>
 
                 <div class="mobile-progress-container">
-                    <input type="range" 
-                           id="playbackProgressBar" 
+                    <span id="currentTime">0:00</span>
+                    <input type="range"
+                           id="playbackProgressBar"
                            name="seconds"
-                           class="mobile-progress" 
-                           min="0" 
-                           max="100" 
+                           class="mobile-progress"
+                           min="0"
+                           max="100"
                            value="0">
-                    <div class="mobile-progress-time">
-                        <span id="currentTime">0:00</span>
-                        <span id="totalTime">0:00</span>
-                    </div>
-                </div>  
+                    <span id="totalTime">0:00</span>
+                </div>
+  
             </div>
 
             <!-- Mobile Side Panel -->
@@ -480,7 +209,7 @@
                         Profile
                     </div>
                     <div class="mobile-card-body">
-                        <div class="mobile-song-item" onclick="openMobileProfileModal()" style="cursor: pointer;">
+                        <div class="mobile-song-item" onclick="switchTab('profile')" style="cursor: pointer;">
                             <div class="mobile-song-artwork">
                                 <i class="pi pi-user"></i>
                             </div>
@@ -622,6 +351,7 @@
         <script type="module" src="/js/mediaSession.js"></script>
 
         <!-- Mobile-specific enhancements -->
+        <script src="/js/songQueue.js"></script>
         <script type="module" src="/js/mobile.js"></script>
 
         <!-- Dependencies for responsive modules -->
@@ -651,6 +381,40 @@
         </script>
 
         <script>
+            // Logout function - must be global
+            async function handleLogout() {
+                try {
+                    const response = await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                    const data = await response.json();
+                    if (!data.error) {
+                        if (window.showToast) window.showToast('Logged out successfully', 'success', 2000);
+                        setTimeout(() => { window.location.href = '/login.html'; }, 1000);
+                    } else {
+                        if (window.showToast) window.showToast(data.error || 'Logout failed', 'error', 3000);
+                    }
+                } catch (error) {
+                    console.error('Logout error:', error);
+                    if (window.showToast) window.showToast('Logout failed', 'error', 3000);
+                }
+            }
+
+            // switchTab function - must be global
+            function switchTab(tab) {
+                if (window.mobileStore) {
+                    window.mobileStore.currentTab = tab;
+                }
+                
+                if (tab === 'profile') {
+                    openMobileProfileModal();
+                    return;
+                }
+
+                // This will be handled by mobile.js switchMobileTab method
+                if (window.jmediaMobile) {
+                    window.jmediaMobile.switchMobileTab(tab);
+                }
+            }
+
             // Initialize mobile navigation variables
             window.mobileStore = {
                 playerVisible: true,
@@ -674,11 +438,7 @@
                 },
 
                 switchTab(tab) {
-                    this.currentTab = tab;
-                    // This will be handled by mobile.js switchMobileTab method
-                    if (window.jmediaMobile) {
-                        window.jmediaMobile.switchMobileTab(tab);
-                    }
+                    window.switchTab(tab);
                 }
             };
 

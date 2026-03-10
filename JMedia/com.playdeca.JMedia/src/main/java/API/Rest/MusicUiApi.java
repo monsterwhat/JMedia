@@ -149,7 +149,7 @@ public class MusicUiApi {
     // Queue actions
     // -------------------------
     // DTO for queue fragment response
-    public record QueueFragmentResponse(String html, int totalQueueSize) {
+    public record QueueFragmentResponse(String html, String mobileHtml, int totalQueueSize) {
 
     }
 
@@ -193,7 +193,19 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
+        String mobileHtml = mobileQueueFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", 0)
+                .data("limit", 50)
+                .data("totalQueueSize", updatedQueue.size())
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new QueueFragmentResponse(html, mobileHtml, updatedQueue.size()); // Reverted to return DTO
     }
 
     @POST
@@ -228,7 +240,19 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
+        String mobileHtml = mobileQueueFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", 0)
+                .data("limit", 50)
+                .data("totalQueueSize", updatedQueue.size())
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new QueueFragmentResponse(html, mobileHtml, updatedQueue.size()); // Reverted to return DTO
     }
 
     @POST
@@ -268,7 +292,19 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
+        String mobileHtml = mobileQueueFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", 0)
+                .data("limit", 50)
+                .data("totalQueueSize", updatedQueue.size())
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new QueueFragmentResponse(html, mobileHtml, updatedQueue.size()); // Reverted to return DTO
     }
 
     @POST
@@ -303,7 +339,19 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, updatedQueue.size()); // Reverted to return DTO
+        String mobileHtml = mobileQueueFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", 0)
+                .data("limit", 50)
+                .data("totalQueueSize", updatedQueue.size())
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new QueueFragmentResponse(html, mobileHtml, updatedQueue.size()); // Reverted to return DTO
     }
 
     // -------------------------
@@ -578,7 +626,19 @@ public class MusicUiApi {
                 .data("pageNumbers", pageNumbers)
                 .render();
 
-        return new QueueFragmentResponse(html, totalQueueSize); // Reverted to return DTO
+        String mobileHtml = mobileQueueFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", offset)
+                .data("limit", limit)
+                .data("totalQueueSize", totalQueueSize)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("currentPage", currentPage)
+                .data("totalPages", totalPages)
+                .data("pageNumbers", pageNumbers)
+                .render();
+
+        return new QueueFragmentResponse(html, mobileHtml, totalQueueSize); // Reverted to return DTO
     }
 
     @GET

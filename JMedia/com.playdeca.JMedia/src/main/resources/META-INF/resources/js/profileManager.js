@@ -242,7 +242,7 @@ function switchProfile(profileId) {
     if (profileModal) {
         const modalBackground = profileModal.querySelector('.modal-background');
         const modalCloseButton = profileModal.querySelector('.delete');
-        const modalFooterCloseButton = profileModal.querySelector('.modal-card-foot .button');
+        const footerButtons = profileModal.querySelectorAll('.modal-card-foot .button');
 
         if (modalBackground) {
             modalBackground.onclick = () => profileModal.classList.remove('is-active');
@@ -250,9 +250,13 @@ function switchProfile(profileId) {
         if (modalCloseButton) {
             modalCloseButton.onclick = () => profileModal.classList.remove('is-active');
         }
-        if (modalFooterCloseButton) {
-            modalFooterCloseButton.onclick = () => profileModal.classList.remove('is-active');
-        }
+        
+        // Only attach close listener to buttons that are NOT the logout button
+        footerButtons.forEach(btn => {
+            if (btn.id !== 'logoutBtn' && !btn.classList.contains('is-danger')) {
+                btn.onclick = () => profileModal.classList.remove('is-active');
+            }
+        });
     }
 
 

@@ -185,7 +185,7 @@ public class NamingController {
         int count = 0;
         for (PendingMedia pending : approvedList) {
             try {
-                entityCreationService.createVideoFromPendingMedia(pending);
+                entityCreationService.createVideoFromPendingMedia(pending.id);
                 pending.status = ProcessingStatus.COMPLETED;
                 pending.persist();
                 count++;

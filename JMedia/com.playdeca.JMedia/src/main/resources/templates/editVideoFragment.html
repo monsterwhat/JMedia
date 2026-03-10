@@ -1,0 +1,111 @@
+<form hx-post="/api/video/manage/update/{video.id}" hx-swap="none" class="p-2" id="editMetadataForm">
+    <!-- File Location Info Section -->
+    <div class="field mb-5" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+        <label class="label is-size-7" style="color: var(--plex-accent); margin-bottom: 4px; text-transform: uppercase;">File Information</label>
+        <p class="is-size-7 mb-1"><strong class="has-text-grey">Filename:</strong> <span class="has-text-grey-light">{video.filename}</span></p>
+        <p class="is-size-7" style="word-break: break-all;"><strong class="has-text-grey">Path:</strong> <span class="has-text-grey-light">{video.path}</span></p>
+    </div>
+
+    <div class="field">
+        <label class="label" style="color: rgba(255,255,255,0.7);">Primary Title</label>
+        <div class="control">
+            <input class="input is-dark" type="text" name="title" value="{video.title ?: ''}" 
+                   placeholder="Enter main title"
+                   style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+        </div>
+    </div>
+
+    <div class="field">
+        <label class="label" style="color: rgba(255,255,255,0.7);">Media Type</label>
+        <div class="control">
+            <div class="select is-fullwidth is-dark">
+                <select name="type" id="typeSelector" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+                    <option value="movie" {#if video.type == 'movie'}selected{/if}>Movie</option>
+                    <option value="episode" {#if video.type == 'episode'}selected{/if}>TV Episode</option>
+                    <option value="short" {#if video.type == 'short'}selected{/if}>Short</option>
+                    <option value="documentary" {#if video.type == 'documentary'}selected{/if}>Documentary</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Series Selection Section (Combobox Style) -->
+    <div class="field series-only-field" {#if video.type != 'episode'}style="display:none"{/if}>
+        <label class="label" style="color: rgba(255,255,255,0.7);">Series / Show Name</label>
+        <div class="control has-icons-right">
+            <input class="input is-dark" type="text" name="seriesTitle" id="seriesTitleInput" 
+                   value="{video.seriesTitle ?: ''}" 
+                   placeholder="Select or type new series name..."
+                   list="seriesList"
+                   style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+            <span class="icon is-right">
+                <i class="pi pi-chevron-down"></i>
+            </span>
+            <datalist id="seriesList">
+                {#for series in allSeries}
+                <option value="{series}"></option>
+                {/for}
+            </datalist>
+        </div>
+        <p class="help has-text-grey">Select an existing show or type a new one to re-parent this episode.</p>
+    </div>
+
+    <div class="columns series-only-field" {#if video.type != 'episode'}style="display:none"{/if}>
+        <div class="column">
+            <div class="field">
+                <label class="label" style="color: rgba(255,255,255,0.7);">Episode Title</label>
+                <div class="control">
+                    <input class="input is-dark" type="text" name="episodeTitle" value="{video.episodeTitle ?: ''}"
+                           style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="columns series-only-field" {#if video.type != 'episode'}style="display:none"{/if}>
+        <div class="column is-6">
+            <div class="field">
+                <label class="label" style="color: rgba(255,255,255,0.7);">Season Number</label>
+                <div class="control">
+                    <input class="input is-dark" type="number" name="seasonNumber" value="{video.seasonNumber ?: 0}"
+                           style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+                </div>
+            </div>
+        </div>
+        <div class="column is-6">
+            <div class="field">
+                <label class="label" style="color: rgba(255,255,255,0.7);">Episode Number</label>
+                <div class="control">
+                    <input class="input is-dark" type="number" name="episodeNumber" value="{video.episodeNumber ?: 0}"
+                           style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="field mt-5">
+        <div class="control">
+            <button class="button is-info is-fullwidth" type="submit">
+                <i class="pi pi-save mr-2"></i> Save Changes
+            </button>
+        </div>
+    </div>
+</form>
+
+<script>
+    // Toggle series fields based on type selection
+    document.getElementById('typeSelector').addEventListener('change', function(e) {
+        const isEpisode = e.target.value === 'episode';
+        const fields = document.querySelectorAll('.series-only-field');
+        fields.forEach(f => f.style.display = isEpisode ? 'block' : 'none');
+    });
+
+    // Optional: Add some visual feedback for the combobox
+    const seriesInput = document.getElementById('seriesTitleInput');
+    seriesInput.addEventListener('focus', function() {
+        // This helps users know it's a searchable list
+        if (this.value === '') {
+            // Placeholder logic or show all could go here if using a custom library
+        }
+    });
+</script>

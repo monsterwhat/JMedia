@@ -64,7 +64,6 @@ public class VideoMetadataService {
 
         String apiKey = getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            LOG.warn("No TMDb API key provided. Skipping TMDb search for: {}", cleanSearchTitle);
             return Optional.empty();
         }
 

@@ -19,217 +19,8 @@
         <!-- Bulma CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="/lib/primeicons.css">
-        <link rel="stylesheet" href="/css/custom.css"/>
-
+        <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
-
-        <style>
-            :root { --sidebar-width: 240px; }
-            .plex-layout.collapsed { --sidebar-width: 72px; }
-
-            /* SOLID FLEX LAYOUT - Matches Music Page */
-            .plex-content {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                position: relative;
-                overflow: hidden !important;
-                height: calc(100vh - 64px); /* Subtract header */
-            }
-
-            .settings-main-wrapper {
-                flex: 1;
-                overflow-y: auto !important;
-                padding: 3rem;
-                min-height: 0; /* CRITICAL for flex scrolling */
-                padding-bottom: 120px !important; /* Extra space for the player bar */
-            }
-
-            /* Visible Scrollbar */
-            .settings-main-wrapper::-webkit-scrollbar { width: 8px; }
-            .settings-main-wrapper::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-            .settings-main-wrapper::-webkit-scrollbar-thumb { background: rgba(72, 199, 116, 0.3); border-radius: 4px; }
-            .settings-main-wrapper::-webkit-scrollbar-thumb:hover { background: #48c774; }
-
-            .settings-main { 
-                width: 100% !important;
-                max-width: 1600px !important;
-                margin: 0 auto !important; 
-            }
-
-            /* Configuration sections */
-            .glass-box { 
-                width: 100% !important; 
-                margin-bottom: 3rem !important;
-                padding: 4rem !important;
-                background: rgba(0, 0, 0, 0.5) !important;
-                border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                border-radius: 24px !important;
-            }
-
-            .tab-pane { display: none; width: 100%; }
-            .tab-pane.is-active { display: block; }
-            
-            .table { width: 100% !important; background: transparent !important; }
-
-            /* PLAYER BAR - Identical to indexNew.html */
-            .persistent-music-player {
-                flex-shrink: 0;
-                height: 100px;
-                background: rgba(10, 10, 10, 0.98);
-                backdrop-filter: blur(40px);
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-                padding: 0 !important;
-                z-index: 10;
-                box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
-                position: relative;
-                display: flex;
-                flex-direction: column;
-            }
-
-            .mobile-player {
-                width: 100% !important;
-                flex: 1;
-                display: flex !important;
-                align-items: center !important;
-                padding: 0 2rem !important;
-                max-width: none !important;
-                background: transparent !important;
-                box-shadow: none !important;
-                border: none !important;
-                position: relative !important;
-                z-index: 5;
-            }
-
-            .mobile-player-info {
-                display: flex !important;
-                align-items: center !important;
-                gap: 1rem !important;
-                flex: 0 1 30% !important;
-                min-width: 0;
-            }
-
-            .mobile-player-artwork {
-                width: 50px !important;
-                height: 50px !important;
-                border-radius: 8px !important;
-                flex-shrink: 0 !important;
-                background: rgba(255,255,255,0.05);
-                overflow: hidden;
-                display: flex !important;
-                align-items: center;
-                justify-content: center;
-            }
-
-            .mobile-player-artwork img { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-
-            .mobile-player-details { flex: 1 !important; min-width: 0; }
-            .mobile-player-title { font-size: 1rem !important; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0 !important; }
-            .mobile-player-artist { font-size: 0.85rem !important; color: #48c774; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; margin: 0 !important; }
-
-            .mobile-player-controls {
-                position: absolute !important;
-                left: calc(50% - (var(--sidebar-width) / 2)) !important;
-                top: 50% !important;
-                transform: translate(-50%, -50%) !important;
-                display: flex !important;
-                align-items: center !important;
-                gap: 2rem !important;
-                z-index: 10;
-                margin: 0 !important;
-                transition: left 0.2s ease;
-            }
-
-            .plex-layout.sidebar-right .mobile-player-controls {
-                left: calc(50% + (var(--sidebar-width) / 2)) !important;
-            }
-
-            .mobile-player-right-side {
-                flex: 1 !important;
-                display: flex !important;
-                justify-content: flex-end !important;
-                align-items: center !important;
-            }
-
-            .mobile-btn { background: transparent !important; border: none !important; cursor: pointer !important; padding: 5px !important; }
-            .mobile-btn i { font-size: 1.2rem !important; color: white !important; }
-            .mobile-btn-primary { 
-                width: 40px !important; height: 40px !important; 
-                background: #48c774 !important; border-radius: 50% !important; 
-                display: flex !important; align-items: center; justify-content: center; 
-            }
-            .mobile-btn-primary i { color: black !important; font-size: 1.4rem !important; }
-
-            /* VOLUME VERTICAL HOVER */
-            .mobile-volume-wrapper { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
-            .volume-slider-container {
-                position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-                background: rgba(20, 20, 20, 0.95); backdrop-filter: blur(10px);
-                padding: 20px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
-                display: none; z-index: 1001; height: 150px; pointer-events: auto;
-            }
-            .mobile-volume-wrapper:hover .volume-slider-container { display: flex; flex-direction: column; align-items: center; }
-            .vertical-volume#volumeProgressBar {
-                appearance: none; -webkit-appearance: none; width: 100px; height: 6px;
-                background: rgba(255,255,255,0.1) !important; 
-                background-image: linear-gradient(#48c774, #48c774) !important;
-                background-size: var(--slider-progress, 0%) 100% !important; 
-                background-repeat: no-repeat !important; 
-                outline: none;
-                border-radius: 3px; transform: rotate(-90deg); cursor: pointer; position: absolute; top: 50%;
-            }
-            .vertical-volume::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 14px; height: 14px; background: #48c774; border-radius: 50%; cursor: pointer; }
-
-            /* PROGRESS BAR - ENHANCED CLICK AREA */
-            .mobile-progress-container {
-                width: 100% !important;
-                height: 24px; /* Much taller clickable area */
-                margin: 0 !important;
-                padding: 0 !important;
-                position: relative;
-                z-index: 10;
-                cursor: pointer;
-                display: flex;
-                align-items: center; /* Center the 4px bar in 24px area */
-            }
-
-            .mobile-progress#playbackProgressBar {
-                width: 100% !important;
-                height: 4px !important;
-                background: rgba(255,255,255,0.1) !important;
-                background-image: linear-gradient(#48c774, #48c774) !important;
-                background-size: var(--slider-progress, 0%) 100% !important;
-                background-repeat: no-repeat !important;
-                cursor: pointer !important;
-                -webkit-appearance: none !important;
-                margin: 0 !important;
-                z-index: 11;
-            }
-
-            .mobile-progress::-webkit-slider-thumb {
-                -webkit-appearance: none !important;
-                width: 16px;
-                height: 16px;
-                background: #48c774;
-                border-radius: 50%;
-                cursor: pointer;
-                opacity: 0;
-                transition: opacity 0.2s;
-                border: 2px solid white;
-                box-shadow: 0 0 10px rgba(0,0,0,0.5);
-            }
-            .mobile-progress-container:hover .mobile-progress::-webkit-slider-thumb { opacity: 1; }
-            .mobile-progress-time { position: absolute; bottom: 12px; left: 2rem; right: 2rem; display: flex; justify-content: space-between; font-size: 0.7rem; color: rgba(255,255,255,0.5); pointer-events: none; z-index: 12; }
-
-            .checkbox-label { display: block; cursor: pointer; color: white; margin-bottom: 1rem; font-size: 1.1rem; }
-            .help-text { font-size: 1rem; color: rgba(255,255,255,0.5); margin-bottom: 1.5rem; }
-            
-            /* Custom Scrollbar */
-            .settings-main-wrapper::-webkit-scrollbar { width: 10px; }
-            .settings-main-wrapper::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
-            .settings-main-wrapper::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
-            .settings-main-wrapper::-webkit-scrollbar-thumb:hover { background: #48c774; background-clip: padding-box; }
-        </style>
     </head>
     <body class="settings-page">
 
@@ -285,6 +76,9 @@
                     </div>
 
                     <div class="nav-group mt-auto" style="margin-top: auto; padding-top: 2rem;">
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.handleLogout()">
+                            <i class="pi pi-sign-out"></i> <span>Logout</span>
+                        </a>
                         <a href="/settings" class="nav-item active">
                             <i class="pi pi-cog"></i> <span>Settings</span>
                         </a>
@@ -610,11 +404,9 @@
                         </div>
 
                         <div class="mobile-progress-container">
+                            <span id="currentTime">0:00</span>
                             <input type="range" id="playbackProgressBar" class="mobile-progress" min="0" max="100" value="0">
-                            <div class="mobile-progress-time">
-                                <span id="currentTime">0:00</span>
-                                <span id="totalTime">0:00</span>
-                            </div>
+                            <span id="totalTime">0:00</span>
                         </div>
                     </div>
                 </main>
@@ -651,7 +443,7 @@
         </script>
 
         <!-- Modals -->
-        <div id="profileModal" class="modal"><div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Manage Profiles</p></header><section class="modal-card-body"><div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div><hr><div class="field has-addons"><div class="control is-expanded"><input class="input" type="text" id="newProfileNameInput"></div><div class="control"><button class="button is-info" id="createProfileBtn">Create</button></div></div><button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button></section><footer class="modal-card-foot" style="justify-content: space-between;"><button class="button is-danger is-small" onclick="handleLogout()">Logout</button><button class="button is-small" onclick="this.closest('.modal').classList.remove('is-active')">Close</button></footer></div></div>
+        <div id="profileModal" class="modal"><div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Manage Profiles</p></header><section class="modal-card-body"><div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div><hr><div class="field has-addons"><div class="control is-expanded"><input class="input" type="text" id="newProfileNameInput"></div><div class="control"><button class="button is-info" id="createProfileBtn">Create</button></div></div><button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button></section><footer class="modal-card-foot" style="justify-content: space-between;"><button class="button is-danger is-small" onclick="window.handleLogout()">Logout</button><button class="button is-small" onclick="this.closest('.modal').classList.remove('is-active')">Close</button></footer></div></div>
         
         <div id="userModal" class="modal">
             <div class="modal-background" onclick="closeUserModal()"></div>

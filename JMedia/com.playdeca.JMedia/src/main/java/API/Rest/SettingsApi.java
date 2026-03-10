@@ -158,6 +158,20 @@ public class SettingsApi {
     }
 
     @GET
+    @Path("/{profileId}/install-status")
+    public Response getInstallationStatus(@PathParam("profileId") Long profileId) {
+        try {
+            ImportInstallationStatus status = installationService.getInstallationStatus();
+            return Response.ok(ApiResponse.success(status)).build();
+        } catch (Exception e) {
+            LOGGER.error("Error getting installation status", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error getting installation status: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
     @Path("/{profileId}/browse-folder")
     public Response browseFolder(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();

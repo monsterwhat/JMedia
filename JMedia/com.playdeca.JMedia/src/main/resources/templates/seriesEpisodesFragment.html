@@ -1,0 +1,216 @@
+<div class="series-episodes-container">
+    <div class="is-flex is-justify-content-between is-align-items-center mb-5">
+        <div>
+            <button class="button is-dark is-small mb-2" hx-get="/api/video/manage?type=episode" hx-target="#spa-content">
+                <i class="pi pi-arrow-left mr-2"></i> Back to Shows
+            </button>
+            <h1 class="title is-4 has-text-white">{seriesTitle}</h1>
+            <p class="subtitle is-6 has-text-grey-light">{episodes.size()} Episodes</p>
+        </div>
+        
+        <div class="actions">
+            <button class="button is-dark is-small mr-2" 
+                    hx-post="/api/video/manage/series/rescan" 
+                    hx-vals='\{"seriesTitle": "{seriesTitle}"\}'
+                    hx-on::after-request="if(event.detail.successful) window.Toast.success('Rescan of series folder started!');">
+                <i class="pi pi-refresh mr-2"></i> Rescan Series
+            </button>
+            <button class="button is-dark is-small mr-2" onclick="openSeriesSettingsModal()">
+                <i class="pi pi-cog mr-2"></i> Series Settings
+            </button>
+            <button class="button is-info is-small" onclick="openSeriesRenameModal()">
+                <i class="pi pi-pencil mr-2"></i> Rename Series
+            </button>
+        </div>
+    </div>
+
+    <div class="columns is-multiline">
+        {#for video in episodes}
+        <div class="column is-12-mobile is-6-tablet is-4-desktop is-3-widescreen">
+            <div class="manage-grid-card" 
+                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden;">
+                
+                <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
+                    <img src="/api/video/thumbnail/{video.id}" style="width: 100%; height: 100%; object-fit: cover;">
+                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--plex-accent); border: 1px solid var(--plex-accent);">
+                        S{video.seasonNumber ?: 0} E{video.episodeNumber ?: 0}
+                    </div>
+                    <div class="card-actions-overlay" style="position: absolute; top: 0; right: 0; padding: 8px; display: flex; gap: 8px;">
+                        <button class="button is-small is-info is-rounded" onclick="openEditModal({video.id})" title="Edit Metadata">
+                            <i class="pi pi-pencil"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card-body p-3" style="flex: 1;">
+                    <h3 class="has-text-weight-bold has-text-white" style="font-size: 0.95rem; margin-bottom: 4px; line-height: 1.2;">
+                        {video.episodeTitle ?: video.title ?: video.filename}
+                    </h3>
+                    
+                    <div class="file-info mt-2" style="background: rgba(0,0,0,0.2); padding: 6px; border-radius: 6px;">
+                        <p class="is-size-7 has-text-grey-light" style="word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">
+                            <i class="pi pi-file mr-1" style="font-size: 0.6rem;"></i> {video.path}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {/for}
+    </div>
+</div>
+
+<div id="seriesSettingsModal" class="modal">
+    <div class="modal-background" onclick="closeSeriesSettingsModal()"></div>
+    <div class="modal-card glass-modal">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Series Settings: {seriesTitle}</p>
+            <button class="delete" aria-label="close" onclick="closeSeriesSettingsModal()"></button>
+        </header>
+        <section class="modal-card-body" style="background: #1a1a1a; color: white;">
+            <form id="seriesSettingsForm" hx-post="/api/video/manage/series/update" hx-swap="none">
+                <input type="hidden" name="seriesTitle" value="{seriesTitle}">
+
+                <div class="field">
+                    <label class="label has-text-grey-light">Series Poster Path/URL</label>
+                    <div class="control">
+                        <input class="input is-dark" type="text" name="posterPath" value="{posterPath ?: ''}" placeholder="/path/to/poster.jpg">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label has-text-grey-light">Series Backdrop Path/URL</label>
+                    <div class="control">
+                        <input class="input is-dark" type="text" name="backdropPath" value="{backdropPath ?: ''}" placeholder="/path/to/backdrop.jpg">
+                    </div>
+                </div>
+
+                <p class="help has-text-info mt-3">
+                    <i class="pi pi-info-circle mr-1"></i> These changes will be applied to <strong>all</strong> episodes in this series.
+                </p>
+
+                <div class="field is-grouped is-justify-content-flex-end mt-5">
+                    <div class="control">
+                        <button type="button" class="button is-dark" onclick="closeSeriesSettingsModal()">Cancel</button>
+                    </div>
+                    <div class="control">
+                        <button type="submit" class="button is-primary">Apply to All Episodes</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+
+<div id="seriesRenameModal" class="modal">
+    <div class="modal-background" onclick="closeSeriesRenameModal()"></div>
+    <div class="modal-card glass-modal">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Rename Series</p>
+            <button class="delete" aria-label="close" onclick="closeSeriesRenameModal()"></button>
+        </header>
+        <section class="modal-card-body" style="background: #1a1a1a; color: white;">
+            <form id="seriesRenameForm" hx-post="/api/video/manage/rename-series" hx-swap="none">
+                <input type="hidden" name="oldTitle" value="{seriesTitle}">
+                <div class="field">
+                    <label class="label has-text-grey-light">New Series Title</label>
+                    <div class="control">
+                        <input class="input is-dark" type="text" name="newTitle" value="{seriesTitle}" required>
+                    </div>
+                </div>
+                <div class="field is-grouped is-justify-content-flex-end mt-5">
+                    <div class="control">
+                        <button type="button" class="button is-dark" onclick="closeSeriesRenameModal()">Cancel</button>
+                    </div>
+                    <div class="control">
+                        <button type="submit" class="button is-primary">Save Changes</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal">
+    <div class="modal-background" onclick="closeEditModal()"></div>
+    <div class="modal-card glass-modal" style="max-width: 650px; width: 95%;">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Edit Metadata</p>
+            <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
+        </header>
+        <section class="modal-card-body" id="editModalBody" style="background: #1a1a1a; color: white;">
+            <div class="is-flex is-justify-content-center p-6">
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--plex-accent);"></i>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+    function openEditModal(id) {
+        const modal = document.getElementById('editModal');
+        modal.classList.add('is-active');
+        
+        htmx.ajax('GET', '/api/video/manage/edit/' + id, {
+            target: '#editModalBody',
+            swap: 'innerHTML'
+        });
+    }
+    
+    function closeEditModal() {
+        document.getElementById('editModal').classList.remove('is-active');
+    }
+
+    function openSeriesSettingsModal() {
+        document.getElementById('seriesSettingsModal').classList.add('is-active');
+    }
+
+    function closeSeriesSettingsModal() {
+        document.getElementById('seriesSettingsModal').classList.remove('is-active');
+    }
+
+    function openSeriesRenameModal() {
+        document.getElementById('seriesRenameModal').classList.add('is-active');
+    }
+
+    function closeSeriesRenameModal() {
+        document.getElementById('seriesRenameModal').classList.remove('is-active');
+    }
+
+    document.addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.successful && evt.detail.pathInfo.requestPath.includes('/update/')) {
+            window.Toast.success("Metadata saved!");
+            closeEditModal();
+            // Refresh series view using the API path, not the browser URL
+            htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), {
+                target: '#spa-content',
+                swap: 'innerHTML'
+            });
+        }
+    });
+
+    document.getElementById('seriesSettingsForm').addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.successful) {
+            window.Toast.success("Series settings updated!");
+            closeSeriesSettingsModal();
+            // Refresh
+            htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), {
+                target: '#spa-content',
+                swap: 'innerHTML'
+            });
+        }
+    });
+
+    document.getElementById('seriesRenameForm').addEventListener('htmx:afterRequest', function(evt) {
+        if (evt.detail.successful) {
+            window.Toast.success("Series renamed successfully!");
+            closeSeriesRenameModal();
+            // Refresh the current series view with the NEW title
+            const newTitle = document.querySelector('#seriesRenameForm [name="newTitle"]').value;
+            htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent(newTitle), {
+                target: '#spa-content',
+                swap: 'innerHTML'
+            });
+        }
+    });
+</script>

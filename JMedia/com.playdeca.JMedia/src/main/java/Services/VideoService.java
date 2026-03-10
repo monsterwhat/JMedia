@@ -193,7 +193,7 @@ public class VideoService {
 
     @Transactional
     public List<Integer> findSeasonNumbersForSeries(String seriesTitle) {
-        return Video.<Video>list("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle)
+        return Video.<Video>list("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle, true)
                 .stream()
                 .map(v -> v.seasonNumber)
                 .filter(Objects::nonNull)
@@ -204,18 +204,19 @@ public class VideoService {
 
     @Transactional
     public List<Video> findEpisodesForSeason(String seriesTitle, Integer seasonNumber) {
-        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and isActive = ?4", 
-                         "episode", seriesTitle, seasonNumber,
-                         Sort.by("episodeNumber", Sort.Direction.Ascending));
+        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and isActive = ?4",
+                         Sort.by("episodeNumber", Sort.Direction.Ascending),
+                         "episode", seriesTitle, seasonNumber, true);
     }
 
     @Transactional
     public List<Video> findEpisodesForSeries(String seriesTitle) {
-        return Video.list("type = ?1 and seriesTitle = ?2 and isActive = ?3", 
-                         "episode", seriesTitle,
+        return Video.list("type = ?1 and seriesTitle = ?2 and isActive = ?3",
                          Sort.by("seasonNumber", Sort.Direction.Ascending)
-                         .and("episodeNumber", Sort.Direction.Ascending));
+                         .and("episodeNumber", Sort.Direction.Ascending),
+                         "episode", seriesTitle, true);
     }
+
 
     // ========== GENRE-BASED QUERIES ==========
 
@@ -297,8 +298,7 @@ public class VideoService {
 
     @Transactional
     public List<Video> findTrending(int limit) {
-        return Video.<Video>list("isActive = ?1", true,
-                         Sort.by("popularityScore", Sort.Direction.Descending))
+        return Video.<Video>list("isActive = ?1", Sort.by("popularityScore", Sort.Direction.Descending), true)
                 .stream()
                 .limit(limit)
                 .collect(Collectors.toList());
@@ -307,8 +307,7 @@ public class VideoService {
     @Transactional
     public List<Video> findNewlyAdded(int days, int limit) {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(days);
-        return Video.<Video>list("dateAdded >= ?1 AND isActive = ?2", cutoff, true,
-                         Sort.by("dateAdded", Sort.Direction.Descending))
+        return Video.<Video>list("dateAdded >= ?1 AND isActive = ?2", Sort.by("dateAdded", Sort.Direction.Descending), cutoff, true)
                 .stream()
                 .limit(limit)
                 .collect(Collectors.toList());
@@ -316,8 +315,7 @@ public class VideoService {
 
     @Transactional
     public List<Video> findHighlyRated(double minRating, int limit) {
-        return Video.<Video>list("isActive = ?1 AND imdbRating >= ?2", true, minRating,
-                         Sort.by("imdbRating", Sort.Direction.Descending))
+        return Video.<Video>list("isActive = ?1 AND imdbRating >= ?2", Sort.by("imdbRating", Sort.Direction.Descending), true, minRating)
                 .stream()
                 .limit(limit)
                 .collect(Collectors.toList());
@@ -325,8 +323,7 @@ public class VideoService {
 
     @Transactional
     public List<Video> findPopular(int limit) {
-        return Video.<Video>list("isActive = ?1 AND popularityScore > ?2", true, 0.0,
-                         Sort.by("popularityScore", Sort.Direction.Descending))
+        return Video.<Video>list("isActive = ?1 AND popularityScore > ?2", Sort.by("popularityScore", Sort.Direction.Descending), true, 0.0)
                 .stream()
                 .limit(limit)
                 .collect(Collectors.toList());
@@ -381,8 +378,7 @@ public class VideoService {
 
     @Transactional
     public List<Video> filterByQuality(String quality, int page, int limit) {
-        return Video.<Video>list("quality = ?1 AND isActive = ?2", quality, true,
-                         Sort.by("releaseYear", Sort.Direction.Descending))
+        return Video.<Video>list("quality = ?1 AND isActive = ?2", Sort.by("releaseYear", Sort.Direction.Descending), quality, true)
                 .stream()
                 .skip((page - 1) * limit)
                 .limit(limit)
@@ -391,15 +387,14 @@ public class VideoService {
 
     @Transactional
     public List<Video> filterByYearRange(int startYear, int endYear, int page, int limit) {
-        return Video.<Video>list("releaseYear >= ?1 AND releaseYear <= ?2 AND isActive = ?3", 
-                         startYear, endYear, true,
-                         Sort.by("popularityScore", Sort.Direction.Descending))
+        return Video.<Video>list("releaseYear >= ?1 AND releaseYear <= ?2 AND isActive = ?3",
+                         Sort.by("popularityScore", Sort.Direction.Descending),
+                         startYear, endYear, true)
                 .stream()
                 .skip((page - 1) * limit)
                 .limit(limit)
                 .collect(Collectors.toList());
     }
-
     // ========== SUBTITLE OPERATIONS ==========
 
     @Transactional
@@ -471,18 +466,87 @@ public class VideoService {
         return video;
     }
 
+    @Transactional
+    public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type) {
+        Video video = Video.findById(id);
+        if (video != null) {
+            video.title = title;
+            video.seriesTitle = seriesTitle;
+            video.episodeTitle = episodeTitle;
+            video.seasonNumber = seasonNumber;
+            video.episodeNumber = episodeNumber;
+            video.type = type;
+            video.dateModified = LocalDateTime.now();
+            video.persist();
+            LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', type='{}'", id, title, seriesTitle, type);
+        }
+    }
+
+    @Transactional
+    public void moveEpisodes(String oldSeriesTitle, String newSeriesTitle) {
+        if (oldSeriesTitle == null || newSeriesTitle == null) return;
+        
+        List<Video> episodes = findEpisodesForSeries(oldSeriesTitle);
+        for (Video ep : episodes) {
+            ep.seriesTitle = newSeriesTitle;
+            ep.dateModified = LocalDateTime.now();
+            ep.persist();
+        }
+        LOGGER.info("Moved {} episodes from series '{}' to '{}'", episodes.size(), oldSeriesTitle, newSeriesTitle);
+    }
+
+    @Transactional
+    public void updateSeriesTitle(String oldTitle, String newTitle) {
+        if (oldTitle == null || newTitle == null) return;
+        List<Video> videos = Video.list("seriesTitle = ?1", oldTitle);
+        for (Video v : videos) {
+            v.seriesTitle = newTitle;
+            v.persist();
+        }
+        LOGGER.info("Updated series title from '{}' to '{}' for {} videos", oldTitle, newTitle, videos.size());
+    }
+
+    @Transactional
+    public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath) {
+        if (seriesTitle == null) return;
+        List<Video> videos = findEpisodesForSeries(seriesTitle);
+        for (Video v : videos) {
+            if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
+            if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
+            v.dateModified = LocalDateTime.now();
+            v.persist();
+        }
+        LOGGER.info("Updated series metadata for '{}' ({} videos)", seriesTitle, videos.size());
+    }
+
     // ========== UTILITY METHODS ==========
 
     private String detectVideoType(Models.MediaFile mediaFile) {
         // Simple type detection based on naming and metadata
         String filename = extractFilenameFromPath(mediaFile.path);
+        String pathLower = mediaFile.path.toLowerCase();
+        
+        // Priority 1: Strong folder hints
+        if (pathLower.contains("tv shows") || pathLower.contains("tvseries") || 
+            pathLower.contains("/tv/") || pathLower.contains("\\tv\\") ||
+            pathLower.contains("season") || pathLower.contains("series")) {
+            return "episode";
+        }
+        
+        // Priority 2: Naming hints in filename
         if (filename.toLowerCase().contains("movie") || 
-            mediaFile.path.toLowerCase().contains("movies") ||
+            pathLower.contains("movies") ||
             isTypicalMovieDuration(mediaFile.durationSeconds)) {
+            
+            // Re-check for episode patterns in filename even if "movie" is in path
+            if (filename.matches(".*[sS]\\d+[eE]\\d+.*") || filename.matches(".*\\d+x\\d+.*")) {
+                return "episode";
+            }
             return "movie";
         } else if (isTypicalEpisodeDuration(mediaFile.durationSeconds)) {
             return "episode";
         }
+        
         return "movie"; // Default fallback
     }
 
@@ -495,11 +559,11 @@ public class VideoService {
     }
 
     private boolean isTypicalMovieDuration(int durationSeconds) {
-        return durationSeconds >= 5400 && durationSeconds <= 14400; // 1.5 - 4 hours
+        return durationSeconds >= 40 * 60 && durationSeconds <= 300 * 60; // 40-300 minutes
     }
 
     private boolean isTypicalEpisodeDuration(int durationSeconds) {
-        return durationSeconds >= 1200 && durationSeconds <= 5400; // 20 - 90 minutes
+        return durationSeconds >= 5 * 60 && durationSeconds <= 120 * 60; // 5-120 minutes
     }
 
     private String calculateDisplayResolution(String resolution) {

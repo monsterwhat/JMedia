@@ -92,11 +92,7 @@ public class VideoUiApi {
                     .data("json", (Function<Object, String>) this::toJson)
                     .render();
             
-            return "<div class='streaming-carousel-section'>" +
-                   "<div class='carousel-header'><div class='carousel-title-section'>" +
-                   "<i class='pi pi-star' style='color: #667eea'></i>" +
-                   "<h2 class='carousel-title'>Featured</h2>" +
-                   "</div></div>" + renderedHero + "</div>";
+            return renderedHero;
         } catch (Exception e) {
             LOG.error("Error generating hero fragment", e);
             return "";
@@ -117,7 +113,7 @@ public class VideoUiApi {
             System.out.println("DEBUG: Trending videos: " + ((List<?>)carouselData.get("trending")).size());
             System.out.println("DEBUG: TV Shows: " + ((List<?>)carouselData.get("tvShows")).size());
 
-            StringBuilder html = new StringBuilder();
+            StringBuilder html = new StringBuilder("<div class='carousels-container' style='padding: 2rem 0;'>");
             
             html.append(createSimpleCarouselHTML("New Releases", (List<Models.Video>) carouselData.get("newReleases"), "pi pi-clock", "#48c774", "NEW", "new-releases-carousel"));
             
@@ -129,6 +125,7 @@ public class VideoUiApi {
             html.append(createSimpleCarouselHTML("Movies", (List<Models.Video>) carouselData.get("movies"), "pi pi-video", "#5f27cd", "MOVIES", "movies-carousel"));
             html.append(createSimpleCarouselHTML("TV Shows", (List<Models.Video>) carouselData.get("tvShows"), "pi pi-desktop", "#00d2d3", "SERIES", "tv-shows-carousel"));
             
+            html.append("</div>");
             return html.toString();
         } catch (Exception e) {
             LOG.error("Error getting optimized carousels", e);
@@ -158,12 +155,15 @@ public class VideoUiApi {
     @GET
     @Path("/shows-fragment")
     @Blocking
-    public String getSeriesFragment() {
-        List<String> seriesTitles = videoService.findAllSeriesTitles();
+    public String getSeriesFragment(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit) {
         
-        // If empty, try finding with case-insensitive check if some are stored as 'Episode' or 'EPISODE'
-        if (seriesTitles.isEmpty()) {
-            seriesTitles = Models.Video.<Models.Video>listAll().stream()
+        List<String> allSeriesTitles = videoService.findAllSeriesTitles();
+        
+        // If empty, try finding with case-insensitive check
+        if (allSeriesTitles.isEmpty()) {
+            allSeriesTitles = Models.Video.<Models.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
                     .map(v -> v.seriesTitle)
                     .filter(Objects::nonNull)
@@ -172,13 +172,21 @@ public class VideoUiApi {
                     .collect(Collectors.toList());
         }
 
-        if (seriesTitles.isEmpty()) {
+        if (allSeriesTitles.isEmpty()) {
             return "<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>" +
                    "<div class='carousel-empty-state'><i class='pi pi-desktop'></i><h3>No shows found</h3><p>Try scanning your library or check if your episodes have series titles.</p></div>";
         }
 
+        int totalItems = allSeriesTitles.size();
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        
+        // Paginate the titles
+        List<String> pagedTitles = allSeriesTitles.stream()
+                .skip((long) (page - 1) * limit)
+                .limit(limit)
+                .collect(Collectors.toList());
+
         List<Models.Video> allEpisodes = videoService.findEpisodes();
-        // If findEpisodes returned nothing, try the case-insensitive version
         if (allEpisodes.isEmpty()) {
             allEpisodes = Models.Video.<Models.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
@@ -186,7 +194,7 @@ public class VideoUiApi {
         }
 
         List<SeriesTitleEntry> entries = new ArrayList<>();
-        for (String title : seriesTitles) {
+        for (String title : pagedTitles) {
             final String currentTitle = title;
             Models.Video sample = allEpisodes.stream()
                     .filter(v -> currentTitle.equals(v.seriesTitle))
@@ -204,6 +212,10 @@ public class VideoUiApi {
 
         return seriesListContent
                 .data("series", entries)
+                .data("currentPage", page)
+                .data("limit", limit)
+                .data("totalItems", totalItems)
+                .data("totalPages", totalPages)
                 .render();
     }
 
@@ -211,24 +223,31 @@ public class VideoUiApi {
     @Path("/shows/{seriesTitle}/seasons-fragment")
     @Blocking
     public String getSeasonsFragment(@PathParam("seriesTitle") String seriesTitle) {
-        List<Integer> seasonNumbers = videoService.findSeasonNumbersForSeries(seriesTitle);
-        
-        // Case-insensitive fallback for season numbers
-        if (seasonNumbers.isEmpty()) {
-             seasonNumbers = Models.Video.<Models.Video>listAll().stream()
-                .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && seriesTitle.equalsIgnoreCase(v.seriesTitle))
-                .map(v -> v.seasonNumber)
-                .filter(Objects::nonNull)
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
-        }
+        try {
+            // Path parameters are often not decoded automatically in all JAX-RS configurations
+            String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
+            List<Integer> seasonNumbers = videoService.findSeasonNumbersForSeries(decodedTitle);
+            
+            // Case-insensitive fallback for season numbers
+            if (seasonNumbers.isEmpty()) {
+                 seasonNumbers = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && decodedTitle.equalsIgnoreCase(v.seriesTitle))
+                    .map(v -> v.seasonNumber)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .sorted()
+                    .collect(Collectors.toList());
+            }
 
-        return seasonListContent
-                .data("seriesTitle", seriesTitle)
-                .data("encodedSeriesTitle", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8))
-                .data("seasonNumbers", seasonNumbers)
-                .render();
+            return seasonListContent
+                    .data("seriesTitle", decodedTitle)
+                    .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
+                    .data("seasonNumbers", seasonNumbers)
+                    .render();
+        } catch (Exception e) {
+            LOG.error("Error rendering seasons fragment for show {}: {}", seriesTitle, e.getMessage(), e);
+            return "<div class='carousel-empty-state'><i class='pi pi-exclamation-circle'></i><h3>Error loading seasons</h3><p>" + e.getMessage() + "</p></div>";
+        }
     }
 
     @GET
@@ -237,23 +256,31 @@ public class VideoUiApi {
     public String getEpisodesFragment(
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
-        List<Models.Video> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
-        
-        // Case-insensitive fallback
-        if (episodes.isEmpty()) {
-            episodes = Models.Video.<Models.Video>listAll().stream()
-                .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
-                        seriesTitle.equalsIgnoreCase(v.seriesTitle) && 
-                        seasonNumber.equals(v.seasonNumber))
-                .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
-                .collect(Collectors.toList());
-        }
+        try {
+            String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
+            LOG.info("Loading episodes for series: {}, season: {}", decodedTitle, seasonNumber);
+            
+            List<Models.Video> episodes = videoService.findEpisodesForSeason(decodedTitle, seasonNumber);
+            
+            // Case-insensitive fallback
+            if (episodes.isEmpty()) {
+                episodes = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
+                            decodedTitle.equalsIgnoreCase(v.seriesTitle) && 
+                            seasonNumber.equals(v.seasonNumber))
+                    .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
+                    .collect(Collectors.toList());
+            }
 
-        return episodeListContent
-                .data("episodes", episodes)
-                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
-                .data("encodedSeriesTitle", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8))
-                .render();
+            return episodeListContent
+                    .data("episodes", episodes)
+                    .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                    .data("encodedSeriesTitle", seriesTitle) // Use original encoded for sub-requests
+                    .render();
+        } catch (Exception e) {
+            LOG.error("Error rendering episodes fragment for show {} season {}: {}", seriesTitle, seasonNumber, e.getMessage(), e);
+            return "<div class='carousel-empty-state'><i class='pi pi-exclamation-circle'></i><h3>Error loading episodes</h3><p>" + e.getMessage() + "</p></div>";
+        }
     }
 
     @GET
@@ -275,6 +302,7 @@ public class VideoUiApi {
         
         return videoHistoryFragment
                 .data("videos", videos)
+                .data("threshold", 0.95)
                 .render();
     }
 
@@ -355,12 +383,27 @@ public class VideoUiApi {
 
     private String createSimpleCarouselHTML(String title, List<Models.Video> items, String iconClass, String iconColor, String badge, String carouselId) {
         if (items == null || items.isEmpty()) return "";
-        StringBuilder html = new StringBuilder("<div class='streaming-carousel-section'><div class='carousel-header'><div class='carousel-title-section'>");
+        StringBuilder html = new StringBuilder("<div class='streaming-carousel-section'>");
+        
+        // Header with title and controls
+        html.append("<div class='carousel-header'>");
+        html.append("<div class='carousel-title-section'>");
         html.append("<i class='").append(iconClass).append("' style='color: ").append(iconColor).append("'></i>");
         html.append("<h2 class='carousel-title'>").append(escapeHtml(title)).append("</h2>");
-        html.append("</div></div><div class='carousel-container'>");
-        html.append("<button class='carousel-nav-btn carousel-nav-left' onclick=\"window.scrollCarousel('").append(carouselId).append("', 'left')\"><i class='pi pi-chevron-left'></i></button>");
-        html.append("<button class='carousel-nav-btn carousel-nav-right' onclick=\"window.scrollCarousel('").append(carouselId).append("', 'right')\"><i class='pi pi-chevron-right'></i></button>");
+        if (badge != null && !badge.isEmpty()) {
+            html.append("<span class='carousel-badge'>").append(badge).append("</span>");
+        }
+        html.append("</div>");
+        
+        // Carousel controls moved to header
+        html.append("<div class='carousel-controls'>");
+        html.append("<button class='carousel-nav-btn' onclick=\"window.scrollCarousel('").append(carouselId).append("', 'left')\"><i class='pi pi-chevron-left'></i></button>");
+        html.append("<button class='carousel-nav-btn' onclick=\"window.scrollCarousel('").append(carouselId).append("', 'right')\"><i class='pi pi-chevron-right'></i></button>");
+        html.append("</div>");
+        html.append("</div>"); // End carousel-header
+
+        // Container for items
+        html.append("<div class='carousel-container'>");
         html.append("<div class='streaming-carousel' id='").append(carouselId).append("'>");
         for (Models.Video item : items) html.append(createSimpleCardHTML(item));
         html.append("</div></div></div>");
@@ -368,7 +411,7 @@ public class VideoUiApi {
     }
 
     private Map<String, Object> getCarouselData() {
-        List<Models.Video> all = videoService.findAll();
+        List<Models.Video> all = Models.Video.list("isActive", true);
         Map<String, Object> data = new HashMap<>();
         data.put("newReleases", all.stream().sorted((v1, v2) -> (v2.dateAdded != null ? v2.dateAdded : java.time.LocalDateTime.MIN).compareTo(v1.dateAdded != null ? v1.dateAdded : java.time.LocalDateTime.MIN)).limit(20).collect(Collectors.toList()));
         data.put("movies", all.stream().filter(v -> v.type != null && "movie".equalsIgnoreCase(v.type)).limit(20).collect(Collectors.toList()));

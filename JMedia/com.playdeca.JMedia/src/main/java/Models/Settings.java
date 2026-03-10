@@ -356,5 +356,13 @@ public class Settings extends PanacheEntity {
     public void setTmdbApiKey(String tmdbApiKey) {
         this.tmdbApiKey = tmdbApiKey;
     }
+    
+    public Boolean getThumbnailPreferApi() {
+        return thumbnailPreferApi != null ? thumbnailPreferApi : true;
+    }
+    
+    public void setThumbnailPreferApi(Boolean thumbnailPreferApi) {
+        this.thumbnailPreferApi = thumbnailPreferApi;
+    }
       
 }

@@ -127,25 +127,34 @@ function loadQueuePage(page = 1, profileIdParam) { // Added profileIdParam
             })
             .then(data => {
                 const tbody = document.querySelector('#songQueueTable tbody');
-                if (!tbody) {
+                const mobileQueue = document.getElementById('mobileQueueContent');
+                
+                if (!tbody && !mobileQueue) {
                     isFetchingQueue = false;
                     return;
                 }
 
-                tbody.innerHTML = data.html; // Replace content with new HTML
+                if (tbody) {
+                    tbody.innerHTML = data.html; // Replace content with new HTML
+                }
+                
+                if (mobileQueue) {
+                    // If server provides mobile-specific HTML, use it, otherwise use regular HTML
+                    mobileQueue.innerHTML = data.mobileHtml || data.html;
+                }
 
                 totalQueueSize = data.totalQueueSize; // Get totalQueueSize from JSON
                 isFetchingQueue = false;
 
-                
-
                 // Apply marquee effect to new rows
-                const rows = tbody.querySelectorAll('tr');
-                rows.forEach(row => {
-                    const titleCell = row.querySelector('td:nth-child(2)');
-                    if (titleCell)
-                        applyMarqueeEffectToQueue(titleCell);
-                });
+                if (tbody) {
+                    const rows = tbody.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const titleCell = row.querySelector('td:nth-child(2)');
+                        if (titleCell)
+                            applyMarqueeEffectToQueue(titleCell);
+                    });
+                }
 
                 updateQueueCount(totalQueueSize);
             })
@@ -260,8 +269,22 @@ window.handleQueueAction = (action, index, profileIdParam) => { // Added profile
             })
             .then(data => {
                 const tbody = document.querySelector('#songQueueTable tbody');
+                const mobileQueue = document.getElementById('mobileQueueContent');
+                
                 if (tbody) {
                     tbody.innerHTML = data.html; // Update tbody with new HTML
+                }
+                
+                if (mobileQueue) {
+                    if (data.mobileHtml) {
+                        mobileQueue.innerHTML = data.mobileHtml;
+                    } else if (window.jmediaMobile && window.jmediaMobile.loadMobileQueue) {
+                        // Refresh mobile queue content if jmediaMobile is available, using the current page
+                        window.jmediaMobile.loadMobileQueue(currentPage);
+                    } else {
+                        // Fallback refresh
+                        loadQueuePage(currentPage);
+                    }
                 }
                 
                 // Update queue count directly from response data if available

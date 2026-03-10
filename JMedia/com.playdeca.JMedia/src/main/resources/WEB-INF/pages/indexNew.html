@@ -12,288 +12,10 @@
 
         <!-- CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css">
-        <link rel="stylesheet" href="/css/mobile.css">
         <link rel="stylesheet" href="/lib/font-awesome/all.min.css">
         <link rel="stylesheet" href="/lib/primeicons.css">
-        <link rel="stylesheet" href="/css/custom.css">
+        <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
-
-        <style>
-            :root { --sidebar-width: 240px; }
-            .plex-layout.collapsed { --sidebar-width: 72px; }
-
-            /* SOLID FLEX LAYOUT */
-            .plex-content {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                position: relative;
-                overflow: hidden !important;
-            }
-
-            .music-main-wrapper {
-                flex: 1;
-                overflow-y: auto !important;
-                padding: 0 !important;
-                min-height: 0;
-            }
-
-            /* Narrower, Taller Squared Grid */
-            .mobile-song-list {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, 160px);
-                justify-content: center;
-                gap: 2rem;
-                padding: 2rem;
-                list-style: none;
-                margin: 0;
-            }
-
-            /* Ensure fragments also use the same layout if they contain song lists */
-            #queueContent:not(.is-hidden), #historyContent:not(.is-hidden) {
-                display: block;
-            }
-
-            .mobile-song-item {
-                display: flex !important;
-                flex-direction: column !important;
-                background: rgba(255,255,255,0.02) !important;
-                border: 1px solid rgba(255,255,255,0.05) !important;
-                border-radius: 12px !important;
-                cursor: pointer !important;
-                transition: all 0.2s ease !important;
-                overflow: hidden !important; 
-                padding: 0 !important; 
-                width: 160px !important;
-                height: 240px !important; 
-                flex-shrink: 0 !important;
-            }
-
-            .mobile-song-item:hover {
-                background: rgba(255,255,255,0.08) !important;
-                transform: translateY(-5px) !important;
-                border-color: rgba(72, 199, 116, 0.4) !important;
-                box-shadow: 0 15px 35px rgba(0,0,0,0.5) !important;
-            }
-
-            .mobile-song-artwork {
-                width: 160px !important;
-                height: 160px !important; 
-                background: #000 !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                border-bottom: 1px solid rgba(255,255,255,0.05) !important;
-                flex-shrink: 0 !important;
-            }
-
-            .mobile-song-artwork img {
-                width: 100% !important;
-                height: 100% !important;
-                object-fit: cover !important;
-            }
-
-            .mobile-song-info {
-                padding: 0.75rem !important;
-                width: 100% !important;
-                text-align: left !important;
-                flex-grow: 1 !important;
-                display: flex !important;
-                flex-direction: column !important;
-                justify-content: center !important;
-                overflow: hidden !important;
-            }
-
-            .mobile-song-title {
-                font-weight: 700 !important;
-                font-size: 0.85rem !important;
-                color: #fff !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-                margin-bottom: 0.15rem !important;
-            }
-
-            .mobile-song-artist {
-                font-size: 0.75rem !important;
-                color: #48c774 !important;
-                opacity: 0.8 !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-            }
-
-            /* SIDEBAR PLAYLISTS FIX */
-            .nav-sub-group { padding-left: 0.5rem; margin-top: 0.25rem; }
-            .nav-sub-item {
-                display: flex;
-                align-items: center;
-                gap: 0.75rem;
-                padding: 0.6rem 1rem !important;
-                font-size: 0.85rem;
-                color: rgba(255,255,255,0.5);
-                border-radius: 6px;
-                transition: 0.2s;
-                cursor: pointer;
-            }
-            .nav-sub-item:hover, .nav-sub-item.active { background: rgba(255,255,255,0.05); color: #48c774; }
-            .nav-label { padding: 0 1rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: rgba(255,255,255,0.3); margin-top: 1.5rem; }
-
-            /* PLAYER BAR */
-            .persistent-music-player {
-                flex-shrink: 0;
-                height: 100px;
-                background: rgba(10, 10, 10, 0.98);
-                backdrop-filter: blur(40px);
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-                padding: 0 !important;
-                z-index: 1000;
-                display: flex;
-                flex-direction: column;
-                overflow: visible !important;
-            }
-
-            .mobile-player { width: 100% !important; flex: 1; display: flex !important; align-items: center !important; padding: 0 2rem !important; position: relative !important; }
-            .mobile-player-info { display: flex !important; align-items: center !important; gap: 1rem !important; flex: 0 1 30% !important; min-width: 0; }
-            .mobile-player-artwork { width: 50px !important; height: 50px !important; border-radius: 8px !important; flex-shrink: 0 !important; background: rgba(255,255,255,0.05); overflow: hidden; }
-            .mobile-player-artwork img { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-            
-            .mobile-player-controls {
-                position: absolute !important;
-                left: 50% !important;
-                top: 50% !important;
-                transform: translate(-50%, -50%) !important;
-                display: flex !important;
-                align-items: center !important;
-                gap: 2rem !important;
-            }
-
-            .mobile-player-right-side {
-                display: flex !important;
-                align-items: center !important;
-                margin-left: auto !important;
-                gap: 1.5rem !important;
-            }
-
-            .mobile-btn { transition: 0.2s; cursor: pointer; background: transparent; border: none; }
-            .mobile-btn i { font-size: 1.2rem; color: white; }
-            .mobile-btn-primary { width: 44px; height: 44px; background: #48c774; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-            .mobile-btn-primary i { color: black !important; font-size: 1.4rem !important; }
-
-            .shuffle-on i, .repeat-all i { color: #48c774 !important; text-shadow: 0 0 10px rgba(72, 199, 116, 0.5); }
-            .shuffle-smart i { color: #3298dc !important; }
-            .repeat-one i { color: #ffdd57 !important; }
-
-            /* VOLUME SLIDER STYLES */
-            .mobile-volume-wrapper { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
-            .volume-slider-container { 
-                position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); 
-                width: 40px; height: 140px; background: rgba(15, 15, 15, 0.98); backdrop-filter: blur(15px);
-                border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; 
-                display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 2000;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            }
-            /* Bridge the gap for hover */
-            .volume-slider-container::after {
-                content: "";
-                position: absolute;
-                top: 100%;
-                left: 0;
-                width: 100%;
-                height: 30px; /* Cover the 10px gap + button area */
-                background: transparent;
-            }
-            .mobile-volume-wrapper:hover .volume-slider-container { display: flex; }
-            .vertical-volume { 
-                appearance: none; -webkit-appearance: none; width: 100px; height: 6px;
-                background: rgba(255,255,255,0.1) !important; 
-                background-image: linear-gradient(#48c774, #48c774) !important;
-                background-size: var(--slider-progress, 0%) 100% !important; 
-                background-repeat: no-repeat !important; 
-                outline: none;
-                border-radius: 3px; 
-                transform: rotate(-90deg); 
-                cursor: pointer;
-                margin: 0 !important;
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform-origin: center;
-                transform: translate(-50%, -50%) rotate(-90deg);
-            }
-            .vertical-volume::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 14px; height: 14px; background: #48c774; border-radius: 50%; cursor: pointer; }
-
-            /* CONTEXT MENU */
-            .context-menu {
-                position: fixed !important;
-                z-index: 100000 !important;
-                background: rgba(20, 20, 20, 0.95) !important;
-                backdrop-filter: blur(15px) !important;
-                border: 1px solid rgba(255,255,255,0.1) !important;
-                border-radius: 8px !important;
-                padding: 5px 0 !important;
-                min-width: 200px !important;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.6) !important;
-                display: none;
-            }
-            .context-menu-item { padding: 10px 20px !important; color: white !important; cursor: pointer !important; font-size: 0.9rem !important; display: flex; align-items: center; gap: 12px; }
-            .context-menu-item:hover { background: rgba(72, 199, 116, 0.2); color: #48c774; }
-            .submenu { position: absolute; left: 100%; top: 0; background: rgba(20, 20, 20, 0.98); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; min-width: 180px; display: none; }
-            .context-menu-item.has-submenu:hover .submenu { display: block; }
-
-            /* PROGRESS BAR AT ABSOLUTE EDGE */
-            .mobile-progress-container {
-                width: 100% !important;
-                height: 4px; /* Even thinner */
-                position: absolute;
-                bottom: 0; /* ABSOLUTE BOTTOM */
-                left: 0; right: 0;
-                z-index: 1500;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-            }
-            .mobile-progress#playbackProgressBar {
-                width: 100% !important;
-                height: 4px !important;
-                background: rgba(255,255,255,0.1) !important;
-                background-image: linear-gradient(#48c774, #48c774) !important;
-                background-size: var(--slider-progress, 0%) 100% !important;
-                background-repeat: no-repeat !important;
-                appearance: none; -webkit-appearance: none; margin: 0;
-                transition: background-size 0.2s linear !important;
-            }
-            .mobile-progress-time {
-                position: absolute;
-                bottom: 12px;
-                left: 2rem; right: 2rem;
-                display: flex; justify-content: space-between;
-                font-size: 0.7rem; color: rgba(255,255,255,0.5); pointer-events: none;
-            }
-
-            /* EMPTY STATE */
-            .empty-state-container {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 4rem 2rem;
-                text-align: center;
-                height: 100%;
-                min-height: 400px;
-            }
-            .empty-state-icon {
-                font-size: 4rem;
-                color: rgba(255,255,255,0.1);
-                margin-bottom: 1.5rem;
-            }
-            .empty-state-text {
-                font-size: 1.25rem;
-                font-weight: 600;
-                color: rgba(255,255,255,0.6);
-                margin-bottom: 2rem;
-            }
-        </style>
     </head>
     <body class="music-page">
 
@@ -332,7 +54,7 @@
 
                     <div class="nav-group mt-auto">
                         <a href="/settings" class="nav-item"><i class="pi pi-cog"></i> <span>Settings</span></a>
-                        <a href="javascript:void(0)" class="nav-item" id="nav-profile" onclick="openMobileProfileModal()">
+                        <a href="javascript:void(0)" class="nav-item" id="openProfileModalBtn">
                             <i class="pi pi-user"></i> <span id="currentProfileName">Profile</span>
                         </a>
                     </div>
@@ -349,8 +71,8 @@
                 <main class="plex-content">
                     <div class="music-main-wrapper" id="musicContentArea">
                         <div id="mobileSongList" class="mobile-song-list"></div>
-                        <div id="queueContent" class="is-hidden"></div>
-                        <div id="historyContent" class="is-hidden"></div>
+                        <div id="mobileQueueContent" class="is-hidden"></div>
+                        <div id="mobileHistoryContent" class="is-hidden"></div>
                     </div>
 
                     <div class="persistent-music-player">
@@ -382,11 +104,9 @@
                         </div>
 
                         <div class="mobile-progress-container">
+                            <span id="currentTime">0:00</span>
                             <input type="range" id="playbackProgressBar" class="mobile-progress" min="0" max="100" value="0">
-                            <div class="mobile-progress-time">
-                                <span id="currentTime">0:00</span>
-                                <span id="totalTime">0:00</span>
-                            </div>
+                            <span id="totalTime">0:00</span>
                         </div>
                     </div>
                 </main>
@@ -431,8 +151,10 @@
         </div>
 
         <script src="/js/toast.js"></script>
+        <script src="/js/songQueue.js"></script>
         <script src="/js/musicBar.js"></script>
         <script src="/js/mediaSession.js"></script>
+        <script src="/js/profileManager.js"></script>
 
         <script>
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
@@ -458,7 +180,6 @@
                 if (cachedPos) applySidebar(cachedPos);
                 fetch(`/api/settings/${window.globalActiveProfileId}/sidebar-position`).then(r => r.json()).then(json => { if(json.data) { applySidebar(json.data); localStorage.setItem('sidebarPosition', json.data); } });
 
-                fetchMobileCurrentProfile();
                 loadMobilePlaylists();
                 setTimeout(() => { loadMobilePlaylistSongs(0); }, 100);
             });
@@ -476,8 +197,8 @@
                 if (id === 0) document.getElementById('nav-music').classList.add('active');
                 else document.getElementById(`nav-playlist-${id}`)?.classList.add('active');
                 document.getElementById('mobileSongList').classList.remove('is-hidden');
-                document.getElementById('queueContent').classList.add('is-hidden');
-                document.getElementById('historyContent').classList.add('is-hidden');
+                document.getElementById('mobileQueueContent').classList.add('is-hidden');
+                document.getElementById('mobileHistoryContent').classList.add('is-hidden');
                 if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${window.globalActiveProfileId}/${id}`, { target: '#mobileSongList', swap: 'innerHTML' });
             }
 
@@ -485,9 +206,9 @@
                 document.querySelectorAll('.nav-item, .nav-sub-item').forEach(el => el.classList.remove('active'));
                 document.getElementById(`nav-${tab}`)?.classList.add('active');
                 document.getElementById('mobileSongList').classList.add('is-hidden');
-                document.getElementById('queueContent').classList.add('is-hidden');
-                document.getElementById('historyContent').classList.add('is-hidden');
-                const targetId = tab === 'queue' ? 'queueContent' : 'historyContent';
+                document.getElementById('mobileQueueContent').classList.add('is-hidden');
+                document.getElementById('mobileHistoryContent').classList.add('is-hidden');
+                const targetId = tab === 'queue' ? 'mobileQueueContent' : 'mobileHistoryContent';
                 const endpoint = tab === 'queue' ? 'mobile-queue-fragment' : 'mobile-history-fragment';
                 document.getElementById(targetId).classList.remove('is-hidden');
                 if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/${endpoint}/${window.globalActiveProfileId}`, { target: `#${targetId}`, swap: 'innerHTML' });
@@ -500,10 +221,50 @@
                 const res = await fetch(`/api/music/playlists/${window.globalActiveProfileId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
                 if (res.ok) { document.getElementById('playlistModal').classList.remove('is-active'); loadMobilePlaylists(); window.Toast.success('Playlist created'); }
             }
-            function fetchMobileCurrentProfile() { fetch('/api/profiles/current').then(r => r.json()).then(p => { document.getElementById('currentProfileName').textContent = p.name || 'Profile'; }); }
-            function handleLogout() { fetch('/api/auth/logout', { method: 'POST' }).then(() => location.href = '/login.html'); }
-            function openMobileProfileModal() { /* logic */ }
+
+            // Globally accessible logout function
+            window.handleLogout = async function() {
+                try {
+                    await fetch('/api/auth/logout', { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    window.location.href = '/login.html';
+                } catch (error) {
+                    window.location.href = '/login.html';
+                }
+            };
         </script>
+        
+        <!-- Profile Modal -->
+        <div id="profileModal" class="modal">
+            <div class="modal-background"></div>
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">Manage Profiles</p>
+                    <button class="delete" aria-label="close"></button>
+                </header>
+                <section class="modal-card-body">
+                    <h5 class="title is-5">Current Profile: <span id="modalCurrentProfileName">Loading...</span></h5>
+                    <div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div>
+                    <hr>
+                    <div class="field has-addons">
+                        <div class="control is-expanded">
+                            <input class="input" type="text" id="newProfileNameInput" placeholder="New profile name">
+                        </div>
+                        <div class="control">
+                            <button class="button is-info" id="createProfileBtn">Create</button>
+                        </div>
+                    </div>
+                    <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button>
+                </section>
+                <footer class="modal-card-foot" style="justify-content: space-between;">
+                    <button class="button is-danger" id="logoutBtn" onclick="if(window.handleLogout) window.handleLogout(); else { fetch('/api/auth/logout', {method:'POST'}).then(()=>window.location.href='/login.html'); }">Logout</button>
+                    <button class="button" onclick="this.closest('.modal').classList.remove('is-active')">Close</button>
+                </footer>
+            </div>
+        </div>
+
         <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 2000000;"></div>
     </body>
 </html>

@@ -81,6 +81,18 @@ public class MediaPreProcessor {
             }
         }
         
+        // If no episode pattern in filename, check path for strong indicators
+        if (!isEpisode) {
+            String fullPath = videoPath.toString().toLowerCase();
+            if (fullPath.contains("tv shows") || fullPath.contains("tvseries") || 
+                fullPath.contains("season") || fullPath.contains("series")) {
+                pendingMedia.rawMediaType = "episode";
+                pendingMedia.rawShowName = inferBasicShowName(videoPath);
+                pendingMedia.rawTitle = extractTitleFromFilename(filename);
+                isEpisode = true;
+            }
+        }
+        
         if (!isEpisode) {
             // Assume movie
             pendingMedia.rawMediaType = "movie";

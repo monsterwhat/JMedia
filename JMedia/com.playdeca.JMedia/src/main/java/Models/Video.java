@@ -112,6 +112,10 @@ public class Video extends PanacheEntity {
     public Integer getDurationSeconds() {
         return duration != null ? (int) (duration / 1000) : 0;
     }
+
+    public Integer getWatchProgressPercent() {
+        return watchProgress != null ? (int) (watchProgress * 100) : 0;
+    }
     
     // Media Paths
     public String thumbnailPath;
@@ -153,5 +157,9 @@ public class Video extends PanacheEntity {
     
     // System Fields
     public boolean isActive = true;
+    
+    public void setThumbnailPath(String thumbnailPath) {
+        this.thumbnailPath = thumbnailPath;
+    }
      
 }

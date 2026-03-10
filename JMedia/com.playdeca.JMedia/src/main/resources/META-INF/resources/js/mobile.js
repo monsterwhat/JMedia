@@ -350,18 +350,20 @@ class JMediaMobile {
         console.log('[MOBILE] JSON playlists rendered successfully');
     }
 
-    loadMobileQueue() {
+    loadMobileQueue(page = 1) {
         if (window.htmx) {
-            window.htmx.ajax('GET', `/api/music/ui/mobile-queue-fragment/${window.globalActiveProfileId || '1'}`, {
+            const url = `/api/music/ui/mobile-queue-fragment/${window.globalActiveProfileId || '1'}?page=${page}`;
+            window.htmx.ajax('GET', url, {
                 target: document.getElementById('mobileQueueContent'),
                 swap: 'innerHTML'
             });
         }
     }
 
-    loadMobileHistory() {
+    loadMobileHistory(page = 1) {
         if (window.htmx) {
-            window.htmx.ajax('GET', `/api/music/ui/mobile-history-fragment/${window.globalActiveProfileId || '1'}`, {
+            const url = `/api/music/ui/mobile-history-fragment/${window.globalActiveProfileId || '1'}?page=${page}`;
+            window.htmx.ajax('GET', url, {
                 target: document.getElementById('mobileHistoryContent'),
                 swap: 'innerHTML'
             });

@@ -21,8 +21,7 @@
         <!-- Bulma CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="/lib/primeicons.css">
-        <link rel="stylesheet" href="/css/custom.css"/>
-        
+        <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
     </head>
@@ -78,6 +77,9 @@
                         <a href="javascript:void(0)" class="nav-item" id="nav-watchlist" onclick="videoSPA.switchSection('watchlist')">
                             <i class="pi pi-bookmark"></i> <span>Watchlist</span>
                         </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="videoSPA.switchSection('manage')">
+                            <i class="pi pi-cog"></i> <span>Manage Library</span>
+                        </a>
                     </div>
 
                     <div class="nav-group">
@@ -98,10 +100,38 @@
                 </nav>
             </aside>
 
+            <!-- Mobile Bottom Navigation -->
+            <nav class="mobile-bottom-nav">
+                <a href="javascript:void(0)" class="mobile-nav-item active" id="mobile-nav-home" onclick="window.switchSection('home')">
+                    <i class="pi pi-home"></i>
+                    <span>Home</span>
+                </a>
+                <a href="javascript:void(0)" class="mobile-nav-item" id="mobile-nav-movies" onclick="window.switchSection('movies')">
+                    <i class="pi pi-ticket"></i>
+                    <span>Movies</span>
+                </a>
+                <a href="javascript:void(0)" class="mobile-nav-item" id="mobile-nav-shows" onclick="window.switchSection('shows')">
+                    <i class="pi pi-desktop"></i>
+                    <span>TV Shows</span>
+                </a>
+                <a href="javascript:void(0)" class="mobile-nav-item" id="mobile-nav-history" onclick="window.switchSection('history')">
+                    <i class="pi pi-clock"></i>
+                    <span>History</span>
+                </a>
+            </nav>
+
             <!-- Main Scrollable Area -->
             <div class="plex-main">
                 <!-- Top Header -->
                 <header class="plex-header">
+                    <div class="user-controls">
+                        <a href="/" class="button is-ghost theme-toggle-btn" title="Music Library">
+                            <i class="pi pi-music"></i>
+                        </a>
+                        <a href="javascript:void(0)" class="button is-ghost theme-toggle-btn" onclick="document.getElementById('profileModal').classList.add('is-active')">
+                            <i class="pi pi-user"></i>
+                        </a>
+                    </div>
                     <div class="search-container">
                         <div class="control has-icons-left">
                             <input class="input is-rounded plex-search" type="text" placeholder="Search library..." name="search" id="globalSearchInput"
@@ -156,23 +186,34 @@
             class VideoSPA {
                 constructor() {
                     this.currentSection = 'home';
+                    this.previousSection = 'home';
+                    this.currentParams = {};
+                    this.previousParams = {};
                     this.sections = {
                         home: 'home',
                         movies: '/api/video/ui/movies-fragment',
                         shows: '/api/video/ui/shows-fragment',
                         history: '/api/video/ui/history-fragment',
                         watchlist: '/api/video/ui/watchlist-fragment',
-                        details: '/api/video/ui/details-fragment/\{videoId\}',
-                        playback: '/api/video/ui/playback-fragment?videoId=\{videoId\}'
-                    };
+                        manage: '/api/video/manage',
+                        seasons: '/api/video/ui/shows/{encodedTitle}/seasons-fragment',
+                        details: '/api/video/ui/details-fragment/{videoId}',
+                        playback: '/api/video/ui/playback-fragment?videoId={videoId}'
+                        };
                 }
                 
-                async switchSection(section, params = {}) {
+                async switchSection(section, params = {}, bypassHistory = false) {
                     this.showLoading();
                     
                     if (section === 'home') {
-                        this.goHome();
+                        this.goHome(bypassHistory);
                         return;
+                    }
+
+                    // Track history for back button
+                    if (this.currentSection !== 'details' && this.currentSection !== 'playback') {
+                        this.previousSection = this.currentSection;
+                        this.previousParams = this.currentParams;
                     }
 
                     this.updateNavState(section);
@@ -181,13 +222,33 @@
                         const html = await this.fetchContent(url);
                         this.updateContent(html);
                         this.hideLoading();
+                        
+                        if (!bypassHistory) {
+                            history.pushState({ section, params }, '', '');
+                        }
+
                         this.currentSection = section;
+                        this.currentParams = params;
                     } catch (error) {
                         this.handleError(error);
                     }
                 }
                 
-                goHome() {
+                goBack() {
+                    if (this.previousSection) {
+                        this.switchSection(this.previousSection, this.previousParams, true);
+                    } else {
+                        this.goHome(true);
+                    }
+                }
+                
+                goHome(bypassHistory = false) {
+                    // Track history for back button
+                    if (this.currentSection !== 'home' && this.currentSection !== 'details' && this.currentSection !== 'playback') {
+                        this.previousSection = this.currentSection;
+                        this.previousParams = this.currentParams;
+                    }
+
                     this.updateNavState('home');
                     this.updateContent(`
                         <div id="hero-section" 
@@ -206,7 +267,13 @@
                     if (window.htmx) {
                         htmx.process(document.getElementById('spa-content'));
                     }
+
+                    if (!bypassHistory) {
+                        history.pushState({ section: 'home', params: {} }, '', '');
+                    }
+
                     this.currentSection = 'home';
+                    this.currentParams = {};
                     this.hideLoading();
                 }
 
@@ -238,6 +305,11 @@
                     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
                     const activeNav = document.getElementById('nav-' + section);
                     if (activeNav) activeNav.classList.add('active');
+                    
+                    // Update mobile nav
+                    document.querySelectorAll('.mobile-nav-item').forEach(el => el.classList.remove('active'));
+                    const activeMobileNav = document.getElementById('mobile-nav-' + section);
+                    if (activeMobileNav) activeMobileNav.classList.add('active');
                 }
 
                 buildUrl(section, params) {
@@ -258,6 +330,9 @@
                     const contentDiv = document.getElementById('spa-content');
                     if (contentDiv) {
                         contentDiv.innerHTML = html;
+                        if (window.htmx) {
+                            htmx.process(contentDiv);
+                        }
                         this.executeScripts(contentDiv);
                     }
                 }
@@ -355,6 +430,15 @@
                 initKeyboardNavigation();
                 initSearchClear();
                 
+                // Handle browser back button
+                window.onpopstate = (event) => {
+                    if (event.state && event.state.section) {
+                        videoSPA.switchSection(event.state.section, event.state.params, true);
+                    } else {
+                        videoSPA.goHome(true);
+                    }
+                };
+
                 // Restore sidebar state
                 if (localStorage.getItem('sidebarCollapsed') === 'true') {
                     document.getElementById('plex-layout').classList.add('collapsed');

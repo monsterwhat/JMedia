@@ -1,0 +1,208 @@
+package API.Rest;
+
+import Services.VideoService;
+import Services.VideoImportService;
+import Services.SettingsService;
+import Models.Video;
+import Models.DTOs.TvShowDTO;
+import io.quarkus.qute.Template;
+import io.smallrye.common.annotation.Blocking;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Path("/api/video/manage")
+@Produces(MediaType.TEXT_HTML)
+public class VideoManagementApi {
+
+    private static final Logger LOG = LoggerFactory.getLogger(VideoManagementApi.class);
+
+    @Inject
+    VideoService videoService;
+
+    @Inject
+    VideoImportService videoImportService;
+
+    @Inject
+    SettingsService settingsService;
+
+    @Inject @io.quarkus.qute.Location("manageFragment.html")
+    Template manageFragment;
+
+    @Inject @io.quarkus.qute.Location("editVideoFragment.html")
+    Template editVideoFragment;
+
+    @Inject @io.quarkus.qute.Location("seriesEpisodesFragment.html")
+    Template seriesEpisodesFragment;
+
+    @GET
+    @Blocking
+    public String getManagePanel(@QueryParam("search") String search, @QueryParam("type") String type) {
+        List<Video> allVideos = videoService.findAll();
+        List<Video> filteredVideos = allVideos;
+        
+        if (search != null && !search.isEmpty()) {
+            String lowerSearch = search.toLowerCase();
+            filteredVideos = filteredVideos.stream()
+                    .filter(v -> (v.title != null && v.title.toLowerCase().contains(lowerSearch)) || 
+                                 (v.seriesTitle != null && v.seriesTitle.toLowerCase().contains(lowerSearch)) ||
+                                 (v.filename != null && v.filename.toLowerCase().contains(lowerSearch)))
+                    .collect(Collectors.toList());
+        }
+        
+        if (type != null && !type.isEmpty() && !type.equals("all")) {
+            final String finalType = type;
+            filteredVideos = filteredVideos.stream()
+                    .filter(v -> finalType.equalsIgnoreCase(v.type))
+                    .collect(Collectors.toList());
+        }
+
+        List<TvShowDTO> shows = null;
+        List<Video> videosToDisplay = null;
+        int totalCount = filteredVideos.size();
+
+        if ("episode".equalsIgnoreCase(type)) {
+            // Group by series
+            Map<String, List<Video>> grouped = filteredVideos.stream()
+                    .filter(v -> v.seriesTitle != null)
+                    .collect(Collectors.groupingBy(v -> v.seriesTitle));
+            
+            shows = grouped.entrySet().stream()
+                    .map(entry -> new TvShowDTO(entry.getKey(), entry.getValue()))
+                    .sorted((a, b) -> a.seriesTitle.compareToIgnoreCase(b.seriesTitle))
+                    .collect(Collectors.toList());
+            totalCount = shows.size();
+        } else {
+            // Limit results for management panel to avoid crashing UI
+            int limit = 100;
+            videosToDisplay = filteredVideos.stream().limit(limit).collect(Collectors.toList());
+        }
+
+        return manageFragment
+                .data("videos", videosToDisplay)
+                .data("shows", shows)
+                .data("totalCount", totalCount)
+                .data("search", search)
+                .data("type", type)
+                .render();
+    }
+
+    @GET
+    @Path("/series/{seriesTitle}")
+    @Blocking
+    public String getSeriesEpisodes(@PathParam("seriesTitle") String seriesTitle) {
+        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+        if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
+        
+        Video representative = episodes.get(0);
+        return seriesEpisodesFragment
+                .data("seriesTitle", seriesTitle)
+                .data("episodes", episodes)
+                .data("posterPath", representative.posterPath)
+                .data("backdropPath", representative.backdropPath)
+                .render();
+    }
+
+    @POST
+    @Path("/series/update")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response updateSeries(
+            @FormParam("seriesTitle") String seriesTitle,
+            @FormParam("posterPath") String posterPath,
+            @FormParam("backdropPath") String backdropPath) {
+        
+        videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath);
+        return Response.ok("Series updated successfully").build();
+    }
+
+    @POST
+    @Path("/series/rescan")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response rescanSeries(@FormParam("seriesTitle") String seriesTitle) {
+        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+        if (episodes.isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Series not found").build();
+        }
+
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("Video library path not configured").build();
+        }
+
+        Set<java.nio.file.Path> parentDirs = new HashSet<>();
+        for (Video v : episodes) {
+            if (v.path != null) {
+                try {
+                    java.nio.file.Path fullPath = java.nio.file.Paths.get(v.path);
+                    if (!fullPath.isAbsolute()) {
+                        fullPath = java.nio.file.Paths.get(videoLibraryPath, v.path);
+                    }
+                    parentDirs.add(fullPath.getParent());
+                } catch (Exception e) {
+                    LOG.error("Error determining parent path for video: " + v.path, e);
+                }
+            }
+        }
+
+        LOG.info("Forcing rescan for series '{}' in {} directories", seriesTitle, parentDirs.size());
+        for (java.nio.file.Path dir : parentDirs) {
+            videoImportService.scan(dir, false);
+        }
+
+        return Response.ok("Rescan started for series directories").build();
+    }
+
+    @GET
+    @Path("/edit/{id}")
+    @Blocking
+    public String getEditFragment(@PathParam("id") Long id) {
+        Video video = videoService.find(id);
+        if (video == null) return "<div class='notification is-danger'>Video not found</div>";
+        
+        List<String> allSeries = videoService.findAllSeriesTitles();
+        
+        return editVideoFragment
+                .data("video", video)
+                .data("allSeries", allSeries)
+                .render();
+    }
+
+    @POST
+    @Path("/update/{id}")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response updateVideo(
+            @PathParam("id") Long id,
+            @FormParam("title") String title,
+            @FormParam("seriesTitle") String seriesTitle,
+            @FormParam("episodeTitle") String episodeTitle,
+            @FormParam("seasonNumber") Integer seasonNumber,
+            @FormParam("episodeNumber") Integer episodeNumber,
+            @FormParam("type") String type) {
+        
+        videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type);
+        return Response.ok("Metadata updated successfully").build();
+    }
+
+    @POST
+    @Path("/rename-series")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response renameSeries(
+            @FormParam("oldTitle") String oldTitle,
+            @FormParam("newTitle") String newTitle) {
+        
+        videoService.updateSeriesTitle(oldTitle, newTitle);
+        return Response.ok("Series renamed successfully").build();
+    }
+}

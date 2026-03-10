@@ -150,6 +150,9 @@ public class VideoController {
                 st.setSeriesTitle(newVideo.seriesTitle);
                 st.setEpisodeTitle("episode".equals(newVideo.type) ? newVideo.episodeTitle : newVideo.title);
                 st.setDuration(newVideo.duration);
+                
+                // Record history when a new video is selected
+                videoHistoryService.addFromVideoId(id);
             }
             st.setPlaying(true);
             st.setCurrentTime(0);
@@ -184,9 +187,8 @@ public class VideoController {
         }
 
         if (st.getCurrentVideoId() != null) {
-            // videoHistoryService.add expects a Video object, this needs adjustment.
-            // For now, we assume it can take the ID or has been refactored.
-            // videoHistoryService.add(st.getCurrentVideoId());
+            // Record history when advancing
+            videoHistoryService.addFromVideoId(st.getCurrentVideoId());
         }
 
         Long nextVideoId = videoQueueController.advance(st, forward);

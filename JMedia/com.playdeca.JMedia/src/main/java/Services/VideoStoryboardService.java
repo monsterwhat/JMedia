@@ -34,6 +34,11 @@ public class VideoStoryboardService {
     @Inject
     VideoService videoService;
 
+    @Inject
+    org.eclipse.microprofile.context.ManagedExecutor executor;
+
+    private static final java.util.Set<Long> GENERATING_IDS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     public static class StoryboardMetadata {
         public double interval;
         public int tileWidth;
@@ -59,22 +64,32 @@ public class VideoStoryboardService {
             return null;
         }
 
+        // Check if image exists
+        Path dir = getStoryboardDirectory();
+        Path path = dir.resolve("video_" + videoId + ".jpg");
+        boolean exists = Files.exists(path);
+
+        // Always trigger generation if it doesn't exist
+        if (!exists && !GENERATING_IDS.contains(videoId)) {
+            executor.submit(() -> generateStoryboard(videoId, path));
+        }
+
         long durationMs = (video.duration != null && video.duration > 0) ? video.duration : 0;
         
-        // If duration is 0, we can't really calculate intervals
+        // If duration is 0, we can't provide metadata yet
         if (durationMs <= 0) {
-            LOGGER.warn("Video ID {} has no duration stored. Cannot provide storyboard metadata.", videoId);
-            // We could try to probe here, but for now we just return null as the error indicates
             return null;
         }
 
         double durationSeconds = durationMs / 1000.0;
         double interval = durationSeconds / TOTAL_TILES;
-        
-        // Height is usually 9/16 of width for widescreen
         int tileHeight = (int) (TILE_WIDTH * 9.0 / 16.0);
         
         return new StoryboardMetadata(interval, TILE_WIDTH, tileHeight, COLUMNS, ROWS, TOTAL_TILES);
+    }
+
+    public boolean isGenerating(Long videoId) {
+        return GENERATING_IDS.contains(videoId);
     }
 
     public File getStoryboardImage(Long videoId) {
@@ -85,61 +100,100 @@ public class VideoStoryboardService {
             return path.toFile();
         }
 
-        // Generate on demand
-        if (generateStoryboard(videoId, path)) {
-            return path.toFile();
+        // If already generating, don't start another one, but don't block either
+        if (GENERATING_IDS.contains(videoId)) {
+            LOGGER.debug("Storyboard for video {} is already being generated.", videoId);
+            return null;
         }
+
+        // Generate in background
+        executor.submit(() -> generateStoryboard(videoId, path));
 
         return null;
     }
 
     private boolean generateStoryboard(Long videoId, Path outputPath) {
-        Video video = videoService.find(videoId);
-        if (video == null || video.path == null) return false;
-
-        String ffmpegPath = findFFmpegExecutable();
-        if (ffmpegPath == null) {
-            LOGGER.error("FFmpeg not found - cannot generate storyboard");
+        if (!GENERATING_IDS.add(videoId)) {
             return false;
         }
 
-        double durationSeconds = (video.duration != null && video.duration > 0) ? video.duration / 1000.0 : 0;
-        if (durationSeconds <= 0) return false;
-
-        double fps = TOTAL_TILES / durationSeconds;
-        int tileHeight = (int) (TILE_WIDTH * 9.0 / 16.0);
-
-        // FFmpeg command to generate a tile grid
-        // fps=N: extract frames at specific rate
-        // scale=W:H: scale each frame
-        // tile=CxR: arrange into grid
-        String filter = String.format("fps=%.4f,scale=%d:%d,tile=%dx%d", fps, TILE_WIDTH, tileHeight, COLUMNS, ROWS);
-
-        ProcessBuilder pb = new ProcessBuilder(
-            ffmpegPath,
-            "-i", video.path,
-            "-vf", filter,
-            "-frames:v", "1",
-            "-q:v", "4",
-            "-y",
-            outputPath.toString()
-        );
-
         try {
+            Video video = videoService.find(videoId);
+            if (video == null || video.path == null) return false;
+
+            String ffmpegPath = findFFmpegExecutable();
+            if (ffmpegPath == null) {
+                LOGGER.error("FFmpeg not found - cannot generate storyboard");
+                return false;
+            }
+
+            double durationSeconds = (video.duration != null && video.duration > 0) ? video.duration / 1000.0 : 0;
+            if (durationSeconds <= 0) return false;
+
+            // More efficient: jump to specific frames instead of processing every frame
+            // We want 100 tiles. Select frames at regular intervals.
+            double interval = durationSeconds / TOTAL_TILES;
+            
+            // Using select filter with a more efficient sampling strategy
+            // 'not(mod(n,N))' is fast but 'select=between(t,x,y)' or 'fps' can be slow if not combined with seeking
+            // However, for a single pass to a single image, this filter is generally okay
+            // Let's use a slightly better filter for tiling
+            int tileHeight = (int) (TILE_WIDTH * 9.0 / 16.0);
+            String filter = String.format("select='not(mod(n,%d))',scale=%d:%d,tile=%dx%d", 
+                (int)(durationSeconds * 24 / TOTAL_TILES), // Rough estimate of frames if 24fps
+                TILE_WIDTH, tileHeight, COLUMNS, ROWS);
+            
+            // Actually, let's use the time-based selection which is more reliable
+            filter = String.format("select='isnan(prev_selected_t)+gte(t-prev_selected_t,%.4f)',scale=%d:%d,tile=%dx%d", 
+                interval, TILE_WIDTH, tileHeight, COLUMNS, ROWS);
+
             LOGGER.info("Generating storyboard for video {}: {}", videoId, video.title);
+            Path tempPath = outputPath.resolveSibling(outputPath.getFileName().toString() + ".tmp");
+            
+            ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath,
+                "-i", video.path,
+                "-vf", filter,
+                "-frames:v", "1",
+                "-q:v", "4",
+                "-f", "image2",
+                "-y",
+                tempPath.toString()
+            );
+
+            pb.redirectErrorStream(true);
             Process process = pb.start();
-            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            
+            StringBuilder output = new StringBuilder();
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+            }
+
+            boolean finished = process.waitFor(300, TimeUnit.SECONDS);
             
             if (finished && process.exitValue() == 0) {
+                Files.move(tempPath, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 LOGGER.info("Storyboard generated successfully for video {}", videoId);
                 return true;
             } else {
-                LOGGER.warn("FFmpeg storyboard generation failed for video {}", videoId);
+                if (!finished) {
+                    process.destroyForcibly();
+                }
+                Files.deleteIfExists(tempPath);
+                LOGGER.warn("FFmpeg storyboard generation failed or timed out for video {}. Exit code: {}. Output summary: {}", 
+                    videoId, 
+                    finished ? process.exitValue() : "TIMEOUT", 
+                    output.length() > 500 ? output.substring(output.length() - 500) : output.toString());
                 return false;
             }
         } catch (Exception e) {
             LOGGER.error("Error running FFmpeg for storyboard: " + e.getMessage());
             return false;
+        } finally {
+            GENERATING_IDS.remove(videoId);
         }
     }
 
