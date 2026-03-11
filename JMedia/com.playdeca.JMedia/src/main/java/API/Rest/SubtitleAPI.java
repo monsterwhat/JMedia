@@ -81,7 +81,9 @@ public class SubtitleAPI {
     @POST
     @Path("/{videoId}/download")
     public Response downloadSubtitle(@PathParam("videoId") Long videoId, 
-                                   @QueryParam("fileId") String fileId) {
+                                   @QueryParam("fileId") String fileId,
+                                   @QueryParam("language") String language,
+                                   @HeaderParam("X-User-ID") Long userId) {
         Video video = Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
@@ -91,9 +93,88 @@ public class SubtitleAPI {
             return Response.status(Response.Status.BAD_REQUEST).entity("fileId is required").build();
         }
         
-        downloadService.downloadSubtitle(video, fileId);
+        try {
+            downloadService.downloadSubtitleWithLang(video, fileId, language);
+            
+            // Return updated tracks immediately to avoid race conditions
+            List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
+            tracks = preferenceEngine.sortTracksByPreference(tracks, userId);
+            SubtitleTrack preferredTrack = preferenceEngine.selectBestSubtitleTrack(videoId, userId);
+            
+            List<Models.DTOs.SubtitleTrackDTO> dtoTracks = tracks.stream()
+                .map(Models.DTOs.SubtitleTrackDTO::new)
+                .collect(java.util.stream.Collectors.toList());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Subtitle downloaded successfully");
+            response.put("tracks", dtoTracks);
+            response.put("preferredTrackId", preferredTrack != null ? preferredTrack.id : null);
+            
+            return Response.ok(response).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Download failed: " + e.getMessage())).build();
+        }
+    }
+    
+    @GET
+    @Path("/{videoId}/local-files")
+    public Response listLocalFiles(@PathParam("videoId") Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
+        }
         
-        return Response.ok(createSuccessResponse("Subtitle download started")).build();
+        try {
+            List<Models.DTOs.LocalSubtitleFile> potentialTracks = downloadService.scanAllSubtitleFiles(video);
+            return Response.ok(potentialTracks).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Failed to scan local files: " + e.getMessage())).build();
+        }
+    }
+    
+    @POST
+    @Path("/{videoId}/add-local")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response addLocalSubtitle(@PathParam("videoId") Long videoId, 
+                                    Map<String, String> request,
+                                    @HeaderParam("X-User-ID") Long userId) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
+        }
+        
+        String filePath = request.get("filePath");
+        if (filePath == null || filePath.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("filePath is required").build();
+        }
+        
+        try {
+            downloadService.addLocalSubtitle(video, filePath);
+            
+            // Return updated tracks immediately
+            List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
+            tracks = preferenceEngine.sortTracksByPreference(tracks, userId);
+            SubtitleTrack preferredTrack = preferenceEngine.selectBestSubtitleTrack(videoId, userId);
+            
+            List<Models.DTOs.SubtitleTrackDTO> dtoTracks = tracks.stream()
+                .map(Models.DTOs.SubtitleTrackDTO::new)
+                .collect(java.util.stream.Collectors.toList());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Subtitle added successfully");
+            response.put("tracks", dtoTracks);
+            response.put("preferredTrackId", preferredTrack != null ? preferredTrack.id : null);
+            
+            return Response.ok(response).build();
+        } catch (Exception e) {
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            System.err.println("API Error adding local subtitle: " + errorMsg);
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Failed to add local subtitle: " + errorMsg)).build();
+        }
     }
     
     @GET
@@ -110,14 +191,19 @@ public class SubtitleAPI {
             SubtitleTrack preferredTrack = preferenceEngine.selectBestSubtitleTrack(videoId, userId);
             if (preferredTrack != null && !tracks.isEmpty()) {
                 // Clear existing preferences and set new preferred
+                final Long preferredId = preferredTrack.id;
                 tracks.forEach(track -> {
-                    track.isDefault = track.id.equals(preferredTrack.id);
+                    track.isDefault = track.id.equals(preferredId);
                     track.userPreferenceOrder = 1; // Highest priority
                 });
             }
             
+            List<Models.DTOs.SubtitleTrackDTO> dtoTracks = tracks.stream()
+                .map(Models.DTOs.SubtitleTrackDTO::new)
+                .collect(java.util.stream.Collectors.toList());
+
             Map<String, Object> response = new HashMap<>();
-            response.put("tracks", tracks);
+            response.put("tracks", dtoTracks);
             response.put("preferredTrackId", preferredTrack != null ? preferredTrack.id : null);
             response.put("videoId", videoId);
             

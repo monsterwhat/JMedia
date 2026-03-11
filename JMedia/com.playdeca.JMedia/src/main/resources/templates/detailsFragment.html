@@ -69,7 +69,7 @@
             <button class="action-btn btn-primary" onclick="window.selectItem({item.id}, 'play')">
                 <i class="pi pi-play"></i> Play Now
             </button>
-            <button class="action-btn btn-secondary" onclick="subtitleManager.openModal({item.id}, '{item.title ?: item.seriesTitle}')">
+            <button class="action-btn btn-secondary" onclick="subtitleManager.openModal({item.id}, '{item.title ?: item.seriesTitle}', '{item.path.replace('\\', '/')}')">
                 <i class="pi pi-closed-captioning"></i> Subtitles
             </button>
             <button class="action-btn btn-secondary" onclick="window.addToWatchlist('{item.title ?: 'Video'}', {item.id})">

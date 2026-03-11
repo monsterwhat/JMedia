@@ -27,6 +27,8 @@ public class SubtitleTrack extends PanacheEntity {
     public boolean isSDH;         // Subtitles for Deaf/Hard-of-hearing
     public boolean isDefault;     // Default track for this video
     public boolean isEmbedded;     // Embedded in video container
+    @Column(name = "is_manual")
+    public Boolean isManual = false;       // Manually selected by user
     
     // Styling (for ASS/SSA)
     @Lob

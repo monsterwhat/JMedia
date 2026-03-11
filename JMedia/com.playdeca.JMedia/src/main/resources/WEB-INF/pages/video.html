@@ -426,8 +426,27 @@
 
             window.selectItem = (item, action) => videoSPA.selectItem(item, action);
             window.switchSection = (section, params) => videoSPA.switchSection(section, params);
-            window.addToWatchlist = (title, id) => {
-                if (window.showToast) window.showToast(title + ' added to watchlist', 'success');
+            window.addToWatchlist = async (title, id) => {
+                try {
+                    const response = await fetch(`/api/video/watchlist/toggle/${id}`, { method: 'POST' });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        const isFavorite = result.data;
+                        const message = isFavorite ? `${title} added to watchlist` : `${title} removed from watchlist`;
+                        if (window.showToast) window.showToast(message, 'success');
+                        
+                        // If we are currently on the watchlist section, refresh it
+                        if (videoSPA.currentSection === 'watchlist') {
+                            videoSPA.switchSection('watchlist', {}, true);
+                        }
+                    } else {
+                        if (window.showToast) window.showToast('Failed to update watchlist', 'danger');
+                    }
+                } catch (error) {
+                    console.error('Watchlist Error:', error);
+                    if (window.showToast) window.showToast('Error updating watchlist', 'danger');
+                }
             };
             window.scrollCarousel = (carouselId, direction) => {
                 const carousel = document.getElementById(carouselId);
@@ -518,14 +537,18 @@
     <div id="subtitleManagementModal" class="modal">
         <div class="modal-background" onclick="subtitleManager.closeModal()"></div>
         <div class="modal-card glass-modal" style="width: 80%; max-width: 900px;">
-            <header class="modal-card-head glass-modal-header">
-                <p class="modal-card-title">Subtitle Management</p>
-                <button class="delete" aria-label="close" onclick="subtitleManager.closeModal()"></button>
+            <header class="modal-card-head glass-modal-header" style="flex-direction: column; align-items: flex-start; padding: 1.5rem;">
+                <div class="is-flex is-justify-content-between is-align-items-center" style="width: 100%;">
+                    <p class="modal-card-title mb-0">Subtitle Management</p>
+                    <button class="delete" aria-label="close" onclick="subtitleManager.closeModal()"></button>
+                </div>
+                <div id="subtitle-modal-path" class="has-text-grey-light is-size-7 mt-2" style="font-family: monospace; word-break: break-all; opacity: 0.7;"></div>
             </header>
             <section class="modal-card-body glass-modal-body">
                 <div class="tabs is-centered is-boxed">
                     <ul>
                         <li id="search-tab-btn" class="is-active"><a onclick="subtitleManager.switchTab('search')">Search Online</a></li>
+                        <li id="manual-tab-btn"><a onclick="subtitleManager.switchTab('manual')">Manual Find</a></li>
                         <li id="ai-tab-btn"><a onclick="subtitleManager.switchTab('ai')">AI Generation</a></li>
                     </ul>
                 </div>
@@ -540,15 +563,16 @@
                             <span class="select is-rounded">
                                 <select id="subtitleLanguageSelect">
                                     <option value="en">English</option>
-                                    <option value="es">Spanish</option>
-                                    <option value="fr">French</option>
-                                    <option value="de">German</option>
-                                    <option value="it">Italian</option>
-                                    <option value="pt">Portuguese</option>
-                                    <option value="ru">Russian</option>
-                                    <option value="ja">Japanese</option>
-                                    <option value="ko">Korean</option>
-                                    <option value="zh">Chinese</option>
+                                    <option value="es">Español</option>
+                                    <option value="spl">Español (Latinoamérica)</option>
+                                    <option value="fr">Français</option>
+                                    <option value="de">Deutsch</option>
+                                    <option value="it">Italiano</option>
+                                    <option value="pt">Português</option>
+                                    <option value="ru">Русский</option>
+                                    <option value="ja">日本語</option>
+                                    <option value="ko">한국어</option>
+                                    <option value="zh">中文</option>
                                 </select>
                             </span>
                         </div>
@@ -574,6 +598,39 @@
                                 <tr>
                                     <td colspan="5" class="has-text-centered has-text-grey">
                                         Use the search bar above to find subtitles
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Manual Tab -->
+                <div id="manual-tab-content" style="display: none;">
+                    <div class="field">
+                        <label class="label">Local Directory Scanning</label>
+                        <p class="help mb-4">The system scanned the video folder and sub-folders (up to 3 levels deep). Select files to add them as subtitle tracks.</p>
+                        <div class="buttons">
+                            <button class="button is-info is-small is-rounded" onclick="subtitleManager.scanLocal()">
+                                <i class="pi pi-refresh"></i>&nbsp;Rescan Folder
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="subtitleManualResultsContainer" class="mt-4" style="min-height: 200px; max-height: 400px; overflow-y: auto;">
+                        <table class="table is-fullwidth is-hoverable is-narrow subtitle-table">
+                            <thead>
+                                <tr>
+                                    <th>Filename</th>
+                                    <th>Detected Lang</th>
+                                    <th>Path</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="subtitleManualResultsBody">
+                                <tr>
+                                    <td colspan="4" class="has-text-centered has-text-grey">
+                                        Click "Rescan Folder" to see all potential subtitle files
                                     </td>
                                 </tr>
                             </tbody>

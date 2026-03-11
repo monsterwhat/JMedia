@@ -7,6 +7,7 @@ public class SubtitleSearchResult {
     public String id; // OpenSubtitles file_id
     public String filename;
     public String language;
+    public String languageCode; // e.g. "eng", "spl"
     public String provider = "OpenSubtitles";
     public Double rating;
     public Integer downloadCount;

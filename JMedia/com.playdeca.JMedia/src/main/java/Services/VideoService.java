@@ -193,17 +193,31 @@ public class VideoService {
 
     @Transactional
     public List<Integer> findSeasonNumbersForSeries(String seriesTitle) {
-        return Video.<Video>list("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle, true)
+        List<Integer> seasons = Video.<Video>list("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle, true)
                 .stream()
-                .map(v -> v.seasonNumber)
-                .filter(Objects::nonNull)
+                .map(v -> v.seasonNumber != null ? v.seasonNumber : 1)
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
+                
+        if (seasons.isEmpty()) {
+            // Check if there are any episodes at all for this series
+            long count = Video.count("type = ?1 and seriesTitle = ?2 and isActive = ?3", "episode", seriesTitle, true);
+            if (count > 0) {
+                return Collections.singletonList(1);
+            }
+        }
+        return seasons;
     }
 
     @Transactional
     public List<Video> findEpisodesForSeason(String seriesTitle, Integer seasonNumber) {
+        if (seasonNumber == null || seasonNumber == 1) {
+            // If searching for season 1, also include episodes with null season number
+            return Video.list("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and isActive = ?4",
+                             Sort.by("episodeNumber", Sort.Direction.Ascending),
+                             "episode", seriesTitle, 1, true);
+        }
         return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and isActive = ?4",
                          Sort.by("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, seasonNumber, true);
@@ -413,6 +427,11 @@ public class VideoService {
     public void updateSubtitleTracks(Long videoId, List<SubtitleTrack> tracks) {
         Video video = Video.findById(videoId);
         if (video != null) {
+            // Find existing manual tracks we want to preserve
+            List<SubtitleTrack> manualTracks = (video.subtitleTracks != null) ? 
+                    video.subtitleTracks.stream().filter(t -> t.isManual).collect(Collectors.toList()) : 
+                    new ArrayList<>();
+            
             // Clear existing tracks
             if (video.subtitleTracks != null) {
                 video.subtitleTracks.clear();
@@ -420,8 +439,19 @@ public class VideoService {
                 video.subtitleTracks = new ArrayList<>();
             }
             
-            // Add new tracks
-            video.subtitleTracks.addAll(tracks);
+            // Re-add manual tracks
+            video.subtitleTracks.addAll(manualTracks);
+            
+            // Add new tracks and set bidirectional relationship
+            for (SubtitleTrack track : tracks) {
+                // Skip if this path is already covered by a manual track
+                if (manualTracks.stream().anyMatch(m -> m.fullPath.equals(track.fullPath))) {
+                    continue;
+                }
+                track.video = video;
+                video.subtitleTracks.add(track);
+            }
+            
             video.dateModified = LocalDateTime.now();
             video.persist();
         }
@@ -637,11 +667,14 @@ public class VideoService {
     // ========== PAGINATION METHODS ==========
     
     @Transactional
-    public PaginatedVideos findPaginatedByMediaType(String mediaType, int page, int limit) {
+    public PaginatedVideos findPaginatedByMediaType(String mediaType, int page, int limit, String sortBy, String sortDirection) {
+        Sort.Direction direction = "desc".equalsIgnoreCase(sortDirection) ? Sort.Direction.Descending : Sort.Direction.Ascending;
+        String sortField = sortBy != null ? sortBy : "dateAdded";
+        
         List<Video> videos = Video.<Video>list("type = ?1",
-                Sort.by("dateAdded", Sort.Direction.Descending), mediaType)
+                Sort.by(sortField, direction), mediaType)
                 .stream()
-                .skip((page - 1) * limit)
+                .skip((long) (page - 1) * limit)
                 .limit(limit)
                 .collect(Collectors.toList());
         
@@ -649,6 +682,55 @@ public class VideoService {
         long totalCount = Video.count("type = ?1", mediaType);
         
         return new PaginatedVideos(videos, totalCount);
+    }
+
+    @Transactional
+    public PaginatedSeries findPaginatedSeriesTitles(int page, int limit, String sortBy, String sortDirection) {
+        List<Video> allEpisodes = Video.list("type = ?1", "episode");
+        
+        // Group by seriesTitle and find the "representative" for sorting
+        Map<String, Video> seriesMap = new HashMap<>();
+        for (Video v : allEpisodes) {
+            if (v.seriesTitle == null) continue;
+            Video existing = seriesMap.get(v.seriesTitle);
+            if (existing == null) {
+                seriesMap.put(v.seriesTitle, v);
+            } else {
+                // Update based on sort field if needed to find the "newest" or "last played" episode for the series
+                if ("dateAdded".equals(sortBy)) {
+                    if (v.dateAdded != null && (existing.dateAdded == null || v.dateAdded.isAfter(existing.dateAdded))) {
+                        seriesMap.put(v.seriesTitle, v);
+                    }
+                } else if ("lastWatched".equals(sortBy)) {
+                    if (v.lastWatched != null && (existing.lastWatched == null || v.lastWatched.isAfter(existing.lastWatched))) {
+                        seriesMap.put(v.seriesTitle, v);
+                    }
+                }
+            }
+        }
+
+        List<String> sortedTitles = new ArrayList<>(seriesMap.keySet());
+        boolean desc = "desc".equalsIgnoreCase(sortDirection);
+        
+        Comparator<String> comparator;
+        if ("dateAdded".equals(sortBy)) {
+            comparator = Comparator.comparing(title -> seriesMap.get(title).dateAdded, Comparator.nullsFirst(Comparator.naturalOrder()));
+        } else if ("lastWatched".equals(sortBy)) {
+            comparator = Comparator.comparing(title -> seriesMap.get(title).lastWatched, Comparator.nullsFirst(Comparator.naturalOrder()));
+        } else {
+            comparator = String::compareToIgnoreCase;
+        }
+
+        if (desc) comparator = comparator.reversed();
+        sortedTitles.sort(comparator);
+
+        long totalCount = sortedTitles.size();
+        List<String> pagedTitles = sortedTitles.stream()
+                .skip((long) (page - 1) * limit)
+                .limit(limit)
+                .collect(Collectors.toList());
+
+        return new PaginatedSeries(pagedTitles, totalCount);
     }
 
     // ========== PAGINATION HELPER ==========
@@ -659,6 +741,16 @@ public class VideoService {
 
         public PaginatedVideos(List<Video> videos, long totalCount) {
             this.videos = videos;
+            this.totalCount = totalCount;
+        }
+    }
+
+    public static class PaginatedSeries {
+        public final List<String> titles;
+        public final long totalCount;
+
+        public PaginatedSeries(List<String> titles, long totalCount) {
+            this.titles = titles;
             this.totalCount = totalCount;
         }
     }

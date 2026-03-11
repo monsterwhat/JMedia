@@ -138,13 +138,17 @@ public class VideoUiApi {
     @Blocking
     public String getMoviesFragment(
             @QueryParam("page") @DefaultValue("1") int page,
-            @QueryParam("limit") @DefaultValue("40") int limit) {
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("sortBy") @DefaultValue("dateAdded") String sortBy,
+            @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection) {
 
-        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit);
+        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection);
         return movieListContent
                 .data("movies", paginatedVideos.videos)
                 .data("currentPage", page)
                 .data("limit", limit)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
                 .data("totalItems", paginatedVideos.totalCount)
                 .data("totalPages", (int) Math.ceil((double) paginatedVideos.totalCount / limit))
                 .data("pageNumbers", getPaginationNumbers(page, (int) Math.ceil((double) paginatedVideos.totalCount / limit)))
@@ -157,35 +161,20 @@ public class VideoUiApi {
     @Blocking
     public String getSeriesFragment(
             @QueryParam("page") @DefaultValue("1") int page,
-            @QueryParam("limit") @DefaultValue("40") int limit) {
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("sortBy") @DefaultValue("seriesTitle") String sortBy,
+            @QueryParam("sortDirection") @DefaultValue("asc") String sortDirection) {
         
-        List<String> allSeriesTitles = videoService.findAllSeriesTitles();
+        VideoService.PaginatedSeries paginatedSeries = videoService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection);
         
-        // If empty, try finding with case-insensitive check
-        if (allSeriesTitles.isEmpty()) {
-            allSeriesTitles = Models.Video.<Models.Video>listAll().stream()
-                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
-                    .map(v -> v.seriesTitle)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .sorted()
-                    .collect(Collectors.toList());
-        }
-
-        if (allSeriesTitles.isEmpty()) {
+        if (paginatedSeries.titles.isEmpty()) {
             return "<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>" +
                    "<div class='carousel-empty-state'><i class='pi pi-desktop'></i><h3>No shows found</h3><p>Try scanning your library or check if your episodes have series titles.</p></div>";
         }
 
-        int totalItems = allSeriesTitles.size();
+        int totalItems = (int) paginatedSeries.totalCount;
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         
-        // Paginate the titles
-        List<String> pagedTitles = allSeriesTitles.stream()
-                .skip((long) (page - 1) * limit)
-                .limit(limit)
-                .collect(Collectors.toList());
-
         List<Models.Video> allEpisodes = videoService.findEpisodes();
         if (allEpisodes.isEmpty()) {
             allEpisodes = Models.Video.<Models.Video>listAll().stream()
@@ -194,7 +183,7 @@ public class VideoUiApi {
         }
 
         List<SeriesTitleEntry> entries = new ArrayList<>();
-        for (String title : pagedTitles) {
+        for (String title : paginatedSeries.titles) {
             final String currentTitle = title;
             Models.Video sample = allEpisodes.stream()
                     .filter(v -> currentTitle.equalsIgnoreCase(v.seriesTitle))
@@ -214,6 +203,8 @@ public class VideoUiApi {
                 .data("series", entries)
                 .data("currentPage", page)
                 .data("limit", limit)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
                 .data("totalItems", totalItems)
                 .data("totalPages", totalPages)
                 .render();
@@ -258,12 +249,20 @@ public class VideoUiApi {
             }
 
             Models.Video sampleVideo = finalEpisodes.isEmpty() ? null : finalEpisodes.get(0);
+            
+            // Find the last played video (or first one)
+            Models.Video lastPlayedVideo = finalEpisodes.stream()
+                    .filter(v -> v.lastWatched != null)
+                    .sorted(Comparator.comparing(v -> ((Models.Video)v).lastWatched).reversed())
+                    .findFirst()
+                    .orElse(sampleVideo);
 
             return seasonListContent
                     .data("seriesTitle", decodedTitle)
                     .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
                     .data("seasons", seasons)
                     .data("sampleVideo", sampleVideo)
+                    .data("lastPlayedVideo", lastPlayedVideo)
                     .render();
         } catch (Exception e) {
             LOG.error("Error rendering seasons fragment for show {}: {}", seriesTitle, e.getMessage(), e);

@@ -57,19 +57,14 @@ public class SubtitlePreferenceEngine {
     }
     
     private SubtitleTrack findLanguageMatch(List<SubtitleTrack> tracks, String preferredLang, UserSubtitlePreferences userPrefs) {
-        // Complex matching logic:
-        // 1. Exact language code match (eng ↔ eng)
-        // 2. 2-letter code match (en ↔ eng)  
-        // 3. Prefer non-forced over forced unless user prefers forced
-        // 4. Prefer SDH if user has hearing impairment preference
-        // 5. Prefer external over embedded if quality is better
+        if (preferredLang == null) return null;
         
         List<SubtitleTrack> exactMatches = new ArrayList<>();
         List<SubtitleTrack> closeMatches = new ArrayList<>();
         
         // Find exact and close matches
         for (SubtitleTrack track : tracks) {
-            if (track.languageCode != null) continue;
+            if (track.languageCode == null) continue;
             
             if (track.languageCode.equalsIgnoreCase(preferredLang)) {
                 exactMatches.add(track);
@@ -78,22 +73,25 @@ public class SubtitlePreferenceEngine {
             }
         }
         
-        // Sort matches by preference criteria
-        exactMatches.sort((a, b) -> compareTracksByPreference(a, b, userPrefs));
-        closeMatches.sort((a, b) -> compareTracksByPreference(a, b, userPrefs));
-        
-        // Return best exact match, or best close match
+        // Return best exact match if any
         if (!exactMatches.isEmpty()) {
-            return !closeMatches.isEmpty() ? null : closeMatches.get(0);
+            exactMatches.sort((a, b) -> compareTracksByPreference(a, b, userPrefs));
+            return exactMatches.get(0);
         }
         
-        return exactMatches.get(0);
+        // Fallback to best close match
+        if (!closeMatches.isEmpty()) {
+            closeMatches.sort((a, b) -> compareTracksByPreference(a, b, userPrefs));
+            return closeMatches.get(0);
+        }
+        
+        return null;
     }
     
     private SubtitleTrack findTrackForAudioMismatch(List<SubtitleTrack> tracks, String audioLanguage, UserSubtitlePreferences userPrefs) {
         // Find track that best matches user preferences for audio mismatch scenario
         for (SubtitleTrack track : tracks) {
-            if (track.languageCode != null && !track.languageCode.equalsIgnoreCase(audioLanguage)) {
+            if (track.languageCode != null && audioLanguage != null && !track.languageCode.equalsIgnoreCase(audioLanguage)) {
                 // This track would help user understand different audio language
                 return track;
             }
@@ -107,6 +105,8 @@ public class SubtitlePreferenceEngine {
     }
     
     private boolean isCloseLanguageMatch(String trackLang, String preferredLang) {
+        if (trackLang == null || preferredLang == null) return false;
+        
         // Check if 2-letter codes match
         if (trackLang.length() == 2 && preferredLang.length() == 2) {
             return trackLang.equalsIgnoreCase(preferredLang);
@@ -136,7 +136,7 @@ public class SubtitlePreferenceEngine {
         int score = 0;
         
         // Language preference match
-        if (userPrefs.preferredLanguage != null && 
+        if (userPrefs != null && userPrefs.preferredLanguage != null && track.languageCode != null &&
             userPrefs.preferredLanguage.equalsIgnoreCase(track.languageCode)) {
             score += 100;
         }
@@ -154,15 +154,17 @@ public class SubtitlePreferenceEngine {
         }
         
         // Forced subtitle preference
-        if (track.isForced && userPrefs.preferForcedSubtitles) {
-            score += 20;
-        } else if (track.isForced && !userPrefs.preferForcedSubtitles) {
-            score -= 30; // Penalize forced if not preferred
-        }
-        
-        // SDH preference
-        if (track.isSDH && userPrefs.preferSDHSubtitles) {
-            score += 15;
+        if (userPrefs != null) {
+            if (track.isForced && userPrefs.preferForcedSubtitles) {
+                score += 20;
+            } else if (track.isForced && !userPrefs.preferForcedSubtitles) {
+                score -= 30; // Penalize forced if not preferred
+            }
+            
+            // SDH preference
+            if (track.isSDH && userPrefs.preferSDHSubtitles) {
+                score += 15;
+            }
         }
         
         return score;

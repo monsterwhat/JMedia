@@ -19,6 +19,9 @@
                         <div class="plex-play-btn" onclick="event.stopPropagation(); window.selectItem({video.id}, 'play')">
                             <i class="pi pi-play"></i>
                         </div>
+                        <div class="plex-watchlist-btn remove-btn" onclick="event.stopPropagation(); window.addToWatchlist('{video.title ?: video.seriesTitle}', {video.id})" title="Remove from Watchlist">
+                            <i class="pi pi-times"></i>
+                        </div>
                     </div>
                 </div>
                 <div class="plex-card-info">

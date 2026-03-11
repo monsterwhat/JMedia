@@ -18,13 +18,12 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Paths;
 import java.util.List;
 import org.eclipse.microprofile.context.ManagedExecutor;
-import io.smallrye.mutiny.Multi;
+import jakarta.ws.rs.core.StreamingOutput;
+import java.io.RandomAccessFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.concurrent.ThreadFactory;
@@ -61,6 +60,9 @@ public class VideoAPI {
 
     @Inject
     ThumbnailService thumbnailService;
+
+    @Inject
+    Services.UserInteractionService userInteractionService;
 
     @Inject
     NamingController namingController;
@@ -158,6 +160,32 @@ public class VideoAPI {
         }
     }
 
+    @POST
+    @Path("/watchlist/toggle/{videoId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response toggleWatchlist(@PathParam("videoId") Long videoId) {
+        try {
+            Models.Video video = Models.Video.findById(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Video not found"))
+                        .build();
+            }
+
+            if (video.favorite) {
+                userInteractionService.removeFavorite(videoId, 1L); // Using default userId 1 for now
+                return Response.ok(ApiResponse.success(false)).build();
+            } else {
+                userInteractionService.markAsFavorite(videoId, 1L);
+                return Response.ok(ApiResponse.success(true)).build();
+            }
+        } catch (Exception e) {
+            LOG.error("Error toggling watchlist for video ID: " + videoId, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Failed to toggle watchlist")).build();
+        }
+    }
+
     @GET
     @Path("/thumbnail/batch")
     @Produces(MediaType.APPLICATION_JSON)
@@ -212,9 +240,23 @@ public class VideoAPI {
         }
     }
 
+    private String getMimeType(String filename) {
+        if (filename == null) return "video/mp4";
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mov")) return "video/quicktime";
+        if (lower.endsWith(".avi")) return "video/x-msvideo";
+        if (lower.endsWith(".wmv")) return "video/x-ms-wmv";
+        if (lower.endsWith(".flv")) return "video/x-flv";
+        if (lower.endsWith(".m4v")) return "video/x-m4v";
+        if (lower.endsWith(".ts")) return "video/mp2t";
+        return "video/mp4"; // Default
+    }
+
     @GET
     @Path("/stream/{videoId}")
-    @Produces("video/mp4")
     public Response streamVideo(@PathParam("videoId") Long videoId, @HeaderParam("Range") String rangeHeader) {
         // Validate videoId parameter
         if (videoId == null || videoId <= 0) {
@@ -291,51 +333,47 @@ public class VideoAPI {
             }
         }
 
-        long contentLength = end - start + 1;
-        final long rangeStart = start;
-
-        Multi<byte[]> multi = Multi.createFrom().emitter(emitter -> {
-            Thread thread = new Thread(() -> {
-                try (InputStream fis = new FileInputStream(videoFile)) {
-                    fis.skip(rangeStart);
-                    byte[] buffer = new byte[65536];
-                    long bytesRemaining = contentLength;
-                    while (bytesRemaining > 0 && !emitter.isCancelled()) {
-                        int bytesToRead = (int) Math.min(buffer.length, bytesRemaining);
-                        int bytesRead = fis.read(buffer, 0, bytesToRead);
-                        if (bytesRead == -1) {
-                            break;
-                        }
-                        byte[] chunk = new byte[bytesRead];
-                        System.arraycopy(buffer, 0, chunk, 0, bytesRead);
-                        emitter.emit(chunk);
-                        bytesRemaining -= bytesRead;
-                    }
-                    emitter.complete();
-                } catch (IOException e) {
-                    if (!isClientDisconnect(e)) {
-                        LOG.error("Streaming error for {}: {}", filePath, e.getMessage());
-                    }
-                    emitter.fail(e);
-                }
-            });
-            thread.start();
-        });
-
-        if (rangeHeader != null) {
-            return Response.ok(multi)
-                    .header("Accept-Ranges", "bytes")
-                    .header("Content-Type", "video/mp4")
-                    .header("Content-Length", contentLength)
-                    .header("Content-Range", "bytes " + rangeStart + "-" + end + "/" + fileLength)
+        if (start >= fileLength) {
+            return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header("Content-Range", "bytes */" + fileLength)
                     .build();
         }
 
-        return Response.ok(multi)
+        long contentLength = end - start + 1;
+        final long finalStart = start;
+        final long finalContentLength = contentLength;
+        final String mimeType = getMimeType(videoFile.getName());
+
+        StreamingOutput streamingOutput = output -> {
+            try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
+                raf.seek(finalStart);
+                byte[] buffer = new byte[65536];
+                long remaining = finalContentLength;
+                while (remaining > 0) {
+                    int read = raf.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                    if (read == -1) break;
+                    output.write(buffer, 0, read);
+                    remaining -= read;
+                }
+            } catch (IOException e) {
+                if (!isClientDisconnect(e)) {
+                    LOG.error("Streaming error for {}: {}", videoFile.getAbsolutePath(), e.getMessage());
+                }
+            }
+        };
+
+        Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? 206 : 200)
+                .entity(streamingOutput)
                 .header("Accept-Ranges", "bytes")
-                .header("Content-Type", "video/mp4")
-                .header("Content-Length", fileLength)
-                .build();
+                .header("Content-Type", mimeType)
+                .header("Content-Length", contentLength)
+                .header("Cache-Control", "public, max-age=3600");
+
+        if (rangeHeader != null) {
+            responseBuilder.header("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);
+        }
+
+        return responseBuilder.build();
     }
 
     @Inject

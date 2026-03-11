@@ -108,10 +108,30 @@ class SimplePlayer {
             </div>
 
             <div class="subtitle-menu" id="subtitleMenu">
+                <div class="menu-header">Subtitles</div>
                 <div class="subtitle-list" id="subtitleList">
                     <div class="subtitle-option selected" id="sub-off">Off</div>
                 </div>
-                <div class="subtitle-actions" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 5px;">
+                
+                <div class="menu-divider"></div>
+                <div class="subtitle-sync-section p-3">
+                    <div class="is-flex is-justify-content-between is-align-items-center mb-2">
+                        <span class="is-size-7">Sync Offset</span>
+                        <span id="subOffsetVal" class="tag is-dark is-small">0.0s</span>
+                    </div>
+                    <div class="is-flex gap-2">
+                        <button class="button is-small is-dark is-fullwidth" onclick="event.stopPropagation(); currentPlayerInstance.adjustSubtitleOffset(-0.5)">
+                            <i class="pi pi-minus mr-1"></i> 0.5s
+                        </button>
+                        <button class="button is-small is-dark is-fullwidth" onclick="event.stopPropagation(); currentPlayerInstance.adjustSubtitleOffset(0.5)">
+                            <i class="pi pi-plus mr-1"></i> 0.5s
+                        </button>
+                    </div>
+                    <button class="button is-ghost is-small is-fullwidth mt-1" style="color: rgba(255,255,255,0.5)" onclick="event.stopPropagation(); currentPlayerInstance.resetSubtitleOffset()">Reset</button>
+                </div>
+
+                <div class="menu-divider"></div>
+                <div class="subtitle-actions">
                     <div class="subtitle-option action-opt" id="sub-generate"><i class="pi pi-bolt"></i> Generate (AI)</div>
                     <div class="subtitle-option action-opt" id="sub-download"><i class="pi pi-search"></i> Search (Web)</div>
                 </div>
@@ -138,6 +158,9 @@ class SimplePlayer {
         this.buffering = this.container.querySelector('.buffering-overlay');
         this.backBtn = this.container.querySelector('#backBtn');
         this.titleLink = this.container.querySelector('#videoTitleLink');
+        this.offsetDisplay = this.container.querySelector('#subOffsetVal');
+
+        this.subOffset = 0;
 
         const offBtn = this.container.querySelector('#sub-off');
         offBtn.onclick = (e) => { e.stopPropagation(); this.selectSubtitle('off', offBtn); };
@@ -290,6 +313,8 @@ class SimplePlayer {
                 this.reportProgress(true);
             }
         }, 3000);
+
+        window.currentPlayerInstance = this;
     }
 
     async loadStoryboard(retryCount = 0) {
@@ -368,26 +393,47 @@ class SimplePlayer {
         }
     }
 
-    async loadSubtitles() {
+    async loadSubtitles(providedTracks = null) {
         if (!this.videoId) return;
         try {
-            const res = await fetch(`/api/video/subtitles/${this.videoId}`);
-            const data = await res.json();
+            let tracksData = providedTracks;
+            
+            if (!tracksData) {
+                const res = await fetch(`/api/video/subtitles/${this.videoId}`);
+                const data = await res.json();
+                tracksData = data.tracks;
+            }
+            
+            // Clear current tracks from the menu (keep "Off")
             while (this.subtitleList.children.length > 1) this.subtitleList.removeChild(this.subtitleList.lastChild);
-            if (data.tracks) {
-                data.tracks.forEach(t => {
+            
+            // Clear current tracks from the video element
+            const tracks = this.video.querySelectorAll('track');
+            tracks.forEach(t => t.remove());
+
+            if (tracksData) {
+                tracksData.forEach(t => {
                     const track = document.createElement('track');
                     const label = t.displayName || t.languageName || t.languageCode || 'Unknown';
-                    Object.assign(track, { kind: 'subtitles', label: label, srclang: t.languageCode, src: `/api/video/subtitles/track/${t.id}` });
+                    Object.assign(track, { 
+                        kind: 'subtitles', 
+                        label: label, 
+                        srclang: t.languageCode, 
+                        src: `/api/video/subtitles/track/${t.id}`,
+                        default: t.isDefault
+                    });
                     this.video.appendChild(track);
+                    
                     const opt = document.createElement('div');
-                    opt.className = 'subtitle-option';
+                    opt.className = 'subtitle-option' + (t.isDefault ? ' selected' : '');
                     opt.innerText = label;
                     opt.onclick = (e) => { e.stopPropagation(); this.selectSubtitle(t.languageCode, opt); };
                     this.subtitleList.appendChild(opt);
                 });
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error('[SimplePlayer] Error loading subtitles:', e);
+        }
     }
 
     async triggerSubtitleAction(type, el) {
@@ -395,7 +441,7 @@ class SimplePlayer {
         
         if (type === 'download') {
             if (window.subtitleManager) {
-                window.subtitleManager.openModal(this.videoId, this.container.dataset.title || 'Video');
+                window.subtitleManager.openModal(this.videoId, this.container.dataset.title || 'Video', this.container.dataset.path || '');
             }
             return;
         }
@@ -433,6 +479,38 @@ class SimplePlayer {
             const t = this.video.textTracks[i];
             t.mode = (lang !== 'off' && (t.language === lang || t.label === lang)) ? 'showing' : 'disabled';
         }
+    }
+
+    adjustSubtitleOffset(seconds) {
+        this.subOffset += seconds;
+        if (this.offsetDisplay) {
+            this.offsetDisplay.innerText = (this.subOffset > 0 ? '+' : '') + this.subOffset.toFixed(1) + 's';
+        }
+
+        // Real-time offset adjustment for active tracks
+        for (let i = 0; i < this.video.textTracks.length; i++) {
+            const track = this.video.textTracks[i];
+            if (track.cues) {
+                for (let j = 0; j < track.cues.length; j++) {
+                    const cue = track.cues[j];
+                    // We need to track original times to prevent cumulative drift errors if possible, 
+                    // but for a simple implementation, we shift the start/end.
+                    // Note: Browser support for modifying cues varies; some require re-adding.
+                    cue.startTime += seconds;
+                    cue.endTime += seconds;
+                }
+            }
+        }
+        
+        console.log(`[SimplePlayer] Subtitle offset adjusted to: ${this.subOffset}s`);
+    }
+
+    resetSubtitleOffset() {
+        // To properly reset without complex state, we reload the tracks
+        this.subOffset = 0;
+        if (this.offsetDisplay) this.offsetDisplay.innerText = '0.0s';
+        this.loadSubtitles();
+        console.log('[SimplePlayer] Subtitle offset reset');
     }
 }
 

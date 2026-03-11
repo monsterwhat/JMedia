@@ -5,6 +5,7 @@
 
 /* ==================== VARIABLES & ROOT ==================== */
 :root {
+    color-scheme: dark;
     --mobile-primary: #48c78e;
     --mobile-secondary: #3298dc;
     --mobile-background: #ffffff;
@@ -1171,6 +1172,34 @@ body {
     transform: scale(1);
 }
 
+.plex-watchlist-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(255,255,255,0.1);
+    transform: translateY(-10px);
+}
+
+.plex-card:hover .plex-watchlist-btn {
+    transform: translateY(0);
+}
+
+.plex-watchlist-btn:hover {
+    background: #ff4757;
+    transform: scale(1.1) !important;
+}
+
 .plex-card-info {
     padding: 1rem;
 }
@@ -1305,6 +1334,79 @@ body {
 
 .library-header { margin-bottom: 2rem; }
 .library-title { font-size: 2.5rem; font-weight: 800; color: white; }
+
+/* ==================== PAGINATION ==================== */
+.plex-pagination {
+    padding: 2rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pagination-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pagination-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--plex-accent);
+    border-color: var(--plex-accent);
+}
+
+.pagination-btn.is-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.pagination-info {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9rem;
+}
+
+.pagination-info strong {
+    color: white;
+}
+
+/* ==================== SORT SELECTOR ==================== */
+.sort-selector {
+    display: flex;
+    align-items: center;
+}
+
+.sort-selector .select select {
+    background: #1a1a1a;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    border-radius: 8px;
+    padding-right: 2.5em;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.sort-selector .select select option {
+    background: #1a1a1a;
+    color: white;
+}
+
+.sort-selector .select select:focus,
+.sort-selector .select select:active {
+    outline: none;
+    border-color: var(--plex-accent);
+    box-shadow: 0 0 0 2px rgba(229, 160, 13, 0.2);
+}
+
+.sort-selector .select:after {
+    border-color: var(--plex-accent) !important;
+}
 
 /* ==================== TOAST NOTIFICATIONS ==================== */
 #toast-container {

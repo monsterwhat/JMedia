@@ -19,6 +19,7 @@ public class EnhancedSubtitleMatcher {
         Map.entry("fr", new LanguageInfo("fre", "fr", "Français")),
         Map.entry("spa", new LanguageInfo("spa", "es", "Español")),
         Map.entry("es", new LanguageInfo("spa", "es", "Español")),
+        Map.entry("spl", new LanguageInfo("spl", "es", "Español (LATAM)")),
         Map.entry("deu", new LanguageInfo("deu", "de", "Deutsch")),
         Map.entry("de", new LanguageInfo("deu", "de", "Deutsch")),
         Map.entry("ita", new LanguageInfo("ita", "it", "Italiano")),
@@ -59,19 +60,59 @@ public class EnhancedSubtitleMatcher {
         return tracks;
     }
     
-    private List<SubtitleTrack> discoverExternalSubtitles(Path videoPath, Video video) {
-        List<SubtitleTrack> tracks = new ArrayList<>();
+    public List<Models.DTOs.LocalSubtitleFile> scanAllSubtitleFiles(Path videoPath, Video video) {
+        List<Models.DTOs.LocalSubtitleFile> tracks = new ArrayList<>();
         Path videoDir = videoPath.getParent();
-        String videoBasename = getBasename(videoPath.toString());
         
         if (videoDir == null || !Files.exists(videoDir)) {
             return tracks;
         }
         
-        try {
-            List<Path> subtitleFiles = Files.list(videoDir)
+        try (java.util.stream.Stream<Path> stream = Files.walk(videoDir, 3)) {
+            List<Path> subtitleFiles = stream
                 .filter(Files::isRegularFile)
-                .filter(path -> isSubtitleFile(path))
+                .filter(this::isSubtitleFile)
+                .collect(Collectors.toList());
+            
+            for (Path subtitleFile : subtitleFiles) {
+                String filename = subtitleFile.getFileName().toString();
+                String fullPath = subtitleFile.toString();
+                String format = getFileExtension(filename);
+                long fileSize = Files.size(subtitleFile);
+                
+                SubtitleTrack tempTrack = new SubtitleTrack();
+                extractLanguageAndTags(filename, tempTrack);
+                
+                tracks.add(new Models.DTOs.LocalSubtitleFile(
+                    filename,
+                    fullPath,
+                    tempTrack.languageName,
+                    format,
+                    fileSize
+                ));
+            }
+        } catch (Exception e) {
+            System.err.println("Error scanning all subtitle files recursively: " + e.getMessage());
+        }
+        
+        return tracks;
+    }
+
+    private List<SubtitleTrack> discoverExternalSubtitles(Path videoPath, Video video) {
+        List<SubtitleTrack> tracks = new ArrayList<>();
+        Path videoDir = videoPath.getParent();
+        String videoFilename = videoPath.getFileName().toString();
+        String videoBasename = getBasename(videoFilename);
+        
+        if (videoDir == null || !Files.exists(videoDir)) {
+            return tracks;
+        }
+        
+        // Use Files.walk to recursively search for subtitles (depth 3 covers most "Subs/" or "Lang/" folder structures)
+        try (java.util.stream.Stream<Path> stream = Files.walk(videoDir, 3)) {
+            List<Path> subtitleFiles = stream
+                .filter(Files::isRegularFile)
+                .filter(this::isSubtitleFile)
                 .collect(Collectors.toList());
             
             for (Path subtitleFile : subtitleFiles) {
@@ -81,7 +122,7 @@ public class EnhancedSubtitleMatcher {
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error discovering subtitle files: " + e.getMessage());
+            System.err.println("Error discovering subtitle files recursively: " + e.getMessage());
         }
         
         return tracks;
@@ -95,11 +136,10 @@ public class EnhancedSubtitleMatcher {
     private SubtitleTrack createTrackFromFile(Path subtitleFile, String videoBasename, Video video) {
         try {
             String filename = subtitleFile.getFileName().toString();
-            String basename = getBasename(filename);
             String format = getFileExtension(filename);
             
             // Check if this subtitle belongs to the video
-            if (!isSubtitleForVideo(basename, videoBasename)) {
+            if (!isSubtitleForVideo(filename, videoBasename)) {
                 return null;
             }
             
@@ -122,26 +162,44 @@ public class EnhancedSubtitleMatcher {
         }
     }
     
-    private boolean isSubtitleForVideo(String subtitleBasename, String videoBasename) {
-        String subName = subtitleBasename.toLowerCase();
+    private boolean isSubtitleForVideo(String subtitleFilename, String videoBasename) {
+        String subName = subtitleFilename.toLowerCase();
         String vidName = videoBasename.toLowerCase();
         
-        // Exact match
-        if (subName.equals(vidName)) {
-            return true;
+        // 1. Check if the subtitle filename starts with the video basename
+        if (subName.startsWith(vidName)) {
+            // If it's an exact match (plus extension which is handled elsewhere)
+            if (subName.length() == vidName.length()) return true;
+            
+            // If it's followed by a delimiter
+            char nextChar = subName.charAt(vidName.length());
+            if (nextChar == '.' || nextChar == '_' || nextChar == '-' || nextChar == ' ') {
+                return true;
+            }
         }
         
-        // Check if subtitle starts with video name followed by a delimiter
-        if (subName.startsWith(vidName)) {
-            char nextChar = subName.charAt(vidName.length());
-            // Valid delimiters: . _ - (space)
-            return nextChar == '.' || nextChar == '_' || nextChar == '-' || nextChar == ' ';
+        // 2. Handle cases where the video basename might be part of a larger filename
+        // or where both have dots that don't align perfectly.
+        // We also check if the video basename is contained and followed by standard markers
+        if (subName.contains(vidName)) {
+            int index = subName.indexOf(vidName);
+            int endOfVidName = index + vidName.length();
+            
+            // Check what follows the video name in the subtitle filename
+            if (endOfVidName < subName.length()) {
+                char nextChar = subName.charAt(endOfVidName);
+                if (nextChar == '.' || nextChar == '_' || nextChar == '-' || nextChar == ' ') {
+                    return true;
+                }
+            } else {
+                return true; // Ends with the video name
+            }
         }
         
         return false;
     }
     
-    private void extractLanguageAndTags(String filename, SubtitleTrack track) {
+    public void extractLanguageAndTags(String filename, SubtitleTrack track) {
         // Extract language tag
         String languageTag = extractLanguageTag(filename);
         if (languageTag != null) {
@@ -163,11 +221,30 @@ public class EnhancedSubtitleMatcher {
     }
     
     private String extractLanguageTag(String filename) {
-        // Pattern: movie.en.srt, movie.eng.srt, movie.forced.srt
-        java.util.regex.Matcher matcher = LANGUAGE_TAG_PATTERN.matcher(filename);
-        if (matcher.find()) {
-            return matcher.group(1);
+        // Look for language tags near the end of the filename (before the extension)
+        // Standard formats: movie.en.srt, movie.eng.os-123.srt, movie.spa.forced.srt
+        
+        String[] parts = filename.toLowerCase().split("\\.");
+        // parts[last] is extension, parts[last-1] is often the language or os-id
+        
+        for (int i = parts.length - 2; i >= 0; i--) {
+            String part = parts[i];
+            
+            // Check if this part matches our language map
+            if (LANGUAGE_MAP.containsKey(part)) {
+                return part;
+            }
+            
+            // Check if it's a 2 or 3 letter code that looks like a language
+            if (LANGUAGE_PATTERN.matcher(part).matches() && !part.equals("srt") && !part.equals("vtt")) {
+                // Skip common non-language tags that might match the pattern
+                if (List.of("720p", "1080p", "2160p", "x264", "x265", "aac", "dts").contains(part)) {
+                    continue;
+                }
+                return part;
+            }
         }
+        
         return null;
     }
     
@@ -180,8 +257,11 @@ public class EnhancedSubtitleMatcher {
     private String createDisplayName(SubtitleTrack track) {
         StringBuilder displayName = new StringBuilder();
         
-        if (track.languageName != null) {
+        if (track.languageName != null && !track.languageName.equalsIgnoreCase("Unknown")) {
             displayName.append(track.languageName);
+        } else if (track.filename != null) {
+            // Fallback to filename if no language is detected
+            displayName.append(track.filename);
         } else {
             displayName.append("Unknown");
         }
@@ -194,6 +274,10 @@ public class EnhancedSubtitleMatcher {
             displayName.append(" (SDH)");
         }
         
+        if (Boolean.TRUE.equals(track.isManual)) {
+            displayName.append(" (Manual)");
+        }
+        
         return displayName.toString();
     }
     
@@ -202,8 +286,8 @@ public class EnhancedSubtitleMatcher {
         for (SubtitleTrack track : tracks) {
             if (track.languageCode == null) {
                 track.languageCode = "und"; // Undetermined
-                track.languageName = "Unknown";
-                track.displayName = "Unknown Language";
+                if (track.languageName == null) track.languageName = "Unknown";
+                track.displayName = createDisplayName(track);
             }
         }
     }

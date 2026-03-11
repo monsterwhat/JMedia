@@ -1,6 +1,27 @@
-<div class="library-header">
-    <h1 class="library-title">TV Shows</h1>
-    <p class="nav-label">{totalItems} Shows</p>
+<div class="library-header is-flex is-justify-content-between is-align-items-center">
+    <div>
+        <h1 class="library-title">TV Shows</h1>
+        <p class="nav-label">{totalItems} Shows</p>
+    </div>
+
+    <div class="library-actions is-flex is-align-items-center">
+        <div class="sort-selector mr-4">
+            <span class="mr-2 has-text-grey-light is-size-7 is-uppercase has-text-weight-bold">Sort By:</span>
+            <div class="select is-small is-rounded is-dark">
+                <select name="sort" 
+                        hx-get="/api/video/ui/shows-fragment?page=1&limit={limit}" 
+                        hx-target="#spa-content"
+                        hx-trigger="change"
+                        onchange="this.name='sortBy'; const dir = this.options[this.selectedIndex].dataset.dir; let url = this.getAttribute('hx-get') + '&sortBy=' + this.value + '&sortDirection=' + dir; htmx.ajax('GET', url, \{target: '#spa-content'\});">
+                    <option value="seriesTitle" data-dir="asc" {#if sortBy == 'seriesTitle' && sortDirection == 'asc'}selected{/if}>Alphabetical (A-Z)</option>
+                    <option value="seriesTitle" data-dir="desc" {#if sortBy == 'seriesTitle' && sortDirection == 'desc'}selected{/if}>Alphabetical (Z-A)</option>
+                    <option value="dateAdded" data-dir="desc" {#if sortBy == 'dateAdded' && sortDirection == 'desc'}selected{/if}>Recently Added</option>
+                    <option value="dateAdded" data-dir="asc" {#if sortBy == 'dateAdded' && sortDirection == 'asc'}selected{/if}>Oldest Added</option>
+                    <option value="lastWatched" data-dir="desc" {#if sortBy == 'lastWatched'}selected{/if}>Recently Played</option>
+                </select>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div id="seriesList">
@@ -35,7 +56,7 @@
         <nav class="plex-pagination mt-6" role="navigation" aria-label="pagination">
             <div class="is-flex is-align-items-center is-justify-content-center">
                 <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
-                   hx-get="/api/video/ui/shows-fragment?page={currentPage - 1}&limit={limit}"
+                   hx-get="/api/video/ui/shows-fragment?page={currentPage - 1}&limit={limit}&sortBy={sortBy}&sortDirection={sortDirection}"
                    hx-target="#spa-content"
                    {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     <i class="pi pi-chevron-left"></i> Previous
@@ -46,7 +67,7 @@
                 </span>
 
                 <a class="pagination-btn {#if currentPage == totalPages}is-disabled{/if}"
-                   hx-get="/api/video/ui/shows-fragment?page={currentPage + 1}&limit={limit}"
+                   hx-get="/api/video/ui/shows-fragment?page={currentPage + 1}&limit={limit}&sortBy={sortBy}&sortDirection={sortDirection}"
                    hx-target="#spa-content"
                    {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     Next <i class="pi pi-chevron-right"></i>

@@ -552,21 +552,5 @@ function handleCardClick(item, event) {
     }
 }
 
-// Global functions for compatibility
-window.selectItem = function(item, action) {
-    if (action === 'play') {
-        console.log('Playing:', item.title);
-        // Handle play action
-    } else if (action === 'details') {
-        console.log('Showing details:', item.title);
-        // Handle details action
-    }
-};
-
-window.addToWatchlist = function(item) {
-    console.log('Adding to watchlist:', item.title);
-    // Handle watchlist action
-};
-
 window.scrollCarousel = scrollCarousel;
 </script>

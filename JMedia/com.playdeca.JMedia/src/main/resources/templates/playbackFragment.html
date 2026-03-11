@@ -3,6 +3,7 @@
 
 <div class="player-container paused" id="customPlayer"
      data-title="{item.title ?: item.seriesTitle}"
+     data-path="{item.path.replace('\\', '/')}"
      data-meta="{#if item.type == 'Episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: 'Movie'}{/if}"
      data-start-time="{resumeTime}">
     

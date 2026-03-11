@@ -45,123 +45,229 @@ public class SubtitleDownloadService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public List<SubtitleSearchResult> searchSubtitles(Video video, String language) throws Exception {
-        Settings settings = settingsService.getOrCreateSettings();
-        String apiKey = settings.getOpenSubtitlesApiKey();
+        // OpenSubtitles requires 3-letter ISO 639-2 language codes (e.g., 'eng' instead of 'en')
+        String osLanguage = mapToThreeLetterLanguage(language);
+        LOG.info("Searching OpenSubtitles.org for video: " + video.title + " in language: " + osLanguage);
         
-        if (apiKey == null || apiKey.isBlank()) {
-            LOG.warn("OpenSubtitles API key is missing. Cannot search for subtitles.");
-            return new ArrayList<>();
-        }
-
-        StringBuilder urlBuilder = new StringBuilder(OPENSUBTITLES_API_BASE + "/subtitles?");
+        // Build URL segments
+        StringBuilder urlSegments = new StringBuilder();
         
-        // Prefer IMDb ID for accuracy
+        // 1. Add IMDb ID if available (strip 'tt' prefix)
         if (video.imdbId != null && !video.imdbId.isBlank()) {
             String cleanImdbId = video.imdbId.replace("tt", "");
-            urlBuilder.append("imdb_id=").append(cleanImdbId);
-        } else if ("episode".equalsIgnoreCase(video.type)) {
-            urlBuilder.append("query=").append(URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
-            if (video.seasonNumber != null) urlBuilder.append("&season_number=").append(video.seasonNumber);
-            if (video.episodeNumber != null) urlBuilder.append("&episode_number=").append(video.episodeNumber);
-        } else {
-            urlBuilder.append("query=").append(URLEncoder.encode(video.title, StandardCharsets.UTF_8));
-            if (video.releaseYear != null) urlBuilder.append("&year=").append(video.releaseYear);
+            urlSegments.append("/imdbid-").append(cleanImdbId);
         }
+        
+        // 2. Add Language
+        urlSegments.append("/sublanguageid-").append(osLanguage);
+        
+        // 3. Add Movie Name
+        String query = video.type.equalsIgnoreCase("episode") ? video.seriesTitle : video.title;
+        urlSegments.append("/moviename-").append(URLEncoder.encode(query, StandardCharsets.UTF_8));
 
-        if (language != null && !language.isBlank()) {
-            urlBuilder.append("&languages=").append(language);
-        }
+        // Construct final URL with /xml suffix for parsing
+        String searchUrl = "https://www.opensubtitles.org/en/search" + urlSegments.toString() + "/xml";
+        LOG.info("OpenSubtitles Search URL: " + searchUrl);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(urlBuilder.toString()))
-                .header("Api-Key", apiKey)
-                .header("User-Agent", USER_AGENT)
+                .uri(URI.create(searchUrl))
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
                 .GET()
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
         if (response.statusCode() != 200) {
-            LOG.error("OpenSubtitles search failed: " + response.body());
-            throw new IOException("Search failed with status " + response.statusCode());
+            LOG.error("OpenSubtitles search failed with status " + response.statusCode());
+            return new ArrayList<>();
         }
 
-        return parseSearchResults(response.body());
+        return parseWebSearchResults(response.body(), osLanguage);
     }
 
-    private List<SubtitleSearchResult> parseSearchResults(String json) throws Exception {
-        List<SubtitleSearchResult> results = new ArrayList<>();
-        JsonNode root = objectMapper.readTree(json);
-        JsonNode data = root.get("data");
+    private String mapToThreeLetterLanguage(String lang) {
+        if (lang == null || lang.isBlank()) return "all";
+        
+        // Handle explicit SPL request from user
+        if (lang.equalsIgnoreCase("spl")) return "spl";
+        
+        if (lang.length() == 3) return lang.toLowerCase();
+        
+        // Common mappings for 2-letter to 3-letter codes
+        return switch (lang.toLowerCase()) {
+            case "en" -> "eng";
+            case "es" -> "spa";
+            case "fr" -> "fre";
+            case "de" -> "deu";
+            case "it" -> "ita";
+            case "pt" -> "por";
+            case "ru" -> "rus";
+            case "ja" -> "jpn";
+            case "ko" -> "kor";
+            case "zh" -> "chi";
+            default -> lang;
+        };
+    }
 
-        if (data != null && data.isArray()) {
-            for (JsonNode item : data) {
-                JsonNode attributes = item.get("attributes");
-                JsonNode file = attributes.get("files").get(0);
+    private List<SubtitleSearchResult> parseWebSearchResults(String xml, String searchLang) throws Exception {
+        List<SubtitleSearchResult> results = new ArrayList<>();
+        
+        try {
+            javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            javax.xml.parsers.DocumentBuilder builder = factory.newDocumentBuilder();
+            org.w3c.dom.Document doc = builder.parse(new org.xml.sax.InputSource(new java.io.StringReader(xml)));
+            
+            org.w3c.dom.NodeList subtitleNodes = doc.getElementsByTagName("subtitle");
+            LOG.info("Found " + subtitleNodes.getLength() + " subtitles in XML response");
+
+            for (int i = 0; i < subtitleNodes.getLength(); i++) {
+                org.w3c.dom.Element element = (org.w3c.dom.Element) subtitleNodes.item(i);
                 
                 SubtitleSearchResult result = new SubtitleSearchResult();
-                result.id = file.get("file_id").asText();
-                result.filename = file.get("file_name").asText();
-                result.language = attributes.get("language").asText();
-                result.rating = attributes.get("ratings").asDouble();
-                result.downloadCount = attributes.get("download_count").asInt();
-                result.isForced = attributes.get("forced").asBoolean();
-                result.isSDH = attributes.get("sdh").asBoolean();
-                result.format = attributes.get("format") != null ? attributes.get("format").asText() : "srt";
+                result.id = getTagValue("IDSubtitle", element);
+                result.filename = getTagValue("MovieReleaseName", element);
+                if (result.filename == null || result.filename.isEmpty()) {
+                    result.filename = getTagValue("MovieName", element);
+                }
                 
+                result.language = getTagValue("LanguageName", element);
+                result.languageCode = searchLang; // Store the code used for the search
+                
+                String ratingStr = getTagValue("SubRating", element);
+                result.rating = (ratingStr != null) ? Double.parseDouble(ratingStr) : 0.0;
+                
+                String downloadsStr = getTagValue("SubDownloadsCnt", element);
+                result.downloadCount = (downloadsStr != null) ? Integer.parseInt(downloadsStr) : 0;
+                
+                result.format = "srt"; // OpenSubtitles standard
                 results.add(result);
             }
+        } catch (Exception e) {
+            LOG.error("Failed to parse OpenSubtitles XML: " + e.getMessage());
+            // If XML parsing fails, it might be an HTML error page or different format
+            throw new IOException("Failed to parse subtitle search results");
         }
+        
         return results;
     }
 
-    public CompletableFuture<String> downloadSubtitle(Video video, String fileId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                Settings settings = settingsService.getOrCreateSettings();
-                String apiKey = settings.getOpenSubtitlesApiKey();
-                
-                if (apiKey == null || apiKey.isBlank()) {
-                    throw new RuntimeException("OpenSubtitles API key is missing");
-                }
+    private String getTagValue(String tagName, org.w3c.dom.Element element) {
+        org.w3c.dom.NodeList nodeList = element.getElementsByTagName(tagName);
+        if (nodeList != null && nodeList.getLength() > 0) {
+            return nodeList.item(0).getTextContent();
+        }
+        return null;
+    }
 
-                // 1. Request download link
-                String downloadRequestJson = "{\"file_id\": " + fileId + "}";
-                HttpRequest downloadRequest = HttpRequest.newBuilder()
-                        .uri(URI.create(OPENSUBTITLES_API_BASE + "/download"))
-                        .header("Api-Key", apiKey)
-                        .header("User-Agent", USER_AGENT)
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(downloadRequestJson))
-                        .build();
+    public String downloadSubtitleWithLang(Video video, String fileId, String lang) {
+        try {
+            LOG.info("Downloading subtitle from OpenSubtitles.org with ID: " + fileId + " (" + lang + ")");
 
-                HttpResponse<String> response = httpClient.send(downloadRequest, HttpResponse.BodyHandlers.ofString());
-                
-                if (response.statusCode() != 200) {
-                    throw new IOException("Download link request failed: " + response.body());
-                }
-
-                JsonNode downloadNode = objectMapper.readTree(response.body());
-                String downloadUrl = downloadNode.get("link").asText();
-                String filename = downloadNode.get("file_name").asText();
-
-                // 2. Actually download the file
-                HttpRequest fileRequest = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build();
-                HttpResponse<Path> fileResponse = httpClient.send(fileRequest, 
-                        HttpResponse.BodyHandlers.ofFile(Paths.get(video.path).getParent().resolve(filename)));
-
-                LOG.info("Downloaded subtitle to: " + fileResponse.body());
-                
-                // 3. Refresh subtitle tracks for the video
+            String videoPathStr = video.path;
+            int lastSlash = Math.max(videoPathStr.lastIndexOf('/'), videoPathStr.lastIndexOf('\\'));
+            int lastDot = videoPathStr.lastIndexOf('.');
+            String videoBasename = videoPathStr.substring(lastSlash + 1, lastDot);
+            
+            // Normalize language code for filename (e.g. 'spl' -> 'spl', 'en' -> 'eng')
+            String fileLang = (lang != null && !lang.isBlank()) ? mapToThreeLetterLanguage(lang) : "und";
+            
+            // Format: videoBasename.lang.os-id.srt
+            String filename = videoBasename + "." + fileLang + ".os-" + fileId + ".srt";
+            Path targetPath = Paths.get(video.path).getParent().resolve(filename);
+            
+            LOG.info("Target download path: " + targetPath);
+            
+            // Check if file already exists to avoid redundant downloads
+            if (Files.exists(targetPath)) {
+                LOG.info("Subtitle file already exists, skipping download: " + filename);
                 refreshSubtitleTracks(video);
-
-                return "Subtitle downloaded successfully: " + filename;
-                
-            } catch (Exception e) {
-                LOG.error("Error downloading subtitle", e);
-                throw new RuntimeException("Download failed: " + e.getMessage());
+                return filename;
             }
-        });
+
+            String downloadUrl = "https://www.opensubtitles.org/en/download/sub/" + fileId;
+            
+            HttpRequest fileRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(downloadUrl))
+                    .header("User-Agent", "Mozilla/5.0")
+                    .timeout(java.time.Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+
+            // Using sendAsync to avoid InterruptedException blocking issues and add a timeout
+            HttpResponse<Path> fileResponse = httpClient.sendAsync(fileRequest, 
+                    HttpResponse.BodyHandlers.ofFile(targetPath))
+                    .get(45, java.util.concurrent.TimeUnit.SECONDS);
+
+            LOG.info("Downloaded subtitle to: " + fileResponse.body());
+            
+            refreshSubtitleTracks(video);
+            return filename;
+            
+        } catch (java.util.concurrent.TimeoutException e) {
+            LOG.error("Subtitle download timed out");
+            throw new RuntimeException("Download timed out");
+        } catch (Exception e) {
+            LOG.error("Error downloading subtitle", e);
+            throw new RuntimeException("Download failed: " + e.getMessage());
+        }
+    }
+
+    public String downloadSubtitleSync(Video video, String fileId) {
+        return downloadSubtitleWithLang(video, fileId, null);
+    }
+
+    public CompletableFuture<String> downloadSubtitle(Video video, String fileId) {
+        return CompletableFuture.supplyAsync(() -> downloadSubtitleSync(video, fileId));
+    }
+
+    public List<Models.DTOs.LocalSubtitleFile> scanAllSubtitleFiles(Video video) {
+        return subtitleMatcher.scanAllSubtitleFiles(Paths.get(video.path), video);
+    }
+    
+    @Transactional
+    public void addLocalSubtitle(Video video, String filePath) {
+        Video managedVideo = Video.findById(video.id);
+        if (managedVideo == null) return;
+        
+        Path path = Paths.get(filePath);
+        if (!Files.exists(path)) {
+            throw new RuntimeException("File does not exist: " + filePath);
+        }
+        
+        // Create manual track
+        SubtitleTrack track = new SubtitleTrack();
+        track.filename = path.getFileName().toString();
+        track.fullPath = filePath;
+        track.format = getFileExtension(track.filename);
+        track.video = managedVideo;
+        track.isManual = true;
+        track.isActive = true;
+        
+        // Extract tags for better display
+        subtitleMatcher.extractLanguageAndTags(track.filename, track);
+        
+        if (managedVideo.subtitleTracks == null) {
+            managedVideo.subtitleTracks = new ArrayList<>();
+        }
+        
+        // Check for duplicates
+        if (managedVideo.subtitleTracks.stream().anyMatch(t -> t.fullPath.equals(filePath))) {
+            return;
+        }
+        
+        track.persist();
+        managedVideo.subtitleTracks.add(track);
+        managedVideo.persist();
+        
+        LOG.info("Manually added subtitle track: " + filePath + " to video: " + managedVideo.title);
+    }
+
+    private String getFileExtension(String filename) {
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot > 0 && lastDot < filename.length() - 1) {
+            return filename.substring(lastDot + 1).toLowerCase();
+        }
+        return "";
     }
 
     @Transactional

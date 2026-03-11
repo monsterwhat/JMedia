@@ -315,18 +315,45 @@
     border-radius: 8px !important;
     display: none !important;
     flex-direction: column !important;
-    padding: 5px !important;
+    padding: 0 !important;
     z-index: 2000 !important;
+    width: 220px !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
 }
 
 .subtitle-menu.active {
     display: flex !important;
 }
 
+.menu-header {
+    padding: 12px 15px !important;
+    font-size: 0.8rem !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    color: rgba(255,255,255,0.5) !important;
+}
+
+.menu-divider {
+    height: 1px !important;
+    background: rgba(255,255,255,0.1) !important;
+    margin: 5px 0 !important;
+}
+
+.subtitle-list {
+    max-height: 200px !important;
+    overflow-y: auto !important;
+}
+
 .subtitle-option {
-    padding: 8px 15px !important;
+    padding: 10px 15px !important;
     color: #fff !important;
     cursor: pointer !important;
+    font-size: 0.9rem !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    transition: background 0.2s !important;
 }
 
 .subtitle-option:hover {
@@ -336,7 +363,24 @@
 .subtitle-option.selected {
     color: var(--player-primary) !important;
     font-weight: bold !important;
+    background: rgba(72, 199, 116, 0.1) !important;
 }
+
+.subtitle-option.selected::before {
+    content: "•" !important;
+    font-size: 1.5rem !important;
+}
+
+.subtitle-actions .subtitle-option {
+    color: rgba(255,255,255,0.8) !important;
+    font-size: 0.85rem !important;
+}
+
+.subtitle-sync-section {
+    padding: 10px 15px !important;
+}
+
+.gap-2 { gap: 0.5rem !important; }
 
 /* --- Scroll Preview --- */
 .preview-container {

@@ -124,7 +124,7 @@ public class Video extends PanacheEntity {
     public String fanartPath;
     
     // Subtitle Information
-    @OneToMany(mappedBy = "video", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "video", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     public List<SubtitleTrack> subtitleTracks;
     
     public Long defaultSubtitleTrackId;
