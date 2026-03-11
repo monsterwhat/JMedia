@@ -76,9 +76,6 @@
                     </div>
 
                     <div class="nav-group mt-auto" style="margin-top: auto; padding-top: 2rem;">
-                        <a href="javascript:void(0)" class="nav-item" onclick="window.handleLogout()">
-                            <i class="pi pi-sign-out"></i> <span>Logout</span>
-                        </a>
                         <a href="/settings" class="nav-item active">
                             <i class="pi pi-cog"></i> <span>Settings</span>
                         </a>
@@ -443,7 +440,7 @@
         </script>
 
         <!-- Modals -->
-        <div id="profileModal" class="modal"><div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Manage Profiles</p></header><section class="modal-card-body"><div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div><hr><div class="field has-addons"><div class="control is-expanded"><input class="input" type="text" id="newProfileNameInput"></div><div class="control"><button class="button is-info" id="createProfileBtn">Create</button></div></div><button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button></section><footer class="modal-card-foot" style="justify-content: space-between;"><button class="button is-danger is-small" onclick="window.handleLogout()">Logout</button><button class="button is-small" onclick="this.closest('.modal').classList.remove('is-active')">Close</button></footer></div></div>
+        <div id="profileModal" class="modal"><div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div><div class="modal-card glass-modal"><header class="modal-card-head"><p class="modal-card-title">Manage Profiles</p></header><section class="modal-card-body"><div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div><hr><div class="field has-addons"><div class="control is-expanded"><input class="input" type="text" id="newProfileNameInput"></div><div class="control"><button class="button is-info" id="createProfileBtn">Create</button></div></div><button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button></section><footer class="modal-card-foot" style="justify-content: space-between;"><button class="button is-danger is-small" onclick="window.handleLogout()">Logout</button><button class="button is-small" onclick="this.closest('.modal').classList.remove('is-active')">Close</button></footer></div></div>
         
         <div id="userModal" class="modal">
             <div class="modal-background" onclick="closeUserModal()"></div>

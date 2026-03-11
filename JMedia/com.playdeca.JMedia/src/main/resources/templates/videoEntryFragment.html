@@ -1,8 +1,22 @@
-<div class="video-entry video-card" data-video-id="{video.id}" onclick="playVideo(this, \{'id': '{video.id}', 'title': '{video.title}', 'releaseYear': '{video.releaseYear}', 'durationSeconds': '{video.durationSeconds}', 'episodeNumber': '{video.episodeNumber}', 'episodeTitle': '{video.episodeTitle}'\})">
-    <div class="video-thumbnail">
-        <img src="/images/placeholders/video-small.jpg" alt="Placeholder image" />
+<div class="episode-entry" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'play')">
+    <div class="episode-thumbnail">
+        <img src="/api/video/thumbnail/{video.id}" alt="{video.episodeTitle ?: video.title}" onerror="this.src='/images/placeholders/video-small.jpg'">
+        <div class="episode-play-overlay">
+            <i class="pi pi-play"></i>
+        </div>
     </div>
-    <div class="video-title">
-        {#if video.episodeNumber}E{video.episodeNumber} - {video.episodeTitle or video.title or video.filename or 'Unknown Episode'}{else}{video.title or video.filename or 'Unknown Video'} {#if video.releaseYear} ({video.releaseYear}) {/if}{/if}
+    <div class="episode-details">
+        <div class="episode-header-row">
+            <span class="episode-number-badge">E{video.episodeNumber ?: '0'}</span>
+            <span class="episode-title-text">{video.episodeTitle ?: video.title ?: video.filename}</span>
+        </div>
+        <div class="episode-meta-row">
+            {#if video.durationSeconds}
+                <span class="episode-duration"><i class="pi pi-clock mr-1"></i> {formatDuration.apply(video.durationSeconds)}</span>
+            {/if}
+            {#if video.releaseYear}
+                <span class="episode-year ml-3"><i class="pi pi-calendar mr-1"></i> {video.releaseYear}</span>
+            {/if}
+        </div>
     </div>
 </div>

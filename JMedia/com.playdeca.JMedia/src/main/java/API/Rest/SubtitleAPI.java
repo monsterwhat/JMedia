@@ -1,6 +1,7 @@
 package API.Rest;
 
 import Models.*;
+import Models.DTOs.SubtitleSearchResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -9,6 +10,8 @@ import jakarta.ws.rs.core.Response;
 import Services.SubtitleFormatConverter;
 import Services.SubtitlePreferenceEngine;
 import Services.UserInteractionService;
+import Services.WhisperService;
+import Services.SubtitleDownloadService;
 
 import java.io.IOException;
 import java.nio.file.Files; 
@@ -16,9 +19,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import Services.WhisperService;
-import Services.SubtitleDownloadService;
 
 @Path("/api/video/subtitles")
 @ApplicationScoped
@@ -57,19 +57,41 @@ public class SubtitleAPI {
         
         whisperService.generateSubtitle(video);
         
-        return Response.ok(createSuccessResponse("Subtitle generation started")).build();
+        return Response.ok(createSuccessResponse("Subtitle generation started in background")).build();
     }
     
-    @POST
-    @Path("/{videoId}/download")
-    public Response downloadSubtitle(@PathParam("videoId") Long videoId, 
-                                   @QueryParam("language") @DefaultValue("en") String language) {
+    @GET
+    @Path("/{videoId}/search")
+    public Response searchSubtitle(@PathParam("videoId") Long videoId, 
+                                 @QueryParam("language") @DefaultValue("en") String language) {
         Video video = Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
         }
         
-        downloadService.downloadSubtitle(video, language);
+        try {
+            List<SubtitleSearchResult> results = downloadService.searchSubtitles(video, language);
+            return Response.ok(results).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Search failed: " + e.getMessage())).build();
+        }
+    }
+    
+    @POST
+    @Path("/{videoId}/download")
+    public Response downloadSubtitle(@PathParam("videoId") Long videoId, 
+                                   @QueryParam("fileId") String fileId) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
+        }
+        
+        if (fileId == null || fileId.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("fileId is required").build();
+        }
+        
+        downloadService.downloadSubtitle(video, fileId);
         
         return Response.ok(createSuccessResponse("Subtitle download started")).build();
     }
@@ -118,8 +140,8 @@ public class SubtitleAPI {
                     .entity("Subtitle track not found")
                     .build();
         }
-        java.nio.file.Path subtitlePath = Paths.get(track.fullPath);
-        if (!Files.exists(subtitlePath)) {
+        java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
+        if (!java.nio.file.Files.exists(subtitlePath)) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity("Subtitle file not found")
                     .build();
@@ -144,7 +166,7 @@ public class SubtitleAPI {
     public Response setSubtitlePreference(Map<String, Object> preference) {
         try {
             Long userId = ((Number) preference.get("userId")).longValue();
-            Long videoId = ((Number) preference.get("videoId")).longValue();
+            Long videoId = preference.get("videoId") != null ? ((Number) preference.get("videoId")).longValue() : null;
             String languageCode = (String) preference.get("preferredLanguage");
             boolean enableAutoSelection = Boolean.TRUE.equals(preference.get("enableAutoSelection"));
             boolean preferForced = Boolean.TRUE.equals(preference.get("preferForcedSubtitles"));
@@ -163,12 +185,6 @@ public class SubtitleAPI {
             userPrefs.subtitleAppearance = appearance;
             
             userInteractionService.updateUserSubtitlePreferences(userPrefs);
-            
-            // Store per-video preference if specified
-            if (videoId != null) {
-                // This would store per-video preference in a separate table
-                // For now, we'll just return success
-            }
             
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -193,10 +209,6 @@ public class SubtitleAPI {
             Long trackId = preference.containsKey("trackId") ? 
                            ((Number) preference.get("trackId")).longValue() : null;
             
-            // Store per-video preference
-            // This would be implemented in a separate table
-            // For now, we'll just return success
-            
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Per-video preference stored");
@@ -215,7 +227,7 @@ public class SubtitleAPI {
     private String convertToWebVTT(SubtitleTrack track) {
         try {
             // Read the subtitle file content
-            String content = Files.readString(Paths.get(track.fullPath));
+            String content = java.nio.file.Files.readString(java.nio.file.Paths.get(track.fullPath));
             
             // Perform basic format conversion based on file type
             switch (track.format.toLowerCase()) {

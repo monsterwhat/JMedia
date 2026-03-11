@@ -31,15 +31,26 @@
         </div>
 
         {#if totalPages > 1}
-        <nav class="pagination is-centered mt-6" role="navigation" aria-label="pagination">
-            <a class="pagination-previous"
-               hx-get="/api/video/ui/movies-fragment?page={currentPage - 1}&limit={limit}"
-               hx-target="#spa-content"
-               {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>Previous</a>
-            <a class="pagination-next"
-               hx-get="/api/video/ui/movies-fragment?page={currentPage + 1}&limit={limit}"
-               hx-target="#spa-content"
-               {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>Next page</a>
+        <nav class="plex-pagination mt-6" role="navigation" aria-label="pagination">
+            <div class="is-flex is-align-items-center is-justify-content-center">
+                <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
+                   hx-get="/api/video/ui/movies-fragment?page={currentPage - 1}&limit={limit}"
+                   hx-target="#spa-content"
+                   {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
+                    <i class="pi pi-chevron-left"></i> Previous
+                </a>
+                
+                <span class="pagination-info mx-5">
+                    Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                </span>
+
+                <a class="pagination-btn {#if currentPage == totalPages}is-disabled{/if}"
+                   hx-get="/api/video/ui/movies-fragment?page={currentPage + 1}&limit={limit}"
+                   hx-target="#spa-content"
+                   {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
+                    Next <i class="pi pi-chevron-right"></i>
+                </a>
+            </div>
         </nav>
         {/if}
     {/if}

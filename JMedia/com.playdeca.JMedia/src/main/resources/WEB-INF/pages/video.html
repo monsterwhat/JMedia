@@ -176,6 +176,7 @@
         <script src="/js/navbar.js"></script>
         <script src="/js/profileManager.js"></script>
         <script src="/js/videoContextMenu.js"></script>
+        <script src="/js/subtitle-manager.js"></script>
         
         <script>
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
@@ -186,9 +187,8 @@
             class VideoSPA {
                 constructor() {
                     this.currentSection = 'home';
-                    this.previousSection = 'home';
                     this.currentParams = {};
-                    this.previousParams = {};
+                    this.backDestination = null; // Where the back button should go
                     this.sections = {
                         home: 'home',
                         movies: '/api/video/ui/movies-fragment',
@@ -197,34 +197,47 @@
                         watchlist: '/api/video/ui/watchlist-fragment',
                         manage: '/api/video/manage',
                         seasons: '/api/video/ui/shows/{encodedTitle}/seasons-fragment',
+                        episodes: '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/episodes-fragment',
                         details: '/api/video/ui/details-fragment/{videoId}',
                         playback: '/api/video/ui/playback-fragment?videoId={videoId}'
                         };
                 }
                 
+                buildSpaUrl(section, params = {}) {
+                    const queryParams = new URLSearchParams();
+                    if (section !== 'home') {
+                        queryParams.set('section', section);
+                    }
+                    for (const [key, value] of Object.entries(params)) {
+                        queryParams.set(key, value);
+                    }
+                    const queryString = queryParams.toString();
+                    return queryString ? `/video?${queryString}` : '/video';
+                }
+
                 async switchSection(section, params = {}, bypassHistory = false) {
                     this.showLoading();
+                    
+                    // Clear back destination when entering a new section (unless explicitly setting it)
+                    if (!bypassHistory) {
+                        this.backDestination = null;
+                    }
                     
                     if (section === 'home') {
                         this.goHome(bypassHistory);
                         return;
                     }
 
-                    // Track history for back button
-                    if (this.currentSection !== 'details' && this.currentSection !== 'playback') {
-                        this.previousSection = this.currentSection;
-                        this.previousParams = this.currentParams;
-                    }
-
                     this.updateNavState(section);
-                    const url = this.buildUrl(section, params);
+                    const apiUrl = this.buildApiUrl(section, params);
                     try {
-                        const html = await this.fetchContent(url);
+                        const html = await this.fetchContent(apiUrl);
                         this.updateContent(html);
                         this.hideLoading();
                         
                         if (!bypassHistory) {
-                            history.pushState({ section, params }, '', '');
+                            const spaUrl = this.buildSpaUrl(section, params);
+                            history.pushState({ section, params }, '', spaUrl);
                         }
 
                         this.currentSection = section;
@@ -235,20 +248,24 @@
                 }
                 
                 goBack() {
-                    if (this.previousSection) {
-                        this.switchSection(this.previousSection, this.previousParams, true);
+                    // Check for override destination (set by pages for proper hierarchy)
+                    if (this.backDestination) {
+                        const dest = this.backDestination;
+                        this.backDestination = null; // Clear after use
+                        this.switchSection(dest.section, dest.params || {}, true);
+                        return;
+                    }
+                    
+                    // Fallback to browser history or home
+                    if (window.history.length > 1) {
+                        window.history.back();
                     } else {
                         this.goHome(true);
                     }
                 }
                 
                 goHome(bypassHistory = false) {
-                    // Track history for back button
-                    if (this.currentSection !== 'home' && this.currentSection !== 'details' && this.currentSection !== 'playback') {
-                        this.previousSection = this.currentSection;
-                        this.previousParams = this.currentParams;
-                    }
-
+                    this.backDestination = null;
                     this.updateNavState('home');
                     this.updateContent(`
                         <div id="hero-section" 
@@ -269,7 +286,7 @@
                     }
 
                     if (!bypassHistory) {
-                        history.pushState({ section: 'home', params: {} }, '', '');
+                        history.pushState({ section: 'home', params: {} }, '', '/video');
                     }
 
                     this.currentSection = 'home';
@@ -306,16 +323,15 @@
                     const activeNav = document.getElementById('nav-' + section);
                     if (activeNav) activeNav.classList.add('active');
                     
-                    // Update mobile nav
                     document.querySelectorAll('.mobile-nav-item').forEach(el => el.classList.remove('active'));
                     const activeMobileNav = document.getElementById('mobile-nav-' + section);
                     if (activeMobileNav) activeMobileNav.classList.add('active');
                 }
 
-                buildUrl(section, params) {
+                buildApiUrl(section, params) {
                     let url = this.sections[section] || section;
                     for (const [key, value] of Object.entries(params)) {
-                        url = url.replace('{' + key + '}', value);
+                        url = url.replace('{' + key + '}', encodeURIComponent(value));
                     }
                     return url;
                 }
@@ -343,19 +359,16 @@
                         const newScript = document.createElement('script');
                         if (script.src) newScript.src = script.src;
                         else newScript.textContent = script.textContent;
-                        document.head.appendChild(newScript);
-                        document.head.removeChild(newScript);
+                        document.head.appendChild(newScript).parentNode.removeChild(newScript);
                     });
                 }
                 
                 showLoading() {
-                    const loadingDiv = document.getElementById('loading-state');
-                    if (loadingDiv) loadingDiv.style.display = 'flex';
+                    document.getElementById('loading-state').style.display = 'flex';
                 }
                 
                 hideLoading() {
-                    const loadingDiv = document.getElementById('loading-state');
-                    if (loadingDiv) loadingDiv.style.display = 'none';
+                    document.getElementById('loading-state').style.display = 'none';
                 }
                 
                 handleError(error) {
@@ -370,7 +383,6 @@
                 toggleSidebar() {
                     const layout = document.getElementById('plex-layout');
                     layout.classList.toggle('collapsed');
-                    // Store preference
                     localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
                 }
 
@@ -380,7 +392,6 @@
                         if (!res.ok) return;
                         const data = await res.json();
                         
-                        // Also apply sidebar preference while we're checking state
                         this.applySidebarPreference();
 
                         if (data.success && data.video && data.video.id && data.video.playing) {
@@ -429,24 +440,31 @@
             document.addEventListener('DOMContentLoaded', () => {
                 initKeyboardNavigation();
                 initSearchClear();
-                
-                // Handle browser back button
+
                 window.onpopstate = (event) => {
                     if (event.state && event.state.section) {
                         videoSPA.switchSection(event.state.section, event.state.params, true);
                     } else {
-                        videoSPA.goHome(true);
+                        // This handles the initial page load state (where event.state is null)
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const section = urlParams.get('section') || 'home';
+                        const params = {};
+                        urlParams.forEach((value, key) => {
+                            if(key !== 'section') params[key] = value;
+                        });
+                        videoSPA.switchSection(section, params, true);
                     }
                 };
 
-                // Restore sidebar state
+                // Trigger onpopstate for initial load to handle bookmarked/shared URLs
+                window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+
                 if (localStorage.getItem('sidebarCollapsed') === 'true') {
                     document.getElementById('plex-layout').classList.add('collapsed');
                 }
 
-                // Auto-resume playback if applicable
                 videoSPA.applySidebarPreference();
-                videoSPA.checkResumePlayback();
+                // We don't call checkResumePlayback here anymore, as the initial onpopstate handles the view
             });
 
             function initKeyboardNavigation() {
@@ -494,6 +512,92 @@
           <button class="button" onclick="document.getElementById('profileModal').classList.remove('is-active');">Close</button>
         </footer>
       </div>
+    </div>
+
+    <!-- Subtitle Management Modal -->
+    <div id="subtitleManagementModal" class="modal">
+        <div class="modal-background" onclick="subtitleManager.closeModal()"></div>
+        <div class="modal-card glass-modal" style="width: 80%; max-width: 900px;">
+            <header class="modal-card-head glass-modal-header">
+                <p class="modal-card-title">Subtitle Management</p>
+                <button class="delete" aria-label="close" onclick="subtitleManager.closeModal()"></button>
+            </header>
+            <section class="modal-card-body glass-modal-body">
+                <div class="tabs is-centered is-boxed">
+                    <ul>
+                        <li id="search-tab-btn" class="is-active"><a onclick="subtitleManager.switchTab('search')">Search Online</a></li>
+                        <li id="ai-tab-btn"><a onclick="subtitleManager.switchTab('ai')">AI Generation</a></li>
+                    </ul>
+                </div>
+
+                <!-- Search Tab -->
+                <div id="search-tab-content">
+                    <div class="field has-addons">
+                        <div class="control is-expanded">
+                            <input class="input is-rounded" type="text" id="subtitleSearchInput" placeholder="Search by name...">
+                        </div>
+                        <div class="control">
+                            <span class="select is-rounded">
+                                <select id="subtitleLanguageSelect">
+                                    <option value="en">English</option>
+                                    <option value="es">Spanish</option>
+                                    <option value="fr">French</option>
+                                    <option value="de">German</option>
+                                    <option value="it">Italian</option>
+                                    <option value="pt">Portuguese</option>
+                                    <option value="ru">Russian</option>
+                                    <option value="ja">Japanese</option>
+                                    <option value="ko">Korean</option>
+                                    <option value="zh">Chinese</option>
+                                </select>
+                            </span>
+                        </div>
+                        <div class="control">
+                            <button class="button is-info is-rounded" onclick="subtitleManager.search()">
+                                <i class="pi pi-search"></i>&nbsp;Search
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="subtitleSearchResultsContainer" class="mt-4" style="min-height: 200px; max-height: 400px; overflow-y: auto;">
+                        <table class="table is-fullwidth is-hoverable is-narrow subtitle-table">
+                            <thead>
+                                <tr>
+                                    <th>Filename</th>
+                                    <th>Language</th>
+                                    <th>Rating</th>
+                                    <th>Downloads</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="subtitleSearchResultsBody">
+                                <tr>
+                                    <td colspan="5" class="has-text-centered has-text-grey">
+                                        Use the search bar above to find subtitles
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- AI Tab -->
+                <div id="ai-tab-content" style="display: none;">
+                    <div class="content has-text-centered py-6">
+                        <i class="pi pi-bolt" style="font-size: 3rem; color: #ffa502;"></i>
+                        <h3 class="title is-4 mt-4">Whisper AI Generation</h3>
+                        <p>Generate high-quality subtitles using OpenAI Whisper directly from the video audio.</p>
+                        <p class="help mb-4">This process runs in the background and may take several minutes depending on video length and server hardware.</p>
+                        <button class="button is-warning is-rounded is-large" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
+                            <i class="pi pi-magic"></i>&nbsp;Generate with AI
+                        </button>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot glass-modal-footer">
+                <button class="button" onclick="subtitleManager.closeModal()">Close</button>
+            </footer>
+        </div>
     </div>
 </body>
 </html>

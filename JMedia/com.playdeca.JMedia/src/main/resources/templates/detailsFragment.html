@@ -1,4 +1,25 @@
 <div class="detail-container">
+    <!-- Set the back destination based on video type -->
+    <script>
+        (function() {
+            var videoType = '{item.type}';
+            var seriesTitle = '{item.seriesTitle}';
+            var seasonNumber = {item.seasonNumber};
+            
+            if (videoType && videoType.toLowerCase() === 'episode') {
+                videoSPA.backDestination = {
+                    section: 'episodes',
+                    params: { seriesTitle: seriesTitle, seasonNumber: seasonNumber }
+                };
+            } else {
+                videoSPA.backDestination = {
+                    section: 'movies',
+                    params: {}
+                };
+            }
+        })();
+    </script>
+    
     <!-- Poster Section -->
     <div class="poster-section">
         <img class="poster-image" 
@@ -11,32 +32,34 @@
 
     <!-- Info Section -->
     <div class="info-section">
-        <button class="back-btn" onclick="videoSPA.goBack()">
-            <i class="pi pi-arrow-left"></i> Back
-        </button>
-        <!-- Title -->
-        <div class="title-section">
-            <h1>{item.title ?: item.seriesTitle}</h1>
-            <div class="meta-info">
-                <div class="meta-item">
-                    <i class="pi pi-calendar"></i>
-                    <span>{item.releaseYear ?: '2024'}</span>
-                </div>
-                {#if item.durationSeconds}
-                <div class="meta-item">
-                    <i class="pi pi-clock"></i>
-                    <span>{formatDuration.apply(item.durationSeconds)}</span>
-                </div>
-                {/if}
-                {#if item.type == 'Episode'}
-                <div class="meta-item">
-                    <i class="pi pi-tv"></i>
-                    <span>S{item.seasonNumber}E{item.episodeNumber}</span>
-                </div>
-                {/if}
-                <div class="meta-item">
-                    <i class="pi pi-tag"></i>
-                    <span>{item.type ?: 'Movie'}</span>
+        <!-- Title Row with Back Button -->
+        <div class="title-row">
+            <button class="back-btn" onclick="videoSPA.goBack()">
+                <i class="pi pi-arrow-left"></i> Back
+            </button>
+            <div class="title-section">
+                <h1>{item.title ?: item.seriesTitle}</h1>
+                <div class="meta-info">
+                    <div class="meta-item">
+                        <i class="pi pi-calendar"></i>
+                        <span>{item.releaseYear ?: '2024'}</span>
+                    </div>
+                    {#if item.durationSeconds}
+                    <div class="meta-item">
+                        <i class="pi pi-clock"></i>
+                        <span>{formatDuration.apply(item.durationSeconds)}</span>
+                    </div>
+                    {/if}
+                    {#if item.type.toLowerCase() == 'episode'}
+                    <div class="meta-item">
+                        <i class="pi pi-tv"></i>
+                        <span>S{item.seasonNumber}E{item.episodeNumber}</span>
+                    </div>
+                    {/if}
+                    <div class="meta-item">
+                        <i class="pi pi-tag"></i>
+                        <span>{item.type ?: 'Movie'}</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -45,6 +68,9 @@
         <div class="action-buttons">
             <button class="action-btn btn-primary" onclick="window.selectItem({item.id}, 'play')">
                 <i class="pi pi-play"></i> Play Now
+            </button>
+            <button class="action-btn btn-secondary" onclick="subtitleManager.openModal({item.id}, '{item.title ?: item.seriesTitle}')">
+                <i class="pi pi-closed-captioning"></i> Subtitles
             </button>
             <button class="action-btn btn-secondary" onclick="window.addToWatchlist('{item.title ?: 'Video'}', {item.id})">
                 <i class="pi pi-bookmark"></i> Watchlist
@@ -68,7 +94,7 @@
                 <p>English</p>
             </div>
 
-            {#if item.type == 'Episode'}
+            {#if item.type.toLowerCase() == 'episode'}
             <div class="info-card">
                 <h3>Episode</h3>
                 <p>{item.episodeTitle ?: 'Untitled'}</p>

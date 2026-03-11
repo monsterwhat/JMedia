@@ -17,7 +17,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.StreamingOutput;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -25,6 +24,7 @@ import java.io.InputStream;
 import java.nio.file.Paths;
 import java.util.List;
 import org.eclipse.microprofile.context.ManagedExecutor;
+import io.smallrye.mutiny.Multi;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.concurrent.ThreadFactory;
@@ -251,14 +251,18 @@ public class VideoAPI {
 
         // Additional security check: ensure the resolved file is within the video library
         try {
-            java.nio.file.Path canonicalLibraryPath = Paths.get(videoLibraryPath).toRealPath();
-            java.nio.file.Path canonicalFilePath = filePath.toRealPath();
-
-            if (!canonicalFilePath.startsWith(canonicalLibraryPath)) {
-                LOG.warn("Path traversal attempt detected for video ID {}: {} resolves to {}",
-                        videoId, video.path, canonicalFilePath);
-                return Response.status(Response.Status.FORBIDDEN)
-                        .entity("Access denied: invalid file path").build();
+            // If the path is absolute, we trust it (user configured it).
+            // Only perform the check if the path is relative to the library root.
+            if (!baseFilePath.isAbsolute()) {
+                java.nio.file.Path canonicalLibraryPath = Paths.get(videoLibraryPath).toRealPath();
+                java.nio.file.Path canonicalFilePath = filePath.toRealPath();
+    
+                if (!canonicalFilePath.startsWith(canonicalLibraryPath)) {
+                    LOG.warn("Path traversal attempt detected for video ID {}: {} resolves to {}",
+                            videoId, video.path, canonicalFilePath);
+                    return Response.status(Response.Status.FORBIDDEN)
+                            .entity("Access denied: invalid file path").build();
+                }
             }
         } catch (IOException e) {
             LOG.warn("Error resolving canonical paths for security check: {}", e.getMessage());
@@ -290,30 +294,36 @@ public class VideoAPI {
         long contentLength = end - start + 1;
         final long rangeStart = start;
 
-        StreamingOutput stream = outputStream -> {
-            try (InputStream fis = new FileInputStream(videoFile)) {
-                fis.skip(rangeStart);
-                byte[] buffer = new byte[8192];
-                long bytesRemaining = contentLength;
-                while (bytesRemaining > 0) {
-                    int bytesToRead = (int) Math.min(buffer.length, bytesRemaining);
-                    int bytesRead = fis.read(buffer, 0, bytesToRead);
-                    if (bytesRead == -1) {
-                        break;
+        Multi<byte[]> multi = Multi.createFrom().emitter(emitter -> {
+            Thread thread = new Thread(() -> {
+                try (InputStream fis = new FileInputStream(videoFile)) {
+                    fis.skip(rangeStart);
+                    byte[] buffer = new byte[65536];
+                    long bytesRemaining = contentLength;
+                    while (bytesRemaining > 0 && !emitter.isCancelled()) {
+                        int bytesToRead = (int) Math.min(buffer.length, bytesRemaining);
+                        int bytesRead = fis.read(buffer, 0, bytesToRead);
+                        if (bytesRead == -1) {
+                            break;
+                        }
+                        byte[] chunk = new byte[bytesRead];
+                        System.arraycopy(buffer, 0, chunk, 0, bytesRead);
+                        emitter.emit(chunk);
+                        bytesRemaining -= bytesRead;
                     }
-                    outputStream.write(buffer, 0, bytesRead);
-                    bytesRemaining -= bytesRead;
+                    emitter.complete();
+                } catch (IOException e) {
+                    if (!isClientDisconnect(e)) {
+                        LOG.error("Streaming error for {}: {}", filePath, e.getMessage());
+                    }
+                    emitter.fail(e);
                 }
-            } catch (IOException e) {
-                if (!isClientDisconnect(e)) {
-                    LOG.error("Streaming error for {}: {}", filePath, e.getMessage(), e);
-                }
-            }
-        };
+            });
+            thread.start();
+        });
 
         if (rangeHeader != null) {
-            return Response.status(Response.Status.PARTIAL_CONTENT)
-                    .entity(stream)
+            return Response.ok(multi)
                     .header("Accept-Ranges", "bytes")
                     .header("Content-Type", "video/mp4")
                     .header("Content-Length", contentLength)
@@ -321,7 +331,7 @@ public class VideoAPI {
                     .build();
         }
 
-        return Response.ok(stream)
+        return Response.ok(multi)
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", "video/mp4")
                 .header("Content-Length", fileLength)

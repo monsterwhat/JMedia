@@ -42,6 +42,7 @@ public class Settings extends PanacheEntity {
     private Boolean thumbnailPreferApi = true;   // Prefer API thumbnails over local extraction
     private Boolean thumbnailRegenerateOnReload = true; // Regenerate all thumbnails during metadata reload
     private String tmdbApiKey; // TMDb API key for video metadata and artwork
+    private String openSubtitlesApiKey; // OpenSubtitles.org API key
     
     // Cookies file path for yt-dlp on Linux
     private String cookiesFilePath;
@@ -355,6 +356,30 @@ public class Settings extends PanacheEntity {
 
     public void setTmdbApiKey(String tmdbApiKey) {
         this.tmdbApiKey = tmdbApiKey;
+    }
+
+    public String getCurrentVersion() {
+        return currentVersion;
+    }
+
+    public void setCurrentVersion(String currentVersion) {
+        this.currentVersion = currentVersion;
+    }
+
+    public String getLastUpdateCheck() {
+        return lastUpdateCheck;
+    }
+
+    public void setLastUpdateCheck(String lastUpdateCheck) {
+        this.lastUpdateCheck = lastUpdateCheck;
+    }
+    
+    public Boolean getAutoUpdateEnabled() {
+        return autoUpdateEnabled != null ? autoUpdateEnabled : true;
+    }
+
+    public void setAutoUpdateEnabled(Boolean autoUpdateEnabled) {
+        this.autoUpdateEnabled = autoUpdateEnabled;
     }
     
     public Boolean getThumbnailPreferApi() {

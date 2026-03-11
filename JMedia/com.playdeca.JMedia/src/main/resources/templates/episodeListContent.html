@@ -1,13 +1,156 @@
+<div class="library-header is-flex is-align-items-center">
+    <script>
+        (function() {
+            videoSPA.backDestination = { 
+                section: 'seasons', 
+                params: { encodedTitle: '{encodedSeriesTitle}' } 
+            };
+        })();
+    </script>
+    <button class="back-btn mb-0 mr-5" onclick="videoSPA.goBack()">
+        <i class="pi pi-arrow-left"></i> Back
+    </button>
+    <div class="is-flex is-align-items-center">
+        <h1 class="library-title mb-0">{seriesTitle}</h1>
+        <span class="tag is-dark ml-4" style="background: var(--plex-accent); color: white; padding: 0.5rem 1rem; height: auto; border-radius: 8px; font-weight: bold;">SEASON {seasonNumber}</span>
+    </div>
+</div>
+
+<div class="episodes-container p-4">
 {#if episodes.empty}
-        <div>
-            <div class="has-text-centered py-2">
-                <p>No episodes found.</p>
-            </div>
-        </div>
-    {#else}
-        <div>
-            {#for episode in episodes}
-               {#include videoEntryFragment.html video=episode /}
-            {/for}
-        </div>
-    {/if}
+    <div class="carousel-empty-state">
+        <i class="pi pi-video"></i>
+        <h3>No episodes found</h3>
+        <p>We couldn't find any episodes for this season.</p>
+    </div>
+{#else}
+    <div class="episodes-list">
+        {#for episode in episodes}
+           {#include videoEntryFragment.html video=episode /}
+        {/for}
+    </div>
+{/if}
+</div>
+
+<style>
+.episodes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.episode-entry {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+}
+
+.episode-entry:hover {
+    background: rgba(255,255,255,0.05);
+    transform: translateX(5px);
+}
+
+.episode-thumbnail {
+    width: 200px;
+    aspect-ratio: 16/9;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+    margin-right: 1.5rem;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+}
+
+.episode-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.episode-play-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.episode-entry:hover .episode-play-overlay {
+    opacity: 1;
+}
+
+.episode-play-overlay i {
+    color: white;
+    font-size: 2rem;
+}
+
+.episode-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.episode-header-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.6rem;
+}
+
+.episode-number-badge {
+    background: var(--plex-accent);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 800;
+    margin-right: 1rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.episode-title-text {
+    font-weight: 600;
+    font-size: 1.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #ffffff;
+}
+
+.episode-meta-row {
+    display: flex;
+    align-items: center;
+    font-size: 0.95rem;
+    color: rgba(255,255,255,0.6);
+}
+
+.episode-meta-row i {
+    font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+    .episode-thumbnail {
+        width: 120px;
+        margin-right: 1rem;
+    }
+    .episode-title-text {
+        font-size: 1rem;
+    }
+    .episode-number-badge {
+        padding: 2px 6px;
+        font-size: 0.75rem;
+        margin-right: 0.5rem;
+    }
+}
+</style>

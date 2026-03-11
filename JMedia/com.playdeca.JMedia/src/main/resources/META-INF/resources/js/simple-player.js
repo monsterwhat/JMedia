@@ -354,7 +354,7 @@ class SimplePlayer {
 
     goBack() {
         if (window.videoSPA) {
-            window.videoSPA.switchSection('details', {videoId: this.videoId});
+            window.videoSPA.goBack();
         } else if (window.switchSection) {
             window.switchSection('details', {videoId: this.videoId});
         }
@@ -391,6 +391,26 @@ class SimplePlayer {
     }
 
     async triggerSubtitleAction(type, el) {
+        this.subtitleMenu.classList.remove('active');
+        
+        if (type === 'download') {
+            if (window.subtitleManager) {
+                window.subtitleManager.openModal(this.videoId, this.container.dataset.title || 'Video');
+            }
+            return;
+        }
+
+        if (type === 'generate') {
+            if (window.subtitleManager) {
+                // We reuse the AI tab logic but initialize with current video
+                window.subtitleManager.currentVideoId = this.videoId;
+                window.subtitleManager.currentVideoTitle = this.container.dataset.title || 'Video';
+                window.subtitleManager.generateAiSubtitles();
+            }
+            return;
+        }
+        
+        // Legacy fallback
         const originalText = el.innerText;
         el.innerText = type === 'generate' ? 'Generating...' : 'Searching...';
         el.style.pointerEvents = 'none';

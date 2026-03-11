@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video;
+import Models.SubtitleTrack;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.BufferedReader;
@@ -8,6 +9,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -20,6 +22,9 @@ public class WhisperService {
     
     @Inject
     SettingsService settingsService;
+    
+    @Inject
+    SubtitleDownloadService subtitleDownloadService;
 
     public boolean isWhisperAvailable() {
         try {
@@ -63,6 +68,10 @@ public class WhisperService {
                 int exitCode = process.waitFor();
                 if (exitCode == 0) {
                     LOG.info("Whisper generation completed for: " + video.filename);
+                    
+                    // Refresh tracks so the new .srt file is detected
+                    subtitleDownloadService.refreshSubtitleTracks(video);
+                    
                     return "Success";
                 } else {
                     LOG.error("Whisper failed with exit code: " + exitCode);

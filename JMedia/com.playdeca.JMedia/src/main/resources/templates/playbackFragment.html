@@ -18,6 +18,14 @@
     (function() {
         console.log("[Playback] Fragment Loaded. Initializing...");
         
+        // Set back destination to go to details page
+        if (window.videoSPA) {
+            videoSPA.backDestination = {
+                section: 'details',
+                params: { videoId: {item.id} }
+            };
+        }
+        
         const tryInit = () => {
             if (window.SimplePlayer) {
                 new window.SimplePlayer({

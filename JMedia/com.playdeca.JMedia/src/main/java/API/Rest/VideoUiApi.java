@@ -197,7 +197,7 @@ public class VideoUiApi {
         for (String title : pagedTitles) {
             final String currentTitle = title;
             Models.Video sample = allEpisodes.stream()
-                    .filter(v -> currentTitle.equals(v.seriesTitle))
+                    .filter(v -> currentTitle.equalsIgnoreCase(v.seriesTitle))
                     .findFirst().orElse(null);
             
             if (sample != null) {
@@ -226,23 +226,44 @@ public class VideoUiApi {
         try {
             // Path parameters are often not decoded automatically in all JAX-RS configurations
             String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
-            List<Integer> seasonNumbers = videoService.findSeasonNumbersForSeries(decodedTitle);
+            List<Models.Video> seriesEpisodes = videoService.findEpisodesForSeries(decodedTitle);
             
-            // Case-insensitive fallback for season numbers
-            if (seasonNumbers.isEmpty()) {
-                 seasonNumbers = Models.Video.<Models.Video>listAll().stream()
-                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && decodedTitle.equalsIgnoreCase(v.seriesTitle))
-                    .map(v -> v.seasonNumber)
-                    .filter(Objects::nonNull)
+            // Case-insensitive fallback
+            if (seriesEpisodes.isEmpty()) {
+                seriesEpisodes = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
+                            decodedTitle.equalsIgnoreCase(v.seriesTitle))
+                    .collect(Collectors.toList());
+            }
+
+            final List<Models.Video> finalEpisodes = seriesEpisodes;
+            List<Integer> seasonNumbers = finalEpisodes.stream()
+                    .map(v -> v.seasonNumber != null ? v.seasonNumber : 1) // Treat null as Season 1
                     .distinct()
                     .sorted()
                     .collect(Collectors.toList());
+
+            // If it's still empty but we have episodes, ensure we have at least season 1
+            if (seasonNumbers.isEmpty() && !finalEpisodes.isEmpty()) {
+                seasonNumbers = Collections.singletonList(1);
             }
+
+            List<SeasonEntry> seasons = new ArrayList<>();
+            for (Integer sn : seasonNumbers) {
+                Models.Video sample = finalEpisodes.stream()
+                        .filter(v -> (v.seasonNumber != null ? v.seasonNumber : 1) == sn)
+                        .findFirst()
+                        .orElse(null);
+                seasons.add(new SeasonEntry(sn, sample != null ? sample.id : null));
+            }
+
+            Models.Video sampleVideo = finalEpisodes.isEmpty() ? null : finalEpisodes.get(0);
 
             return seasonListContent
                     .data("seriesTitle", decodedTitle)
                     .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
-                    .data("seasonNumbers", seasonNumbers)
+                    .data("seasons", seasons)
+                    .data("sampleVideo", sampleVideo)
                     .render();
         } catch (Exception e) {
             LOG.error("Error rendering seasons fragment for show {}: {}", seriesTitle, e.getMessage(), e);
@@ -262,17 +283,19 @@ public class VideoUiApi {
             
             List<Models.Video> episodes = videoService.findEpisodesForSeason(decodedTitle, seasonNumber);
             
-            // Case-insensitive fallback
+            // Fallback for case-insensitivity or null season numbers (mapped to season 1)
             if (episodes.isEmpty()) {
                 episodes = Models.Video.<Models.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
                             decodedTitle.equalsIgnoreCase(v.seriesTitle) && 
-                            seasonNumber.equals(v.seasonNumber))
+                            (seasonNumber.equals(v.seasonNumber) || (seasonNumber == 1 && v.seasonNumber == null)))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
                     .collect(Collectors.toList());
             }
 
             return episodeListContent
+                    .data("seriesTitle", decodedTitle)
+                    .data("seasonNumber", seasonNumber)
                     .data("episodes", episodes)
                     .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                     .data("encodedSeriesTitle", seriesTitle) // Use original encoded for sub-requests
@@ -435,6 +458,7 @@ public class VideoUiApi {
         return res;
     }
 
-    // Helper record for passing series title (raw and encoded) to templates
+    // Helper records for passing series and season info to templates
     public record SeriesTitleEntry(String rawTitle, String encodedTitle, String cssId, Long sampleVideoId) {}
+    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId) {}
 }
