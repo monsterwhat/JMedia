@@ -3,6 +3,7 @@ package Services;
 import Models.SubtitleTrack;
 import Models.Video;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -45,16 +46,26 @@ public class EnhancedSubtitleMatcher {
     private static final Pattern SDH_PATTERN = Pattern.compile("(?i)sdh|\\.sdh");
     private static final Pattern LANGUAGE_TAG_PATTERN = Pattern.compile("\\.([a-zA-Z]{2,3})(?=\\.|$)");
     
+    @Inject
+    FFprobeSubtitleService ffprobeSubtitleService;
+
     public List<SubtitleTrack> discoverSubtitleTracks(Path videoPath, Video video) {
         List<SubtitleTrack> tracks = new ArrayList<>();
         
         // 1. External subtitle discovery
         tracks.addAll(discoverExternalSubtitles(videoPath, video));
+
+        // 2. Internal subtitle discovery
+        try {
+            tracks.addAll(ffprobeSubtitleService.extractSubtitleTracks(video, videoPath.toString()));
+        } catch (Exception e) {
+            System.err.println("Error discovering internal subtitles: " + e.getMessage());
+        }
         
-        // 2. Language code analysis and track naming
+        // 3. Language code analysis and track naming
         enrichWithLanguageMetadata(tracks);
         
-        // 3. Default track selection
+        // 4. Default track selection
         selectDefaultTrack(tracks);
         
         return tracks;

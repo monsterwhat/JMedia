@@ -180,6 +180,16 @@
         
         <script>
             window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+            
+            // Apply saved subtitle styles on load
+            document.addEventListener('DOMContentLoaded', () => {
+                if (window.subtitleManager) {
+                    const saved = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
+                    if (Object.keys(saved).length > 0) {
+                        window.subtitleManager.applyGlobalStyle(saved);
+                    }
+                }
+            });
         </script>
         
         <!-- SPA JavaScript -->
@@ -550,6 +560,7 @@
                         <li id="search-tab-btn" class="is-active"><a onclick="subtitleManager.switchTab('search')">Search Online</a></li>
                         <li id="manual-tab-btn"><a onclick="subtitleManager.switchTab('manual')">Manual Find</a></li>
                         <li id="ai-tab-btn"><a onclick="subtitleManager.switchTab('ai')">AI Generation</a></li>
+                        <li id="style-tab-btn"><a onclick="subtitleManager.switchTab('style')">Style</a></li>
                     </ul>
                 </div>
 
@@ -648,6 +659,92 @@
                         <button class="button is-warning is-rounded is-large" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
                             <i class="pi pi-magic"></i>&nbsp;Generate with AI
                         </button>
+                    </div>
+                </div>
+
+                <!-- Style Tab -->
+                <div id="style-tab-content" style="display: none;">
+                    <div class="columns is-multiline">
+                        <!-- Font & Size -->
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label">Font Family</label>
+                                <div class="control">
+                                    <div class="select is-fullwidth">
+                                        <select id="subStyleFont" onchange="subtitleManager.updateStyle()">
+                                            <option value="'Segoe UI', sans-serif">Segoe UI (Default)</option>
+                                            <option value="'Arial', sans-serif">Arial</option>
+                                            <option value="'Georgia', serif">Georgia (Serif)</option>
+                                            <option value="'Courier New', monospace">Courier (Mono)</option>
+                                            <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label">Font Size (<span id="fontSizeVal">20</span>px)</label>
+                                <div class="control">
+                                    <input class="slider is-fullwidth" id="subStyleSize" type="range" min="12" max="48" value="20" oninput="subtitleManager.updateStyle()">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Colors -->
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label">Text Color</label>
+                                <div class="control is-flex">
+                                    <input class="input" type="color" id="subStyleColor" value="#ffffff" style="width: 50px; padding: 0; height: 40px; border: none; cursor: pointer;" oninput="subtitleManager.updateStyle()">
+                                    <input class="input ml-2" type="text" id="subStyleColorHex" value="#ffffff" readonly style="background: transparent; border: none; color: white;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label">Background Opacity (<span id="bgOpacityVal">0.7</span>)</label>
+                                <div class="control">
+                                    <input class="slider is-fullwidth" id="subStyleBgOpacity" type="range" min="0" max="1" step="0.1" value="0.7" oninput="subtitleManager.updateStyle()">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Spacing & Position -->
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label">Line Height</label>
+                                <div class="control">
+                                    <div class="select is-fullwidth">
+                                        <select id="subStyleLineHeight" onchange="subtitleManager.updateStyle()">
+                                            <option value="1.2">Compact</option>
+                                            <option value="1.4" selected>Normal</option>
+                                            <option value="1.8">Spaced</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column is-6">
+                            <div class="field">
+                                <label class="label">Bottom Distance (<span id="bottomDistVal">60</span>px)</label>
+                                <div class="control">
+                                    <input class="slider is-fullwidth" id="subStyleBottom" type="range" min="0" max="200" value="60" oninput="subtitleManager.updateStyle()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Preview Box -->
+                    <div class="subtitle-preview mt-4 p-5 has-text-centered" style="background: rgba(0,0,0,0.4); border-radius: 8px; position: relative; min-height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                        <span id="subPreviewText" style="padding: 4px 12px; border-radius: 4px;">The quick brown fox jumps over the lazy dog.</span>
+                    </div>
+
+                    <div class="buttons is-centered mt-5">
+                        <button class="button is-success is-rounded" onclick="subtitleManager.saveStyle()">
+                            <i class="pi pi-save mr-2"></i> Save Settings
+                        </button>
+                        <button class="button is-ghost" onclick="subtitleManager.resetStyle()">Reset to Default</button>
                     </div>
                 </div>
             </section>

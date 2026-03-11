@@ -359,9 +359,14 @@ class SimplePlayer {
 
     showControls() {
         this.container.classList.add('user-active');
+        this.applySubtitleStyle(); // Re-apply with lift
+        
         clearTimeout(this.userActiveTimeout);
         this.userActiveTimeout = setTimeout(() => {
-            if (!this.video.paused) this.container.classList.remove('user-active');
+            if (!this.video.paused) {
+                this.container.classList.remove('user-active');
+                this.applySubtitleStyle(); // Return to base
+            }
         }, 3000);
     }
 
@@ -422,12 +427,19 @@ class SimplePlayer {
                         src: `/api/video/subtitles/track/${t.id}`,
                         default: t.isDefault
                     });
+                    track.dataset.id = t.id;
                     this.video.appendChild(track);
+                    
+                    // Apply style when track loads
+                    track.onloadeddata = () => {
+                        this.applySubtitleStyle();
+                    };
                     
                     const opt = document.createElement('div');
                     opt.className = 'subtitle-option' + (t.isDefault ? ' selected' : '');
                     opt.innerText = label;
-                    opt.onclick = (e) => { e.stopPropagation(); this.selectSubtitle(t.languageCode, opt); };
+                    opt.dataset.id = t.id;
+                    opt.onclick = (e) => { e.stopPropagation(); this.selectSubtitle(t.id, opt); };
                     this.subtitleList.appendChild(opt);
                 });
             }
@@ -471,13 +483,25 @@ class SimplePlayer {
         } catch (e) { el.innerText = originalText; el.style.pointerEvents = 'auto'; el.style.opacity = '1'; }
     }
 
-    selectSubtitle(lang, optEl) {
+    selectSubtitle(trackId, optEl) {
         this.subtitleMenu.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('selected'));
         optEl.classList.add('selected');
         this.subtitleMenu.classList.remove('active');
+        
+        const tracks = this.video.querySelectorAll('track');
         for (let i = 0; i < this.video.textTracks.length; i++) {
             const t = this.video.textTracks[i];
-            t.mode = (lang !== 'off' && (t.language === lang || t.label === lang)) ? 'showing' : 'disabled';
+            const trackEl = tracks[i];
+            
+            if (trackId === 'off') {
+                t.mode = 'disabled';
+            } else if (trackEl && trackEl.dataset.id == trackId) {
+                t.mode = 'showing';
+                // Important: Need to apply styling to newly showing tracks
+                this.applySubtitleStyle();
+            } else {
+                t.mode = 'disabled';
+            }
         }
     }
 
@@ -493,9 +517,6 @@ class SimplePlayer {
             if (track.cues) {
                 for (let j = 0; j < track.cues.length; j++) {
                     const cue = track.cues[j];
-                    // We need to track original times to prevent cumulative drift errors if possible, 
-                    // but for a simple implementation, we shift the start/end.
-                    // Note: Browser support for modifying cues varies; some require re-adding.
                     cue.startTime += seconds;
                     cue.endTime += seconds;
                 }
@@ -503,6 +524,42 @@ class SimplePlayer {
         }
         
         console.log(`[SimplePlayer] Subtitle offset adjusted to: ${this.subOffset}s`);
+    }
+
+    applySubtitleStyle() {
+        const saved = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
+        const isActive = this.container.classList.contains('user-active');
+        
+        // Use percentage-based positioning for sub-pixel precision.
+        // WebVTT line percentage: 100 is bottom, 0 is top.
+        const userBottom = parseInt(saved.bottom) || 60;
+        const lift = isActive ? 100 : 0; // 100px lift to clear controls
+        
+        const videoHeight = this.video.clientHeight || 600;
+        // Calculate percentage from bottom
+        const percentFromBottom = ((userBottom + lift) / videoHeight) * 100;
+        const linePos = Math.max(0, Math.min(100, 100 - percentFromBottom));
+
+        console.log(`[SimplePlayer] Subtitle Position: ${linePos.toFixed(1)}% (Bottom: ${userBottom}px, Lift: ${lift}px)`);
+
+        for (let i = 0; i < this.video.textTracks.length; i++) {
+            const track = this.video.textTracks[i];
+            if (track.mode === 'disabled') continue;
+
+            if (track.cues && track.cues.length > 0) {
+                for (let j = 0; j < track.cues.length; j++) {
+                    const cue = track.cues[j];
+                    cue.snapToLines = false; // Percentage mode
+                    cue.line = linePos;
+                    cue.align = 'center';
+                }
+            } else {
+                track.oncuechange = () => {
+                    this.applySubtitleStyle();
+                    track.oncuechange = null;
+                };
+            }
+        }
     }
 
     resetSubtitleOffset() {

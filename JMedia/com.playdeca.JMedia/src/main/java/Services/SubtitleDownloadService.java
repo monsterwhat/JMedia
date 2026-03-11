@@ -223,17 +223,21 @@ public class SubtitleDownloadService {
     public List<Models.DTOs.LocalSubtitleFile> scanAllSubtitleFiles(Video video) {
         return subtitleMatcher.scanAllSubtitleFiles(Paths.get(video.path), video);
     }
-    
     @Transactional
     public void addLocalSubtitle(Video video, String filePath) {
         Video managedVideo = Video.findById(video.id);
         if (managedVideo == null) return;
-        
+
         Path path = Paths.get(filePath);
         if (!Files.exists(path)) {
             throw new RuntimeException("File does not exist: " + filePath);
         }
-        
+
+        // Check for duplicates
+        if (managedVideo.subtitleTracks != null && managedVideo.subtitleTracks.stream().anyMatch(t -> t.fullPath.equals(filePath))) {
+            return;
+        }
+
         // Create manual track
         SubtitleTrack track = new SubtitleTrack();
         track.filename = path.getFileName().toString();
@@ -241,21 +245,20 @@ public class SubtitleDownloadService {
         track.format = getFileExtension(track.filename);
         track.video = managedVideo;
         track.isManual = true;
-        track.isActive = true;
-        
-        // Extract tags for better display
+
+        // Extract language and metadata using the matcher
         subtitleMatcher.extractLanguageAndTags(track.filename, track);
+
+        // If still no display name, the matcher fix will fallback to filename
+        if (track.displayName == null || track.displayName.equals("Unknown")) {
+            track.displayName = track.filename + " (Manual)";
+        }
+
+        track.persist();
         
         if (managedVideo.subtitleTracks == null) {
             managedVideo.subtitleTracks = new ArrayList<>();
         }
-        
-        // Check for duplicates
-        if (managedVideo.subtitleTracks.stream().anyMatch(t -> t.fullPath.equals(filePath))) {
-            return;
-        }
-        
-        track.persist();
         managedVideo.subtitleTracks.add(track);
         managedVideo.persist();
         

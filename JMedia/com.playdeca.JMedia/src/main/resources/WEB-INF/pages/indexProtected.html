@@ -16,6 +16,37 @@
         <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link rel="stylesheet" href="/lib/font-awesome/all.min.css">
 
+        <style>
+            /* Mobile Volume Slider Enhancements */
+            .mobile-volume-mini {
+                position: relative;
+                display: flex;
+                align-items: center;
+            }
+
+            .mobile-volume-slider {
+                display: none;
+                position: absolute;
+                bottom: 100%;
+                left: 50%;
+                transform: translateX(-50%) rotate(-90deg);
+                transform-origin: center;
+                width: 120px !important;
+                height: 30px !important; /* Larger touch target */
+                margin-bottom: 60px !important;
+                z-index: 1000;
+                background: rgba(0, 0, 0, 0.8) !important;
+                border-radius: 15px;
+                padding: 10px !important;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            }
+            
+            /* Show slider with a slight transition if possible, but JS controls display */
+            .mobile-volume-slider.is-visible {
+                display: block;
+            }
+        </style>
+
     </head>
     <body x-data>
         <!-- Mobile Context Menu -->
@@ -475,6 +506,7 @@
 
                 let previousVolume = 0.7; // Default to 70%
                 let sliderTimeout;
+                const HIDE_TIMEOUT = 3500; // Increased to 3.5s for better UX
 
                 // Update icon based on current volume
                 function updateVolumeIcon() {
@@ -510,16 +542,29 @@
                 // Show/hide slider on interactions
                 function showVolumeSlider() {
                     volumeSlider.style.display = 'block';
+                    volumeSlider.classList.add('is-visible');
                     clearTimeout(sliderTimeout);
                     syncSlider();
                 }
 
-                function hideVolumeSlider() {
+                function hideVolumeSlider(force = false) {
+                    clearTimeout(sliderTimeout);
+                    if (force) {
+                        volumeSlider.style.display = 'none';
+                        volumeSlider.classList.remove('is-visible');
+                        return;
+                    }
+
                     sliderTimeout = setTimeout(() => {
+                        // Don't hide if slider is being used (active)
                         if (!volumeSlider.matches(':active')) {
                             volumeSlider.style.display = 'none';
+                            volumeSlider.classList.remove('is-visible');
+                        } else {
+                            // If it was active, try hiding again in a bit
+                            hideVolumeSlider();
                         }
-                    }, 2000);
+                    }, HIDE_TIMEOUT);
                 }
 
                 // Mute/Unmute toggle (long press on button)
@@ -546,6 +591,8 @@
                     clearTimeout(pressTimer);
                     // Short press - just show slider
                     showVolumeSlider();
+                    // Reset hide timer
+                    hideVolumeSlider();
                 });
 
                 volumeToggle.addEventListener('mouseleave', function () {
@@ -575,6 +622,8 @@
                     clearTimeout(pressTimer);
                     // Short press - show slider
                     showVolumeSlider();
+                    // Reset hide timer
+                    hideVolumeSlider();
                 });
 
                 // Volume slider control
@@ -582,6 +631,19 @@
                     const sliderValue = this.value;
                     const exponentialVolume = calculateExponentialVolume(sliderValue);
                     setVolume(exponentialVolume);
+                    
+                    // Keep visible while interacting
+                    showVolumeSlider();
+                });
+                
+                // When interaction ends, start hide timer
+                volumeSlider.addEventListener('change', function() {
+                    hideVolumeSlider();
+                });
+                
+                // Ensure it hides when touch ends anywhere on the slider
+                volumeSlider.addEventListener('touchend', function() {
+                    hideVolumeSlider();
                 });
 
                 // Set volume function
@@ -601,11 +663,24 @@
                     updateVolumeIcon();
                 }
 
-                // Show/hide slider on hover/touch
+                // Show/hide slider on hover
                 volumeToggle.addEventListener('mouseenter', showVolumeSlider);
-                volumeToggle.addEventListener('mouseleave', hideVolumeSlider);
+                volumeToggle.addEventListener('mouseleave', () => hideVolumeSlider());
                 volumeSlider.addEventListener('mouseenter', showVolumeSlider);
-                volumeSlider.addEventListener('mouseleave', hideVolumeSlider);
+                volumeSlider.addEventListener('mouseleave', () => hideVolumeSlider());
+
+                // Click/Touch outside to hide
+                document.addEventListener('mousedown', function(e) {
+                    if (!volumeToggle.contains(e.target) && !volumeSlider.contains(e.target)) {
+                        hideVolumeSlider(true);
+                    }
+                });
+                
+                document.addEventListener('touchstart', function(e) {
+                    if (!volumeToggle.contains(e.target) && !volumeSlider.contains(e.target)) {
+                        hideVolumeSlider(true);
+                    }
+                }, {passive: true});
 
                 // Listen for volume changes from musicBar.js
                 audioPlayer.addEventListener('volumechange', function () {

@@ -305,6 +305,23 @@
 
 .spacer { flex: 1 !important; }
 
+/* Subtitles Styling for Video Element */
+::cue {
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 1.2rem;
+    text-shadow: 2px 2px 2px black;
+    padding: 2px 10px;
+    /* Move subtitles up to avoid overlapping with bottom controls */
+    transform: translateY(-60px);
+}
+
+/* Subtitles Container and Z-Index */
+video::cue {
+    z-index: 2147483647;
+}
+
 /* Subtitles */
 .subtitle-menu {
     position: absolute !important;

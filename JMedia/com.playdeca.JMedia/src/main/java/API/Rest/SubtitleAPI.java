@@ -12,6 +12,7 @@ import Services.SubtitlePreferenceEngine;
 import Services.UserInteractionService;
 import Services.WhisperService;
 import Services.SubtitleDownloadService;
+import Services.FFprobeSubtitleService;
 
 import java.io.IOException;
 import java.nio.file.Files; 
@@ -19,11 +20,15 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Path("/api/video/subtitles")
 @ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
 public class SubtitleAPI {
+    
+    private static final Logger LOGGER = LoggerFactory.getLogger(SubtitleAPI.class);
     
     @Inject
     private UserInteractionService userInteractionService;
@@ -216,6 +221,9 @@ public class SubtitleAPI {
         }
     }
     
+    @Inject
+    FFprobeSubtitleService ffprobeSubtitleService;
+
     @GET
     @Path("/track/{trackId}")
     @Produces("text/vtt")
@@ -226,24 +234,40 @@ public class SubtitleAPI {
                     .entity("Subtitle track not found")
                     .build();
         }
-        java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
-        if (!java.nio.file.Files.exists(subtitlePath)) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("Subtitle file not found")
+
+        try {
+            String webVTTContent;
+            
+            if (track.isEmbedded) {
+                // Internal track - extract on-the-fly
+                webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track);
+            } else {
+                // External track - read and convert
+                java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
+                if (!java.nio.file.Files.exists(subtitlePath)) {
+                    return Response.status(Response.Status.NOT_FOUND)
+                            .entity("Subtitle file not found")
+                            .build();
+                }
+                
+                try {
+                    webVTTContent = formatConverter.convertToWebVTT(track);
+                } catch (IOException e) {
+                    webVTTContent = convertToWebVTT(track);
+                }
+            }
+
+            return Response.ok(webVTTContent)
+                    .header("Content-Type", "text/vtt; charset=utf-8")
+                    .header("Cache-Control", "public, max-age=3600")
+                    .build();
+
+        } catch (Exception e) {
+            LOGGER.error("Error streaming subtitle track {}: {}", trackId, e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("Failed to stream subtitle: " + e.getMessage())
                     .build();
         }
-        // Use the format converter to convert to WebVTT
-        String webVTTContent;
-        try {
-            webVTTContent = formatConverter.convertToWebVTT(track);
-        } catch (IOException e) {
-            // Fallback to simple conversion if converter fails
-            webVTTContent = convertToWebVTT(track);
-        }
-        return Response.ok(webVTTContent)
-                .header("Content-Type", "text/vtt; charset=utf-8")
-                .header("Cache-Control", "public, max-age=3600")
-                .build();
     }
     
     @POST

@@ -255,6 +255,16 @@ public class VideoAPI {
         return "video/mp4"; // Default
     }
 
+    private String findFFmpegExecutable() {
+        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
+        for (String p : paths) {
+            try {
+                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
     @GET
     @Path("/stream/{videoId}")
     public Response streamVideo(@PathParam("videoId") Long videoId, @HeaderParam("Range") String rangeHeader) {
@@ -277,13 +287,6 @@ public class VideoAPI {
                     .build();
         }
 
-        // Validate and sanitize the video path to prevent directory traversal
-        if (video.path == null || video.path.trim().isEmpty()) {
-            LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("Invalid video path").build();
-        }
-
         // Safe path resolution
         java.nio.file.Path baseFilePath = java.nio.file.Paths.get(video.path);
         final java.nio.file.Path filePath = baseFilePath.isAbsolute()
@@ -291,32 +294,66 @@ public class VideoAPI {
 
         File videoFile = filePath.toFile();
 
-        // Additional security check: ensure the resolved file is within the video library
-        try {
-            // If the path is absolute, we trust it (user configured it).
-            // Only perform the check if the path is relative to the library root.
-            if (!baseFilePath.isAbsolute()) {
-                java.nio.file.Path canonicalLibraryPath = Paths.get(videoLibraryPath).toRealPath();
-                java.nio.file.Path canonicalFilePath = filePath.toRealPath();
-    
-                if (!canonicalFilePath.startsWith(canonicalLibraryPath)) {
-                    LOG.warn("Path traversal attempt detected for video ID {}: {} resolves to {}",
-                            videoId, video.path, canonicalFilePath);
-                    return Response.status(Response.Status.FORBIDDEN)
-                            .entity("Access denied: invalid file path").build();
-                }
-            }
-        } catch (IOException e) {
-            LOG.warn("Error resolving canonical paths for security check: {}", e.getMessage());
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("Security validation failed").build();
-        }
-
         if (!videoFile.exists() || !videoFile.isFile()) {
             LOG.warn("Video file not found: {}", filePath);
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
+        String filename = videoFile.getName().toLowerCase();
+        boolean isMKV = filename.endsWith(".mkv");
+
+        if (isMKV) {
+            return streamRemuxedMKV(videoFile);
+        }
+
+        // Standard direct file streaming for other formats (MP4, WebM, etc.)
+        return streamDirectFile(videoFile, rangeHeader);
+    }
+
+    private Response streamRemuxedMKV(File videoFile) {
+        String ffmpegPath = findFFmpegExecutable();
+        if (ffmpegPath == null) {
+            LOG.error("FFmpeg not found - cannot remux MKV");
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("FFmpeg not found for MKV remuxing").build();
+        }
+
+        StreamingOutput streamingOutput = output -> {
+            // Remux MKV to Fragmented MP4 on the fly
+            ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath,
+                "-v", "quiet",
+                "-i", videoFile.getAbsolutePath(),
+                "-codec", "copy",
+                "-f", "mp4",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                "pipe:1"
+            );
+
+            Process process = pb.start();
+            try (java.io.InputStream is = process.getInputStream()) {
+                byte[] buffer = new byte[128 * 1024]; // 128KB buffer
+                int read;
+                while ((read = is.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                    output.flush();
+                }
+            } catch (IOException e) {
+                if (!isClientDisconnect(e)) {
+                    LOG.error("MKV Remux streaming error: {}", e.getMessage());
+                }
+            } finally {
+                process.destroy();
+            }
+        };
+
+        return Response.ok(streamingOutput)
+                .header("Content-Type", "video/mp4")
+                .header("Cache-Control", "no-cache")
+                .build();
+    }
+
+    private Response streamDirectFile(File videoFile, String rangeHeader) {
         long fileLength = videoFile.length();
         long start = 0;
         long end = fileLength - 1;
@@ -375,7 +412,6 @@ public class VideoAPI {
 
         return responseBuilder.build();
     }
-
     @Inject
     private Services.VideoHistoryService videoHistoryService;
 

@@ -35,21 +35,159 @@ class SubtitleManager {
         const searchBtn = document.getElementById('search-tab-btn');
         const manualBtn = document.getElementById('manual-tab-btn');
         const aiBtn = document.getElementById('ai-tab-btn');
+        const styleBtn = document.getElementById('style-tab-btn');
+        
         const searchContent = document.getElementById('search-tab-content');
         const manualContent = document.getElementById('manual-tab-content');
         const aiContent = document.getElementById('ai-tab-content');
+        const styleContent = document.getElementById('style-tab-content');
 
         searchBtn.classList.toggle('is-active', tab === 'search');
         manualBtn.classList.toggle('is-active', tab === 'manual');
         aiBtn.classList.toggle('is-active', tab === 'ai');
+        if (styleBtn) styleBtn.classList.toggle('is-active', tab === 'style');
 
         searchContent.style.display = tab === 'search' ? 'block' : 'none';
         manualContent.style.display = tab === 'manual' ? 'block' : 'none';
         aiContent.style.display = tab === 'ai' ? 'block' : 'none';
+        if (styleContent) styleContent.style.display = tab === 'style' ? 'block' : 'none';
 
         if (tab === 'manual') {
             this.scanLocal();
+        } else if (tab === 'style') {
+            this.loadStyle();
         }
+    }
+
+    loadStyle() {
+        const saved = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
+        const defaults = {
+            font: "'Segoe UI', sans-serif",
+            size: 20,
+            color: '#ffffff',
+            bgOpacity: 0.7,
+            lineHeight: 1.4,
+            bottom: 60
+        };
+        const style = { ...defaults, ...saved };
+
+        document.getElementById('subStyleFont').value = style.font;
+        document.getElementById('subStyleSize').value = style.size;
+        document.getElementById('subStyleColor').value = style.color;
+        document.getElementById('subStyleColorHex').value = style.color;
+        document.getElementById('subStyleBgOpacity').value = style.bgOpacity;
+        document.getElementById('subStyleLineHeight').value = style.lineHeight;
+        document.getElementById('subStyleBottom').value = style.bottom;
+
+        this.updateStyle(false);
+    }
+
+    updateStyle(shouldApply = true) {
+        const font = document.getElementById('subStyleFont').value;
+        const size = document.getElementById('subStyleSize').value;
+        const color = document.getElementById('subStyleColor').value;
+        const bgOpacity = document.getElementById('subStyleBgOpacity').value;
+        const lineHeight = document.getElementById('subStyleLineHeight').value;
+        const bottom = document.getElementById('subStyleBottom').value;
+
+        // Update labels
+        document.getElementById('fontSizeVal').innerText = size;
+        document.getElementById('bgOpacityVal').innerText = bgOpacity;
+        document.getElementById('bottomDistVal').innerText = bottom;
+        document.getElementById('subStyleColorHex').value = color;
+
+        // Update preview
+        const preview = document.getElementById('subPreviewText');
+        preview.style.fontFamily = font;
+        preview.style.fontSize = (size * 0.8) + 'px'; // Scale down for modal
+        preview.style.color = color;
+        preview.style.backgroundColor = `rgba(0,0,0,${bgOpacity})`;
+        preview.style.lineHeight = lineHeight;
+
+        if (shouldApply) {
+            this.applyGlobalStyle({ font, size, color, bgOpacity, lineHeight, bottom });
+        }
+    }
+
+    applyGlobalStyle(style) {
+        let styleEl = document.getElementById('jmedia-subtitle-runtime-style');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'jmedia-subtitle-runtime-style';
+            document.head.appendChild(styleEl);
+        }
+
+        // We use margin-bottom on the container to push subtitles up.
+        // SimplePlayer sets --sub-lift to 80px when controls are visible.
+        const baseBottom = parseInt(style.bottom);
+
+        styleEl.textContent = `
+            video::-webkit-media-text-track-container {
+                position: absolute !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: flex-end !important;
+                padding-bottom: calc(${baseBottom}px + var(--sub-lift, 0px)) !important;
+                transition: padding-bottom 0.3s ease-in-out !important;
+                pointer-events: none !important;
+            }
+            
+            ::cue {
+                background-color: rgba(0, 0, 0, ${style.bgOpacity}) !important;
+                color: ${style.color} !important;
+                font-family: ${style.font} !important;
+                font-size: ${style.size}px !important;
+                line-height: ${style.lineHeight} !important;
+            }
+        `;
+    }
+
+    saveStyle() {
+        const style = {
+            font: document.getElementById('subStyleFont').value,
+            size: document.getElementById('subStyleSize').value,
+            color: document.getElementById('subStyleColor').value,
+            bgOpacity: document.getElementById('subStyleBgOpacity').value,
+            lineHeight: document.getElementById('subStyleLineHeight').value,
+            bottom: document.getElementById('subStyleBottom').value
+        };
+
+        localStorage.setItem('jmedia_subtitle_style', JSON.stringify(style));
+        this.applyGlobalStyle(style);
+        
+        // Also apply to active player cues
+        if (window.currentPlayerInstance && typeof window.currentPlayerInstance.applySubtitleStyle === 'function') {
+            window.currentPlayerInstance.applySubtitleStyle();
+        }
+        
+        if (window.showToast) {
+            window.showToast('Subtitle style saved!', 'success');
+        }
+    }
+
+    resetStyle() {
+        const defaults = {
+            font: "'Segoe UI', sans-serif",
+            size: 20,
+            color: '#ffffff',
+            bgOpacity: 0.7,
+            lineHeight: 1.4,
+            bottom: 60
+        };
+        
+        document.getElementById('subStyleFont').value = defaults.font;
+        document.getElementById('subStyleSize').value = defaults.size;
+        document.getElementById('subStyleColor').value = defaults.color;
+        document.getElementById('subStyleBgOpacity').value = defaults.bgOpacity;
+        document.getElementById('subStyleLineHeight').value = defaults.lineHeight;
+        document.getElementById('subStyleBottom').value = defaults.bottom;
+
+        this.updateStyle();
+        this.saveStyle();
     }
 
     async scanLocal() {

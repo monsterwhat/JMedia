@@ -38,38 +38,36 @@ public class SubtitleFormatConverter {
         webVTT.append("WEBVTT\n\n");
         
         String content = readSubtitleFile(track.fullPath);
-        String[] lines = content.split("\\r?\\n");
+        // Normalize line endings and split by empty lines (blocks)
+        String[] blocks = content.split("\\n\\s*\\n");
         
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty()) {
-                webVTT.append("\n");
-                continue;
+        for (String block : blocks) {
+            String[] lines = block.split("\\n");
+            boolean foundTimestamp = false;
+            StringBuilder textBuilder = new StringBuilder();
+            
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                
+                Matcher matcher = SRT_TIMESTAMP_PATTERN.matcher(line);
+                if (matcher.find()) {
+                    String startTime = convertSRTTimeToWebVTT(
+                        matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(4));
+                    String endTime = convertSRTTimeToWebVTT(
+                        matcher.group(5), matcher.group(6), matcher.group(7), matcher.group(8));
+                    
+                    webVTT.append(startTime).append(" --> ").append(endTime).append("\n");
+                    foundTimestamp = true;
+                } else if (foundTimestamp) {
+                    // This is a text line following a timestamp
+                    textBuilder.append(line).append("\n");
+                }
             }
             
-            // Convert SRT timestamp to WebVTT format
-            Matcher matcher = SRT_TIMESTAMP_PATTERN.matcher(line);
-            if (matcher.find()) {
-                String startTime = convertSRTTimeToWebVTT(
-                    matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(4));
-                String endTime = convertSRTTimeToWebVTT(
-                    matcher.group(5), matcher.group(6), matcher.group(7), matcher.group(8));
-                
-                webVTT.append(startTime)
-                      .append(" --> ")
-                      .append(endTime)
-                      .append("\n");
-                
-                // Find the subtitle text (everything after the timestamp)
-                int textStart = line.indexOf(',', matcher.end());
-                String text = textStart > 0 ? line.substring(textStart + 1).trim() : "";
-                
-                // Convert SRT formatting to WebVTT
-                text = convertSRTFormattingToWebVTT(text);
+            if (foundTimestamp) {
+                String text = convertSRTFormattingToWebVTT(textBuilder.toString().trim());
                 webVTT.append(text).append("\n\n");
-            } else if (isNumericLine(line)) {
-                // Preserve line numbers as comments in WebVTT
-                webVTT.append("NOTE ").append(line).append("\n\n");
             }
         }
         
@@ -136,7 +134,6 @@ public class SubtitleFormatConverter {
     }
     
     private Charset detectEncoding(byte[] fileBytes) {
-        // Check for UTF-8 BOM
         if (fileBytes.length >= 3 && 
             (fileBytes[0] & 0xFF) == 0xEF && 
             (fileBytes[1] & 0xFF) == 0xBB && 
@@ -144,8 +141,20 @@ public class SubtitleFormatConverter {
             return StandardCharsets.UTF_8;
         }
         
-        // Default to UTF-8 for most modern subtitle files
-        return StandardCharsets.UTF_8;
+        // Check if it's UTF-16 LE/BE
+        if (fileBytes.length >= 2) {
+            if ((fileBytes[0] & 0xFF) == 0xFF && (fileBytes[1] & 0xFF) == 0xFE) return StandardCharsets.UTF_16LE;
+            if ((fileBytes[0] & 0xFF) == 0xFE && (fileBytes[1] & 0xFF) == 0xFF) return StandardCharsets.UTF_16BE;
+        }
+
+        // Heuristic: If we find many invalid UTF-8 sequences, it's likely Windows-1252 / Latin-1
+        try {
+            StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(fileBytes));
+            return StandardCharsets.UTF_8;
+        } catch (java.nio.charset.CharacterCodingException e) {
+            // Fallback to common encoding for older subtitle files
+            return Charset.forName("windows-1252");
+        }
     }
     
     private String convertSRTTimeToWebVTT(String hours, String minutes, String seconds, String milliseconds) {
