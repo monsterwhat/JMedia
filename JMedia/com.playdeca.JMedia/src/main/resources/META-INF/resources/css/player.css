@@ -44,9 +44,9 @@
     background: linear-gradient(rgba(0,0,0,0.8), transparent) !important;
     color: #fff !important;
     z-index: 100 !important;
-    opacity: 0 !important;
+    opacity: 1 !important;
     transition: opacity 0.3s ease !important;
-    pointer-events: none !important;
+    pointer-events: auto !important;
 }
 
 .back-button-container {
@@ -99,19 +99,49 @@
     z-index: 1000 !important;
     display: flex !important;
     flex-direction: column !important;
-    opacity: 0 !important;
+    opacity: 1 !important;
     transition: opacity 0.3s ease !important;
 }
 
 /* Visibility Logic */
-.player-container.paused .media-info,
-.player-container.paused .controls-container,
-.player-container.user-active .media-info,
-.player-container.user-active .controls-container,
-.player-container:hover .media-info,
-.player-container:hover .controls-container {
+.media-info,
+.controls-container {
     opacity: 1 !important;
     pointer-events: auto !important;
+}
+
+.player-container.controls-hidden {
+    cursor: none !important;
+}
+
+.player-container.controls-hidden .media-info,
+.player-container.controls-hidden .controls-container {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Fullscreen Specific Styles */
+.player-container.is-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+}
+
+.player-container.is-fullscreen #videoElement {
+    border-radius: 0 !important;
+}
+
+.player-container.is-fullscreen .controls-container {
+    padding-bottom: 30px !important;
+}
+
+/* Ensure PrimeIcons show up correctly in fullscreen */
+.player-container .pi {
+    display: inline-block !important;
+}
+
+.player-container.is-fullscreen #videoFullscreenBtn i.pi-compress::before {
+    content: "\e925" !important; /* pi-compress code */
 }
 
 /* Big Play/Pause Button using Logo */
@@ -297,7 +327,7 @@ video::cue {
     display: none !important;
     flex-direction: column !important;
     padding: 0 !important;
-    z-index: 2000 !important;
+    z-index: 2147483647 !important; /* Force to be above fullscreen video */
     width: 220px !important;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
 }
@@ -376,9 +406,14 @@ video::cue {
     pointer-events: none !important;
     display: none;
     z-index: 1100 !important;
-    background-repeat: no-repeat !important;
-    background-size: 1600px auto; /* Total width: 10 columns * 160px */
     box-shadow: 0 5px 15px rgba(0,0,0,0.5) !important;
+    overflow: hidden !important;
+}
+
+.storyboard-img {
+    width: 100% !important;
+    height: 100% !important;
+    background-repeat: no-repeat !important;
 }
 
 .preview-time {
@@ -391,4 +426,49 @@ video::cue {
     border-radius: 4px !important;
     font-size: 0.75rem !important;
     color: #fff !important;
+}
+
+/* --- Skip Intro/Outro Buttons --- */
+.skip-intro-container, .skip-outro-container {
+    position: absolute !important;
+    bottom: 100px !important;
+    right: 30px !important;
+    z-index: 1500 !important;
+    transition: all 0.3s ease !important;
+}
+
+.skip-intro-container .button, .skip-outro-container .button {
+    background-color: rgba(0, 0, 0, 0.7) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    color: #fff !important;
+    font-weight: bold !important;
+    backdrop-filter: blur(10px) !important;
+    padding: 1.2rem 1.5rem !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+}
+
+.skip-intro-container .button:hover, .skip-outro-container .button:hover {
+    background-color: var(--player-primary) !important;
+    border-color: var(--player-primary) !important;
+    transform: scale(1.05) !important;
+}
+
+.controls-hidden .skip-intro-container, .controls-hidden .skip-outro-container {
+    bottom: 30px !important;
+}
+
+/* Modal Support in Fullscreen */
+.player-container .modal {
+    z-index: 2147483647 !important;
+}
+
+.player-container .modal.is-active {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.player-container .modal-card {
+    margin: 0 auto !important;
+    max-height: 90vh !important;
 }

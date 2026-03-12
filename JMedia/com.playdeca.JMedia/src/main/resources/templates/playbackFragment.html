@@ -9,7 +9,13 @@
      data-type="{item.type}"
      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
      data-start-time="{resumeTime}"
-     data-next-id="{nextEpisodeId}">
+     data-next-id="{nextEpisodeId}"
+     data-intro-start="{item.introStart ?: 0}"
+     data-intro-end="{item.introEnd ?: 0}"
+     data-outro-start="{item.outroStart ?: 0}"
+     data-outro-end="{item.outroEnd ?: 0}"
+     data-recap-start="{item.recapStart ?: 0}"
+     data-recap-end="{item.recapEnd ?: 0}">
     
     <div class="video-wrapper">
         <video id="videoElement" crossorigin="anonymous" playsinline autoplay>

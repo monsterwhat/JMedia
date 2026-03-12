@@ -33,7 +33,7 @@ public class SmartNamingService {
     );
     
     // Release groups and sources to clean - using word boundaries to avoid matching substrings in legitimate words
-    private static final String RELEASE_CLEAN_REGEX = "(?i)\\b(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|hybrid|remastered|extended|collector|ultimate|proper|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|yify\\.tv|shiniori|dual-audio|multi-audio|sub|dub|galaxyrg|neonoir|mzabi|psa|pahe|800mb|10bit|tri-audio|multi-subs|bonkai77|pahe\\.in|nf|netflix|galaxytv|tgx|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|complete|vostfr|multi|amzn|amazon|web|dl|rzerox|hevc|mkv|mp4|avi|mov|wmv)\\b";
+    private static final String RELEASE_CLEAN_REGEX = "(?i)\\b(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|hybrid|remastered|extended|collector|ultimate|proper|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|yify\\.tv|shiniori|dual-audio|multi-audio|sub|dub|galaxyrg|neonoir|mzabi|psa|pahe|800mb|10bit|tri-audio|multi-subs|bonkai77|pahe\\.in|nf|netflix|galaxytv|tgx|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|complete|vostfr|multi|amzn|amazon|web|dl|rzerox|hevc|mkv|mp4|avi|mov|wmv|m4v)\\b";
     
     // TV show indicators in filenames
     private static final List<String> TV_SHOW_INDICATORS = Arrays.asList(
@@ -545,7 +545,7 @@ public class SmartNamingService {
         if (name == null || name.isEmpty()) return true;
         String lower = name.toLowerCase();
         return lower.equals("movie") || lower.equals("video") || lower.equals("mkv") || 
-               lower.equals("mp4") || lower.equals("avi") || lower.matches("\\d+") ||
+               lower.equals("mp4") || lower.equals("avi") || lower.equals("m4v") || lower.matches("\\d+") ||
                lower.equals("vid") || lower.equals("film") || lower.equals("unknown title");
     }
     

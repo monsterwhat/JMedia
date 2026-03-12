@@ -29,6 +29,9 @@ public class UnifiedVideoEntityCreationService {
     @Inject
     ThumbnailService thumbnailService;
     
+    @Inject
+    VideoMetadataService videoMetadataService;
+    
     // ========== UNIFIED VIDEO CREATION ==========
     
     /**
@@ -94,6 +97,13 @@ public class UnifiedVideoEntityCreationService {
         video.autoSelectSubtitles = true;
         
         Video persisted = videoService.persist(video);
+        
+        // Enrich with IntroDB data
+        try {
+            videoMetadataService.enrichVideoWithIntroData(persisted);
+        } catch (Exception e) {
+            LOG.error("Failed to enrich video with IntroDB data: " + e.getMessage());
+        }
         
         // Generate thumbnail
         try {

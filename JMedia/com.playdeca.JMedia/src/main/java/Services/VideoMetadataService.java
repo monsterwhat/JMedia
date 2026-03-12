@@ -26,6 +26,15 @@ public class VideoMetadataService {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    IMDbApiService imdbApiService;
+
+    @Inject
+    IntroDbService introDbService;
+
+    @Inject
+    VideoService videoService;
+
     // TMDb
     private static final String TMDB_SEARCH_MOVIE = "https://api.themoviedb.org/3/search/movie?api_key=%s&query=%s";
     private static final String TMDB_SEARCH_TV = "https://api.themoviedb.org/3/search/tv?api_key=%s&query=%s";
@@ -39,6 +48,49 @@ public class VideoMetadataService {
             .build();
     
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public void enrichVideoWithIntroData(Models.Video video) {
+        if (video == null || !"episode".equalsIgnoreCase(video.type)) return;
+        
+        // 1. Ensure we have Show IMDb ID
+        if (video.showImdbId == null || video.showImdbId.isBlank()) {
+            Optional<String> showId = imdbApiService.findShowImdbId(video.seriesTitle);
+            if (showId.isPresent()) {
+                videoService.updateSeriesMetadata(video.seriesTitle, null, null, showId.get());
+                video.showImdbId = showId.get(); // Update current object too
+            }
+        }
+        
+        // 2. Fetch Intro/Outro/Recap data if we have the show ID
+        if (video.showImdbId != null && !video.showImdbId.isBlank() && 
+            video.seasonNumber != null && video.episodeNumber != null) {
+            
+            LOG.info("Enriching video {} with IntroDB data", video.id);
+            
+            introDbService.fetchIntro(video.showImdbId, video.seasonNumber, video.episodeNumber)
+                .ifPresent(ts -> {
+                    video.introStart = ts.start;
+                    video.introEnd = ts.end;
+                    LOG.info("Added intro for video {}: {}-{}", video.id, ts.start, ts.end);
+                });
+                
+            introDbService.fetchOutro(video.showImdbId, video.seasonNumber, video.episodeNumber)
+                .ifPresent(ts -> {
+                    video.outroStart = ts.start;
+                    video.outroEnd = ts.end;
+                    LOG.info("Added outro for video {}: {}-{}", video.id, ts.start, ts.end);
+                });
+                
+            introDbService.fetchRecap(video.showImdbId, video.seasonNumber, video.episodeNumber)
+                .ifPresent(ts -> {
+                    video.recapStart = ts.start;
+                    video.recapEnd = ts.end;
+                    LOG.info("Added recap for video {}: {}-{}", video.id, ts.start, ts.end);
+                });
+            
+            video.persist();
+        }
+    }
 
     private String getApiKey() {
         String key = settingsService.getOrCreateSettings().getTmdbApiKey();

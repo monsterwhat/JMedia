@@ -33,12 +33,29 @@ class SimplePlayer {
             loaded: false
         };
 
+        // Intro/Outro markers
+        this.markers = {
+            introStart: parseFloat(this.container.dataset.introStart || 0),
+            introEnd: parseFloat(this.container.dataset.introEnd || 0),
+            outroStart: parseFloat(this.container.dataset.outroStart || 0),
+            outroEnd: parseFloat(this.container.dataset.outroEnd || 0),
+            recapStart: parseFloat(this.container.dataset.recapStart || 0),
+            recapEnd: parseFloat(this.container.dataset.recapEnd || 0)
+        };
+
         window.currentPlayerInstance = this;
         this.init();
     }
 
     init() {
         console.log('[SimplePlayer] Init called');
+
+        // Move the global subtitle modal into this container so it shows in fullscreen
+        const globalModal = document.getElementById('subtitleManagementModal');
+        if (globalModal && this.container) {
+            this.container.appendChild(globalModal);
+        }
+
         this.buildUI();
         this.attachEvents();
         
@@ -113,6 +130,18 @@ class SimplePlayer {
         const uiHTML = `
             <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
             <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
+
+            <div class="skip-intro-container" id="skipIntroBtn" style="display: none;">
+                <button class="button is-info is-rounded">
+                    <i class="pi pi-fast-forward mr-2"></i> Skip Intro
+                </button>
+            </div>
+            
+            <div class="skip-outro-container" id="skipOutroBtn" style="display: none;">
+                <button class="button is-info is-rounded">
+                    <i class="pi pi-step-forward mr-2"></i> Skip Outro
+                </button>
+            </div>
 
             <div class="media-info">
                 <div class="back-button-container">
@@ -218,6 +247,9 @@ class SimplePlayer {
         this.titleLink = this.container.querySelector('#videoTitleLink');
         this.offsetDisplay = this.container.querySelector('#subOffsetVal');
 
+        this.skipIntroBtn = this.container.querySelector('#skipIntroBtn');
+        this.skipOutroBtn = this.container.querySelector('#skipOutroBtn');
+
         this.subOffset = 0;
 
         const offBtn = this.container.querySelector('#sub-off');
@@ -228,6 +260,33 @@ class SimplePlayer {
         }
         if (this.titleLink) {
             this.titleLink.onclick = (e) => { e.stopPropagation(); this.goToDetails(); };
+        }
+
+        if (this.skipIntroBtn) {
+            this.skipIntroBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (this.markers.introEnd > 0) {
+                    const isMKV = (this.container.dataset.path || '').toLowerCase().endsWith('.mkv');
+                    if (isMKV) this.performServerSeek(this.markers.introEnd);
+                    else this.video.currentTime = this.markers.introEnd;
+                    this.skipIntroBtn.style.display = 'none';
+                }
+            };
+        }
+
+        if (this.skipOutroBtn) {
+            this.skipOutroBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (this.markers.outroEnd > 0) {
+                    const isMKV = (this.container.dataset.path || '').toLowerCase().endsWith('.mkv');
+                    if (isMKV) this.performServerSeek(this.markers.outroEnd);
+                    else this.video.currentTime = this.markers.outroEnd;
+                    this.skipOutroBtn.style.display = 'none';
+                } else {
+                    // If no outro end, just go to next or end
+                    this.playNextEpisode();
+                }
+            };
         }
 
         this.container.querySelector('#sub-generate').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('generate', e.target); };
@@ -290,6 +349,20 @@ class SimplePlayer {
             const pct = (displayTime / duration) * 100;
             this.progressBar.style.width = Math.min(100, pct) + '%';
             this.timeCurrent.innerText = this.formatTime(displayTime);
+
+            // Intro Skip logic: show if within intro markers
+            if (this.markers.introEnd > 0 && displayTime >= this.markers.introStart && displayTime < this.markers.introEnd) {
+                this.skipIntroBtn.style.display = 'block';
+            } else {
+                this.skipIntroBtn.style.display = 'none';
+            }
+
+            // Outro Skip logic: show if approaching outro (starting 10s before)
+            if (this.markers.outroStart > 0 && displayTime >= (this.markers.outroStart - 10) && displayTime < this.markers.outroStart) {
+                this.skipOutroBtn.style.display = 'block';
+            } else {
+                this.skipOutroBtn.style.display = 'none';
+            }
         };
 
         this.video.onprogress = () => {
@@ -469,17 +542,32 @@ class SimplePlayer {
         };
 
         document.addEventListener('fullscreenchange', () => {
+            const icon = this.fullscreenBtn.querySelector('i');
             if (document.fullscreenElement === this.container) {
                 this.container.classList.add('is-fullscreen');
-                this.fullscreenBtn.querySelector('i').className = 'pi pi-compress';
+                if (icon) icon.className = 'pi pi-expand';
             } else {
                 this.container.classList.remove('is-fullscreen');
-                this.fullscreenBtn.querySelector('i').className = 'pi pi-expand';
+                if (icon) icon.className = 'pi pi-expand';
             }
         });
 
         this.container.onmousemove = () => this.showControls();
         this.container.ontouchstart = () => this.showControls();
+        this.container.onmouseleave = () => {
+            if (!this.video.paused) {
+                this.hideControls();
+            }
+        };
+        
+        // Also ensure moving over UI elements keeps them visible
+        const uiElements = this.container.querySelectorAll('.controls-container, .media-info, .subtitle-menu');
+        uiElements.forEach(el => {
+            el.onmousemove = (e) => {
+                e.stopPropagation();
+                this.showControls();
+            };
+        });
 
         window.addEventListener('keydown', (e) => {
             if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
@@ -539,15 +627,22 @@ class SimplePlayer {
 
     showControls() {
         this.container.classList.remove('controls-hidden');
-        this.video.style.setProperty('--sub-lift', '80px');
+        document.documentElement.style.setProperty('--sub-lift', '80px');
         clearTimeout(this.userActiveTimeout);
+        
+        // Always set a timeout if we are NOT paused
         if (!this.video.paused) {
             this.userActiveTimeout = setTimeout(() => {
-                this.container.classList.add('controls-hidden');
-                this.video.style.setProperty('--sub-lift', '0px');
-                this.subtitleMenu.classList.remove('active');
+                this.hideControls();
             }, 3000);
         }
+    }
+
+    hideControls() {
+        this.container.classList.add('controls-hidden');
+        document.documentElement.style.setProperty('--sub-lift', '0px');
+        this.subtitleMenu.classList.remove('active');
+        clearTimeout(this.userActiveTimeout);
     }
 
     async loadSubtitles(providedTracks) {
@@ -681,7 +776,7 @@ class SimplePlayer {
         console.log('[SimplePlayer] Applying subtitle style updates');
         // Re-apply current sub-lift to ensure the padding is updated
         const isHidden = this.container.classList.contains('controls-hidden');
-        this.video.style.setProperty('--sub-lift', isHidden ? '0px' : '80px');
+        document.documentElement.style.setProperty('--sub-lift', isHidden ? '0px' : '80px');
     }
 
     triggerSubtitleAction(action, element) {
@@ -716,20 +811,21 @@ class SimplePlayer {
         const index = Math.floor(time / meta.interval);
         const col = index % meta.columns;
         const row = Math.floor(index / meta.columns);
-        
+
         const x = col * meta.width;
         const y = row * meta.height;
-        
+
         const previewImg = this.previewContainer.querySelector('.storyboard-img') || document.createElement('div');
         if (!previewImg.classList.contains('storyboard-img')) {
             previewImg.className = 'storyboard-img';
             this.previewContainer.prepend(previewImg);
         }
-        
+
         previewImg.style.width = meta.width + 'px';
         previewImg.style.height = meta.height + 'px';
         previewImg.style.backgroundImage = `url(/api/video/storyboard/${this.videoId}/tiles)`;
         previewImg.style.backgroundPosition = `-${x}px -${y}px`;
+        previewImg.style.backgroundSize = (meta.columns * meta.width) + 'px auto';
     }
 
     reportProgress(playing) {

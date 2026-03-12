@@ -642,16 +642,22 @@ public class VideoService {
     }
 
     @Transactional
-    public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath) {
+    public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId) {
         if (seriesTitle == null) return;
         List<Video> videos = findEpisodesForSeries(seriesTitle);
         for (Video v : videos) {
             if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
             if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
+            if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
             v.dateModified = LocalDateTime.now();
             v.persist();
         }
         LOGGER.info("Updated series metadata for '{}' ({} videos)", seriesTitle, videos.size());
+    }
+
+    @Transactional
+    public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath) {
+        updateSeriesMetadata(seriesTitle, posterPath, backdropPath, null);
     }
 
     // ========== UTILITY METHODS ==========

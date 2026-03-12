@@ -169,7 +169,7 @@ public class VideoImportService {
         String fileName = path.getFileName().toString().toLowerCase();
         return fileName.endsWith(".mp4") || fileName.endsWith(".mkv") || fileName.endsWith(".avi") ||
                fileName.endsWith(".mov") || fileName.endsWith(".wmv") || fileName.endsWith(".flv") ||
-               fileName.endsWith(".webm") || fileName.endsWith(".srt");
+               fileName.endsWith(".webm") || fileName.endsWith(".m4v") || fileName.endsWith(".srt");
     }
 
     @Transactional

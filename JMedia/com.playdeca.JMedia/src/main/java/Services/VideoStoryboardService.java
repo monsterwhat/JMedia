@@ -41,16 +41,16 @@ public class VideoStoryboardService {
 
     public static class StoryboardMetadata {
         public double interval;
-        public int tileWidth;
-        public int tileHeight;
+        public int width;
+        public int height;
         public int columns;
         public int rows;
         public int totalTiles;
 
-        public StoryboardMetadata(double interval, int tileWidth, int tileHeight, int columns, int rows, int totalTiles) {
+        public StoryboardMetadata(double interval, int width, int height, int columns, int rows, int totalTiles) {
             this.interval = interval;
-            this.tileWidth = tileWidth;
-            this.tileHeight = tileHeight;
+            this.width = width;
+            this.height = height;
             this.columns = columns;
             this.rows = rows;
             this.totalTiles = totalTiles;

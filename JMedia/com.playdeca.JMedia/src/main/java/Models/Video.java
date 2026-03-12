@@ -156,6 +156,15 @@ public class Video extends PanacheEntity {
     public boolean skipIntroEnabled = false;
     public boolean autoplayNext = false;
     
+    // Intro / Outro Timestamps (in seconds)
+    public Double introStart;
+    public Double introEnd;
+    public Double outroStart;
+    public Double outroEnd;
+    public Double recapStart;
+    public Double recapEnd;
+    public String showImdbId;
+    
     // System Fields
     public boolean isActive = true;
     
