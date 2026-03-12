@@ -79,7 +79,7 @@ public class PlaybackAPI {
     public Response play(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
-        playbackController.togglePlay(userProfile.id);
+        playbackController.resumePlayback(userProfile.id);
         return Response.ok(ApiResponse.success("Playback started")).build();
     }
 
@@ -88,7 +88,7 @@ public class PlaybackAPI {
     public Response pause(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
-        playbackController.togglePlay(userProfile.id);
+        playbackController.pausePlayback(userProfile.id);
         return Response.ok(ApiResponse.success("Playback paused")).build();
     }
 

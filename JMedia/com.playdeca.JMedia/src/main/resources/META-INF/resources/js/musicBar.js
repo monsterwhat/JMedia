@@ -1,3 +1,4 @@
+
 let audio = null;
 let audioElementReady = false;
 
@@ -34,8 +35,6 @@ try {
     }
 } catch (e) {}
 
-let lastServerTimeByProfile = {};
-let lastServerTimestampByProfile = {};
 let draggingSeconds = false;
 let draggingVolume = false;
 let isUpdatingAudioSource = false;
@@ -72,7 +71,7 @@ function formatTime(s) {
 
 function updateMusicBar() {
     const {songName, artist, playing, currentTime, duration, volume, shuffleMode, repeatMode} = musicState;
-    
+
     const titleEl = document.getElementById('songTitle');
     const artistEl = document.getElementById('songArtist');
     if (titleEl) titleEl.innerText = songName || "Unknown Title";
@@ -82,109 +81,63 @@ function updateMusicBar() {
     if (playPauseIcon) {
         playPauseIcon.className = playing ? "pi pi-pause has-text-warning" : "pi pi-play has-text-success";
     }
-    
-    const timeEl = document.getElementById('currentTime');
-    const totalTimeEl = document.getElementById('totalTime');
+
+    const timeEl = document.getElementById('musicCurrentTime');
+    const totalTimeEl = document.getElementById('musicTotalTime');
     if (timeEl) timeEl.innerText = formatTime(currentTime);
     if (totalTimeEl) totalTimeEl.innerText = formatTime(duration);
 
-    const timeSlider = document.getElementById('playbackProgressBar');
+    const timeSlider = document.getElementById('musicProgressBar');
     if (timeSlider && !draggingSeconds) {
         timeSlider.max = duration;
         timeSlider.value = currentTime;
         const progress = (duration > 0) ? (currentTime / duration) * 100 : 0;
         timeSlider.style.setProperty('--slider-progress', `${progress}%`);
+        timeSlider.style.setProperty('--progress-value', `${progress}%`);
     }
 
-    const volumeSlider = document.getElementById('volumeProgressBar');
+    const volumeSlider = document.getElementById('musicVolumeProgressBar');
     if (volumeSlider && !draggingVolume) {
-        const volVal = Math.sqrt(volume) * 100;
-        volumeSlider.value = volVal;
-        volumeSlider.style.setProperty('--slider-progress', `${volVal}%`);
+        const v = volume * 100;
+        volumeSlider.value = v;
+        volumeSlider.style.setProperty('--slider-progress', `${v}%`);
+        volumeSlider.style.setProperty('--progress-value', `${v}%`);
     }
 
-    // Update Shuffle Button
-    const shuffleBtn = document.getElementById('shuffleBtn');
     const shuffleIcon = document.getElementById('shuffleIcon');
-    if (shuffleBtn && shuffleIcon) {
-        shuffleBtn.classList.remove('shuffle-off', 'shuffle-on', 'shuffle-smart');
-        shuffleIcon.className = 'pi';
-        if (shuffleMode === 'SHUFFLE') {
-            shuffleBtn.classList.add('shuffle-on');
-            shuffleIcon.classList.add('pi-sort-alt-slash');
-        } else if (shuffleMode === 'SMART_SHUFFLE') {
-            shuffleBtn.classList.add('shuffle-smart');
-            shuffleIcon.classList.add('pi-sparkles');
-        } else {
-            shuffleBtn.classList.add('shuffle-off');
-            shuffleIcon.classList.add('pi-sort-alt');
-        }
+    if (shuffleIcon) {
+        shuffleIcon.className = (shuffleMode === "SHUFFLE" || shuffleMode === "SMART_SHUFFLE") ? "pi pi-sort-alt has-text-warning" : "pi pi-sort-alt";
     }
 
-    // Update Repeat Button
-    const repeatBtn = document.getElementById('repeatBtn');
-    if (repeatBtn) {
-        repeatBtn.classList.remove('repeat-off', 'repeat-one', 'repeat-all');
-        if (repeatMode === 'ONE') repeatBtn.classList.add('repeat-one');
-        else if (repeatMode === 'ALL') repeatBtn.classList.add('repeat-all');
-        else repeatBtn.classList.add('repeat-off');
+    const repeatIcon = document.getElementById('repeatIcon');
+    if (repeatIcon) {
+        repeatIcon.className = (repeatMode === "ONE" || repeatMode === "ALL") ? "pi pi-refresh has-text-warning" : "pi pi-refresh";
     }
-
-    // Update Media Session API
-    if (window.updateMediaSessionPlaybackState) {
-        window.updateMediaSessionPlaybackState(playing);
+    
+    // Artwork
+    const coverImg = document.getElementById('songCoverImage');
+    const coverFallback = document.getElementById('songCoverFallback');
+    if (coverImg && musicState.currentSongId) {
+        coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
+        coverImg.style.display = 'block';
+        if (coverFallback) coverFallback.style.display = 'none';
     }
 }
 
-function bindAudioTimeUpdate() {
-    audio.ontimeupdate = () => {
-        if (!draggingSeconds && !isUpdatingAudioSource) {
-            musicState.currentTime = audio.currentTime;
-            updateMusicBar();
-        }
-    };
-    audio.onended = () => apiPost('next', 'Next Song');
-}
-
-// --- Audio Source ---
-async function UpdateAudioSource(currentSong, prevSong, nextSong, play, backendTime) {
-    if (!currentSong) return;
-    const opId = ++audioOperationSequence;
-    activeAudioOperation = opId;
+function updateAudioSource(songId, play = true) {
+    if (!audioElementReady) return;
     isUpdatingAudioSource = true;
+    const currentOp = ++audioOperationSequence;
+    activeAudioOperation = currentOp;
 
     const profileId = window.globalActiveProfileId || '1';
-    const newSrc = `/api/music/stream/${profileId}/${currentSong.id}`;
-
-    // Update state immediately
-    musicState.currentSongId = currentSong.id;
-    musicState.songName = currentSong.title;
-    musicState.artist = currentSong.artist;
-    musicState.duration = currentSong.durationSeconds;
+    const source = `/api/music/stream/${profileId}/${songId}`;
     
-    const artworkUrl = currentSong.artworkBase64 ? `data:image/jpeg;base64,${currentSong.artworkBase64}` : '/logo.png';
-    const img = document.getElementById('songCoverImage');
-    if (img) img.src = artworkUrl;
+    // Always bind the metadata listener to ensure isUpdatingAudioSource is cleared
+    audio.onloadedmetadata = finalizeUpdate;
 
-    // Update Media Session Metadata
-    if (window.updateMediaSessionMetadata) {
-        window.updateMediaSessionMetadata(currentSong.title, currentSong.artist, artworkUrl);
-    }
-
-    updateMusicBar();
-
-    // Finalize update function
-    const finalizeUpdate = () => {
-        if (activeAudioOperation !== opId) return;
-        
-        // Only seek if we have a valid backend time and it's significantly different
-        if (backendTime !== undefined && backendTime !== null) {
-            const drift = Math.abs(audio.currentTime - backendTime);
-            if (drift > 2.0 || audio.currentTime === 0) {
-                audio.currentTime = backendTime;
-            }
-        }
-        
+    if (audio.src !== window.location.origin + source) {
+        audio.src = source;
         audio.volume = deviceVolumes[deviceId] !== undefined ? deviceVolumes[deviceId] : 0.8;
         
         if (play) {
@@ -196,195 +149,260 @@ async function UpdateAudioSource(currentSong, prevSong, nextSong, play, backendT
         } else {
             audio.pause();
         }
-        
-        isUpdatingAudioSource = false;
-        updateMusicBar();
-    };
-
-    if (audio.src !== new URL(newSrc, window.location.origin).href) {
-        audio.src = newSrc;
-        audio.onloadedmetadata = finalizeUpdate;
         audio.load();
     } else {
-        // If src is the same, check if metadata is already there
         if (audio.readyState >= 1) {
             finalizeUpdate();
-        } else {
-            audio.onloadedmetadata = finalizeUpdate;
         }
+    }
+
+    function finalizeUpdate() {
+        if (activeAudioOperation !== currentOp) return;
+        isUpdatingAudioSource = false;
+        console.log("🎵 Audio source update finalized");
+        updateMusicBar();
     }
 }
 
-// --- WS & API ---
-let ws;
-const apiPost = (path, toastMsg) => {
-    return fetch(`/api/music/playback/${path}/${window.globalActiveProfileId || '1'}`, {method: 'POST'})
-        .then(res => {
-            if (res.ok && toastMsg && window.Toast) {
-                window.Toast.success(toastMsg);
+function bindAudioTimeUpdate() {
+    audio.ontimeupdate = () => {
+        if (!draggingSeconds && !isUpdatingAudioSource) {
+            musicState.currentTime = audio.currentTime;
+            if (audio.duration && !isNaN(audio.duration)) {
+                musicState.duration = audio.duration;
             }
-            return res;
-        });
-};
-window.apiPost = apiPost;
-
-window.setPlaybackTime = (newTime, fromClient = false) => {
-    if (audio) {
-        audio.currentTime = newTime;
-        if (fromClient) {
-            fetch(`/api/music/playback/position/${window.globalActiveProfileId || '1'}/${newTime}`, {method: 'POST'});
+            updateMusicBar();
         }
+    };
+    audio.onloadedmetadata = () => {
+        if (audio.duration && !isNaN(audio.duration)) {
+            musicState.duration = audio.duration;
+        }
+        updateMusicBar();
+    };
+}
+
+function bindControls() {
+    const playBtn = document.getElementById('playPauseBtn');
+    if (playBtn) {
+        playBtn.onclick = () => apiPost('toggle');
+    }
+
+    const prevBtn = document.getElementById('prevBtn');
+    if (prevBtn) {
+        prevBtn.onclick = () => apiPost('previous');
+    }
+
+    const nextBtn = document.getElementById('nextBtn');
+    if (nextBtn) {
+        nextBtn.onclick = () => apiPost('next');
+    }
+
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    if (shuffleBtn) {
+        shuffleBtn.onclick = () => apiPost('shuffle');
+    }
+
+    const repeatBtn = document.getElementById('repeatBtn');
+    if (repeatBtn) {
+        repeatBtn.onclick = () => apiPost('repeat');
+    }
+
+    const ts = document.getElementById('musicProgressBar');
+    if (ts) {
+        ts.onmousedown = ts.ontouchstart = () => { draggingSeconds = true; };
+        ts.onmouseup = ts.ontouchend = () => {
+            draggingSeconds = false;
+            apiPost('seek', ts.value);
+        };
+        ts.oninput = () => {
+            const progress = (ts.max > 0) ? (ts.value / ts.max) * 100 : 0;
+            ts.style.setProperty('--slider-progress', `${progress}%`);
+            ts.style.setProperty('--progress-value', `${progress}%`);
+            const timeEl = document.getElementById('musicCurrentTime');
+            if (timeEl) timeEl.innerText = formatTime(ts.value);
+        };
+    }
+
+    const vs = document.getElementById('musicVolumeProgressBar');
+    if (vs) {
+        vs.onmousedown = vs.ontouchstart = () => { draggingVolume = true; };
+        vs.onmouseup = vs.ontouchend = () => {
+            draggingVolume = false;
+            const vol = vs.value / 100.0;
+            apiPost('volume', vol);
+        };
+        vs.oninput = () => {
+            const val = vs.value;
+            const vol = val / 100.0;
+            if (audio) audio.volume = vol;
+            musicState.volume = vol;
+            deviceVolumes[deviceId] = vol;
+            localStorage.setItem(`musicDeviceVolume:${deviceId}`, vol);
+            vs.style.setProperty('--slider-progress', `${val}%`);
+            vs.style.setProperty('--progress-value', `${val}%`);
+        };
+    }
+}
+
+function apiPost(type, value = null, silent = false) {
+    console.log(`[MusicBar] apiPost: ${type}`, value, silent ? "(silent)" : "");
+    const profileId = window.globalActiveProfileId || '1';
+    const token = localStorage.getItem('authToken');
+    
+    let url = `/api/music/playback/${type}/${profileId}`;
+    let successMessage = "";
+
+    // Handle special cases where value is part of the URL
+    if (type === 'seek') {
+        url = `/api/music/playback/position/${profileId}/${value}`;
+    } else if (type === 'volume') {
+        url = `/api/music/playback/volume/${profileId}/${value}`;
+    } else if (type === 'select') {
+        url = `/api/music/playback/select/${profileId}/${value}`;
+        successMessage = "Song selected";
+    } else if (type === 'toggle') {
+        successMessage = musicState.playing ? "Paused" : "Playing";
+    } else if (type === 'pause') {
+        successMessage = "Paused";
+    } else if (type === 'play') {
+        successMessage = "Playing";
+    } else if (type === 'next') {
+        successMessage = "Skipped to next";
+    } else if (type === 'previous') {
+        successMessage = "Skipped to previous";
+    } else if (type === 'shuffle') {
+        successMessage = "Shuffle toggled";
+    } else if (type === 'repeat') {
+        successMessage = "Repeat toggled";
+    }
+
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    fetch(url, {
+        method: 'POST',
+        headers: headers
+    }).then(response => {
+        if (response.ok && successMessage && window.Toast && !silent) {
+            window.Toast.success(successMessage);
+        } else if (response.status === 401) {
+            console.error("[MusicBar] Unauthorized API call - check token");
+        }
+    });
+}
+
+// --- WebSocket Sync ---
+let ws;
+const lastServerTimeByProfile = {};
+const lastServerTimestampByProfile = {};
+
+window.setVideoPlaying = (active) => {
+    window.videoPlaying = active;
+    console.log(`[MusicBar] setVideoPlaying: ${active}`);
+    const player = document.getElementById('musicPlayerContainer');
+    if (active) {
+        if (player) player.style.setProperty('display', 'none', 'important');
+        
+        // Only send the pause command if the music is actually playing
+        if (musicState.playing) {
+            if (audio && !audio.paused) {
+                console.log("[MusicBar] Force pausing local audio for video");
+                audio.pause();
+            }
+            // Use the new silent flag to prevent the "Paused" toast
+            apiPost('pause', null, true);
+        }
+    } else {
+        if (player) player.style.setProperty('display', 'flex', 'important');
     }
 };
 
+// Smooth UI update loop
+setInterval(() => {
+    // Normal UI updates
+    if (audio && !audio.paused && !draggingSeconds && !isUpdatingAudioSource) {
+        musicState.currentTime = audio.currentTime;
+        updateMusicBar();
+    }
+    
+    // EXTREMELY AGGRESSIVE Safety check for video playback
+    if (window.videoPlaying === true) {
+        const player = document.getElementById('musicPlayerContainer');
+        if (player) {
+            // Force it hidden no matter what
+            if (player.style.display !== 'none') {
+                console.log("[MusicBar] Failsafe: Hiding player because video is active");
+                player.style.setProperty('display', 'none', 'important');
+            }
+        }
+        if (audio && !audio.paused) {
+            console.log("[MusicBar] Failsafe: Pausing audio because video is active");
+            audio.pause();
+        }
+    }
+}, 250);
+
 function connectWS() {
     const profileId = window.globalActiveProfileId || '1';
-    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + `/api/music/ws/${profileId}`);
-    ws.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        if (data.type === 'state') {
-            const state = data.payload;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${window.location.host}/api/music/ws/${profileId}`);
+    ws.onmessage = (e) => {
+        const message = JSON.parse(e.data);
+        if (message.type === 'state') {
+            const state = message.payload;
+            console.log('[MusicBar] WS State:', state.playing ? 'Playing' : 'Paused', state.currentSongId);
             lastServerTimeByProfile[profileId] = state.currentTime;
             lastServerTimestampByProfile[profileId] = Date.now();
             
-            if (String(state.currentSongId) !== String(musicState.currentSongId)) {
-                fetch(`/api/music/playback/current/${profileId}`).then(r => r.json()).then(res => {
-                    UpdateAudioSource(res.data, null, null, state.playing, state.currentTime);
-                });
+            // ... (rest of the logic)
+
+            // Always sync these basic state properties
+            musicState.playing = state.playing;
+            musicState.shuffleMode = state.shuffleMode;
+            musicState.repeatMode = state.repeatMode;
+            
+            if (state.duration && state.duration > 0) {
+                musicState.duration = state.duration;
+            }
+            
+            if (!draggingVolume) {
+                musicState.volume = state.volume;
+                if (audio) audio.volume = state.volume;
+            }
+
+            // Sync current time if not dragging and either significantly drifted or paused
+            if (!draggingSeconds) {
+                const drift = Math.abs(musicState.currentTime - state.currentTime);
+                if (!musicState.playing || drift > 2) {
+                    musicState.currentTime = state.currentTime;
+                    if (audio && Math.abs(audio.currentTime - state.currentTime) > 2) {
+                        audio.currentTime = state.currentTime;
+                    }
+                }
+            }
+
+            if (state.currentSongId !== musicState.currentSongId) {
+                musicState.currentSongId = state.currentSongId;
+                musicState.songName = state.songName;
+                musicState.artist = state.artistName;
+                updateAudioSource(state.currentSongId, state.playing);
             } else {
-                musicState.playing = state.playing;
-                musicState.shuffleMode = state.shuffleMode;
-                musicState.repeatMode = state.repeatMode;
-                if (state.playing && audio.paused) audio.play().catch(() => {});
-                else if (!state.playing && !audio.paused) audio.pause();
+                if (state.playing && audio.paused) {
+                    audio.play().catch(() => {});
+                } else if (!state.playing && !audio.paused) {
+                    audio.pause();
+                }
                 updateMusicBar();
             }
         }
     };
     ws.onclose = () => setTimeout(connectWS, 2000);
 }
-
-// --- Controls ---
-function bindControls() {
-    const ts = document.getElementById('playbackProgressBar');
-    if (ts) {
-        ts.onmousedown = ts.ontouchstart = () => draggingSeconds = true;
-        window.addEventListener('mouseup', () => {
-            if (draggingSeconds) {
-                draggingSeconds = false;
-                audio.currentTime = ts.value;
-                fetch(`/api/music/playback/position/${window.globalActiveProfileId || '1'}/${ts.value}`, {method: 'POST'});
-            }
-        });
-        ts.oninput = () => {
-            ts.style.setProperty('--slider-progress', `${(ts.value / (ts.max || 1)) * 100}%`);
-            document.getElementById('currentTime').innerText = formatTime(ts.value);
-        };
-    }
-
-    const vs = document.getElementById('volumeProgressBar');
-    if (vs) {
-        vs.onmousedown = vs.ontouchstart = () => draggingVolume = true;
-        window.addEventListener('mouseup', () => { draggingVolume = false; });
-        vs.oninput = () => {
-            const val = vs.value;
-            const vol = Math.pow(val / 100, 2);
-            audio.volume = vol;
-            musicState.volume = vol;
-            deviceVolumes[deviceId] = vol;
-            localStorage.setItem(`musicDeviceVolume:${deviceId}`, vol);
-            vs.style.setProperty('--slider-progress', `${val}%`);
-        };
-    }
-
-    document.getElementById('playPauseBtn').onclick = () => apiPost('toggle', musicState.playing ? 'Paused' : 'Playing');
-    document.getElementById('prevBtn').onclick = () => apiPost('previous', 'Previous Song');
-    document.getElementById('nextBtn').onclick = () => apiPost('next', 'Next Song');
-    document.getElementById('shuffleBtn').onclick = () => apiPost('shuffle', 'Shuffle Toggled');
-    document.getElementById('repeatBtn').onclick = () => apiPost('repeat', 'Repeat Toggled');
-}
-
-// --- Context Menu Logic ---
-window.selectedContextMenuSongId = null;
-
-function showContextMenu(x, y, songId) {
-    const menu = document.getElementById('customContextMenu');
-    if (!menu) return;
-    window.selectedContextMenuSongId = songId;
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-    menu.style.display = 'block';
-}
-
-function hideContextMenu() {
-    const menu = document.getElementById('customContextMenu');
-    if (menu) menu.style.display = 'none';
-}
-
-document.addEventListener('contextmenu', e => {
-    const item = e.target.closest('.mobile-song-item');
-    if (item) { e.preventDefault(); showContextMenu(e.clientX, e.clientY, item.dataset.songId); }
-});
-
-document.addEventListener('click', e => {
-    if (!e.target.closest('#customContextMenu')) hideContextMenu();
-    
-    const actionItem = e.target.closest('.context-menu-item, .mobile-context-list li');
-    if (actionItem && window.selectedContextMenuSongId) {
-        const action = actionItem.dataset.action;
-        const songId = window.selectedContextMenuSongId;
-        const pid = window.globalActiveProfileId || '1';
-
-        if (action === 'queue') {
-            fetch(`/api/music/queue/add/${pid}/${songId}`, {method: 'POST'}).then(() => { if(window.Toast) window.Toast.success('Song added to queue'); });
-        } else if (action === 'queue-similar') {
-            fetch(`/api/music/queue/similar/${pid}/${songId}`, {method: 'POST'}).then(() => { if(window.Toast) window.Toast.success('Similar songs queued'); });
-        } else if (action === 'rescan') {
-            fetch(`/api/settings/${pid}/rescan-song/${songId}`, {method: 'POST'}).then(() => { if(window.Toast) window.Toast.success('Rescan started'); });
-        } else if (action === 'enrich') {
-            fetch(`/api/metadata/enrich/${songId}?profileId=${pid}`, {method: 'POST'}).then(() => { if(window.Toast) window.Toast.success('Metadata update started'); });
-        } else if (action === 'delete') {
-            if (confirm('Delete?')) fetch(`/api/settings/${pid}/songs/${songId}`, {method: 'DELETE'}).then(() => location.reload());
-        } else if (action === 'add-to-playlist' || action === 'playlist') {
-            const sub = document.getElementById('playlistSubMenu');
-            if (sub) {
-                if (sub.style.display === 'block') sub.style.display = 'none';
-                else {
-                    sub.style.display = 'block';
-                    fetch(`/api/music/playlists/${pid}`).then(r => r.json()).then(res => {
-                        const lists = res.data || [];
-                        sub.innerHTML = lists.map(l => `<div class="context-menu-item" onclick="window.addSongToPlaylist(${l.id}, ${songId})">${l.name}</div>`).join('');
-                    });
-                }
-                return;
-            }
-        }
-        hideContextMenu();
-        if (window.hideMobileContextMenu) window.hideMobileContextMenu();
-    }
-});
-
-window.addSongToPlaylist = (playlistId, songId) => {
-    fetch(`/api/music/playlists/${playlistId}/songs/${songId}/${window.globalActiveProfileId || '1'}`, {method: 'POST'})
-        .then(() => { if(window.Toast) window.Toast.success('Added to playlist'); hideContextMenu(); });
-};
-
-// --- Mobile Long Press ---
-let lpTimer;
-document.addEventListener('touchstart', e => {
-    const item = e.target.closest('.mobile-song-item');
-    if (item) lpTimer = setTimeout(() => {
-        window.selectedContextMenuSongId = item.dataset.songId;
-        const menu = document.getElementById('mobileContextMenu');
-        if (menu) { menu.style.display = 'block'; menu.classList.add('active'); }
-    }, 600);
-}, {passive: true});
-document.addEventListener('touchend', () => clearTimeout(lpTimer));
-
-window.hideMobileContextMenu = () => {
-    const menu = document.getElementById('mobileContextMenu');
-    if (menu) { menu.classList.remove('active'); setTimeout(() => menu.style.display = 'none', 300); }
-};
 
 document.addEventListener('DOMContentLoaded', () => { 
     bindControls(); 

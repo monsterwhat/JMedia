@@ -504,6 +504,33 @@ public class PlaybackController {
     }
 
     @Transactional
+    public synchronized void pausePlayback(Long profileId) {
+        PlaybackState state = getState(profileId);
+        // Remove the isPlaying() check to ensure we always force a stop/pause state
+        state.setPlaying(false);
+        stopPlaybackTimer(profileId);
+        updateState(profileId, state, true);
+        currentSettings.addLog("Playback paused (force).");
+    }
+
+    @Transactional
+    public synchronized void resumePlayback(Long profileId) {
+        PlaybackState state = getState(profileId);
+        if (state.isPlaying()) return;
+        
+        // If no song is selected, advance to get one
+        if (state.getCurrentSongId() == null) {
+            advanceSong(true, false, profileId);
+            return;
+        }
+
+        state.setPlaying(true);
+        startPlaybackTimer(profileId);
+        updateState(profileId, state, true);
+        currentSettings.addLog("Playback resumed (direct).");
+    }
+
+    @Transactional
     public synchronized void togglePlay(Long profileId) {
         currentSettings.addLog("Playback toggled.");
         System.out.println("Toggle");

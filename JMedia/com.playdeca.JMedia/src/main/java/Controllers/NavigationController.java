@@ -15,25 +15,25 @@ public class NavigationController {
     
     @GET
     public Response serveIndex(@Context UriInfo uriInfo) {
-        return servePage("indexNew.html", "Index page");
+        return servePage("index.html", "Index page");
     }
     
     @GET
     @Path("/settings")
     public Response serveSettings() {
-        return servePage("settings.html", "Settings page");
+        return servePage("index.html", "Settings page (SPA)");
     }
     
     @GET
     @Path("/import")
     public Response serveImport() {
-        return servePage("import.html", "Import page");
+        return servePage("index.html", "Import page (SPA)");
     }
     
     @GET
     @Path("/video")
     public Response serveVideo() {
-        return servePage("video.html", "Video page");
+        return servePage("index.html", "Video page (SPA)");
     }
     
     @GET

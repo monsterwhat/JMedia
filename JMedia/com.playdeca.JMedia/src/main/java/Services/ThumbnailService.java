@@ -66,7 +66,7 @@ public class ThumbnailService {
             Path thumbnailDir = getThumbnailDirectory();
             
             // Generate unique thumbnail path for this video
-            String thumbnailFileName = "video_" + videoId + ".jpg";
+            String thumbnailFileName = "video_" + videoId + ".webp";
             Path outputPath = thumbnailDir.resolve(thumbnailFileName);
             
             // 1. STRATEGY A: Try to find local sidecar artwork (common Plex/Kodi convention)
@@ -165,6 +165,9 @@ public class ThumbnailService {
         }
     }
 
+    @Inject
+    FFmpegDiscoveryService discoveryService;
+
     private boolean extractVideoFrame(String videoPath, String outputPath) {
         try {
             // Seek to 10% of the video or 120 seconds, whichever is less, to get a "meaningful" shot
@@ -175,7 +178,7 @@ public class ThumbnailService {
                 seekSeconds = Math.min(120, (video.duration / 1000) / 10);
             }
 
-            String ffmpegPath = findFFmpegExecutable();
+            String ffmpegPath = discoveryService.findFFmpegExecutable();
             if (ffmpegPath == null) {
                 LOGGER.error("FFmpeg not found - cannot extract frames");
                 return false;
@@ -186,8 +189,10 @@ public class ThumbnailService {
                 "-ss", String.valueOf(seekSeconds),
                 "-i", videoPath,
                 "-frames:v", "1",
-                "-q:v", "2",
+                "-c:v", "libwebp",
+                "-quality", "85",
                 "-vf", "scale=480:-1",
+                "-f", "webp",
                 "-y",
                 outputPath
             );
@@ -208,16 +213,6 @@ public class ThumbnailService {
         }
     }
 
-    private String findFFmpegExecutable() {
-        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
-            } catch (Exception ignored) {}
-        }
-        return null;
-    }
-    
     public String getThumbnailPath(String fullPath, String videoId, String type) {
         try {
             Long id = Long.parseLong(videoId);
@@ -227,7 +222,7 @@ public class ThumbnailService {
             }
             
             // Try to find on disk even if not in memory cache
-            String thumbnailFileName = "video_" + id + ".jpg";
+            String thumbnailFileName = "video_" + id + ".webp";
             Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
             if (Files.exists(diskPath)) {
                 thumbnailCache.put(id, diskPath.toString());
@@ -325,7 +320,7 @@ public class ThumbnailService {
     public boolean hasThumbnail(Long videoId) {
         String path = thumbnailCache.get(videoId);
         if (path == null) {
-            String thumbnailFileName = "video_" + videoId + ".jpg";
+            String thumbnailFileName = "video_" + videoId + ".webp";
             Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
             return Files.exists(diskPath);
         }
@@ -339,7 +334,7 @@ public class ThumbnailService {
             if (thumbnailPath != null) {
                 Files.deleteIfExists(Paths.get(thumbnailPath));
             } else {
-                String thumbnailFileName = "video_" + videoId + ".jpg";
+                String thumbnailFileName = "video_" + videoId + ".webp";
                 Files.deleteIfExists(getThumbnailDirectory().resolve(thumbnailFileName));
             }
         } catch (IOException e) {

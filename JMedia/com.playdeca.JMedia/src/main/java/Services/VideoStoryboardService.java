@@ -66,7 +66,7 @@ public class VideoStoryboardService {
 
         // Check if image exists
         Path dir = getStoryboardDirectory();
-        Path path = dir.resolve("video_" + videoId + ".jpg");
+        Path path = dir.resolve("video_" + videoId + ".webp");
         boolean exists = Files.exists(path);
 
         // Always trigger generation if it doesn't exist
@@ -94,7 +94,7 @@ public class VideoStoryboardService {
 
     public File getStoryboardImage(Long videoId) {
         Path dir = getStoryboardDirectory();
-        Path path = dir.resolve("video_" + videoId + ".jpg");
+        Path path = dir.resolve("video_" + videoId + ".webp");
         
         if (Files.exists(path)) {
             return path.toFile();
@@ -112,6 +112,9 @@ public class VideoStoryboardService {
         return null;
     }
 
+    @Inject
+    FFmpegDiscoveryService discoveryService;
+
     private boolean generateStoryboard(Long videoId, Path outputPath) {
         if (!GENERATING_IDS.add(videoId)) {
             return false;
@@ -121,7 +124,7 @@ public class VideoStoryboardService {
             Video video = videoService.find(videoId);
             if (video == null || video.path == null) return false;
 
-            String ffmpegPath = findFFmpegExecutable();
+            String ffmpegPath = discoveryService.findFFmpegExecutable();
             if (ffmpegPath == null) {
                 LOGGER.error("FFmpeg not found - cannot generate storyboard");
                 return false;
@@ -155,8 +158,9 @@ public class VideoStoryboardService {
                 "-i", video.path,
                 "-vf", filter,
                 "-frames:v", "1",
-                "-q:v", "4",
-                "-f", "image2",
+                "-c:v", "libwebp",
+                "-quality", "80",
+                "-f", "webp",
                 "-y",
                 tempPath.toString()
             );
@@ -208,15 +212,5 @@ public class VideoStoryboardService {
             LOGGER.error("Error creating storyboard directory: " + e.getMessage());
             return Paths.get(".");
         }
-    }
-
-    private String findFFmpegExecutable() {
-        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
-            } catch (Exception ignored) {}
-        }
-        return null;
     }
 }

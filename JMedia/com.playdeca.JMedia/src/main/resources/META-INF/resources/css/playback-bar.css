@@ -1,5 +1,5 @@
 /* Thicker Playback Bar */
-#playbackProgressBar {
+#musicProgressBar {
     -webkit-appearance: none; /* Override default appearance */
     width: 100%; /* Ensure it takes full width */
     height: 10px; /* Overall height of the range input */
@@ -7,7 +7,7 @@
 }
 
 /* Track styling for Webkit (Chrome, Safari) */
-#playbackProgressBar::-webkit-slider-runnable-track {
+#musicProgressBar::-webkit-slider-runnable-track {
     width: 100%;
     height: 10px; /* Thickness of the track */
     cursor: pointer;
@@ -16,12 +16,12 @@
 }
 
 /* Dark mode track styling for Webkit */
-html[data-theme="dark"] #playbackProgressBar::-webkit-slider-runnable-track {
+html[data-theme="dark"] #musicProgressBar::-webkit-slider-runnable-track {
     background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Webkit */
-#playbackProgressBar::-webkit-slider-thumb {
+#musicProgressBar::-webkit-slider-thumb {
     -webkit-appearance: none;
     border: none;
     height: 20px; /* Size of the thumb */
@@ -33,12 +33,12 @@ html[data-theme="dark"] #playbackProgressBar::-webkit-slider-runnable-track {
 }
 
 /* Dark mode thumb styling for Webkit */
-html[data-theme="dark"] #playbackProgressBar::-webkit-slider-thumb {
+html[data-theme="dark"] #musicProgressBar::-webkit-slider-thumb {
     background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for Firefox */
-#playbackProgressBar::-moz-range-track {
+#musicProgressBar::-moz-range-track {
     width: 100%;
     height: 10px;
     cursor: pointer;
@@ -47,12 +47,12 @@ html[data-theme="dark"] #playbackProgressBar::-webkit-slider-thumb {
 }
 
 /* Dark mode track styling for Firefox */
-html[data-theme="dark"] #playbackProgressBar::-moz-range-track {
+html[data-theme="dark"] #musicProgressBar::-moz-range-track {
     background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Firefox */
-#playbackProgressBar::-moz-range-thumb {
+#musicProgressBar::-moz-range-thumb {
     border: none;
     height: 20px;
     width: 20px;
@@ -62,12 +62,12 @@ html[data-theme="dark"] #playbackProgressBar::-moz-range-track {
 }
 
 /* Dark mode thumb styling for Firefox */
-html[data-theme="dark"] #playbackProgressBar::-moz-range-thumb {
+html[data-theme="dark"] #musicProgressBar::-moz-range-thumb {
     background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for IE/Edge */
-#playbackProgressBar::-ms-track {
+#musicProgressBar::-ms-track {
     width: 100%;
     height: 10px;
     cursor: pointer;
@@ -76,23 +76,23 @@ html[data-theme="dark"] #playbackProgressBar::-moz-range-thumb {
     color: transparent;
 }
 
-#playbackProgressBar::-ms-fill-lower {
+#musicProgressBar::-ms-fill-lower {
     background: #3298dc; /* Filled part - Blue for light mode */
     border-radius: 5px;
 }
 
 /* Dark mode IE/Edge fill styling */
-html[data-theme="dark"] #playbackProgressBar::-ms-fill-lower {
+html[data-theme="dark"] #musicProgressBar::-ms-fill-lower {
     background: #48c78e; /* Filled part - Green for dark mode */
 }
 
-#playbackProgressBar::-ms-fill-upper {
+#musicProgressBar::-ms-fill-upper {
     background: #dbdbdb; /* Unfilled part */
     border-radius: 5px;
 }
 
 /* Thumb styling for IE/Edge */
-#playbackProgressBar::-ms-thumb {
+#musicProgressBar::-ms-thumb {
     height: 20px;
     width: 20px;
     border-radius: 50%;
@@ -102,20 +102,23 @@ html[data-theme="dark"] #playbackProgressBar::-ms-fill-lower {
 }
 
 /* Dark mode thumb styling for IE/Edge */
-html[data-theme="dark"] #playbackProgressBar::-ms-thumb {
+html[data-theme="dark"] #musicProgressBar::-ms-thumb {
     background: #48c78e; /* Green for dark mode */
 }
 
 /* Thicker Volume Bar */
-#volumeProgressBar {
+#musicVolumeProgressBar {
     -webkit-appearance: none; /* Override default appearance */
     width: 100%; /* Ensure it takes full width */
     height: 10px; /* Overall height of the range input */
-    background: transparent; /* Make background transparent */
+    background: transparent !important; /* Make background transparent */
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
 }
 
 /* Track styling for Webkit (Chrome, Safari) */
-#volumeProgressBar::-webkit-slider-runnable-track {
+#musicVolumeProgressBar::-webkit-slider-runnable-track {
     width: 100%;
     height: 10px; /* Thickness of the track */
     cursor: pointer;
@@ -124,12 +127,12 @@ html[data-theme="dark"] #playbackProgressBar::-ms-thumb {
 }
 
 /* Dark mode track styling for Webkit */
-html[data-theme="dark"] #volumeProgressBar::-webkit-slider-runnable-track {
+html[data-theme="dark"] #musicVolumeProgressBar::-webkit-slider-runnable-track {
     background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Webkit */
-#volumeProgressBar::-webkit-slider-thumb {
+#musicVolumeProgressBar::-webkit-slider-thumb {
     -webkit-appearance: none;
     border: none;
     height: 20px; /* Size of the thumb */
@@ -141,12 +144,12 @@ html[data-theme="dark"] #volumeProgressBar::-webkit-slider-runnable-track {
 }
 
 /* Dark mode thumb styling for Webkit */
-html[data-theme="dark"] #volumeProgressBar::-webkit-slider-thumb {
+html[data-theme="dark"] #musicVolumeProgressBar::-webkit-slider-thumb {
     background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for Firefox */
-#volumeProgressBar::-moz-range-track {
+#musicVolumeProgressBar::-moz-range-track {
     width: 100%;
     height: 10px;
     cursor: pointer;
@@ -155,12 +158,12 @@ html[data-theme="dark"] #volumeProgressBar::-webkit-slider-thumb {
 }
 
 /* Dark mode track styling for Firefox */
-html[data-theme="dark"] #volumeProgressBar::-moz-range-track {
+html[data-theme="dark"] #musicVolumeProgressBar::-moz-range-track {
     background: linear-gradient(to right, #48c78e var(--progress-value, 0%), #dbdbdb var(--progress-value, 0%)); /* Dynamic gradient - Green for dark mode */
 }
 
 /* Thumb styling for Firefox */
-#volumeProgressBar::-moz-range-thumb {
+#musicVolumeProgressBar::-moz-range-thumb {
     border: none;
     height: 20px;
     width: 20px;
@@ -170,12 +173,12 @@ html[data-theme="dark"] #volumeProgressBar::-moz-range-track {
 }
 
 /* Dark mode thumb styling for Firefox */
-html[data-theme="dark"] #volumeProgressBar::-moz-range-thumb {
+html[data-theme="dark"] #musicVolumeProgressBar::-moz-range-thumb {
     background: #48c78e; /* Green for dark mode */
 }
 
 /* Track styling for IE/Edge */
-#volumeProgressBar::-ms-track {
+#musicVolumeProgressBar::-ms-track {
     width: 100%;
     height: 10px;
     cursor: pointer;
@@ -184,23 +187,23 @@ html[data-theme="dark"] #volumeProgressBar::-moz-range-thumb {
     color: transparent;
 }
 
-#volumeProgressBar::-ms-fill-lower {
+#musicVolumeProgressBar::-ms-fill-lower {
     background: #3298dc; /* Filled part - Blue for light mode */
     border-radius: 5px;
 }
 
 /* Dark mode IE/Edge fill styling */
-html[data-theme="dark"] #volumeProgressBar::-ms-fill-lower {
+html[data-theme="dark"] #musicVolumeProgressBar::-ms-fill-lower {
     background: #48c78e; /* Filled part - Green for dark mode */
 }
 
-#volumeProgressBar::-ms-fill-upper {
+#musicVolumeProgressBar::-ms-fill-upper {
     background: #dbdbdb; /* Unfilled part */
     border-radius: 5px;
 }
 
 /* Thumb styling for IE/Edge */
-#volumeProgressBar::-ms-thumb {
+#musicVolumeProgressBar::-ms-thumb {
     height: 20px;
     width: 20px;
     border-radius: 50%;
@@ -210,6 +213,6 @@ html[data-theme="dark"] #volumeProgressBar::-ms-fill-lower {
 }
 
 /* Dark mode thumb styling for IE/Edge */
-html[data-theme="dark"] #volumeProgressBar::-ms-thumb {
+html[data-theme="dark"] #musicVolumeProgressBar::-ms-thumb {
     background: #48c78e; /* Green for dark mode */
 }

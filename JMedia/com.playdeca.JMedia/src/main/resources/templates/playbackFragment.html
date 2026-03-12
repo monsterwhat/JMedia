@@ -2,10 +2,14 @@
 <link rel="stylesheet" href="/css/player.css"/>
 
 <div class="player-container paused" id="customPlayer"
+     data-video-id="{item.id}"
      data-title="{item.title ?: item.seriesTitle}"
      data-path="{item.path.replace('\\', '/')}"
-     data-meta="{#if item.type == 'Episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: 'Movie'}{/if}"
-     data-start-time="{resumeTime}">
+     data-duration="{item.duration}"
+     data-type="{item.type}"
+     data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
+     data-start-time="{resumeTime}"
+     data-next-id="{nextEpisodeId}">
     
     <div class="video-wrapper">
         <video id="videoElement" crossorigin="anonymous" playsinline autoplay>

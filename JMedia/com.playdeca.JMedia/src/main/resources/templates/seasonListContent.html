@@ -39,7 +39,11 @@
 {#else}
     <div class="plex-grid" style="padding: 0 1rem;">
         {#for season in seasons}
-            <div class="plex-card" onclick="window.switchSection('episodes', \{seriesTitle: '{encodedSeriesTitle}', seasonNumber: {season.seasonNumber}\})">
+            <div class="plex-card" 
+                 data-series-title="{seriesTitle}"
+                 data-season-number="{season.seasonNumber}"
+                 data-sample-video-id="{season.sampleVideoId}"
+                 onclick="window.switchSection('episodes', \{seriesTitle: '{encodedSeriesTitle}', seasonNumber: {season.seasonNumber}\})">
                 <div class="plex-card-poster">
                     {#if season.sampleVideoId}
                         <img class="poster-img" src="/api/video/thumbnail/{season.sampleVideoId}" alt="Season {season.seasonNumber}" loading="lazy">

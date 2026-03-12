@@ -74,6 +74,23 @@ public class QueueAPI {
         return Response.ok(ApiResponse.success("All songs queued and playback started")).build();
     }
         
+    @GET
+    @Path("/cover/{id}")
+    @Produces("image/jpeg")
+    public Response getSongCover(@PathParam("id") Long id) {
+        Song song = playbackController.findSong(id);
+        if (song == null || song.getArtworkBase64() == null || song.getArtworkBase64().isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+
+        try {
+            byte[] imageBytes = java.util.Base64.getDecoder().decode(song.getArtworkBase64());
+            return Response.ok(imageBytes).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @POST
     @Path("/queue/add/{profileId}/{songId}")
     @Consumes(MediaType.WILDCARD)

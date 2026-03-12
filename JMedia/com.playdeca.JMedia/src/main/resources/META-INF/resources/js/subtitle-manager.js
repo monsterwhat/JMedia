@@ -2,6 +2,23 @@ class SubtitleManager {
     constructor() {
         this.currentVideoId = null;
         this.currentVideoTitle = '';
+        
+        // Auto-apply saved styles on initialization
+        this.applySavedStyle();
+    }
+
+    applySavedStyle() {
+        const saved = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
+        const defaults = {
+            font: "'Segoe UI', sans-serif",
+            size: 20,
+            color: '#ffffff',
+            bgOpacity: 0.7,
+            lineHeight: 1.4,
+            bottom: 60
+        };
+        const style = { ...defaults, ...saved };
+        this.applyGlobalStyle(style);
     }
 
     openModal(videoId, videoTitle, videoPath) {

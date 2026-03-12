@@ -136,6 +136,7 @@ public class Video extends PanacheEntity {
     public LocalDateTime dateAdded;
     public LocalDateTime lastWatched;
     public LocalDateTime dateModified;
+    public Long resumeTime = 0L; // Current playback position in milliseconds
     public Double watchProgress = 0.0; // 0.0 to 1.0
     public Double watchProgressDouble = 0.0; // Compatibility field
     public boolean watched = false;

@@ -4,10 +4,13 @@ import API.ApiResponse;
 import Models.DTOs.PaginatedMovieResponse;
 import Services.SettingsService;
 import Services.ThumbnailService;
+import Services.TranscodingService;
 import Services.VideoImportService;
 import Services.VideoService;
 import Controllers.NamingController;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -15,6 +18,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.File;
@@ -35,6 +39,9 @@ import jakarta.ws.rs.core.Context;
 public class VideoAPI {
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoAPI.class);
+
+    @Inject
+    TranscodingService transcodingService;
 
     @Inject
     VideoService videoService;
@@ -87,9 +94,8 @@ public class VideoAPI {
 
     @GET
     @Path("/thumbnail/{videoId}")
-    @Produces("image/jpeg")
+    @Produces("image/webp")
     public Response getThumbnail(@PathParam("videoId") Long videoId) {
-        // Validate videoId parameter
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
@@ -100,12 +106,11 @@ public class VideoAPI {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
 
-            // CHECK FOR CUSTOM THUMBNAIL FIRST
             if (video.thumbnailPath != null && !video.thumbnailPath.isBlank()) {
                 File customThumbnail = new File(video.thumbnailPath);
                 if (customThumbnail.exists() && customThumbnail.isFile()) {
                     return Response.ok(customThumbnail)
-                            .header("Content-Type", "image/jpeg")
+                            .header("Content-Type", "image/webp")
                             .header("Cache-Control", "public, max-age=86400")
                             .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
                             .build();
@@ -118,13 +123,11 @@ public class VideoAPI {
                 return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
             }
 
-            // Validate and sanitize the video path to prevent directory traversal
             if (video.path == null || video.path.trim().isEmpty()) {
-                LOG.error("Invalid video path: null or empty for video ID: {}", videoId);
+                LOG.error("Invalid video path for video ID: {}", videoId);
                 return Response.status(Response.Status.BAD_REQUEST).build();
             }
 
-            // Safe path resolution: handle both absolute and relative paths stored in DB
             String fullPath;
             java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
             if (vPath.isAbsolute()) {
@@ -136,21 +139,19 @@ public class VideoAPI {
             String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
 
             if (thumbnailUrl != null && !thumbnailUrl.contains("picsum.photos")) {
-                // Convert URL to file path
                 String filename = videoId + "_" + video.type + ".jpg";
                 java.nio.file.Path thumbnailPath = thumbnailService.getThumbnailDirectory().resolve(filename);
                 File thumbnailFile = thumbnailPath.toFile();
 
                 if (thumbnailFile.exists()) {
                     return Response.ok(thumbnailFile)
-                            .header("Content-Type", "image/jpeg")
-                            .header("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+                            .header("Content-Type", "image/webp")
+                            .header("Cache-Control", "public, max-age=86400")
                             .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
                             .build();
                 }
             }
 
-            // Fallback to placeholder
             String redirectUrl = "https://picsum.photos/seed/video" + videoId + "/300/450.jpg";
             return Response.temporaryRedirect(java.net.URI.create(redirectUrl)).build();
 
@@ -173,7 +174,7 @@ public class VideoAPI {
             }
 
             if (video.favorite) {
-                userInteractionService.removeFavorite(videoId, 1L); // Using default userId 1 for now
+                userInteractionService.removeFavorite(videoId, 1L);
                 return Response.ok(ApiResponse.success(false)).build();
             } else {
                 userInteractionService.markAsFavorite(videoId, 1L);
@@ -208,7 +209,6 @@ public class VideoAPI {
                     if (video != null) {
                         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                         if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                            // Safe path resolution
                             String fullPath;
                             java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
                             if (vPath.isAbsolute()) {
@@ -252,26 +252,16 @@ public class VideoAPI {
         if (lower.endsWith(".flv")) return "video/x-flv";
         if (lower.endsWith(".m4v")) return "video/x-m4v";
         if (lower.endsWith(".ts")) return "video/mp2t";
-        return "video/mp4"; // Default
-    }
-
-    private String findFFmpegExecutable() {
-        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
-            } catch (Exception ignored) {}
-        }
-        return null;
+        return "video/mp4";
     }
 
     @GET
     @Path("/stream/{videoId}")
-    public Response streamVideo(@PathParam("videoId") Long videoId, @HeaderParam("Range") String rangeHeader) {
-        // Validate videoId parameter
+    public Response streamVideo(@PathParam("videoId") Long videoId, 
+                               @HeaderParam("Range") String rangeHeader,
+                               @QueryParam("start") @DefaultValue("0") double startSeconds) {
         if (videoId == null || videoId <= 0) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("Invalid video ID").build();
+            return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
 
         Models.Video video = Models.Video.findById(videoId);
@@ -282,12 +272,9 @@ public class VideoAPI {
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
         if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
             LOG.error("Video library path is not configured.");
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("Video library path not configured.")
-                    .build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Video library path not configured.").build();
         }
 
-        // Safe path resolution
         java.nio.file.Path baseFilePath = java.nio.file.Paths.get(video.path);
         final java.nio.file.Path filePath = baseFilePath.isAbsolute()
                 ? baseFilePath : java.nio.file.Paths.get(videoLibraryPath, video.path);
@@ -303,47 +290,20 @@ public class VideoAPI {
         boolean isMKV = filename.endsWith(".mkv");
 
         if (isMKV) {
-            return streamRemuxedMKV(videoFile);
+            return streamRemuxedMKV(video, videoFile, startSeconds);
         }
 
-        // Standard direct file streaming for other formats (MP4, WebM, etc.)
         return streamDirectFile(videoFile, rangeHeader);
     }
 
-    private Response streamRemuxedMKV(File videoFile) {
-        String ffmpegPath = findFFmpegExecutable();
-        if (ffmpegPath == null) {
-            LOG.error("FFmpeg not found - cannot remux MKV");
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("FFmpeg not found for MKV remuxing").build();
-        }
-
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds) {
         StreamingOutput streamingOutput = output -> {
-            // Remux MKV to Fragmented MP4 on the fly
-            ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
-                "-v", "quiet",
-                "-i", videoFile.getAbsolutePath(),
-                "-codec", "copy",
-                "-f", "mp4",
-                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-                "pipe:1"
-            );
-
-            Process process = pb.start();
-            try (java.io.InputStream is = process.getInputStream()) {
-                byte[] buffer = new byte[128 * 1024]; // 128KB buffer
-                int read;
-                while ((read = is.read(buffer)) != -1) {
-                    output.write(buffer, 0, read);
-                    output.flush();
-                }
+            try {
+                transcodingService.streamRemuxedMKV(video, videoFile, startSeconds, output);
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
-                    LOG.error("MKV Remux streaming error: {}", e.getMessage());
+                    LOG.error("MKV Remux streaming error for {}: {}", videoFile.getName(), e.getMessage());
                 }
-            } finally {
-                process.destroy();
             }
         };
 
@@ -412,6 +372,7 @@ public class VideoAPI {
 
         return responseBuilder.build();
     }
+
     @Inject
     private Services.VideoHistoryService videoHistoryService;
 
@@ -431,26 +392,17 @@ public class VideoAPI {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting per-video library scan: {}", videoLibraryPath);
-
-                    // Phase 1: Discovery
                     List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), false);
-
                     LOG.info("Found {} items. Starting individual processing...", discovered.size());
 
-                    // Phase 2 & 3: Process individually
                     for (Models.PendingMedia pending : discovered) {
                         try {
-                            // Run in its own context to ensure immediate commit
                             namingController.processPendingMedia(pending.id);
-                            
-                            // Let the creation service handle its own reload internally within a transaction
-                            // to avoid stale data and context issues
                             unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
                         } catch (Exception e) {
                             LOG.error("Error processing video {}: {}", pending.originalFilename, e.getMessage());
                         }
                     }
-
                     LOG.info("Full video library scan and processing completed");
                 }
             } catch (Exception e) {
@@ -481,9 +433,7 @@ public class VideoAPI {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting video metadata reload: {}", videoLibraryPath);
-
                     List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), true);
-
                     for (Models.PendingMedia pending : discovered) {
                         try {
                             namingController.processPendingMedia(pending.id);
@@ -492,7 +442,6 @@ public class VideoAPI {
                             LOG.error("Error reloading metadata for {}: {}", pending.originalFilename, e.getMessage());
                         }
                     }
-
                     thumbnailService.queueAllVideosForRegeneration();
                     LOG.info("Video metadata reload completed");
                 }
@@ -506,6 +455,7 @@ public class VideoAPI {
         });
         return Response.ok(ApiResponse.success("Video metadata reload started. Items will be updated one by one.")).build();
     }
+
     @POST
     @Path("/reset-database")
     public Response resetVideoDatabase(@Context jakarta.ws.rs.core.HttpHeaders headers) {
@@ -542,10 +492,8 @@ public class VideoAPI {
         if (!checkAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
-        // Validate videoId parameter
         if (videoId == null || videoId <= 0) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("Invalid video ID")).build();
+            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid video ID")).build();
         }
 
         executor.submit(() -> {
@@ -554,7 +502,6 @@ public class VideoAPI {
                 if (video != null) {
                     String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                     if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                        // Safe path resolution
                         String fullPath;
                         java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
                         if (vPath.isAbsolute()) {
@@ -643,22 +590,14 @@ public class VideoAPI {
     @Path("/metadata/{videoId}/reload")
     public Response reloadVideoMetadata(@PathParam("videoId") Long videoId,
             @Context jakarta.ws.rs.core.HttpHeaders headers) {
-
         if (!checkAdmin(headers)) {
-            return Response.status(Response.Status.FORBIDDEN)
-                    .entity(ApiResponse.error("Admin access required"))
-                    .build();
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
-
         try {
             Models.Video video = Models.Video.findById(videoId);
-
             if (video == null) {
-                return Response.status(Response.Status.NOT_FOUND)
-                        .entity(ApiResponse.error("Video not found"))
-                        .build();
+                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
             }
-
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
@@ -676,14 +615,10 @@ public class VideoAPI {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }
             });
-
             return Response.ok(ApiResponse.success("Metadata reload started for video " + video.title)).build();
-
         } catch (Exception e) {
             LOG.error("Error reloading metadata for video {}", videoId, e);
-            return Response.serverError()
-                    .entity(ApiResponse.error("Internal server error: " + e.getMessage()))
-                    .build();
+            return Response.serverError().entity(ApiResponse.error("Internal server error: " + e.getMessage())).build();
         }
     }
 
@@ -691,26 +626,19 @@ public class VideoAPI {
     @Path("/thumbnail/{videoId}/extract")
     public Response extractThumbnail(@PathParam("videoId") Long videoId,
             @Context jakarta.ws.rs.core.HttpHeaders headers) {
-
         if (!checkAdmin(headers)) {
-            return Response.status(Response.Status.FORBIDDEN)
-                    .entity(ApiResponse.error("Admin access required"))
-                    .build();
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
-
         executor.submit(() -> {
             ManagedContext requestContext = Arc.container().requestContext();
             if (!requestContext.isActive()) requestContext.activate();
             try {
                 Models.Video video = Models.Video.findById(videoId);
                 if (video == null || video.path == null) return;
-
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath == null) return;
-
                 java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
                 String fullPath = vPath.isAbsolute() ? vPath.toString() : java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
-                
                 thumbnailService.deleteExistingThumbnail(videoId.toString(), video.type);
                 thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
                 LOG.info("Thumbnail manually extracted for video: {}", video.title);
@@ -720,7 +648,6 @@ public class VideoAPI {
                 if (requestContext.isActive()) requestContext.deactivate();
             }
         });
-
         return Response.accepted().entity(ApiResponse.success("Thumbnail extraction started")).build();
     }
 
@@ -773,18 +700,15 @@ public class VideoAPI {
     @Path("/movies")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllMovies(
-            @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
-
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("50") int limit) {
         List<Models.Video> movies = Models.Video.<Models.Video>list("type = ?1", "movie");
         long totalItems = movies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
-
         PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) movies, page, limit, totalItems, totalPages);
         return Response.ok(response).build();
     }
 
-    // ========== GENRE-BASED ENDPOINTS ==========
     @GET
     @Path("/genres")
     @Produces(MediaType.APPLICATION_JSON)
@@ -794,8 +718,7 @@ public class VideoAPI {
             return Response.ok(ApiResponse.success(genres)).build();
         } catch (Exception e) {
             LOG.error("Error getting genres", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get genres: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get genres: " + e.getMessage())).build();
         }
     }
 
@@ -804,26 +727,21 @@ public class VideoAPI {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getVideosByGenre(
             @PathParam("genreSlug") String genreSlug,
-            @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("20") int limit,
             @QueryParam("userId") Long userId) {
         try {
             List<Models.Video> videos = videoService.findByGenre(genreSlug, page, limit);
-
-            // Apply personalization if userId provided
             if (userId != null) {
                 videos = videoService.personalizeVideoRecommendations(videos, userId);
             }
-
             long totalItems = videoService.countByGenre(genreSlug);
             int totalPages = (int) Math.ceil((double) totalItems / limit);
-
             PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) videos, page, limit, totalItems, totalPages);
             return Response.ok(ApiResponse.success(response)).build();
         } catch (Exception e) {
             LOG.error("Error getting videos by genre: " + genreSlug, e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get videos by genre: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get videos by genre: " + e.getMessage())).build();
         }
     }
 
@@ -832,31 +750,24 @@ public class VideoAPI {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getVideosByMultipleGenres(
             @QueryParam("genres") List<String> genreSlugs,
-            @QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("20") int limit,
             @QueryParam("userId") Long userId) {
         try {
             if (genreSlugs == null || genreSlugs.isEmpty()) {
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("At least one genre must be specified")).build();
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("At least one genre must be specified")).build();
             }
-
             List<Models.Video> videos = videoService.findByMultipleGenres(genreSlugs, page, limit);
-
-            // Apply personalization if userId provided
             if (userId != null) {
                 videos = videoService.personalizeVideoRecommendations(videos, userId);
             }
-
             long totalItems = videoService.countByMultipleGenres(genreSlugs);
             int totalPages = (int) Math.ceil((double) totalItems / limit);
-
             PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) videos, page, limit, totalItems, totalPages);
             return Response.ok(ApiResponse.success(response)).build();
         } catch (Exception e) {
             LOG.error("Error getting videos by multiple genres", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get videos by genres: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get videos by genres: " + e.getMessage())).build();
         }
     }
 
@@ -866,25 +777,19 @@ public class VideoAPI {
     public Response getRecommendedByGenre(
             @PathParam("genreSlug") String genreSlug,
             @QueryParam("userId") Long userId,
-            @QueryParam("limit") @jakarta.ws.rs.DefaultValue("10") int limit) {
+            @QueryParam("limit") @DefaultValue("10") int limit) {
         try {
             if (userId == null) {
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("userId is required for recommendations")).build();
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("userId is required for recommendations")).build();
             }
-
             List<Models.Video> recommendations = videoService.findRecommendedByGenre(genreSlug, userId);
-
-            // Limit results
             if (recommendations.size() > limit) {
                 recommendations = recommendations.subList(0, limit);
             }
-
             return Response.ok(ApiResponse.success(recommendations)).build();
         } catch (Exception e) {
             LOG.error("Error getting genre recommendations for: " + genreSlug, e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get recommendations: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get recommendations: " + e.getMessage())).build();
         }
     }
 
@@ -893,23 +798,64 @@ public class VideoAPI {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllGenreCarousels(
             @QueryParam("userId") Long userId,
-            @QueryParam("itemsPerGenre") @jakarta.ws.rs.DefaultValue("8") int itemsPerGenre) {
+            @QueryParam("itemsPerGenre") @DefaultValue("8") int itemsPerGenre) {
         try {
             java.util.Map<String, List<Models.Video>> carousels = videoService.getAllGenreCarousels(userId, itemsPerGenre);
             return Response.ok(ApiResponse.success(carousels)).build();
         } catch (Exception e) {
             LOG.error("Error getting genre carousels", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get genre carousels: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get genre carousels: " + e.getMessage())).build();
         }
     }
 
     @Inject
     Services.VideoStoryboardService storyboardService;
 
+    @POST
+    @Path("/progress/{videoId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    @Transactional
+    public Response reportProgress(@PathParam("videoId") Long videoId, @QueryParam("time") double timeSeconds) {
+        try {
+            Models.Video video = Models.Video.findById(videoId);
+            if (video != null) {
+                // Update absolute resume time in milliseconds
+                video.resumeTime = (long) (timeSeconds * 1000);
+                video.lastWatched = java.time.LocalDateTime.now();
+                video.dateModified = java.time.LocalDateTime.now();
+                
+                // Calculate and update progress ratio
+                double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
+                double progressRatio = (durationSeconds > 0) ? Math.min(1.0, timeSeconds / durationSeconds) : 0;
+                
+                userInteractionService.updateWatchProgress(videoId, 1L, progressRatio);
+                // The updateWatchProgress method calls video.persist(), so we don't need another call here
+            }
+            return Response.ok(ApiResponse.success(null)).build();
+        } catch (Exception e) {
+            LOG.error("Error reporting progress for video {}: {}", videoId, e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GET
+    @Path("/storyboard/{videoId}/tiles")
+    @Produces("image/webp")
+    public Response getStoryboardTiles(@PathParam("videoId") Long videoId) {
+        File file = storyboardService.getStoryboardImage(videoId);
+        if (file == null || !file.exists()) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return Response.ok(file)
+                .header("Content-Type", "image/webp")
+                .header("Cache-Control", "public, max-age=86400")
+                .build();
+    }
+
     @GET
     @Path("/storyboard/{videoId}")
-    @Produces("image/jpeg")
+    @Produces("image/webp")
     public Response getStoryboard(@PathParam("videoId") Long videoId) {
         File file = storyboardService.getStoryboardImage(videoId);
         if (file == null || !file.exists()) {
@@ -925,7 +871,6 @@ public class VideoAPI {
     @Path("/storyboard/{videoId}/metadata")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getStoryboardMetadata(@PathParam("videoId") Long videoId) {
-        LOG.debug("Storyboard metadata request for video {}", videoId);
         Services.VideoStoryboardService.StoryboardMetadata metadata = storyboardService.getMetadata(videoId);
         if (metadata == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
@@ -935,21 +880,13 @@ public class VideoAPI {
 
     private boolean isClientDisconnect(Throwable e) {
         if (e == null) return false;
-        
         String msg = e.getMessage();
         if (msg != null) {
             String lowerMsg = msg.toLowerCase();
-            if (lowerMsg.contains("broken pipe") || 
-                lowerMsg.contains("connection reset") || 
-                lowerMsg.contains("connection aborted") || 
-                lowerMsg.contains("stream closed") ||
-                lowerMsg.contains("connection has been closed") ||
-                lowerMsg.contains("failed to write")) {
+            if (lowerMsg.contains("broken pipe") || lowerMsg.contains("connection reset") || lowerMsg.contains("connection aborted") || lowerMsg.contains("stream closed") || lowerMsg.contains("connection has been closed") || lowerMsg.contains("failed to write")) {
                 return true;
             }
         }
-        
-        // Check cause recursively
         return isClientDisconnect(e.getCause());
     }
 }

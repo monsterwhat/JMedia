@@ -166,6 +166,7 @@ public class VideoPlaybackAPI {
                 Models.Video video = Models.Video.findById(videoId);
                 if (video != null) {
                     video.lastWatched = java.time.LocalDateTime.now();
+                    video.resumeTime = (long) (seconds * 1000); // Store in milliseconds
                     if (video.duration != null && video.duration > 0) {
                         video.watchProgress = seconds / (video.duration / 1000.0);
                         if (video.watchProgress > 0.98) {

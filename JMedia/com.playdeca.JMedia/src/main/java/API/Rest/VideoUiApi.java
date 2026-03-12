@@ -364,15 +364,20 @@ public class VideoUiApi {
         VideoState state = videoStateService.getOrCreateState();
         double resumeTime = 0;
         
-        if (state != null && videoId.equals(state.getCurrentVideoId())) {
+        if (item.resumeTime != null && item.resumeTime > 0) {
+            resumeTime = item.resumeTime / 1000.0;
+        } else if (state != null && videoId.equals(state.getCurrentVideoId())) {
             resumeTime = state.getCurrentTime();
         } else if (item.watchProgress != null && item.watchProgress > 0 && item.watchProgress < 0.98) {
             resumeTime = item.watchProgress * (item.getDurationSeconds());
         }
 
+        Models.Video nextEpisode = videoService.findNextEpisode(item);
+
         return playbackFragment
                 .data("item", item)
                 .data("resumeTime", resumeTime)
+                .data("nextEpisodeId", nextEpisode != null ? nextEpisode.id : null)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .data("json", (ValueResolver) (ctx) -> {
                     try { return java.util.concurrent.CompletableFuture.completedFuture(objectMapper.writeValueAsString(ctx.getBase())); }

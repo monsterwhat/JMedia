@@ -44,10 +44,17 @@
                 
                 <nav class="sidebar-nav">
                     <div class="nav-group">
-                        <p class="nav-label">Libraries</p>
+                        <p class="nav-label">Music Library</p>
                         <a href="/" class="nav-item">
                             <i class="pi pi-play-circle"></i> <span>Music</span>
                         </a>
+                        <a href="/import" class="nav-item">
+                            <i class="pi pi-download"></i> <span>Import</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-group">
+                        <p class="nav-label">Video Library</p>
                         <a href="/video" class="nav-item">
                             <i class="pi pi-video"></i> <span>Videos</span>
                         </a>

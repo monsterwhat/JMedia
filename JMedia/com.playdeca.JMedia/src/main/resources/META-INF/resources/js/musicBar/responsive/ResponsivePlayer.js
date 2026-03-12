@@ -64,7 +64,7 @@
             elements.playerControls = elements.player?.querySelector('.mobile-player-controls');
             
             // Control elements
-            elements.progressBar = document.getElementById('playbackProgressBar');
+            elements.progressBar = document.getElementById('musicProgressBar');
             elements.volumeControl = document.querySelector('.mobile-volume-mini');
             
             // Cover image elements
@@ -350,7 +350,7 @@
          */
         setupVolumeControls: function() {
             const volumeBtn = document.getElementById('volumeToggleBtn');
-            const volumeSlider = document.getElementById('volumeProgressBar');
+            const volumeSlider = document.getElementById('musicVolumeProgressBar');
             const volumeIcon = document.getElementById('volumeIcon');
             
             if (!volumeBtn || !volumeSlider || !volumeIcon) return;
@@ -441,11 +441,9 @@
                 this.setVolume(exponentialVolume);
             });
             
-            // Show/hide slider on hover/touch
+            // Show slider on hover/touch - CSS handles hiding now
             volumeBtn.addEventListener('mouseenter', () => this.showVolumeSlider());
-            volumeBtn.addEventListener('mouseleave', () => this.hideVolumeSlider());
             volumeSlider.addEventListener('mouseenter', () => this.showVolumeSlider());
-            volumeSlider.addEventListener('mouseleave', () => this.hideVolumeSlider());
             
             // Listen for volume changes
             window.addEventListener('statePropertyChanged', (e) => {
@@ -718,7 +716,7 @@
          * Show volume slider
          */
         showVolumeSlider: function() {
-            const volumeSlider = document.getElementById('volumeProgressBar');
+            const volumeSlider = document.getElementById('musicVolumeProgressBar');
             if (volumeSlider) {
                 volumeSlider.style.display = 'block';
                 this.state.volumeSliderVisible = true;
@@ -728,13 +726,7 @@
                 const linearValue = window.Helpers.volume.calculateLinearSliderValue(currentVolume);
                 volumeSlider.value = linearValue;
                 
-                // Auto-hide after delay
-                clearTimeout(this.state.volumeSliderTimeout);
-                this.state.volumeSliderTimeout = setTimeout(() => {
-                    if (!volumeSlider.matches(':active')) {
-                        this.hideVolumeSlider();
-                    }
-                }, 2000);
+                // Don't auto-hide - let CSS handle it
             }
         },
         
@@ -742,11 +734,7 @@
          * Hide volume slider
          */
         hideVolumeSlider: function() {
-            const volumeSlider = document.getElementById('volumeProgressBar');
-            if (volumeSlider) {
-                volumeSlider.style.display = 'none';
-                this.state.volumeSliderVisible = false;
-            }
+            // Do nothing - slider visibility handled by click toggle
         },
         
         /**

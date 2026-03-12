@@ -1,6 +1,6 @@
 /**
  * Video Context Menu Manager
- * Handles right-click context menus for video cards with thumbnail and metadata operations
+ * Handles right-click context menus for video cards with playback, navigation, and metadata operations
  */
 class VideoContextMenu {
     constructor() {
@@ -18,10 +18,38 @@ class VideoContextMenu {
     }
 
     createContextMenu() {
+        // Use the global context-menu class for consistent styling with music player
         this.contextMenu = document.createElement('div');
         this.contextMenu.id = 'video-context-menu';
-        this.contextMenu.className = 'video-context-menu';
+        this.contextMenu.className = 'context-menu video-context-menu';
+        this.updateMenuContent();
+        document.body.appendChild(this.contextMenu);
+    }
+
+    updateMenuContent() {
+        const isShow = this.currentVideoData && (this.currentVideoData.type === 'Show' || this.currentVideoData.type === 'Series');
+        const isSeason = this.currentVideoData && this.currentVideoData.type === 'Season';
+        
         this.contextMenu.innerHTML = `
+            <div class="context-menu-item" data-action="play">
+                <i class="pi pi-play"></i>
+                <span>${isShow || isSeason ? 'View Episodes' : 'Play'}</span>
+            </div>
+            <div class="context-menu-item" data-action="details">
+                <i class="pi pi-info-circle"></i>
+                <span>Details</span>
+            </div>
+            ${!isSeason ? `
+            <div class="context-menu-item" data-action="watchlist">
+                <i class="pi pi-bookmark"></i>
+                <span>Add to Watchlist</span>
+            </div>
+            ` : ''}
+            <div class="context-menu-item" data-action="edit">
+                <i class="pi pi-pencil"></i>
+                <span>Edit Metadata</span>
+            </div>
+            <div class="context-menu-separator"></div>
             <div class="context-menu-item" data-action="fetch-thumbnail">
                 <i class="pi pi-download"></i>
                 <span>Fetch Thumbnail</span>
@@ -40,7 +68,6 @@ class VideoContextMenu {
                 <span>Reload Metadata</span>
             </div>
         `;
-        document.body.appendChild(this.contextMenu);
     }
 
     createUploadInput() {
@@ -77,12 +104,8 @@ class VideoContextMenu {
             }
         });
 
-        // Hide context menu on contextmenu
-        document.addEventListener('contextmenu', (e) => {
-            if (!e.target.closest('.video-card') && !e.target.closest('.video-entry')) {
-                this.hide();
-            }
-        });
+        // Hide context menu on scroll (using capture to catch it in scrollable containers)
+        document.addEventListener('scroll', () => this.hide(), { passive: true, capture: true });
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -99,24 +122,16 @@ class VideoContextMenu {
         this.currentVideoData = videoData;
         this.currentVideoId = videoData.id;
         
+        // Update menu content based on current data (e.g. Show vs Movie)
+        this.updateMenuContent();
+        
         const x = e.clientX;
         const y = e.clientY;
-        
-        // Check for dark theme
-        const isDarkTheme = document.body.classList.contains('dark-theme') || 
-                           document.documentElement.getAttribute('data-theme') === 'dark';
         
         // Position context menu
         this.contextMenu.style.left = x + 'px';
         this.contextMenu.style.top = y + 'px';
         this.contextMenu.style.display = 'block';
-        
-        // Apply dark theme class if needed
-        if (isDarkTheme) {
-            this.contextMenu.classList.add('dark');
-        } else {
-            this.contextMenu.classList.remove('dark');
-        }
         
         // Adjust position if it goes off screen
         const rect = this.contextMenu.getBoundingClientRect();
@@ -136,6 +151,27 @@ class VideoContextMenu {
         if (!this.currentVideoId) return;
 
         switch (action) {
+            case 'play':
+                if (this.currentVideoData.type === 'Show' || this.currentVideoData.type === 'Series') {
+                    window.switchSection('seasons', { encodedTitle: encodeURIComponent(this.currentVideoData.title) });
+                } else if (this.currentVideoData.type === 'Season') {
+                    window.switchSection('episodes', { 
+                        seriesTitle: encodeURIComponent(this.currentVideoData.seriesTitle), 
+                        seasonNumber: this.currentVideoData.seasonNumber 
+                    });
+                } else {
+                    window.selectItem(this.currentVideoId, 'play');
+                }
+                break;
+            case 'details':
+                window.selectItem(this.currentVideoId, 'details');
+                break;
+            case 'watchlist':
+                window.addToWatchlist(this.currentVideoData.title, this.currentVideoId);
+                break;
+            case 'edit':
+                this.editMetadata();
+                break;
             case 'fetch-thumbnail':
                 this.fetchThumbnail();
                 break;
@@ -153,341 +189,239 @@ class VideoContextMenu {
 
     async fetchThumbnail() {
         try {
-            Toast.info('Fetching thumbnail...');
+            this.showNotification('Fetching thumbnail...', 'info');
             const response = await fetch(`/api/video/thumbnail/${this.currentVideoId}/fetch`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+                method: 'POST'
             });
             
-            const result = await response.json();
             if (response.ok) {
-                Toast.success('Thumbnail fetch started');
-                // Refresh the thumbnail after a delay
+                this.showNotification('Thumbnail fetch started', 'success');
                 setTimeout(() => this.refreshThumbnail(), 2000);
             } else {
-                Toast.error(result.message || 'Failed to fetch thumbnail');
+                this.showNotification('Failed to fetch thumbnail', 'danger');
             }
         } catch (error) {
             console.error('Error fetching thumbnail:', error);
-            Toast.error('Error fetching thumbnail');
         }
     }
 
     async extractThumbnail() {
         try {
-            Toast.info('Extracting thumbnail...');
+            this.showNotification('Extracting thumbnail...', 'info');
             const response = await fetch(`/api/video/thumbnail/${this.currentVideoId}/extract`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+                method: 'POST'
             });
             
-            const result = await response.json();
             if (response.ok) {
-                Toast.success('Thumbnail extracted successfully');
+                this.showNotification('Thumbnail extracted successfully', 'success');
                 this.refreshThumbnail();
             } else {
-                Toast.error(result.message || 'Failed to extract thumbnail');
+                this.showNotification('Failed to extract thumbnail', 'danger');
             }
         } catch (error) {
             console.error('Error extracting thumbnail:', error);
-            Toast.error('Error extracting thumbnail');
         }
     }
 
     async uploadThumbnail(file) {
-        try {
-            Toast.info('Upload feature coming soon - please use extract thumbnail for now');
-            
-            // TODO: Implement proper upload when Quarkus multipart support is fully working
-            // For now, redirect user to extract thumbnail
-            
-            setTimeout(() => {
-                this.extractThumbnail();
-            }, 1000);
-            
-        } catch (error) {
-            console.error('Error uploading thumbnail:', error);
-            Toast.error('Error uploading thumbnail');
-        }
-        
-        // Reset file input
+        this.showNotification('Upload feature coming soon', 'info');
         this.uploadInput.value = '';
     }
 
     async reloadMetadata() {
         try {
-            Toast.info('Reloading metadata...');
+            this.showNotification('Reloading metadata...', 'info');
             const response = await fetch(`/api/video/metadata/${this.currentVideoId}/reload`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+                method: 'POST'
             });
             
-            const result = await response.json();
             if (response.ok) {
-                Toast.success('Metadata reload started');
-                // Refresh the page content after a delay
-                setTimeout(() => {
-                    window.location.reload();
-                }, 3000);
+                this.showNotification('Metadata reload started', 'success');
+                setTimeout(() => window.location.reload(), 2000);
             } else {
-                Toast.error(result.message || 'Failed to reload metadata');
+                this.showNotification('Failed to reload metadata', 'danger');
             }
         } catch (error) {
             console.error('Error reloading metadata:', error);
-            Toast.error('Error reloading metadata');
+        }
+    }
+
+    async editMetadata() {
+        const modal = document.getElementById('editVideoModal');
+        const modalBody = document.getElementById('editVideoModalBody');
+        
+        if (!modal || !modalBody) {
+            this.showNotification('Edit modal not found', 'danger');
+            return;
+        }
+
+        let editUrl = `/api/video/manage/edit/${this.currentVideoId}`;
+
+        if (this.currentVideoData.type === 'Show' || this.currentVideoData.type === 'Series') {
+            editUrl = `/api/video/manage/edit-series/${encodeURIComponent(this.currentVideoData.title)}`;
+        } else if (this.currentVideoData.type === 'Season') {
+            if (this.currentVideoData.sampleVideoId) {
+                editUrl = `/api/video/manage/edit/${this.currentVideoData.sampleVideoId}`;
+            } else {
+                this.showNotification('Cannot edit season without sample video', 'warning');
+                return;
+            }
+        } else if (typeof this.currentVideoId === 'string' && this.currentVideoId.startsWith('show-')) {
+            const showTitle = this.currentVideoData.title;
+            editUrl = `/api/video/manage/edit-series/${encodeURIComponent(showTitle)}`;
+        }
+
+        modalBody.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
+        modal.classList.add('is-active');
+
+        try {
+            const response = await fetch(editUrl);
+            if (response.ok) {
+                const html = await response.text();
+                modalBody.innerHTML = html;
+                
+                // Process HTMX for the newly added content
+                if (window.htmx) {
+                    window.htmx.process(modalBody);
+                }
+                
+                // Add success listener for the form
+                const form = modalBody.querySelector('form');
+                if (form) {
+                    form.addEventListener('htmx:afterRequest', (evt) => {
+                        if (evt.detail.successful) {
+                            this.showNotification('Metadata updated successfully', 'success');
+                            modal.classList.remove('is-active');
+                            // Refresh current view to reflect changes
+                            if (window.videoSPA) {
+                                window.videoSPA.switchSection(window.videoSPA.currentSection, window.videoSPA.currentParams, true);
+                            }
+                        } else {
+                            this.showNotification('Failed to update metadata', 'danger');
+                        }
+                    });
+                }
+            } else {
+                modalBody.innerHTML = '<div class="notification is-danger">Failed to load edit form</div>';
+            }
+        } catch (error) {
+            console.error('Error loading edit form:', error);
+            modalBody.innerHTML = '<div class="notification is-danger">Error loading edit form</div>';
         }
     }
 
     refreshThumbnail() {
-        // Find all images that might be thumbnails for this video
         const videoId = this.currentVideoId;
-        console.log('Refreshing thumbnails for video ID:', videoId, 'Data:', this.currentVideoData);
-        
-        // Only refresh images that directly relate to this video ID
         const allImages = document.querySelectorAll('img');
-        console.log('Found images:', allImages.length);
         
-        allImages.forEach((img, index) => {
+        allImages.forEach(img => {
             const src = img.src;
-            console.log(`Image ${index}:`, src);
-            
-            // Only refresh if this image is specifically for this video ID
-            if (src.includes(videoId)) {
-                console.log('Refreshing image with video ID:', videoId);
-                if (!src.includes('picsum.photos')) {
-                    // Add timestamp to force refresh existing thumbnails
-                    const separator = src.includes('?') ? '&' : '?';
-                    const newSrc = src + separator + 't=' + Date.now();
-                    console.log('Updated image src:', newSrc);
-                    img.src = newSrc;
-                }
-            }
-            
-            // Also update any picsum.photos images for this video to use real thumbnail endpoint
-            if (this.currentVideoData && img.alt && img.alt.includes(this.currentVideoData.title) && src.includes('picsum.photos')) {
-                console.log('Converting picsum image to real thumbnail for:', this.currentVideoData.title);
-                img.src = `/api/video/thumbnail/${videoId}?t=${Date.now()}`;
+            if (src.includes(videoId) && !src.includes('picsum.photos')) {
+                const separator = src.includes('?') ? '&' : '?';
+                img.src = src.split(/[?&]t=/)[0] + separator + 't=' + Date.now();
             }
         });
     }
 
-
+    showNotification(message, type) {
+        if (window.showToast) {
+            window.showToast(message, type);
+        } else if (window.Toast && window.Toast[type]) {
+            window.Toast[type](message);
+        } else {
+            console.log(`[Notification] ${type}: ${message}`);
+        }
+    }
 }
 
-// Initialize the context menu
-let videoContextMenu;
-
-document.addEventListener('DOMContentLoaded', () => {
-    videoContextMenu = new VideoContextMenu();
+/**
+ * Global function to add context menu handlers to elements
+ */
+function addContextMenuHandlers() {
+    // Target all common video card classes
+    const cardSelectors = [
+        '.plex-card',
+        '.streaming-card',
+        '.episode-entry',
+        '.content-card',
+        '.video-entry',
+        '.show-tile',
+        '.video-card',
+        '.series-hero-title',
+        '.player-container',
+        '#videoElement'
+    ];
     
-    // Add right-click handlers to existing video cards
+    const elements = document.querySelectorAll(cardSelectors.join(':not([data-context-added]), ') + ':not([data-context-added])');
+    
+    elements.forEach(el => {
+        el.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const videoData = extractVideoData(el);
+            if (videoData && videoData.id) {
+                if (!window.videoContextMenu) window.videoContextMenu = new VideoContextMenu();
+                window.videoContextMenu.show(e, videoData);
+            }
+        });
+        el.setAttribute('data-context-added', 'true');
+    });
+}
+
+/**
+ * Extracts video ID and metadata from a DOM element
+ */
+function extractVideoData(el) {
+    try {
+        // Find the element with video data, potentially going up the tree (e.g. from video element to container)
+        const target = el.closest('[data-video-id], [data-sample-video-id], [data-series-title]');
+        if (!target) return null;
+        
+        // 1. Check data attributes (most reliable)
+        const data = {
+            id: target.dataset.videoId || target.dataset.sampleVideoId,
+            title: target.dataset.title || target.dataset.seriesTitle || target.querySelector('.plex-card-title, .card-title, .episode-title-text')?.textContent.trim() || target.textContent.trim(),
+            type: target.dataset.type || (target.classList.contains('episode-entry') ? 'Episode' : 'Video')
+        };
+
+        if (target.dataset.seriesTitle && target.dataset.seasonNumber) {
+            data.type = 'Season';
+            data.seriesTitle = target.dataset.seriesTitle;
+            data.seasonNumber = target.dataset.seasonNumber;
+            data.sampleVideoId = target.dataset.sampleVideoId;
+            data.title = 'Season ' + target.dataset.seasonNumber;
+        } else if (target.dataset.seriesTitle) {
+            data.type = 'Show';
+            data.title = target.dataset.seriesTitle;
+        }
+
+        return data;
+    } catch (error) {
+        console.error('Error extracting video data:', error);
+        return null;
+    }
+}
+
+// Initialize and setup observers
+document.addEventListener('DOMContentLoaded', () => {
+    if (!window.videoContextMenu) window.videoContextMenu = new VideoContextMenu();
     addContextMenuHandlers();
     
-    // Watch for dynamically added content
+    // Support HTMX dynamic loading
+    document.addEventListener('htmx:afterSettle', () => {
+        addContextMenuHandlers();
+    });
+    
+    // Support other dynamic content via MutationObserver
     const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            if (mutation.addedNodes.length) {
-                addContextMenuHandlers();
+        let shouldRefresh = false;
+        for (const mutation of mutations) {
+            if (mutation.addedNodes.length > 0) {
+                shouldRefresh = true;
+                break;
             }
-        });
+        }
+        if (shouldRefresh) addContextMenuHandlers();
     });
     
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
+    observer.observe(document.body, { childList: true, subtree: true });
 });
-
-function addContextMenuHandlers() {
-    // Add handlers to content cards in carousels
-    const contentCards = document.querySelectorAll('.content-card:not([data-context-added])');
-    contentCards.forEach(card => {
-        card.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const videoData = extractVideoDataFromCard(card);
-            if (videoData) {
-                videoContextMenu.show(e, videoData);
-            }
-        });
-        card.setAttribute('data-context-added', 'true');
-    });
-    
-    // Add handlers to video entries
-    const videoEntries = document.querySelectorAll('.video-entry:not([data-context-added])');
-    videoEntries.forEach(entry => {
-        entry.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const videoData = extractVideoDataFromEntry(entry);
-            if (videoData) {
-                videoContextMenu.show(e, videoData);
-            }
-        });
-        entry.setAttribute('data-context-added', 'true');
-    });
-    
-    // Add handlers to show tiles
-    const showTiles = document.querySelectorAll('.show-tile:not([data-context-added])');
-    showTiles.forEach(tile => {
-        tile.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const videoData = extractVideoDataFromShowTile(tile);
-            if (videoData) {
-                videoContextMenu.show(e, videoData);
-            }
-        });
-        tile.setAttribute('data-context-added', 'toe');
-    });
-}
-
-function extractVideoDataFromCard(card) {
-    try {
-        // Try to extract video data from onclick attribute
-        const onclick = card.getAttribute('onclick');
-        if (onclick && onclick.includes('selectItem')) {
-            const match = onclick.match(/selectItem\(\s*({.*})\s*,\s*'([^']*)'\s*\)/);
-            if (match) {
-                const videoData = JSON.parse(match[1]);
-                return {
-                    id: videoData.id,
-                    title: videoData.title || videoData.seriesTitle || 'Unknown',
-                    type: videoData.type || 'Video',
-                    ...videoData
-                };
-            }
-        }
-        
-        // Fallback: extract from data attributes
-        const videoId = card.dataset.videoId;
-        const img = card.querySelector('.card-image');
-        const titleElement = card.querySelector('.card-title');
-        
-        return {
-            id: videoId || generateIdFromElement(card),
-            title: titleElement ? titleElement.textContent.trim() : (img ? img.alt : 'Unknown'),
-            type: 'Video'
-        };
-    } catch (error) {
-        console.error('Error extracting video data from card:', error);
-        return null;
-    }
-}
-
-function extractVideoDataFromEntry(entry) {
-    try {
-        // Try to extract from onclick attribute
-        const onclick = entry.getAttribute('onclick');
-        if (onclick && onclick.includes('playVideo')) {
-            const match = onclick.match(/playVideo\(this,\s*({.*})\s*\)/);
-            if (match) {
-                const videoData = JSON.parse(match[1]);
-                return {
-                    id: videoData.id,
-                    title: videoData.title || videoData.episodeTitle || 'Unknown',
-                    type: 'Video',
-                    ...videoData
-                };
-            }
-        }
-        
-        // Fallback: extract from content
-        const titleElement = entry.querySelector('.video-title');
-        return {
-            id: generateIdFromElement(entry),
-            title: titleElement ? titleElement.textContent.trim() : 'Unknown',
-            type: 'Video'
-        };
-    } catch (error) {
-        console.error('Error extracting video data from entry:', error);
-        return null;
-    }
-}
-
-function extractVideoDataFromShowTile(tile) {
-    try {
-        const titleElement = tile.querySelector('.show-title');
-        const cssId = tile.id || generateIdFromElement(tile);
-        
-        return {
-            id: cssId.replace(/[^\d]/g, ''),
-            title: titleElement ? titleElement.textContent.trim() : 'Unknown Show',
-            type: 'Show'
-        };
-    } catch (error) {
-        console.error('Error extracting video data from show tile:', error);
-        return null;
-    }
-}
-
-function generateIdFromElement(element) {
-    // Use actual video data if available, fallback to simple ID generation
-    if (element.dataset.videoId) return element.dataset.videoId;
-    if (element.id) return element.id;
-    
-    // Fallback: generate simple ID without position-based logic
-    return element.id || element.className.split(' ')[0] || 'unknown';
-}
-
-// Add CSS styles
-const contextMenuStyles = document.createElement('style');
-contextMenuStyles.textContent = `
-    .video-context-menu {
-        position: fixed;
-        z-index: 9999;
-        background: white;
-        border: 1px solid #dbdbdb;
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        padding: 4px 0;
-        min-width: 180px;
-        font-size: 14px;
-        display: none;
-    }
-    
-    .video-context-menu.dark {
-        background: #363636;
-        border-color: #4a4a4a;
-        color: white;
-    }
-    
-    .context-menu-item {
-        padding: 8px 16px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: background-color 0.2s ease;
-    }
-    
-    .context-menu-item:hover {
-        background-color: #f5f5f5;
-    }
-    
-    .video-context-menu.dark .context-menu-item:hover {
-        background-color: #4a4a4a;
-    }
-    
-    .context-menu-separator {
-        height: 1px;
-        background-color: #dbdbdb;
-        margin: 4px 0;
-    }
-    
-    .video-context-menu.dark .context-menu-separator {
-        background-color: #4a4a4a;
-    }
-    
-    .context-menu-item i {
-        width: 16px;
-        text-align: center;
-    }
-    
-
-`;
-
-document.head.appendChild(contextMenuStyles);

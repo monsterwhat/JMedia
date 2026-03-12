@@ -392,9 +392,13 @@ class DeviceSyncManager {
         try {
             const settings = JSON.parse(localStorage.getItem('deviceSyncSettings') || '{}');
             
-            document.getElementById('syncMusicToggle').checked = settings.syncMusic !== false;
-            document.getElementById('syncVideosToggle').checked = settings.syncVideos === true;
-            document.getElementById('syncPlaylistsToggle').checked = settings.syncPlaylists !== false;
+            const musicToggle = document.getElementById('syncMusicToggle');
+            const videosToggle = document.getElementById('syncVideosToggle');
+            const playlistsToggle = document.getElementById('syncPlaylistsToggle');
+
+            if(musicToggle) musicToggle.checked = settings.syncMusic !== false;
+            if(videosToggle) videosToggle.checked = settings.syncVideos === true;
+            if(playlistsToggle) playlistsToggle.checked = settings.syncPlaylists !== false;
         } catch (error) {
             console.error('Failed to load sync settings:', error);
         }

@@ -31,6 +31,9 @@ public class FFprobeSubtitleService {
     
     @Inject
     ObjectMapper objectMapper;
+
+    @Inject
+    FFmpegDiscoveryService discoveryService;
     
     // Supported subtitle codecs
     private static final List<String> SUPPORTED_SUBTITLE_CODECS = List.of(
@@ -60,7 +63,7 @@ public class FFprobeSubtitleService {
         List<SubtitleTrack> subtitleTracks = new ArrayList<>();
         
         try {
-            String ffprobePath = findFFprobeExecutable();
+            String ffprobePath = discoveryService.findFFprobeExecutable();
             if (ffprobePath == null) {
                 LOGGER.warn("FFprobe not found, cannot extract embedded subtitles");
                 return subtitleTracks;
@@ -138,30 +141,37 @@ public class FFprobeSubtitleService {
     }
 
     /**
-     * Extract an internal subtitle track and convert to WebVTT string on-the-fly
+     * Extract an internal subtitle track and convert to WebVTT string on-the-fly with an optional start offset
      */
-    public String extractInternalSubtitleToVTT(SubtitleTrack track) throws IOException {
+    public String extractInternalSubtitleToVTT(SubtitleTrack track, double startOffset) throws IOException {
         if (!track.isEmbedded || track.trackIndex == null || track.video == null) {
             throw new IllegalArgumentException("Track is not an embedded subtitle track");
         }
 
-        String ffmpegPath = findFFmpegExecutable();
+        String ffmpegPath = discoveryService.findFFmpegExecutable();
         if (ffmpegPath == null) {
             throw new IOException("FFmpeg not found");
         }
 
-        // FFmpeg command to extract a specific stream and output as WebVTT to stdout
-        // We use -map 0:v:0? -map 0:a:0? -map 0:s:INDEX to ensure we hit the right stream
-        // Actually, mapping by absolute index 0:INDEX is safer
-        ProcessBuilder pb = new ProcessBuilder(
-            ffmpegPath,
-            "-v", "quiet",
+        // Using -ss before -i for fast seeking even for subtitles
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+        command.add("-v");
+        command.add("quiet");
+        
+        if (startOffset > 0) {
+            command.add("-ss");
+            command.add(String.valueOf(startOffset));
+        }
+        
+        command.addAll(List.of(
             "-i", track.video.path,
             "-map", "0:" + track.trackIndex,
             "-f", "webvtt",
             "-"
-        );
+        ));
 
+        ProcessBuilder pb = new ProcessBuilder(command);
         Process process = pb.start();
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
@@ -181,25 +191,5 @@ public class FFprobeSubtitleService {
         }
 
         return output.toString();
-    }
-    
-    private String findFFprobeExecutable() {
-        String[] possiblePaths = {"ffprobe", "ffprobe.exe", "C:\\Program Files\\FFmpeg\\bin\\ffprobe.exe", "C:\\ffmpeg\\bin\\ffprobe.exe"};
-        for (String path : possiblePaths) {
-            try {
-                if (new ProcessBuilder(path, "-version").start().waitFor() == 0) return path;
-            } catch (Exception ignored) {}
-        }
-        return null;
-    }
-
-    private String findFFmpegExecutable() {
-        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
-            } catch (Exception ignored) {}
-        }
-        return null;
     }
 }

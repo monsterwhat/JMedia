@@ -4,17 +4,12 @@
         (function() {
             var videoType = '{item.type}';
             var seriesTitle = '{item.seriesTitle}';
-            var seasonNumber = {item.seasonNumber};
+            var seasonNumber = {item.seasonNumber ?: 0};
             
             if (videoType && videoType.toLowerCase() === 'episode') {
                 videoSPA.backDestination = {
                     section: 'episodes',
                     params: { seriesTitle: seriesTitle, seasonNumber: seasonNumber }
-                };
-            } else {
-                videoSPA.backDestination = {
-                    section: 'movies',
-                    params: {}
                 };
             }
         })();

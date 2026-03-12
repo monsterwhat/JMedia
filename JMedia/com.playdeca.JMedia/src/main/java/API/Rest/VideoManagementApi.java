@@ -117,8 +117,14 @@ public class VideoManagementApi {
     @Blocking
     public Response updateSeries(
             @FormParam("seriesTitle") String seriesTitle,
+            @FormParam("newTitle") String newTitle,
             @FormParam("posterPath") String posterPath,
             @FormParam("backdropPath") String backdropPath) {
+        
+        if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
+            videoService.updateSeriesTitle(seriesTitle, newTitle);
+            seriesTitle = newTitle; // Use new title for metadata update
+        }
         
         videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath);
         return Response.ok("Series updated successfully").build();
@@ -175,6 +181,32 @@ public class VideoManagementApi {
                 .data("video", video)
                 .data("allSeries", allSeries)
                 .render();
+    }
+
+    @GET
+    @Path("/edit-series/{seriesTitle}")
+    @Blocking
+    public String getEditSeriesFragment(@PathParam("seriesTitle") String seriesTitle) {
+        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+        if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
+        
+        Video representative = episodes.get(0);
+        
+        return " <form hx-post='/api/video/manage/series/update' hx-swap='none' class='p-2'>" +
+               " <input type='hidden' name='seriesTitle' value='" + seriesTitle + "'>" +
+               " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Series Name (Rename All)</label>" +
+               " <div class='control'><input class='input is-dark' type='text' name='newTitle' value='" + seriesTitle + "' " +
+               " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div>" +
+               " <p class='help has-text-grey'>Renaming here will update all " + episodes.size() + " episodes.</p></div>" +
+               " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Poster Path</label>" +
+               " <div class='control'><input class='input is-dark' type='text' name='posterPath' value='" + (representative.posterPath != null ? representative.posterPath : "") + "' " +
+               " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div></div>" +
+               " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Backdrop Path</label>" +
+               " <div class='control'><input class='input is-dark' type='text' name='backdropPath' value='" + (representative.backdropPath != null ? representative.backdropPath : "") + "' " +
+               " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div></div>" +
+               " <div class='field mt-5'><div class='control'><button class='button is-info is-fullwidth' type='submit'>" +
+               " <i class='pi pi-save mr-2'></i> Save Series Changes</button></div></div>" +
+               " </form>";
     }
 
     @POST

@@ -1,0 +1,476 @@
+<header class="plex-header">
+    <div class="search-container">
+        <div class="control has-icons-left">
+            <input class="input is-rounded plex-search" type="text" placeholder="Search songs..." name="search" id="globalSearchInput"
+                   hx-get="/api/music/ui/search-results/{profileId}"
+                   hx-trigger="keyup changed delay:500ms, search"
+                   hx-target="#searchResultsContainer"
+                   hx-swap="innerHTML"
+                   hx-include="[name='search']"
+                   hx-indicator="#loadingRow">
+            <span class="icon is-left"><i class="pi pi-search"></i></span>
+        </div>
+        <div id="globalSearchDropdown" class="dropdown-menu" role="menu" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; z-index: 1000;">
+            <div id="globalSearchDropdownLoadingIndicator" class="htmx-indicator has-text-centered py-2">
+                <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+            </div>
+            <div class="dropdown-content"
+                 id="searchSuggestionsDropdown"
+                 hx-trigger="keyup changed delay:300ms from:#globalSearchInput"
+                 hx-vals="js:{searchQuery: document.getElementById('globalSearchInput').value}"
+                 hx-target="this"
+                 hx-swap="innerHTML"
+                 hx-indicator="#globalSearchDropdownLoadingIndicator">
+            </div>
+        </div>
+    </div>
+</header>
+
+<main class="plex-content">
+    <div class="import-main-wrapper" style="padding: 1.5rem; max-height: calc(100vh - 180px); overflow-y: auto;">
+        <div class="glass-box" style="padding: 1.5rem;">
+            <h2 class="title is-4 mb-4">Import Interface</h2>
+            
+            <div id="externalAppWarning" class="notification is-info mb-4">
+                <button class="delete"></button>
+                <p class="mb-2">
+                    This page allows you to interface with the external 
+                    <a href="https://spotdl.rtfd.io/" target="_blank" class="has-text-weight-semibold">SpotDL</a> application.
+                </p>
+                <p class="mb-2">
+                    Please ensure that Python, SpotDL (installed via pip), and FFmpeg are correctly installed and configured on your system's PATH for this functionality to work.
+                </p>
+                <p>
+                    JMedia does not manage these external applications; it only provides a user interface to send commands to them.
+                </p>
+            </div>
+            <div id="spotdlWarningMessage" class="notification is-warning is-hidden mb-4">
+            </div>
+
+            <div class="field-group">
+                <div class="field">
+                    <label class="label" for="spotdlUrl">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-music"></i></span>
+                            <span>Songs</span>
+                        </span>
+                    </label>
+                    <div class="control">
+                        <textarea class="textarea is-medium" id="spotdlUrl" 
+                                  placeholder="Single song: 'Song Title' or 'Artist - Title'
+
+                                  Multi-line list:
+                                  Max Sinàl,KingCrowney,Liv East - Intentions
+                                  Jend - I Know
+                                  NO CIGAR - Cool
+                                  Darius,WAYNE SNOW - Night Birds
+                                  Good Luck - Look at U
+
+                                  Or enter Spotify/YouTube URLs (playlists work)"></textarea>
+                    </div>
+                    <p class="help is-size-7">Single songs, albums, playlists, or multi-line song lists. Song lists support multiple artists separated by commas. Each line is treated as a separate song.</p>
+                </div>
+
+                <div class="field admin-only">
+                    <label class="label" for="downloadFolder">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-folder"></i></span>
+                            <span>Download Folder</span>
+                        </span>
+                    </label>
+                    <div class="control">
+                        <input class="input is-medium" type="text" id="downloadFolder" 
+                               placeholder="e.g., C:\Music\SpotDL">
+                    </div>
+                    <p class="help is-size-7">Directory where downloaded files will be saved</p>
+                </div> 
+
+                <div class="field">
+                    <label class="label">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-list"></i></span>
+                            <span>Playlist Selection (Optional)</span>
+                        </span>
+                    </label>
+                    <div class="columns is-mobile">
+                        <div class="column is-half">
+                            <div class="control">
+                                <div class="select is-fullwidth is-medium">
+                                    <select id="playlistSelect">
+                                        <option value="">-- Select existing playlist --</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column is-half">
+                            <div class="control">
+                                <input class="input is-medium" type="text" id="newPlaylistName" 
+                                       placeholder="Or create new playlist">
+                            </div>
+                        </div>
+                    </div>
+                    <p class="help is-size-7">Add downloaded songs to an existing playlist or create a new one</p>
+                </div>
+
+                <div class="field admin-only">
+                    <label class="label">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-cog"></i></span>
+                            <span>Advanced Import Configuration</span>
+                        </span>
+                    </label>
+
+                    <div class="card has-background-dark" x-data="{ showAdvanced: false }">
+                        <div class="card-content p-4">
+                            <div class="field">
+                                <button class="button is-info is-small is-fullwidth" @click="showAdvanced = !showAdvanced">
+                                    <span class="icon-text">
+                                        <span class="icon">
+                                            <i class="pi" :class="showAdvanced ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+                                        </span>
+                                        <span x-text="showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings'"></span>
+                                    </span>
+                                </button>
+                            </div>
+
+                            <div x-show="showAdvanced" x-transition>
+                                <div class="field">
+                                    <label class="label is-small">
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-cookie"></i></span>
+                                            <span>YouTube Cookies</span>
+                                        </span>
+                                    </label>
+                                    <div class="notification is-dark p-3">
+                                        <div class="field">
+                                            <label class="label is-small has-text-white">Upload Cookie File</label>
+                                            <div class="file has-name is-fullwidth" id="cookieFileUpload">
+                                                <label class="file-label">
+                                                    <input class="file-input" type="file" name="resume" id="cookieFileInput" accept=".txt">
+                                                    <span class="file-cta">
+                                                        <span class="file-icon">
+                                                            <i class="pi pi-upload"></i>
+                                                        </span>
+                                                        <span class="file-label">Choose file</span>
+                                                    </span>
+                                                    <span class="file-name" id="cookieFileName">No file selected</span>
+                                                </label>
+                                            </div>
+                                            <p class="help is-size-7 has-text-grey">Upload a cookies.txt file for YouTube downloads requiring authentication</p>
+                                        </div>
+                                        <div class="field">
+                                            <label class="label is-small has-text-white">Or Paste Cookie Content</label>
+                                            <div class="control">
+                                                <textarea class="textarea has-background-black has-text-white" 
+                                                          id="cookiesContent" rows="4" 
+                                                          placeholder="Paste your cookies.txt content here..."></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="field is-grouped">
+                                            <div class="control">
+                                                <button class="button is-info is-small" id="uploadCookiesBtn">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-upload"></i></span>
+                                                        <span>Save</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                            <div class="control">
+                                                <button class="button is-danger is-small" id="deleteCookiesBtn">
+                                                    <span class="icon-text">
+                                                        <span class="icon"><i class="pi pi-trash"></i></span>
+                                                        <span>Delete</span>
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div id="cookiesStatus" class="notification is-hidden mt-2 p-2"></div>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <label class="label is-small">Download Sources</label>
+                                    <div class="columns">
+                                        <div class="column is-half">
+                                            <div class="field">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" id="youtubeEnabled" checked>
+                                                    <span class="has-text-success">●</span> Enable YouTube (yt-dlp)
+                                                </label>
+                                            </div>
+                                            <div class="field">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" id="spotdlEnabled" checked>
+                                                    <span class="has-text-success">●</span> Enable SpotDL
+                                                </label>
+                                            </div>
+                                            <div class="field">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" id="enableSmartRateLimitHandling" checked>
+                                                    <span class="has-text-info">⚡</span> Smart rate limit handling
+                                                </label>
+                                                <p class="help is-size-7">Automatically switch sources on long rate limits (>1 hour)</p>
+                                            </div>
+                                            <div class="field">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" id="fallbackOnLongWait" checked>
+                                                    <span class="has-text-warning">↩</span> Fallback on long wait
+                                                </label>
+                                                <p class="help is-size-7">Switch to fallback source if wait time exceeds max acceptable</p>
+                                            </div>
+                                        </div>
+                                        <div class="column is-half">
+                                            <div class="field">
+                                                <label class="label is-small">Primary Source</label>
+                                                <div class="select is-small is-fullwidth">
+                                                    <select id="primarySource">
+                                                        <option value="NONE">None</option>
+                                                        <option value="YOUTUBE">YouTube (yt-dlp)</option>
+                                                        <option value="SPOTDL">SpotDL</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="field">
+                                                <label class="label is-small">Secondary Source (Fallback)</label>
+                                                <div class="select is-small is-fullwidth">
+                                                    <select id="secondarySource">
+                                                        <option value="NONE">None</option>
+                                                        <option value="SPOTDL">SpotDL</option>
+                                                        <option value="YOUTUBE">YouTube (yt-dlp)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="field">
+                                                <label class="label is-small">Switch Strategy</label>
+                                                <div class="select is-small is-fullwidth">
+                                                    <select id="switchStrategy">
+                                                        <option value="IMMEDIATELY">Switch immediately on failure</option>
+                                                        <option value="AFTER_FAILURES" selected>After X consecutive failures</option>
+                                                        <option value="ONLY_ON_RATE_LIMIT">Only on rate limit</option>
+                                                        <option value="SMART_ADAPTIVE">Smart adaptive switching</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <label class="label is-small">Retry & Timing Settings</label>
+                                    <div class="columns">
+                                        <div class="column">
+                                            <div class="field">
+                                                <label class="label is-small">Max Retry Attempts</label>
+                                                <div class="control">
+                                                    <input class="input is-small" type="number" id="maxRetryAttempts" 
+                                                           value="3" min="0" max="10">
+                                                </div>
+                                            </div>
+                                            <div class="field">
+                                                <label class="label is-small">Retry Wait Time (seconds)</label>
+                                                <div class="control">
+                                                    <input class="input is-small" type="number" id="retryWaitTime" 
+                                                           value="90" min="1" max="300">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="column">
+                                            <div class="field">
+                                                <label class="label is-small">Failure Threshold</label>
+                                                <div class="control">
+                                                    <input class="input is-small" type="number" id="switchThreshold" 
+                                                           value="3" min="1" max="10">
+                                                </div>
+                                                <p class="help is-size-7">Number of failures before switching</p>
+                                            </div>
+                                            <div class="field">
+                                                <label class="label is-small">Max Acceptable Wait (minutes)</label>
+                                                <div class="control">
+                                                    <input class="input is-small" type="number" id="maxAcceptableWaitTime" 
+                                                           value="60" min="5" max="1440">
+                                                </div>
+                                                <p class="help is-size-7">Fallback if rate limit exceeds this time</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-4">
+                                    <hr>
+                                    <h6 class="title is-6 mb-3">
+                                        <span class="icon-text">
+                                            <span class="icon"><i class="pi pi-cog"></i></span>
+                                            <span>YouTube Advanced Options</span>
+                                        </span>
+                                    </h6>
+                                    
+                                    <div class="columns">
+                                        <div class="column is-half">
+                                            <div class="field">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" id="youtubeForceIpv4">
+                                                    <span>Force IPv4</span>
+                                                </label>
+                                                <p class="help is-size-7">Helps with some 403 errors</p>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" id="youtubeForceIpv6">
+                                                    <span>Force IPv6</span>
+                                                </label>
+                                                <p class="help is-size-7">Alternative to IPv4</p>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="label is-small">User Agent</label>
+                                                <div class="control">
+                                                    <input class="input is-small" type="text" id="youtubeUserAgent" 
+                                                           placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
+                                                </div>
+                                                <p class="help is-size-7">Custom browser user agent string</p>
+                                            </div>
+                                        </div>
+                                        <div class="column is-half">
+                                            <div class="field">
+                                                <label class="label is-small">Extractor Args</label>
+                                                <div class="control">
+                                                    <input class="input is-small" type="text" id="youtubeExtractorArgs" 
+                                                           placeholder="player_skip=webpage,configs">
+                                                </div>
+                                                <p class="help is-size-7">e.g., player_skip=webpage,configs</p>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="label is-small">Browser Impersonation</label>
+                                                <div class="select is-small is-fullwidth">
+                                                    <select id="youtubeImpersonate">
+                                                        <option value="">None</option>
+                                                        <option value="chrome">Chrome</option>
+                                                        <option value="firefox">Firefox</option>
+                                                        <option value="safari">Safari</option>
+                                                    </select>
+                                                </div>
+                                                <p class="help is-size-7">TLS fingerprint bypass</p>
+                                            </div>
+                                            
+                                            <div class="field">
+                                                <label class="label is-small">Player Client</label>
+                                                <div class="select is-small is-fullwidth">
+                                                    <select id="youtubePlayerClient">
+                                                        <option value="">Auto (Default)</option>
+                                                        <option value="android">Android</option>
+                                                        <option value="tv">TV (Echo Show)</option>
+                                                        <option value="web">Web</option>
+                                                        <option value="web_safari">Web Safari</option>
+                                                    </select>
+                                                </div>
+                                                <p class="help is-size-7">Force specific YouTube client</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-3">
+                                        <hr>
+                                        <div class="columns is-vcentered">
+                                            <div class="column is-narrow">
+                                                <span class="is-size-7">Current yt-dlp version: </span>
+                                                <span id="ytdlpVersion" class="has-text-weight-bold is-size-7">Checking...</span>
+                                            </div>
+                                            <div class="column is-narrow">
+                                                <div class="field has-addons mb-0">
+                                                    <div class="control">
+                                                        <div class="select is-small">
+                                                            <select id="youtubeUpdateChannel">
+                                                                <option value="STABLE">Stable</option>
+                                                                <option value="NIGHTLY">Nightly</option>
+                                                                <option value="MASTER">Master</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="control">
+                                                        <button class="button is-small is-info" id="updateYtDlpBtn">
+                                                            <span class="icon"><i class="pi pi-download"></i></span>
+                                                            <span>Update</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="column">
+                                                <span id="ytdlpUpdateStatus" class="help is-size-7"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="field is-grouped mt-4">
+                                    <div class="control">
+                                        <button class="button is-success is-small" id="saveAdvancedConfigBtn" onclick="if(window.saveAdvancedConfiguration) window.saveAdvancedConfiguration(); else console.error('saveAdvancedConfiguration not found');">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-save"></i></span>
+                                                <span>Save Configuration</span>
+                                            </span>
+                                        </button>
+                                    </div>
+                                    <div class="control">
+                                        <button class="button is-warning is-small" id="resetAdvancedConfigBtn">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-refresh"></i></span>
+                                                <span>Reset to Defaults</span>
+                                            </span>
+                                        </button>
+                                    </div>
+                                    <div class="control">
+                                        <button class="button is-info is-small" id="testConfigurationBtn">
+                                            <span class="icon-text">
+                                                <span class="icon"><i class="pi pi-play"></i></span>
+                                                <span>Test Configuration</span>
+                                            </span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div id="configStatus" class="notification is-hidden mt-3">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>  
+
+                <div class="field is-grouped mt-4">
+                    <div class="control">
+                        <button class="button is-warning is-medium" id="downloadBtn">
+                            <span class="icon-text">
+                                <span class="icon"><i class="pi pi-download"></i></span>
+                                <span>Find And Download</span>
+                            </span>
+                        </button>
+                    </div>
+                    <div class="control">
+                        <button class="button is-danger is-medium" id="cancelDownloadBtn" disabled>
+                            <span class="icon-text">
+                                <span class="icon"><i class="pi pi-times"></i></span>
+                                <span>Cancel</span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="field mt-5">
+                    <label class="label">
+                        <span class="icon-text">
+                            <span class="icon"><i class="pi pi-terminal"></i></span>
+                            <span>Import Output</span>
+                        </span>
+                    </label>
+                    <div class="control">
+                        <textarea class="textarea has-background-black has-text-success" 
+                                  id="spotdlOutput" rows="12" readonly 
+                                  placeholder="Download progress and output will appear here..."></textarea>
+                    </div>
+                    <p class="help is-size-7">Real-time output from the download process</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>

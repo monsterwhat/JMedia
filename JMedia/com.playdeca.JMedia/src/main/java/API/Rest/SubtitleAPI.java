@@ -227,7 +227,8 @@ public class SubtitleAPI {
     @GET
     @Path("/track/{trackId}")
     @Produces("text/vtt")
-    public Response streamSubtitle(@PathParam("trackId") Long trackId) {
+    public Response streamSubtitle(@PathParam("trackId") Long trackId,
+                                  @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double offset) {
         SubtitleTrack track = SubtitleTrack.findById(trackId);
         if (track == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -239,8 +240,8 @@ public class SubtitleAPI {
             String webVTTContent;
             
             if (track.isEmbedded) {
-                // Internal track - extract on-the-fly
-                webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track);
+                // Internal track - extract on-the-fly with offset for performance
+                webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track, offset);
             } else {
                 // External track - read and convert
                 java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
@@ -254,6 +255,11 @@ public class SubtitleAPI {
                     webVTTContent = formatConverter.convertToWebVTT(track);
                 } catch (IOException e) {
                     webVTTContent = convertToWebVTT(track);
+                }
+
+                // Apply time offset if requested (for MKV remux seeking)
+                if (offset > 0) {
+                    webVTTContent = formatConverter.applyOffset(webVTTContent, offset);
                 }
             }
 

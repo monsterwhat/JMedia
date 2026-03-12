@@ -26,12 +26,14 @@ public class WhisperService {
     @Inject
     SubtitleDownloadService subtitleDownloadService;
 
+    @Inject
+    Services.Platform.PlatformOperationsFactory platformOperationsFactory;
+
     public boolean isWhisperAvailable() {
         try {
-            Process process = new ProcessBuilder("whisper", "--help").start();
-            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
-            return finished && process.exitValue() == 0;
+            return platformOperationsFactory.getPlatformOperations().isWhisperInstalled();
         } catch (Exception e) {
+            LOG.error("Error checking Whisper availability", e);
             return false;
         }
     }
@@ -44,16 +46,34 @@ public class WhisperService {
                 
                 LOG.info("Starting Whisper generation for: " + video.filename);
                 
-                // Command: whisper "video.mp4" --model medium --output_format srt --output_dir "/path/to/video"
-                ProcessBuilder pb = new ProcessBuilder(
-                    "whisper",
-                    videoPath.toString(),
-                    "--model", "medium",
-                    "--output_format", "srt",
-                    "--output_dir", outputDir.toString(),
-                    "--language", "English" // Default to English for now
-                );
+                Services.Platform.PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+                String whisperCmd = platformOps.getWhisperCommand();
                 
+                // Build the base command
+                java.util.List<String> command = new java.util.ArrayList<>();
+                
+                // Check if we need to run via python module
+                if ("whisper".equals(whisperCmd) && !isDirectCommandAvailable("whisper")) {
+                    String pythonExec = platformOps.findPythonExecutable();
+                    command.add(pythonExec);
+                    command.add("-m");
+                    command.add("whisper");
+                } else {
+                    command.add(whisperCmd);
+                }
+                
+                // Add common arguments
+                command.add(videoPath.toString());
+                command.add("--model");
+                command.add("medium");
+                command.add("--output_format");
+                command.add("srt");
+                command.add("--output_dir");
+                command.add(outputDir.toString());
+                command.add("--language");
+                command.add("English");
+                
+                ProcessBuilder pb = new ProcessBuilder(command);
                 pb.redirectErrorStream(true);
                 Process process = pb.start();
                 
@@ -83,5 +103,16 @@ public class WhisperService {
                 throw new RuntimeException("Error generating subtitle: " + e.getMessage());
             }
         });
+    }
+
+    private boolean isDirectCommandAvailable(String command) {
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+            String checkCmd = os.contains("win") ? "where " + command : "which " + command;
+            Process process = Runtime.getRuntime().exec(checkCmd);
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

@@ -195,7 +195,7 @@
 .controls-row {
     display: flex !important;
     align-items: center !important;
-    gap: 15px !important;
+    gap: 12px !important;
 }
 
 .control-btn {
@@ -203,7 +203,12 @@
     border: none !important;
     color: #fff !important;
     cursor: pointer !important;
-    padding: 5px !important;
+    padding: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: color 0.2s !important;
+    flex-shrink: 0 !important;
 }
 
 .control-btn:hover {
@@ -211,7 +216,7 @@
 }
 
 .control-btn i {
-    font-size: 1.5rem !important;
+    font-size: 1.4rem !important;
 }
 
 .skip-btn {
@@ -223,98 +228,57 @@
     top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
-    font-size: 0.65rem !important;
+    font-size: 0.6rem !important;
     font-weight: 900 !important;
-    margin-top: 14px !important;
+    margin-top: 13px !important;
     color: #fff !important;
 }
+
+.time-display {
+    color: #fff !important;
+    font-size: 0.95rem !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    font-variant-numeric: tabular-nums !important;
+    min-width: 100px !important;
+}
+
+.spacer { flex: 1 !important; }
 
 .volume-container {
     display: flex !important;
     align-items: center !important;
-    gap: 10px !important;
+    gap: 0 !important;
     width: 40px !important;
     overflow: hidden !important;
-    transition: width 0.2s !important;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    flex-shrink: 0 !important;
 }
 
-.volume-container:hover {
-    width: 140px !important;
+.volume-container:hover,
+.volume-container:focus-within,
+.volume-container.active {
+    width: 150px !important;
+    gap: 10px !important;
 }
 
 .volume-slider {
     -webkit-appearance: none !important;
-    width: 80px !important;
+    width: 100px !important;
     height: 4px !important;
     background: rgba(255, 255, 255, 0.2) !important;
     border-radius: 2px !important;
     cursor: pointer !important;
     outline: none !important;
+    flex-shrink: 0 !important;
+    opacity: 0 !important;
+    transition: opacity 0.2s !important;
 }
 
-/* Chrome, Safari, Edge, Opera */
-.volume-slider::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 4px;
-    cursor: pointer;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
-}
-
-.volume-slider::-webkit-slider-thumb {
-    height: 12px;
-    width: 12px;
-    border-radius: 50%;
-    background: var(--player-primary) !important;
-    cursor: pointer;
-    -webkit-appearance: none;
-    margin-top: -4px; /* Centers thumb on track */
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
-
-/* Firefox */
-.volume-slider::-moz-range-track {
-    width: 100%;
-    height: 4px;
-    cursor: pointer;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
-}
-
-.volume-slider::-moz-range-thumb {
-    height: 12px;
-    width: 12px;
-    border-radius: 50%;
-    background: var(--player-primary) !important;
-    cursor: pointer;
-    border: none;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
-
-.volume-slider::-moz-range-progress {
-    background-color: var(--player-primary) !important;
-    height: 4px;
-    border-radius: 2px;
-}
-
-.time-display {
-    color: #fff !important;
-    font-size: 0.9rem !important;
-    margin-left: 10px !important;
-}
-
-.spacer { flex: 1 !important; }
-
-/* Subtitles Styling for Video Element */
-::cue {
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    font-size: 1.2rem;
-    text-shadow: 2px 2px 2px black;
-    padding: 2px 10px;
-    /* Move subtitles up to avoid overlapping with bottom controls */
-    transform: translateY(-60px);
+.volume-container:hover .volume-slider,
+.volume-container:focus-within .volume-slider,
+.volume-container.active .volume-slider {
+    opacity: 1 !important;
 }
 
 /* Subtitles Container and Z-Index */
@@ -377,13 +341,13 @@ video::cue {
     background: rgba(255,255,255,0.1) !important;
 }
 
-.subtitle-option.selected {
+.subtitle-option.active {
     color: var(--player-primary) !important;
     font-weight: bold !important;
     background: rgba(72, 199, 116, 0.1) !important;
 }
 
-.subtitle-option.selected::before {
+.subtitle-option.active::before {
     content: "•" !important;
     font-size: 1.5rem !important;
 }

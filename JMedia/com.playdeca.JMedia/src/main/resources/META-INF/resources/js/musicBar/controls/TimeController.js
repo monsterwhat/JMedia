@@ -52,7 +52,7 @@
          * Bind time slider events
          */
         bindTimeSlider: function() {
-            const slider = document.querySelector('input[name="seconds"]');
+            const slider = document.getElementById('musicProgressBar');
             if (!slider) {
                 window.Helpers.log('TimeController: Time slider not found');
                 return;
@@ -164,7 +164,7 @@
                 return;
             }
             
-            const slider = document.querySelector('input[name="seconds"]');
+            const slider = document.getElementById('musicProgressBar');
             if (slider) {
                 // Update slider value
                 slider.value = currentTime;
@@ -172,11 +172,11 @@
                 // Update max and progress
                 slider.max = duration || 0;
                 const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-                slider.style.setProperty('--progress-value', `${progress}%`);
+                slider.style.setProperty('--slider-progress', `${progress}%`);
             }
             
             // Update time text display
-            const timeEl = document.getElementById('currentTime');
+            const timeEl = document.getElementById('musicCurrentTime');
             if (timeEl) {
                 timeEl.innerText = this.formatTime(Math.floor(currentTime));
             }

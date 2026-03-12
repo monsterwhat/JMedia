@@ -16,10 +16,7 @@
 {#else}
     {#for s in songs}
     <div class="mobile-song-item" data-song-id="{s.id}" 
-         hx-post="/api/music/playback/select/{profileId}/{s.id}"
-         hx-trigger="click"
-         hx-swap="none"
-         hx-indicator="#loadingRow"
+         onclick="if(window.apiPost) apiPost('select', '{s.id}');"
          data-playlist-id="{playlistId}"
          style="cursor: pointer;">
         <!-- Smaller artwork -->

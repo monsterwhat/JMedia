@@ -33,15 +33,125 @@ public class SubtitleFormatConverter {
         }
     }
     
+    /**
+     * Shifts all timestamps in a WebVTT string by a specified offset in seconds.
+     */
+    public String applyOffset(String vttContent, double offsetSeconds) {
+        if (offsetSeconds <= 0 || vttContent == null) return vttContent;
+        
+        vttContent = vttContent.replace("\r\n", "\n").replace("\r", "\n");
+        
+        StringBuilder result = new StringBuilder();
+        
+        // Split by double newline to get individual subtitle blocks
+        String[] blocks = vttContent.split("\\n\\n+");
+        
+        boolean headerAdded = false;
+        for (String block : blocks) {
+            block = block.trim();
+            if (block.isEmpty()) continue;
+            
+            // Check if this is the header block (WEBVTT ...)
+            if (block.startsWith("WEBVTT") || block.startsWith("NOTE") || block.startsWith("STYLE") || block.startsWith("REGION")) {
+                result.append(block).append("\n\n");
+                if (block.startsWith("WEBVTT")) headerAdded = true;
+                continue;
+            }
+            
+            String[] lines = block.split("\\n");
+            String timestampLine = null;
+            int timestampLineIdx = -1;
+            
+            for (int i = 0; i < lines.length; i++) {
+                if (lines[i].contains(" --> ")) {
+                    timestampLine = lines[i];
+                    timestampLineIdx = i;
+                    break;
+                }
+            }
+            
+            // If it's a cue block (has a timestamp)
+            if (timestampLine != null) {
+                String[] times = timestampLine.split(" --> ");
+                if (times.length == 2) {
+                    double start = parseVttTimeToSeconds(times[0]);
+                    double end = parseVttTimeToSeconds(times[1]);
+                    
+                    // If the subtitle ends before our seek point, discard it
+                    if (end <= offsetSeconds) continue;
+                    
+                    // Shift times
+                    double newStart = Math.max(0, start - offsetSeconds);
+                    double newEnd = Math.max(0, end - offsetSeconds);
+                    
+                    String newTimestampLine = formatSecondsToVtt(newStart) + " --> " + formatSecondsToVtt(newEnd);
+                    
+                    // Rebuild block
+                    for (int i = 0; i < lines.length; i++) {
+                        if (i == timestampLineIdx) {
+                            result.append(newTimestampLine).append("\n");
+                        } else {
+                            result.append(lines[i]).append("\n");
+                        }
+                    }
+                    result.append("\n");
+                }
+            } else {
+                // Not a header and not a cue? Preserve it just in case
+                result.append(block).append("\n\n");
+            }
+        }
+        
+        // Ensure we have a valid header if it was somehow lost
+        if (!headerAdded) {
+            return "WEBVTT\n\n" + result.toString();
+        }
+        
+        return result.toString();
+    }
+
+    private double parseVttTimeToSeconds(String timestamp) {
+        try {
+            timestamp = timestamp.trim();
+            String[] parts = timestamp.split(":");
+            if (parts.length == 3) {
+                // HH:MM:SS.mmm
+                return (Double.parseDouble(parts[0]) * 3600) + 
+                       (Double.parseDouble(parts[1]) * 60) + 
+                       Double.parseDouble(parts[2]);
+            } else if (parts.length == 2) {
+                // MM:SS.mmm
+                return (Double.parseDouble(parts[0]) * 60) + 
+                       Double.parseDouble(parts[1]);
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    private String formatSecondsToVtt(double seconds) {
+        int h = (int) (seconds / 3600);
+        int m = (int) ((seconds % 3600) / 60);
+        double s = seconds % 60;
+        return String.format("%02d:%02d:%06.3f", h, m, s).replace(',', '.');
+    }
+
     private String convertSRTToWebVTT(SubtitleTrack track) throws IOException {
         StringBuilder webVTT = new StringBuilder();
         webVTT.append("WEBVTT\n\n");
         
         String content = readSubtitleFile(track.fullPath);
-        // Normalize line endings and split by empty lines (blocks)
-        String[] blocks = content.split("\\n\\s*\\n");
+        if (content == null) return "WEBVTT\n\n";
+
+        // Normalize line endings to \n and remove potential BOM or junk
+        content = content.replace("\r\n", "\n").replace("\r", "\n");
+        
+        // Split by double-newline or more (blocks)
+        String[] blocks = content.split("\\n\\s*\\n+");
         
         for (String block : blocks) {
+            block = block.trim();
+            if (block.isEmpty()) continue;
+
             String[] lines = block.split("\\n");
             boolean foundTimestamp = false;
             StringBuilder textBuilder = new StringBuilder();
@@ -60,7 +170,6 @@ public class SubtitleFormatConverter {
                     webVTT.append(startTime).append(" --> ").append(endTime).append("\n");
                     foundTimestamp = true;
                 } else if (foundTimestamp) {
-                    // This is a text line following a timestamp
                     textBuilder.append(line).append("\n");
                 }
             }

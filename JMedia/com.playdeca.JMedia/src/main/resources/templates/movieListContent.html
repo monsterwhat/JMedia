@@ -9,10 +9,7 @@
             <span class="mr-2 has-text-grey-light is-size-7 is-uppercase has-text-weight-bold">Sort By:</span>
             <div class="select is-small is-rounded is-dark">
                 <select name="sort" 
-                        hx-get="/api/video/ui/movies-fragment?page=1&limit={limit}" 
-                        hx-target="#spa-content"
-                        hx-trigger="change"
-                        onchange="this.name='sortBy'; const dir = this.options[this.selectedIndex].dataset.dir; let url = this.getAttribute('hx-get') + '&sortBy=' + this.value + '&sortDirection=' + dir; htmx.ajax('GET', url, \{target: '#spa-content'\});">
+                        onchange="const dir = this.options[this.selectedIndex].dataset.dir; window.switchSection('movies', \{page: 1, limit: {limit}, sortBy: this.value, sortDirection: dir\});">
                     <option value="dateAdded" data-dir="desc" {#if sortBy == 'dateAdded' && sortDirection == 'desc'}selected{/if}>Recently Added</option>
                     <option value="dateAdded" data-dir="asc" {#if sortBy == 'dateAdded' && sortDirection == 'asc'}selected{/if}>Oldest Added</option>
                     <option value="lastWatched" data-dir="desc" {#if sortBy == 'lastWatched'}selected{/if}>Recently Played</option>
@@ -55,8 +52,8 @@
         <nav class="plex-pagination mt-6" role="navigation" aria-label="pagination">
             <div class="is-flex is-align-items-center is-justify-content-center">
                 <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
-                   hx-get="/api/video/ui/movies-fragment?page={currentPage - 1}&limit={limit}&sortBy={sortBy}&sortDirection={sortDirection}"
-                   hx-target="#spa-content"
+                   href="javascript:void(0)"
+                   onclick="window.switchSection('movies', \{page: {currentPage - 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}'\})"
                    {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     <i class="pi pi-chevron-left"></i> Previous
                 </a>
@@ -66,8 +63,8 @@
                 </span>
 
                 <a class="pagination-btn {#if currentPage == totalPages}is-disabled{/if}"
-                   hx-get="/api/video/ui/movies-fragment?page={currentPage + 1}&limit={limit}&sortBy={sortBy}&sortDirection={sortDirection}"
-                   hx-target="#spa-content"
+                   href="javascript:void(0)"
+                   onclick="window.switchSection('movies', \{page: {currentPage + 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}'\})"
                    {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     Next <i class="pi pi-chevron-right"></i>
                 </a>

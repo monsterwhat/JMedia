@@ -317,6 +317,10 @@ body {
     box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
 }
 
+.persistent-music-player.video-playing {
+    display: none !important;
+}
+
 /* Inner Player Layout (Plex) */
 .persistent-music-player .mobile-player {
     width: 100% !important;
@@ -463,7 +467,7 @@ body {
     left: 0;
 }
 
-#currentTime, #totalTime {
+#musicCurrentTime, #musicTotalTime {
     font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.8);
     font-weight: 500;
@@ -472,7 +476,25 @@ body {
 }
 
 /* Volume Wrapper & Vertical Slider */
-.mobile-volume-wrapper { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
+.mobile-volume-wrapper { 
+    position: relative; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    width: 40px; 
+    height: 40px;
+}
+.mobile-volume-wrapper::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 70px;
+    margin-bottom: 10px;
+    z-index: 1999;
+}
 .volume-slider-container { 
     position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); 
     width: 40px; height: 140px; background: rgba(15, 15, 15, 0.98); backdrop-filter: blur(15px);
@@ -811,14 +833,13 @@ body {
     display: flex; 
     flex-direction: column; 
     height: 100vh;
-    margin-left: 240px;
     background: transparent; 
     position: relative;
     overflow: hidden;
 }
 
 .plex-layout.collapsed .plex-main {
-    margin-left: 72px;
+    margin-left: 0;
 }
 
 .plex-header { 
@@ -1549,6 +1570,7 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 12
     margin: 1rem;
     min-height: calc(100vh - 200px);
     position: relative;
+    overflow: hidden;
 }
 
 .back-btn {
@@ -1631,15 +1653,19 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 12
     display: flex;
     flex-direction: column;
     gap: 2.5rem;
+    min-width: 0; /* Prevents flex child from bleeding out */
 }
 
 .title-section h1 {
     font-size: 4.5rem;
     font-weight: 900;
     color: white;
-    line-height: 1;
+    line-height: 1.1;
     margin: 0;
     letter-spacing: -2px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
 }
 
 .meta-info {
@@ -1709,6 +1735,8 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 12
     color: rgba(255, 255, 255, 0.7);
     max-width: 900px;
     font-weight: 400;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .info-grid {
@@ -1880,15 +1908,6 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 12
 /* Sidebar Position Support */
 .plex-layout.sidebar-right {
     flex-direction: row-reverse;
-}
-
-.plex-layout.sidebar-right .plex-main {
-    margin-left: 0;
-    margin-right: 0;
-}
-
-.plex-layout.sidebar-right.collapsed .plex-main {
-    margin-right: 0;
 }
 
 .plex-layout.sidebar-right .plex-sidebar {

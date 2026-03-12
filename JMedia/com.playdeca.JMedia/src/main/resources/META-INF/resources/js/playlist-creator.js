@@ -140,6 +140,7 @@ window.validatePlaylistForm = function() {
     const songListText = document.getElementById('songListTextarea')?.value?.trim();
 
     const createBtn = document.getElementById('createPlaylistBtn');
+    if (!createBtn) return;
     
     // Enable/disable button based on validation
     if (playlistName && songListText) {

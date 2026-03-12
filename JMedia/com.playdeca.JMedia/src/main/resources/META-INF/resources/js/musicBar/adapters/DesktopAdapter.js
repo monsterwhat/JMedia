@@ -317,7 +317,7 @@
             this.minimizeBtn = minimizeBtn;
             
             // Add seek preview on hover
-            const progressBar = document.getElementById('playbackProgressBar');
+            const progressBar = document.getElementById('musicProgressBar');
             if (progressBar) {
                 progressBar.addEventListener('mousemove', (e) => {
                     this.showSeekPreview(e, progressBar);

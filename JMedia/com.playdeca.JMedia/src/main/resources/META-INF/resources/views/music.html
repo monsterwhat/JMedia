@@ -1,0 +1,30 @@
+<main class="plex-content">
+    <div class="music-main-wrapper" id="musicContentArea">
+        <div id="mobileSongList" class="mobile-song-list"></div>
+        <div id="mobileQueueContent" class="is-hidden"></div>
+        <div id="mobileHistoryContent" class="is-hidden"></div>
+    </div>
+
+    <!-- Context Menus (Music specific) -->
+    <div id="customContextMenu" class="context-menu">
+        <div class="context-menu-item" data-action="queue">Queue Song</div>
+        <div class="context-menu-item" data-action="queue-similar">Queue Similar</div>
+        <div class="context-menu-item has-submenu" data-action="playlist">
+            Add to Playlist
+            <div class="submenu" id="playlistSubMenu"></div>
+        </div>
+        <div class="context-menu-item" data-action="rescan">Re-Scan</div>
+        <div class="context-menu-item" data-action="enrich">Update Metadata</div>
+        <div class="context-menu-item has-text-danger" data-action="delete">Delete Song</div>
+    </div>
+
+    <div id="mobileContextMenu" class="mobile-context-menu" style="display: none;">
+        <ul class="mobile-context-list">
+            <li data-action="queue"><i class="pi pi-plus"></i> Queue Song</li>
+            <li data-action="playlist"><i class="pi pi-folder-plus"></i> Add to Playlist</li>
+            <li data-action="rescan"><i class="pi pi-sync"></i> Re-Scan</li>
+            <li data-action="delete"><i class="pi pi-trash"></i> Delete Song</li>
+        </ul>
+        <div class="mobile-context-backdrop" onclick="window.hideMobileContextMenu()"></div>
+    </div>
+</main>

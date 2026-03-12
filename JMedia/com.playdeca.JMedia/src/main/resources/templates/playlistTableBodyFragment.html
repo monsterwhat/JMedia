@@ -1,9 +1,6 @@
 {#for s in songs}
 <tr data-song-id="{s.id}" class="{#if currentSong != null && s.id == currentSong.id}current-song-row{/if}" 
-    hx-post="/api/music/playback/select/{profileId}/{s.id}"
-    hx-trigger="click"
-    hx-swap="none"
-    hx-indicator="#loadingRow"
+    onclick="if(window.apiPost) apiPost('select', '{s.id}');"
     data-playlist-id="{playlistId}"
     style="cursor: pointer;">
     <!-- Artwork (first column under empty header) -->

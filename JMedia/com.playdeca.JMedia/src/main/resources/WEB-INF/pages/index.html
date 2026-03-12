@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        <title id="pageTitle">JMedia</title>
+        
+        <!-- Shared Scripts -->
+        <script src="/js/theme-initializer.js"></script>
+        <script src="/js/htmx.min.js"></script>
+        <script defer src="/lib/alpine.min.js"></script>
+        <script>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('profile', { currentProfile: null });
+            });
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+        </script>
+
+        <!-- CSS -->
+        <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="/lib/primeicons.css">
+        <link rel="stylesheet" href="/css/jmedia-unified.css">
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+
+        <!-- SPA Scripts -->
+        <script src="/js/app.js" defer></script>
+        <script src="/js/music-index.js" defer></script>
+        <script src="/js/video-spa.js" defer></script>
+        <script src="/js/import-spa.js" defer></script>
+        
+        <!-- Legacy/Shared Scripts (Loaded globally) -->
+        <script src="/js/toast.js" defer></script>
+        <script src="/js/musicBar.js" defer></script>
+        <script src="/js/mediaSession.js" defer></script>
+        <script src="/js/profileManager.js" defer></script>
+        <script src="/js/songQueue.js" defer></script>
+        
+        <!-- Settings Specific Scripts (Loaded globally for now) -->
+        <script src="/js/settings.js" defer></script>
+        <script src="/js/subtitle-manager.js" defer></script>
+        <script src="/js/playlist-creator.js" defer></script>
+        <script src="/js/video-settings.js" defer></script>
+        <script src="/js/videoContextMenu.js" defer></script>
+        <script src="/js/navbar.js" defer></script>
+        <script src="/js/users.js" defer></script>
+        <script src="/js/deviceSync.js" defer></script>
+
+    </head>
+    <body class="music-page">
+        <div class="plex-layout" id="plex-layout">
+            
+            <!-- Persistent Sidebar -->
+            <aside class="plex-sidebar" id="plex-sidebar">
+                <div class="sidebar-brand">
+                    <img src="/logo.png" alt="JMedia" class="sidebar-logo" onclick="window.app.navigate('/')">
+                    <span class="sidebar-brand-text" onclick="window.app.navigate('/')">JMedia</span>
+                    
+                    <button id="themeToggle" class="button is-ghost theme-toggle-btn" title="Toggle Theme">
+                        <i id="themeIcon" class="pi pi-sun"></i>
+                    </button>
+
+                    <button class="button is-ghost sidebar-toggle" id="toggleSidebarBtn">
+                        <i class="pi pi-bars"></i>
+                    </button>
+                </div>
+                
+                <nav class="sidebar-nav">
+                    <!-- 1. Settings-only Libraries Group -->
+                    <div class="nav-group" id="settings-libraries-group" style="display: none;">
+                        <p class="nav-label">Libraries</p>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/')">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/video')">
+                            <i class="pi pi-video"></i> <span>Videos</span>
+                        </a>
+                    </div>
+
+                    <!-- 2. Video Group (Primary for Video View) -->
+                    <div class="nav-group" id="video-nav-group">
+                        <p class="nav-label">Video Library</p>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-home" onclick="window.app.navigate('/video')">
+                            <i class="pi pi-video"></i> <span>Videos</span>
+                        </a>
+                        
+                        <!-- Video Sub-Nav (Visible when in Video view) -->
+                        <div id="video-sub-nav" style="display: none;">
+                            <a href="javascript:void(0)" class="nav-item" id="nav-movies" onclick="window.switchSection('movies')">
+                                <i class="pi pi-ticket"></i> <span>Movies</span>
+                            </a>
+                            <a href="javascript:void(0)" class="nav-item" id="nav-shows" onclick="window.switchSection('shows')">
+                                <i class="pi pi-desktop"></i> <span>TV Shows</span>
+                            </a>
+                             <a href="javascript:void(0)" class="nav-item" id="nav-video-history" onclick="window.switchSection('history')">
+                                <i class="pi pi-clock"></i> <span>History</span>
+                            </a>
+                            <a href="javascript:void(0)" class="nav-item" id="nav-video-watchlist" onclick="window.switchSection('watchlist')">
+                                <i class="pi pi-bookmark"></i> <span>Watchlist</span>
+                            </a>
+                            <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="window.switchSection('manage')">
+                                <i class="pi pi-cog"></i> <span>Manage Library</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- 3. Music Group (Primary for Music View) -->
+                    <div class="nav-group" id="music-nav-group">
+                        <p class="nav-label">Music Library</p>
+                        <a href="javascript:void(0)" class="nav-item active" id="nav-music" onclick="window.app.navigate('/')">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+
+                        <p class="nav-label mt-3">Playlists</p>
+                        <div class="nav-sub-group" id="sidebarPlaylistList">
+                            <!-- Populated by music-index.js -->
+                        </div>
+
+                        <a href="javascript:void(0)" class="nav-sub-item create-playlist-btn" onclick="document.getElementById('playlistModal').classList.add('is-active')">
+                            <i class="pi pi-plus"></i> <span>New Playlist</span>
+                        </a>
+                    </div>
+
+                    <!-- 4. Personal Group (Music) -->
+                    <div class="nav-group" id="personal-nav-group">
+                        <p class="nav-label">Personal</p>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-queue" onclick="window.switchToTab('queue')">
+                            <i class="pi pi-list"></i> <span>Queue</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-history" onclick="window.switchToTab('history')">
+                            <i class="pi pi-history"></i> <span>History</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-import" onclick="window.app.navigate('/import')">
+                            <i class="pi pi-download"></i> <span>Import</span>
+                        </a>
+                    </div>
+
+                    <!-- 5. Music-view Video Link (Simplified for Music view) -->
+                    <div class="nav-group" id="music-video-link-group">
+                        <p class="nav-label">Videos</p>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/video')">
+                            <i class="pi pi-video"></i> <span>Video Library</span>
+                        </a>
+                    </div>
+
+                    <!-- 6. Video-only Music Group (Simple link for Video View) -->
+                    <div class="nav-group" id="video-music-group" style="display: none;">
+                        <p class="nav-label">Music Library</p>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/')">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                    </div>
+
+                    <!-- Settings Tabs (Hidden by default, shown in Settings view) -->
+                    <div class="nav-group" id="settingsSideTabs" style="display: none;">
+                        <p class="nav-label">Configuration</p>
+                        <a href="javascript:void(0)" class="nav-item active" data-tab="library-management">
+                            <i class="pi pi-folder-open"></i> <span>Library</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="import-installation">
+                            <i class="pi pi-download"></i> <span>Import</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="device-sync">
+                            <i class="pi pi-mobile"></i> <span>Device Sync</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" data-tab="playlist-creator">
+                            <i class="pi pi-plus-circle"></i> <span>Playlists</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="logs">
+                            <i class="pi pi-list"></i> <span>Logs</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="user-management">
+                            <i class="pi pi-users"></i> <span>Users</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-group mt-auto">
+                        <a href="javascript:void(0)" class="nav-item" id="nav-settings" onclick="window.app.navigate('/settings')">
+                            <i class="pi pi-cog"></i> <span>Settings</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="openProfileModalBtn" onclick="document.getElementById('profileModal').classList.add('is-active')">
+                            <i class="pi pi-user"></i> <span id="currentProfileName">Profile</span>
+                        </a>
+                    </div>
+                </nav>
+            </aside>
+
+            <!-- Main Content Area (Shell) -->
+            <div class="plex-main">
+                <!-- Views will be injected here (Header + Content) -->
+                <div id="app-content" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"></div>
+
+                <!-- Persistent Player -->
+                <div id="musicPlayerContainer" class="persistent-music-player">
+                    <audio id="audioPlayer" preload="auto"></audio>
+                    <div class="mobile-player">
+                        <div class="mobile-player-info">
+                            <div class="mobile-player-artwork" id="songCoverImageContainer"><img id="songCoverImage" src="/logo.png" alt="Cover"><i class="pi pi-music" id="songCoverFallback" style="display: none;"></i></div>
+                            <div class="mobile-player-details">
+                                <p id="songTitle" class="mobile-player-title">Loading...</p>
+                                <p id="songArtist" class="mobile-player-artist" onclick="filterByArtist()">Unknown Artist</p>
+                            </div>
+                        </div>
+                        
+                        <div class="mobile-player-controls">
+                            <button id="shuffleBtn" class="mobile-btn"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                            <button id="prevBtn" class="mobile-btn"><i class="pi pi-step-backward"></i></button>
+                            <button id="playPauseBtn" class="mobile-btn mobile-btn-primary"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="nextBtn" class="mobile-btn"><i class="pi pi-step-forward"></i></button>
+                            <button id="repeatBtn" class="mobile-btn"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                        </div>
+
+                        <div class="mobile-player-right-side">
+                            <div class="mobile-volume-wrapper">
+                                <button id="volumeToggleBtn" class="mobile-btn"><i id="volumeIcon" class="pi pi-volume-up"></i></button>
+                                <div class="volume-slider-container">
+                                    <input type="range" id="musicVolumeProgressBar" class="vertical-volume" min="0" max="100" value="70">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mobile-progress-container">
+                        <span id="musicCurrentTime">0:00</span>
+                        <input type="range" id="musicProgressBar" class="mobile-progress" min="0" max="100" value="0">
+                        <span id="musicTotalTime">0:00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared Modals -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 2000000;"></div>
+
+        <!-- Playlist Modal -->
+        <div id="playlistModal" class="modal">
+            <div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div>
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head"><p class="modal-card-title">New Playlist</p></header>
+                <section class="modal-card-body">
+                    <input class="input" type="text" id="newPlaylistNameInputModal" placeholder="Playlist Name">
+                </section>
+                <footer class="modal-card-foot">
+                    <button class="button is-success" onclick="confirmCreatePlaylist()">Create</button>
+                    <button class="button" onclick="this.closest('.modal').classList.remove('is-active')">Cancel</button>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Profile Modal -->
+        <div id="profileModal" class="modal">
+            <div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div>
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head"><p class="modal-card-title">Manage Profiles</p></header>
+                <section class="modal-card-body">
+                    <div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div>
+                    <hr>
+                    <div class="field has-addons">
+                        <div class="control is-expanded"><input class="input" type="text" id="newProfileNameInput"></div>
+                        <div class="control"><button class="button is-info" id="createProfileBtn">Create</button></div>
+                    </div>
+                    <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button>
+                </section>
+                <footer class="modal-card-foot" style="justify-content: space-between;">
+                    <button class="button is-danger is-small" onclick="window.handleLogout()">Logout</button>
+                    <button class="button is-small" onclick="this.closest('.modal').classList.remove('is-active')">Close</button>
+                </footer>
+            </div>
+        </div>
+        
+        <script>
+            // Sidebar Toggle Logic
+             document.addEventListener('DOMContentLoaded', () => {
+                const layout = document.getElementById('plex-layout');
+                const toggleBtn = document.getElementById('toggleSidebarBtn');
+                if (toggleBtn) {
+                    toggleBtn.onclick = () => {
+                        layout.classList.toggle('collapsed');
+                        localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
+                    };
+                }
+                if (localStorage.getItem('sidebarCollapsed') === 'true') layout.classList.add('collapsed');
+            });
+            
+            // Playlist Creation Logic (Moved from indexNew.html inline)
+            function confirmCreatePlaylist() {
+                const name = document.getElementById('newPlaylistNameInputModal').value;
+                if (!name) return;
+                fetch(`/api/music/playlists/${window.globalActiveProfileId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name})
+                }).then(() => {
+                    document.getElementById('playlistModal').classList.remove('is-active');
+                    if(window.loadMobilePlaylists) window.loadMobilePlaylists();
+                    if(window.showToast) window.showToast('Playlist created', 'success');
+                });
+            }
+
+            function handleLogout() {
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('activeProfileId');
+                window.location.href = '/login'; 
+            }
+        </script>
+    </body>
+</html>

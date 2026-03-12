@@ -50,54 +50,137 @@ public class VideoService {
         return video;
     }
 
+    @Inject
+    FFmpegDiscoveryService discoveryService;
+
     @Transactional
-    public void probeVideoDuration(Video video) {
-        if (video == null || video.path == null) return;
+    public void probeVideoMetadata(Video video) {
+        if (video == null || video.id == null || video.path == null) return;
         
-        String ffmpegPath = findFFmpegExecutable();
+        // Re-fetch to avoid "Detached Entity" error and ensure we have the latest data
+        Video managedVideo = Video.findById(video.id);
+        if (managedVideo == null) return;
+        
+        // Skip if already probed by another thread
+        if (managedVideo.videoCodec != null && managedVideo.duration > 0) return;
+
+        String ffmpegPath = discoveryService.findFFmpegExecutable();
         if (ffmpegPath == null) return;
 
         try {
-            // Use ffprobe if available, otherwise fallback to ffmpeg
-            String probePath = ffmpegPath.replace("ffmpeg", "ffprobe");
+            String probePath = discoveryService.findFFprobeExecutable();
+            if (probePath == null) return;
+            
+            // Get duration
+            ProcessBuilder pbDur = new ProcessBuilder(
+                probePath, 
+                "-v", "error", 
+                "-show_entries", "format=duration", 
+                "-of", "default=noprint_wrappers=1:nokey=1", 
+                managedVideo.path
+            );
+            Process pDur = pbDur.start();
+            java.util.Scanner sDur = new java.util.Scanner(pDur.getInputStream());
+            if (sDur.hasNextDouble()) {
+                managedVideo.duration = (long) (sDur.nextDouble() * 1000);
+            }
+            pDur.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            // Get video codec
+            ProcessBuilder pbCodec = new ProcessBuilder(
+                probePath, 
+                "-v", "error", 
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name", 
+                "-of", "default=noprint_wrappers=1:nokey=1", 
+                managedVideo.path
+            );
+            Process pCodec = pbCodec.start();
+            java.util.Scanner sCodec = new java.util.Scanner(pCodec.getInputStream());
+            if (sCodec.hasNext()) {
+                managedVideo.videoCodec = sCodec.next();
+            }
+            pCodec.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            // Get audio codec
+            ProcessBuilder pbAudio = new ProcessBuilder(
+                probePath, 
+                "-v", "error", 
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name", 
+                "-of", "default=noprint_wrappers=1:nokey=1", 
+                managedVideo.path
+            );
+            Process pAudio = pbAudio.start();
+            java.util.Scanner sAudio = new java.util.Scanner(pAudio.getInputStream());
+            if (sAudio.hasNext()) {
+                managedVideo.audioCodec = sAudio.next();
+            }
+            pAudio.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            managedVideo.persist();
+            // Update the passed object as well for immediate use
+            video.videoCodec = managedVideo.videoCodec;
+            video.audioCodec = managedVideo.audioCodec;
+            video.duration = managedVideo.duration;
+            
+            LOGGER.info("Successfully probed and saved metadata for video ID {}: {}ms, videoCodec={}, audioCodec={}", 
+                       managedVideo.id, managedVideo.duration, managedVideo.videoCodec, managedVideo.audioCodec);
+        } catch (Exception e) {
+            LOGGER.error("Error probing metadata for video {}: {}", video.id, e.getMessage());
+            probeVideoDuration(video);
+        }
+    }
+
+    @Transactional
+    public void probeVideoDuration(Video video) {
+        if (video == null || video.id == null || video.path == null) return;
+        
+        Video managedVideo = Video.findById(video.id);
+        if (managedVideo == null) return;
+        
+        String ffmpegPath = discoveryService.findFFmpegExecutable();
+        if (ffmpegPath == null) return;
+
+        try {
+            String probePath = discoveryService.findFFprobeExecutable();
             ProcessBuilder pb;
             
-            if (new File(probePath).exists() || !probePath.equals(ffmpegPath)) {
+            if (probePath != null) {
                 pb = new ProcessBuilder(
                     probePath, 
                     "-v", "error", 
                     "-show_entries", "format=duration", 
                     "-of", "default=noprint_wrappers=1:nokey=1", 
-                    video.path
+                    managedVideo.path
                 );
             } else {
-                // Fallback to ffmpeg
-                pb = new ProcessBuilder(ffmpegPath, "-i", video.path);
+                pb = new ProcessBuilder(ffmpegPath, "-i", managedVideo.path);
             }
 
             Process process = pb.start();
             java.util.Scanner scanner = new java.util.Scanner(process.getInputStream());
             if (scanner.hasNextDouble()) {
                 double durationSeconds = scanner.nextDouble();
-                video.duration = (long) (durationSeconds * 1000);
-                Video.persist(video);
-                LOGGER.info("Successfully probed and updated duration for video ID {}: {}ms", video.id, video.duration);
+                managedVideo.duration = (long) (durationSeconds * 1000);
+                managedVideo.persist();
+                video.duration = managedVideo.duration;
+                LOGGER.info("Successfully probed and updated duration for video ID {}: {}ms", managedVideo.id, managedVideo.duration);
             } else {
-                // Try to parse from stderr if using ffmpeg fallback
                 java.util.Scanner errScanner = new java.util.Scanner(process.getErrorStream());
                 while (errScanner.hasNextLine()) {
                     String line = errScanner.nextLine();
                     if (line.contains("Duration:")) {
-                        // Format is Duration: 00:01:23.45
                         String durationStr = line.split("Duration:")[1].split(",")[0].trim();
                         String[] parts = durationStr.split(":");
                         if (parts.length == 3) {
                             double h = Double.parseDouble(parts[0]);
                             double m = Double.parseDouble(parts[1]);
                             double s = Double.parseDouble(parts[2]);
-                            video.duration = (long) ((h * 3600 + m * 60 + s) * 1000);
-                            Video.persist(video);
-                            LOGGER.info("Successfully parsed duration for video ID {}: {}ms", video.id, video.duration);
+                            managedVideo.duration = (long) ((h * 3600 + m * 60 + s) * 1000);
+                            managedVideo.persist();
+                            video.duration = managedVideo.duration;
+                            LOGGER.info("Successfully parsed duration for video ID {}: {}ms", managedVideo.id, managedVideo.duration);
                             break;
                         }
                     }
@@ -107,16 +190,6 @@ public class VideoService {
         } catch (Exception e) {
             LOGGER.error("Error probing duration for video {}: {}", video.id, e.getMessage());
         }
-    }
-
-    private String findFFmpegExecutable() {
-        String[] paths = {"ffmpeg", "ffmpeg.exe", "C:\\ffmpeg\\bin\\ffmpeg.exe", "/usr/bin/ffmpeg"};
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
-            } catch (Exception ignored) {}
-        }
-        return null;
     }
 
     @Transactional
@@ -333,6 +406,27 @@ public class VideoService {
                 .stream()
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public Video findNextEpisode(Video current) {
+        if (current == null || current.seriesTitle == null || !"episode".equalsIgnoreCase(current.type)) {
+            return null;
+        }
+
+        // Try to find next episode in same season
+        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND isActive = true", 
+                Sort.by("episodeNumber", Sort.Direction.Ascending),
+                current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
+        
+        if (next != null) return next;
+
+        // If no more episodes in current season, try first episode of next season
+        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND isActive = true", 
+                Sort.by("seasonNumber", Sort.Direction.Ascending).and("episodeNumber", Sort.Direction.Ascending),
+                current.seriesTitle, current.seasonNumber).firstResult();
+        
+        return next;
     }
 
     @Transactional

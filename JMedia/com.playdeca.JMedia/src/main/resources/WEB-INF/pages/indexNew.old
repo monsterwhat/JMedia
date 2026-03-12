@@ -34,6 +34,9 @@
                         <a href="javascript:void(0)" class="nav-item active" id="nav-music" onclick="loadMobilePlaylistSongs(0)">
                             <i class="pi pi-play-circle"></i> <span>Music</span>
                         </a>
+                        <a href="/import" class="nav-item">
+                            <i class="pi pi-download"></i> <span>Import</span>
+                        </a>
                         <p class="nav-label mt-3">Playlists</p>
                         <div class="nav-sub-group" id="sidebarPlaylistList"></div>
                         <a href="javascript:void(0)" class="nav-sub-item create-playlist-btn" onclick="openCreatePlaylistModal()">
