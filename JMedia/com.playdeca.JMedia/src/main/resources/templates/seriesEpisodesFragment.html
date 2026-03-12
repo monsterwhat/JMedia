@@ -21,6 +21,9 @@
             <button class="button is-info is-small" onclick="openSeriesRenameModal()">
                 <i class="pi pi-pencil mr-2"></i> Rename Series
             </button>
+            <button class="button is-warning is-small ml-2" onclick="openEpisodeMassRenameModal()">
+                <i class="pi pi-tags mr-2"></i> Rename Episodes
+            </button>
         </div>
     </div>
 
@@ -130,7 +133,98 @@
     </div>
 </div>
 
+<div id="episodeMassRenameModal" class="modal">
+    <div class="modal-background" onclick="closeEpisodeMassRenameModal()"></div>
+    <div class="modal-card glass-modal" style="width: 95%; max-width: 1100px;">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Mass Rename Episodes: {seriesTitle}</p>
+            <button class="delete" aria-label="close" onclick="closeEpisodeMassRenameModal()"></button>
+        </header>
+        <section class="modal-card-body" style="background: #1a1a1a; color: white;">
+            <div class="columns">
+                <div class="column is-4">
+                    <div class="field">
+                        <label class="label has-text-grey-light">Source for Renaming</label>
+                        <div class="control">
+                            <label class="radio">
+                                <input type="radio" name="renameSource" value="title" checked onchange="previewRenames()">
+                                Current Title
+                            </label>
+                            <label class="radio ml-3">
+                                <input type="radio" name="renameSource" value="filename" onchange="previewRenames()">
+                                Filename
+                            </label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label has-text-grey-light">Search / Regex Pattern</label>
+                        <div class="control">
+                            <input class="input is-dark" type="text" id="renameRegex" placeholder="e.g. S\d+E\d+\s*-\s*" oninput="previewRenames()">
+                        </div>
+                        <p class="help">Leave empty to use full source as base.</p>
+                    </div>
+                    <div class="field">
+                        <label class="label has-text-grey-light">Replacement Text</label>
+                        <div class="control">
+                            <input class="input is-dark" type="text" id="renameReplacement" placeholder="e.g. New Title" oninput="previewRenames()">
+                        </div>
+                        <p class="help">Can use $1, $2 for regex groups.</p>
+                    </div>
+                    <div class="field mt-5">
+                        <label class="label has-text-grey-light">Common Presets</label>
+                        <div class="control">
+                            <div class="select is-fullwidth is-dark">
+                                <select id="renamePreset" onchange="applyRenamePreset(this.value)">
+                                    <option value="">Custom Pattern...</option>
+                                    <option value="quick_s0e0">quick.name.s0e0</option>
+                                    <option value="sxe">Remove SxxExx (e.g. S01E01 - Title)</option>
+                                    <option value="brackets">Remove Brackets [Info]</option>
+                                    <option value="year">Remove Year (2024)</option>
+                                    <option value="extension">Remove File Extension</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-8">
+                    <div class="is-flex is-justify-content-between is-align-items-center mb-2">
+                        <label class="label has-text-grey-light mb-0">Episodes Preview</label>
+                        <div class="buttons are-small">
+                            <button class="button is-dark" onclick="toggleAllEpisodes(true)">Select All</button>
+                            <button class="button is-dark" onclick="toggleAllEpisodes(false)">Select None</button>
+                        </div>
+                    </div>
+                    <div class="table-container" style="max-height: 450px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                        <table class="table is-fullwidth is-narrow is-hoverable is-dark" style="background: transparent;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px; background: rgba(0,0,0,0.3);"></th>
+                                    <th style="background: rgba(0,0,0,0.3);">Original</th>
+                                    <th style="background: rgba(0,0,0,0.3);">New Name (Preview)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="renamePreviewBody">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="field is-grouped is-justify-content-flex-end mt-5">
+                <div class="control">
+                    <button type="button" class="button is-dark" onclick="closeEpisodeMassRenameModal()">Cancel</button>
+                </div>
+                <div class="control">
+                    <button type="button" class="button is-primary" id="applyMassRenameBtn" onclick="applyMassRenames()">Apply Selected Renames</button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
 <!-- Edit Modal -->
+
 <div id="editModal" class="modal">
     <div class="modal-background" onclick="closeEditModal()"></div>
     <div class="modal-card glass-modal" style="max-width: 650px; width: 95%;">
@@ -147,6 +241,187 @@
 </div>
 
 <script>
+    (function() {
+        try {
+            window.currentSeriesEpisodes = {jsonEpisodes.safe};
+            console.log('[SeriesEpisodes] Loaded ' + (window.currentSeriesEpisodes ? window.currentSeriesEpisodes.length : 0) + ' episodes for {seriesTitle}');
+        } catch(e) {
+            console.error("Failed to parse episodes JSON", e);
+            window.currentSeriesEpisodes = [];
+        }
+    })();
+
+    function openEpisodeMassRenameModal() {
+        // Clear previous preview state to ensure fresh build
+        const body = document.getElementById('renamePreviewBody');
+        if (body) body.innerHTML = '';
+        
+        document.getElementById('episodeMassRenameModal').classList.add('is-active');
+        previewRenames();
+    }
+
+    function closeEpisodeMassRenameModal() {
+        document.getElementById('episodeMassRenameModal').classList.remove('is-active');
+    }
+
+    function toggleAllEpisodes(selected) {
+        const checkboxes = document.querySelectorAll('.episode-rename-check');
+        checkboxes.forEach(cb => cb.checked = selected);
+    }
+
+    function applyRenamePreset(preset) {
+        const regexInput = document.getElementById('renameRegex');
+        const replacementInput = document.getElementById('renameReplacement');
+        
+        switch(preset) {
+            case 'quick_s0e0':
+                regexInput.value = '[.\\s_-]+[.\\d].*$';
+                replacementInput.value = '';
+                break;
+            case 'sxe':
+                regexInput.value = '^[Ss]\\d+[Ee]\\d+\\s*-\\s*';
+                replacementInput.value = '';
+                break;
+            case 'brackets':
+                regexInput.value = '\\[.*?\\]';
+                replacementInput.value = '';
+                break;
+            case 'year':
+                regexInput.value = '\\s*\\(\\d{4}\\)\\s*';
+                replacementInput.value = '';
+                break;
+            case 'extension':
+                regexInput.value = '\\.[^.]+$';
+                replacementInput.value = '';
+                break;
+        }
+        previewRenames();
+    }
+
+    function previewRenames() {
+        const sourceEl = document.querySelector('input[name="renameSource"]:checked');
+        const regexInput = document.getElementById('renameRegex');
+        const replacementInput = document.getElementById('renameReplacement');
+        const body = document.getElementById('renamePreviewBody');
+        
+        if (!sourceEl || !regexInput || !replacementInput || !body) {
+            console.error('[MassRename] Missing elements:', { sourceEl, regexInput, replacementInput, body });
+            return;
+        }
+        
+        const source = sourceEl.value;
+        const regexStr = regexInput.value;
+        const replacement = replacementInput.value;
+        
+        const episodes = window.currentSeriesEpisodes || [];
+        
+        // Ensure we have rows built
+        if (body.children.length === 0 && episodes.length > 0) {
+            episodes.forEach(ep => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td><input type="checkbox" class="episode-rename-check" data-id="' + ep.id + '" checked></td>' +
+                               '<td class="original-cell is-size-7" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>' +
+                               '<td class="preview-cell has-text-info is-size-7" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>';
+                body.appendChild(tr);
+            });
+        }
+
+        let regex = null;
+        if (regexStr) {
+            try {
+                regex = new RegExp(regexStr, 'g');
+                regexInput.classList.remove('is-danger');
+            } catch(e) {
+                regexInput.classList.add('is-danger');
+            }
+        }
+
+        const rows = body.querySelectorAll('tr');
+        if (rows.length === 0) {
+            console.warn('[MassRename] No rows to update');
+            return;
+        }
+
+        episodes.forEach((ep, index) => {
+            if (index >= rows.length) return;
+            
+            const originalValue = source === 'filename' ? ep.filename : (ep.episodeTitle || ep.title || ep.filename || 'Unknown');
+            let newValue = originalValue;
+            
+            try {
+                if (regex) {
+                    newValue = originalValue.replace(regex, replacement);
+                } else if (replacement && !regexStr) {
+                    newValue = replacement;
+                }
+            } catch (e) {
+                console.error('[MassRename] Error during replacement:', e);
+            }
+            
+            const row = rows[index];
+            const originalCell = row.querySelector('.original-cell');
+            const previewCell = row.querySelector('.preview-cell');
+            
+            if (originalCell) {
+                originalCell.innerText = originalValue;
+                originalCell.title = originalValue;
+            }
+            if (previewCell) {
+                previewCell.innerText = newValue;
+                previewCell.title = newValue;
+                row.dataset.newName = newValue;
+            }
+        });
+    }
+
+    async function applyMassRenames() {
+        const btn = document.getElementById('applyMassRenameBtn');
+        const selected = [];
+        const rows = document.querySelectorAll('#renamePreviewBody tr');
+        
+        rows.forEach(row => {
+            const cb = row.querySelector('.episode-rename-check');
+            if (cb && cb.checked) {
+                selected.push({
+                    id: parseInt(cb.dataset.id),
+                    newTitle: row.dataset.newName
+                });
+            }
+        });
+
+        if (selected.length === 0) {
+            window.Toast.warning("No episodes selected for renaming");
+            return;
+        }
+
+        btn.classList.add('is-loading');
+        try {
+            const response = await fetch('/api/video/manage/mass-rename-episodes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(selected)
+            });
+            
+            if (response.ok) {
+                window.Toast.success("Episodes renamed successfully!");
+                closeEpisodeMassRenameModal();
+                // Refresh series view
+                htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), {
+                    target: '#spa-content',
+                    swap: 'innerHTML'
+                });
+            } else {
+                const text = await response.text();
+                window.Toast.error("Failed to rename episodes: " + text);
+            }
+        } catch(e) {
+            console.error(e);
+            window.Toast.error("Error applying renames");
+        } finally {
+            btn.classList.remove('is-loading');
+        }
+    }
+
     function openEditModal(id) {
         const modal = document.getElementById('editModal');
         modal.classList.add('is-active');

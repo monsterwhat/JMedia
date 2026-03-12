@@ -591,6 +591,17 @@ public class VideoService {
     }
 
     @Transactional
+    public void updateTitle(Long id, String title) {
+        Video video = Video.findById(id);
+        if (video != null) {
+            video.title = title;
+            video.dateModified = LocalDateTime.now();
+            video.persist();
+            LOGGER.info("Updated title for video ID {}: '{}'", id, title);
+        }
+    }
+
+    @Transactional
     public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type) {
         Video video = Video.findById(id);
         if (video != null) {

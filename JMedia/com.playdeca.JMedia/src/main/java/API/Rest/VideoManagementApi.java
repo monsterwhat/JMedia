@@ -34,6 +34,9 @@ public class VideoManagementApi {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
     @Inject @io.quarkus.qute.Location("manageFragment.html")
     Template manageFragment;
 
@@ -103,9 +106,20 @@ public class VideoManagementApi {
         if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
         
         Video representative = episodes.get(0);
+        String jsonEpisodes = "[]";
+        try {
+            List<Models.DTOs.SimpleEpisodeDTO> simpleEpisodes = episodes.stream()
+                    .map(Models.DTOs.SimpleEpisodeDTO::new)
+                    .collect(Collectors.toList());
+            jsonEpisodes = objectMapper.writeValueAsString(simpleEpisodes);
+        } catch (Exception e) {
+            LOG.error("Failed to serialize episodes", e);
+        }
+
         return seriesEpisodesFragment
                 .data("seriesTitle", seriesTitle)
                 .data("episodes", episodes)
+                .data("jsonEpisodes", jsonEpisodes)
                 .data("posterPath", representative.posterPath)
                 .data("backdropPath", representative.backdropPath)
                 .render();
@@ -236,5 +250,23 @@ public class VideoManagementApi {
         
         videoService.updateSeriesTitle(oldTitle, newTitle);
         return Response.ok("Series renamed successfully").build();
+    }
+
+    @POST
+    @Path("/mass-rename-episodes")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Blocking
+    public Response massRenameEpisodes(List<Models.DTOs.EpisodeRenameDTO> renameRequests) {
+        try {
+            for (Models.DTOs.EpisodeRenameDTO req : renameRequests) {
+                if (req.id != null && req.newTitle != null && !req.newTitle.isBlank()) {
+                    videoService.updateTitle(req.id, req.newTitle);
+                }
+            }
+            return Response.ok("Episodes renamed successfully").build();
+        } catch (Exception e) {
+            LOG.error("Error batch renaming episodes", e);
+            return Response.serverError().entity("Failed to rename episodes").build();
+        }
     }
 }
