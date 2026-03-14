@@ -519,13 +519,21 @@
              document.addEventListener('DOMContentLoaded', () => {
                 const layout = document.getElementById('standard-layout');
                 const toggleBtn = document.getElementById('toggleSidebarBtn');
+                const isMobile = window.matchMedia('(max-width: 768px)').matches;
+                
                 if (toggleBtn) {
                     toggleBtn.onclick = () => {
                         layout.classList.toggle('collapsed');
                         localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
                     };
                 }
-                if (localStorage.getItem('sidebarCollapsed') === 'true') layout.classList.add('collapsed');
+                
+                // Collapse by default on mobile, unless user has a saved preference
+                if (isMobile && !localStorage.getItem('sidebarCollapsed')) {
+                    layout.classList.add('collapsed');
+                } else if (localStorage.getItem('sidebarCollapsed') === 'true') {
+                    layout.classList.add('collapsed');
+                }
             });
             
             // Playlist Creation Logic (Moved from indexNew.html inline)

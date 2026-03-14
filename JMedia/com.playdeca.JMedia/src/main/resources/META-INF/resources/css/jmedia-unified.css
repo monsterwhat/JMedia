@@ -92,6 +92,11 @@ body {
     overflow-y: auto !important;
 }
 
+/* Settings page scroll */
+.settings-page .standard-content {
+    overflow-y: auto !important;
+}
+
 /* Tab Pane visibility (Settings) */
 .tab-pane {
     display: none !important;
@@ -380,7 +385,7 @@ body {
     flex: 1;
     display: flex !important;
     align-items: center !important;
-    padding: 0 2rem !important;
+    padding: 0 1rem !important;
     position: inherit !important;
     background: transparent !important;
     box-shadow: none !important;
@@ -2303,13 +2308,46 @@ input[type="range"]::-webkit-slider-thumb {
 
 @media (max-width: 768px) { 
     .standard-sidebar {
-        display: none !important;
+        position: absolute;
+        height: 100%;
+        width: 72px;
+        z-index: 200;
+        overflow-y: auto;
+    }
+
+    .standard-layout:not(.collapsed) .standard-sidebar {
+        width: 240px !important;
+    }
+
+    .standard-layout.collapsed .standard-sidebar {
+        width: 72px !important;
     }
 
     .standard-main {
         margin-left: 0 !important;
         margin-right: 0 !important;
         height: calc(100vh - 64px) !important;
+    }
+
+    /* Adjust content padding for sidebar */
+    .standard-content {
+        padding-left: 72px !important;
+        padding-right: 0 !important;
+        transition: padding 0.2s ease;
+    }
+
+    .standard-layout:not(.collapsed) .standard-content {
+        padding-left: 240px !important;
+    }
+
+    /* Right sidebar adjustments */
+    .standard-layout.sidebar-right .standard-content {
+        padding-left: 0 !important;
+        padding-right: 72px !important;
+    }
+
+    .standard-layout.sidebar-right:not(.collapsed) .standard-content {
+        padding-right: 240px !important;
     }
 
     .mobile-bottom-nav {
@@ -2336,6 +2374,17 @@ input[type="range"]::-webkit-slider-thumb {
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
         gap: 1rem !important;
         padding: 1rem !important;
+    }
+
+    /* Adjust mobile-song-list grid based on sidebar state */
+    .standard-layout.collapsed .standard-content .mobile-song-list {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+        gap: 1rem !important;
+    }
+
+    .standard-layout:not(.collapsed) .standard-content .mobile-song-list {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
+        gap: 1rem !important;
     }
 
     .standard-card-poster {
