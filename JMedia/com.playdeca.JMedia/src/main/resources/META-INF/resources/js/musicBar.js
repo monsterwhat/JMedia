@@ -98,7 +98,7 @@ function updateMusicBar() {
 
     const volumeSlider = document.getElementById('musicVolumeProgressBar');
     if (volumeSlider && !draggingVolume) {
-        const v = volume * 100;
+        const v = Math.sqrt(volume) * 100; // Square root to reverse the curve
         volumeSlider.value = v;
         volumeSlider.style.setProperty('--slider-progress', `${v}%`);
         volumeSlider.style.setProperty('--progress-value', `${v}%`);
@@ -106,12 +106,24 @@ function updateMusicBar() {
 
     const shuffleIcon = document.getElementById('shuffleIcon');
     if (shuffleIcon) {
-        shuffleIcon.className = (shuffleMode === "SHUFFLE" || shuffleMode === "SMART_SHUFFLE") ? "pi pi-sort-alt has-text-warning" : "pi pi-sort-alt";
+        if (shuffleMode === "SMART_SHUFFLE") {
+            shuffleIcon.className = "pi pi-sparkles has-text-success";
+        } else if (shuffleMode === "SHUFFLE") {
+            shuffleIcon.className = "pi pi-sort-alt has-text-info";
+        } else {
+            shuffleIcon.className = "pi pi-sort-alt";
+        }
     }
 
     const repeatIcon = document.getElementById('repeatIcon');
     if (repeatIcon) {
-        repeatIcon.className = (repeatMode === "ONE" || repeatMode === "ALL") ? "pi pi-refresh has-text-warning" : "pi pi-refresh";
+        if (repeatMode === "ALL") {
+            repeatIcon.className = "pi pi-refresh has-text-success";
+        } else if (repeatMode === "ONE") {
+            repeatIcon.className = "pi pi-refresh has-text-info";
+        } else {
+            repeatIcon.className = "pi pi-refresh";
+        }
     }
     
     // Artwork
@@ -227,14 +239,15 @@ function bindControls() {
     const vs = document.getElementById('musicVolumeProgressBar');
     if (vs) {
         vs.onmousedown = vs.ontouchstart = () => { draggingVolume = true; };
-        vs.onmouseup = vs.ontouchend = () => {
+            vs.onmouseup = vs.ontouchend = () => {
             draggingVolume = false;
-            const vol = vs.value / 100.0;
+            const val = vs.value;
+            const vol = Math.pow(val / 100.0, 2); // Squared curve
             apiPost('volume', vol);
         };
         vs.oninput = () => {
             const val = vs.value;
-            const vol = val / 100.0;
+            const vol = Math.pow(val / 100.0, 2); // Squared curve
             if (audio) audio.volume = vol;
             musicState.volume = vol;
             deviceVolumes[deviceId] = vol;

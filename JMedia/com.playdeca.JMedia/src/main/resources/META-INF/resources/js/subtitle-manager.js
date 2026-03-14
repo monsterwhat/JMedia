@@ -44,7 +44,8 @@ class SubtitleManager {
         this.switchTab('search');
     }
 
-    closeModal() {
+    closeModal(e) {
+        if (e) e.stopPropagation();
         document.getElementById('subtitleManagementModal').classList.remove('is-active');
     }
 
@@ -148,17 +149,22 @@ class SubtitleManager {
                 display: flex !important;
                 flex-direction: column !important;
                 justify-content: flex-end !important;
-                padding-bottom: calc(${baseBottom}px + var(--sub-lift, 0px)) !important;
-                transition: padding-bottom 0.3s ease-in-out !important;
+                margin-bottom: calc(${baseBottom}px + var(--sub-lift, 0px)) !important;
+                transition: margin-bottom 0.3s ease-in-out !important;
                 pointer-events: none !important;
+                overflow: visible !important;
+                z-index: 2147483647 !important;
             }
             
-            ::cue {
+            video::cue, ::cue {
                 background-color: rgba(0, 0, 0, ${style.bgOpacity}) !important;
                 color: ${style.color} !important;
                 font-family: ${style.font} !important;
                 font-size: ${style.size}px !important;
                 line-height: ${style.lineHeight} !important;
+                visibility: visible !important;
+                display: block !important;
+                white-space: pre-wrap !important;
             }
         `;
     }

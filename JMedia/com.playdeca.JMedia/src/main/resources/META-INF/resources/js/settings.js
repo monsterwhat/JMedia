@@ -64,7 +64,7 @@ window.saveUiSettings = async function () {
         if (res.ok) {
             if(window.showToast) window.showToast('UI settings saved', 'success');
             localStorage.setItem('sidebarPosition', position);
-            const layout = document.getElementById('plex-layout');
+            const layout = document.getElementById('standard-layout');
             if (layout) {
                 if (position === 'right') layout.classList.add('sidebar-right');
                 else layout.classList.remove('sidebar-right');
@@ -82,7 +82,7 @@ window.loadUiSettings = async function () {
             const select = document.getElementById('sidebarPositionSelect');
             if (select) select.value = json.data;
             localStorage.setItem('sidebarPosition', json.data);
-            const layout = document.getElementById('plex-layout');
+            const layout = document.getElementById('standard-layout');
             if (layout) {
                 if (json.data === 'right') layout.classList.add('sidebar-right');
                 else layout.classList.remove('sidebar-right');

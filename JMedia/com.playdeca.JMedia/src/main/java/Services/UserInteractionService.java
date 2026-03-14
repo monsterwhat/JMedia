@@ -45,7 +45,13 @@ public class UserInteractionService {
         if (video != null) {
             video.watchProgress = progress;
             video.lastWatched = LocalDateTime.now();
-            video.watched = progress >= 1.0;
+            // Mark as watched if over 95% complete
+            if (progress >= 0.95) {
+                video.watched = true;
+                video.watchProgress = 1.0;
+            } else {
+                video.watched = false;
+            }
             video.dateModified = LocalDateTime.now();
             video.persist();
         }

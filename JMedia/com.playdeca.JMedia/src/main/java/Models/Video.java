@@ -43,6 +43,8 @@ public class Video extends PanacheEntity {
     // Entertainment Metadata
     public Double imdbRating = 0.0;
     public Double tmdbRating = 0.0;
+    public Integer metacriticRating;
+    public String awards;
     public Double userRating = 0.0;
     public String mpaaRating; // "PG-13", "R", etc.
     public Integer voteCount = 0;
@@ -68,6 +70,37 @@ public class Video extends PanacheEntity {
     @CollectionTable(name = "video_cast")
     @Column(name = "cast_member")
     public List<String> cast;
+
+    @ElementCollection
+    @CollectionTable(name = "video_production_companies")
+    @Column(name = "company")
+    public List<String> productionCompanies;
+
+    @ElementCollection
+    @CollectionTable(name = "video_networks")
+    @Column(name = "network")
+    public List<String> networks;
+    
+    // Additional Enrichment
+    public Integer runtimeMins;
+    public Long budget;
+    public Long revenue;
+    public String status; // "Released", "Returning Series", etc.
+    public String originalLanguage;
+    public String productionCountries;
+    public String releaseDate;
+    public String trailerUrl;
+    public String parentsGuide;
+
+    @ElementCollection
+    @CollectionTable(name = "video_akas")
+    @Column(name = "aka")
+    public List<String> akas;
+
+    @ElementCollection
+    @CollectionTable(name = "video_keywords")
+    @Column(name = "keyword")
+    public List<String> keywords;
     
     // External IDs
     public String imdbId;

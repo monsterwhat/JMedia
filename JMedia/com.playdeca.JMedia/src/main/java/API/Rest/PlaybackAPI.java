@@ -112,7 +112,6 @@ public class PlaybackAPI {
 
     @POST
     @Path("/select/{profileId}/{id}")
-    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response selectSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();

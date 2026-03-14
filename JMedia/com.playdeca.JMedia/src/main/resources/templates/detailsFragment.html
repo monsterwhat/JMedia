@@ -1,5 +1,4 @@
 <div class="detail-container">
-    <!-- Set the back destination based on video type -->
     <script>
         (function() {
             var videoType = '{item.type}';
@@ -23,26 +22,47 @@
         <div class="play-button" onclick="window.selectItem({item.id}, 'play')">
             <i class="pi pi-play"></i>
         </div>
+        
+        {#if item.trailerUrl}
+        <div class="trailer-container mt-4">
+            <a href="{item.trailerUrl}" target="_blank" class="button is-danger is-outlined is-fullwidth is-rounded">
+                <i class="pi pi-video mr-2"></i> Watch Trailer
+            </a>
+        </div>
+        {/if}
     </div>
 
     <!-- Info Section -->
     <div class="info-section">
-        <!-- Title Row with Back Button -->
         <div class="title-row">
             <button class="back-btn" onclick="videoSPA.goBack()">
                 <i class="pi pi-arrow-left"></i> Back
             </button>
             <div class="title-section">
                 <h1>{item.title ?: item.seriesTitle}</h1>
+                {#if item.tagline}
+                <p class="tagline">{item.tagline}</p>
+                {/if}
+                
                 <div class="meta-info">
                     <div class="meta-item">
                         <i class="pi pi-calendar"></i>
-                        <span>{item.releaseYear ?: '2024'}</span>
+                        <span>{item.releaseYear ?: (item.releaseDate ? item.releaseDate.substring(0,4) : '2024')}</span>
                     </div>
-                    {#if item.durationSeconds}
+                    {#if item.runtimeMins}
+                    <div class="meta-item">
+                        <i class="pi pi-clock"></i>
+                        <span>{item.runtimeMins}m</span>
+                    </div>
+                    {#else if item.durationSeconds}
                     <div class="meta-item">
                         <i class="pi pi-clock"></i>
                         <span>{formatDuration.apply(item.durationSeconds)}</span>
+                    </div>
+                    {/if}
+                    {#if item.mpaaRating}
+                    <div class="meta-item">
+                        <span class="mpaa-badge">{item.mpaaRating}</span>
                     </div>
                     {/if}
                     {#if item.type.toLowerCase() == 'episode'}
@@ -51,12 +71,30 @@
                         <span>S{item.seasonNumber}E{item.episodeNumber}</span>
                     </div>
                     {/if}
-                    <div class="meta-item">
-                        <i class="pi pi-tag"></i>
-                        <span>{item.type ?: 'Movie'}</span>
-                    </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Ratings Row -->
+        <div class="ratings-row">
+            {#if item.imdbRating > 0}
+            <div class="rating-badge imdb">
+                <span class="label">IMDb</span>
+                <span class="value">{item.imdbRating}</span>
+            </div>
+            {/if}
+            {#if item.tmdbRating > 0}
+            <div class="rating-badge tmdb">
+                <span class="label">TMDB</span>
+                <span class="value">{item.tmdbRating.toString().substring(0,3)}</span>
+            </div>
+            {/if}
+            {#if item.metacriticRating}
+            <div class="rating-badge metacritic">
+                <span class="label">Metascore</span>
+                <span class="value">{item.metacriticRating}</span>
+            </div>
+            {/if}
         </div>
 
         <!-- Action Buttons -->
@@ -74,33 +112,60 @@
 
         <!-- Description -->
         <div class="description">
-            {item.description ?: 'No description available for this content.'}
+            {item.overview ?: item.description ?: 'No description available for this content.'}
         </div>
 
-        <!-- Additional Information -->
+        <!-- Genres & Keywords -->
+        <div class="tags-section">
+            <div class="genre-tags">
+                {#for genre in item.genres}
+                <span class="genre-tag">{genre}</span>
+                {/for}
+            </div>
+        </div>
+
+        <!-- Info Grid -->
         <div class="info-grid">
-            <div class="info-card">
-                <h3>Rating</h3>
-                <p>⭐ 8.5/10</p>
+            {#if item.awards}
+            <div class="info-card wide">
+                <h3><i class="pi pi-star mr-2"></i> Awards</h3>
+                <p>{item.awards}</p>
             </div>
+            {/if}
 
-            <div class="info-card">
-                <h3>Language</h3>
-                <p>English</p>
+            {#if item.parentsGuide}
+            <div class="info-card wide">
+                <h3><i class="pi pi-info-circle mr-2"></i> Parents Guide</h3>
+                <p class="is-size-7">{item.parentsGuide}</p>
             </div>
+            {/if}
 
-            {#if item.type.toLowerCase() == 'episode'}
+            {#if item.cast && !item.cast.isEmpty()}
             <div class="info-card">
-                <h3>Episode</h3>
-                <p>{item.episodeTitle ?: 'Untitled'}</p>
+                <h3>Cast</h3>
+                <p>
+                    {#for actor in item.cast}
+                        {#if count < 6}{actor}{#if count < 5 && count < item.cast.size()}, {/if}{/if}
+                    {/for}
+                </p>
+            </div>
+            {/if}
+
+            {#if item.productionCompanies && !item.productionCompanies.isEmpty()}
+            <div class="info-card">
+                <h3>Production</h3>
+                <p>{item.productionCompanies.get(0)}</p>
             </div>
             {/if}
 
             <div class="info-card">
-                <h3>Features</h3>
-                <div>
-                    <span class="badge badge-primary">HD</span>
-                    <span class="badge badge-secondary">5.1</span>
+                <h3>Technical</h3>
+                <div class="tech-specs">
+                    <span class="tech-badge">{item.displayResolution ?: item.resolution ?: 'HD'}</span>
+                    <span class="tech-badge">{item.videoCodec ?: 'H.264'}</span>
+                    {#if item.audioChannels}
+                    <span class="tech-badge">{item.audioChannels}.1 Ch</span>
+                    {/if}
                 </div>
             </div>
         </div>
@@ -108,7 +173,6 @@
 </div>
 
 <script>
-    // Local duration formatter for safety
     function formatDuration(s) {
         if (!s) return '0m';
         const h = Math.floor(s / 3600);

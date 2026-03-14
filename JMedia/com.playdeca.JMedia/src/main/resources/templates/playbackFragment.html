@@ -1,15 +1,19 @@
 <!-- Custom Modern Player -->
 <link rel="stylesheet" href="/css/player.css"/>
+<link rel="stylesheet" href="/css/subtitle-styling.css"/>
 
 <div class="player-container paused" id="customPlayer"
      data-video-id="{item.id}"
      data-title="{item.title ?: item.seriesTitle}"
      data-path="{item.path.replace('\\', '/')}"
      data-duration="{item.duration}"
-     data-type="{item.type}"
+     data-type="{item.type ?: 'movie'}"
+     data-series-title="{item.seriesTitle ?: ''}"
+     data-season-number="{item.seasonNumber ?: 1}"
      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
      data-start-time="{resumeTime}"
      data-next-id="{nextEpisodeId}"
+     data-prev-id="{prevEpisodeId}"
      data-intro-start="{item.introStart ?: 0}"
      data-intro-end="{item.introEnd ?: 0}"
      data-outro-start="{item.outroStart ?: 0}"
@@ -28,14 +32,6 @@
 <script>
     (function() {
         console.log("[Playback] Fragment Loaded. Initializing...");
-        
-        // Set back destination to go to details page
-        if (window.videoSPA) {
-            videoSPA.backDestination = {
-                section: 'details',
-                params: { videoId: {item.id} }
-            };
-        }
         
         const tryInit = () => {
             if (window.SimplePlayer) {

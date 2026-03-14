@@ -415,20 +415,40 @@ public class VideoService {
         }
 
         // Try to find next episode in same season
-        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND isActive = true", 
+        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND isActive = true",
                 Sort.by("episodeNumber", Sort.Direction.Ascending),
                 current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
-        
+
         if (next != null) return next;
 
         // If no more episodes in current season, try first episode of next season
-        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND isActive = true", 
+        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND isActive = true",
                 Sort.by("seasonNumber", Sort.Direction.Ascending).and("episodeNumber", Sort.Direction.Ascending),
                 current.seriesTitle, current.seasonNumber).firstResult();
-        
+
         return next;
     }
 
+    @Transactional
+    public Video findPreviousEpisode(Video current) {
+        if (current == null || current.seriesTitle == null || !"episode".equalsIgnoreCase(current.type)) {
+            return null;
+        }
+
+        // Try to find previous episode in same season
+        Video prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber < ?3 AND isActive = true",
+                Sort.by("episodeNumber", Sort.Direction.Descending),
+                current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
+
+        if (prev != null) return prev;
+
+        // If no more episodes in current season, try last episode of previous season
+        prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber < ?2 AND isActive = true",
+                Sort.by("seasonNumber", Sort.Direction.Descending).and("episodeNumber", Sort.Direction.Descending),
+                current.seriesTitle, current.seasonNumber).firstResult();
+
+        return prev;
+    }
     @Transactional
     public List<Video> findPopular(int limit) {
         return Video.<Video>list("isActive = ?1 AND popularityScore > ?2", Sort.by("popularityScore", Sort.Direction.Descending), true, 0.0)

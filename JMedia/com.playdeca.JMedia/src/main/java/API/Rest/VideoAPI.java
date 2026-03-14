@@ -72,7 +72,13 @@ public class VideoAPI {
     Services.UserInteractionService userInteractionService;
 
     @Inject
+    Services.VideoStateService videoStateService;
+
+    @Inject
     NamingController namingController;
+
+    @Inject
+    Services.VideoMetadataService videoMetadataService;
 
     private boolean checkAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
         String sessionId = null;
@@ -90,6 +96,17 @@ public class VideoAPI {
 
         Models.User user = Models.User.find("username", session.username).firstResult();
         return user != null && "admin".equals(user.getGroupName());
+    }
+
+    @GET
+    @Path("/{videoId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getVideo(@PathParam("videoId") Long videoId) {
+        Models.Video video = Models.Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(API.ApiResponse.error("Video not found")).build();
+        }
+        return Response.ok(API.ApiResponse.success(new Models.DTOs.VideoMetadataDTO(video))).build();
     }
 
     @GET
@@ -598,19 +615,33 @@ public class VideoAPI {
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
             }
+            LOG.info("DEBUG: Reloading metadata for video ID: {}, title: {}", videoId, video.title);
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    java.nio.file.Path videoPath = Paths.get(video.path);
+                    String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                    java.nio.file.Path vPath = Paths.get(video.path);
+                    java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
+                    
+                    LOG.info("DEBUG: Scanning file: {}", videoPath);
                     Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
                     if (pending != null) {
+                        LOG.info("DEBUG: Found pending media ID: {}", pending.id);
                         namingController.processPendingMedia(pending.id);
-                        unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
+                        Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
+                        if (persisted != null) {
+                            LOG.info("DEBUG: Persisted video updated. Triggering enrichment for: {}", persisted.title);
+                            videoMetadataService.fetchAndEnrichMetadata(persisted);
+                        } else {
+                            LOG.error("DEBUG: Failed to create/update video entity from pending media.");
+                        }
                         LOG.info("Metadata reloaded for video: {}", video.title);
+                    } else {
+                        LOG.warn("DEBUG: videoImportService.scanSingleFile returned null for path: {}", videoPath);
                     }
                 } catch (Exception e) {
-                    LOG.error("Error during background metadata reload for video {}", videoId, e);
+                    LOG.error("DEBUG: ERROR in background reload for video {}: {}", videoId, e.getMessage(), e);
                 } finally {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }
@@ -619,6 +650,109 @@ public class VideoAPI {
         } catch (Exception e) {
             LOG.error("Error reloading metadata for video {}", videoId, e);
             return Response.serverError().entity(ApiResponse.error("Internal server error: " + e.getMessage())).build();
+        }
+    }
+
+    @POST
+    @Path("/metadata/series/{seriesTitle}/reload")
+    public Response reloadSeriesMetadata(@PathParam("seriesTitle") String seriesTitle,
+            @Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        try {
+            List<Models.Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+            if (episodes.isEmpty()) {
+                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Series not found")).build();
+            }
+            LOG.info("DEBUG: Reloading metadata for series: {}, found {} episodes", seriesTitle, episodes.size());
+            executor.submit(() -> {
+                ManagedContext requestContext = Arc.container().requestContext();
+                if (!requestContext.isActive()) requestContext.activate();
+                try {
+                    String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                    for (Models.Video video : episodes) {
+                        try {
+                            LOG.info("DEBUG: Batch processing episode: {}", video.title);
+                            java.nio.file.Path vPath = Paths.get(video.path);
+                            java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
+                            
+                            Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
+                            if (pending != null) {
+                                namingController.processPendingMedia(pending.id);
+                                Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
+                                if (persisted != null) {
+                                    LOG.info("DEBUG: Enriching series episode: {}", persisted.title);
+                                    videoMetadataService.fetchAndEnrichMetadata(persisted);
+                                }
+                            }
+                            // Add small delay to avoid 429 rate limits
+                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                        } catch (Exception e) {
+                            LOG.error("Error reloading metadata for episode {} in series {}: {}", video.title, seriesTitle, e.getMessage());
+                        }
+                    }
+                    LOG.info("Metadata reload completed for series: {}", seriesTitle);
+                } finally {
+                    if (requestContext.isActive()) requestContext.deactivate();
+                }
+            });
+            return Response.ok(ApiResponse.success("Metadata reload started for series " + seriesTitle)).build();
+        } catch (Exception e) {
+            LOG.error("Error reloading series metadata: " + seriesTitle, e);
+            return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
+        }
+    }
+
+    @POST
+    @Path("/metadata/series/{seriesTitle}/season/{seasonNumber}/reload")
+    public Response reloadSeasonMetadata(@PathParam("seriesTitle") String seriesTitle,
+            @PathParam("seasonNumber") Integer seasonNumber,
+            @Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        try {
+            List<Models.Video> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+            if (episodes.isEmpty()) {
+                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Season not found")).build();
+            }
+            LOG.info("DEBUG: Reloading metadata for {} Season {}, found {} episodes", seriesTitle, seasonNumber, episodes.size());
+            executor.submit(() -> {
+                ManagedContext requestContext = Arc.container().requestContext();
+                if (!requestContext.isActive()) requestContext.activate();
+                try {
+                    String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                    for (Models.Video video : episodes) {
+                        try {
+                            LOG.info("DEBUG: Batch processing season episode: {}", video.title);
+                            java.nio.file.Path vPath = Paths.get(video.path);
+                            java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
+
+                            Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
+                            if (pending != null) {
+                                namingController.processPendingMedia(pending.id);
+                                Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
+                                if (persisted != null) {
+                                    LOG.info("DEBUG: Enriching season episode: {}", persisted.title);
+                                    videoMetadataService.fetchAndEnrichMetadata(persisted);
+                                }
+                            }
+                            // Add small delay to avoid 429 rate limits
+                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                        } catch (Exception e) {
+                            LOG.error("Error reloading metadata for episode in season: {}", e.getMessage());
+                        }
+                    }
+                    LOG.info("Metadata reload completed for {} Season {}", seriesTitle, seasonNumber);
+                } finally {
+                    if (requestContext.isActive()) requestContext.deactivate();
+                }
+            });
+            return Response.ok(ApiResponse.success("Metadata reload started for season " + seasonNumber)).build();
+        } catch (Exception e) {
+            LOG.error("Error reloading season metadata", e);
+            return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
         }
     }
 
@@ -820,6 +954,11 @@ public class VideoAPI {
         try {
             Models.Video video = Models.Video.findById(videoId);
             if (video != null) {
+                // Probe duration if missing to ensure progress calculation works
+                if (video.duration == null || video.duration <= 0) {
+                    videoService.probeVideoDuration(video);
+                }
+
                 // Update absolute resume time in milliseconds
                 video.resumeTime = (long) (timeSeconds * 1000);
                 video.lastWatched = java.time.LocalDateTime.now();
@@ -829,8 +968,32 @@ public class VideoAPI {
                 double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
                 double progressRatio = (durationSeconds > 0) ? Math.min(1.0, timeSeconds / durationSeconds) : 0;
                 
-                userInteractionService.updateWatchProgress(videoId, 1L, progressRatio);
-                // The updateWatchProgress method calls video.persist(), so we don't need another call here
+                video.watchProgress = progressRatio;
+                // Mark as watched if over 95% complete
+                if (progressRatio >= 0.95) {
+                    video.watched = true;
+                    video.watchProgress = 1.0;
+                } else {
+                    video.watched = false;
+                }
+                
+                video.persist();
+
+                // Sync with global VideoState for "Continue Watching" features
+                try {
+                    Models.VideoState state = videoStateService.getOrCreateState();
+                    if (state != null) {
+                        state.setCurrentVideoId(videoId);
+                        state.setCurrentTime(timeSeconds);
+                        state.setLastUpdateTime(System.currentTimeMillis());
+                        if (video.duration != null) {
+                            state.setDuration(video.duration);
+                        }
+                        videoStateService.saveState(state);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Could not sync VideoState during progress report for video {}: {}", videoId, e.getMessage());
+                }
             }
             return Response.ok(ApiResponse.success(null)).build();
         } catch (Exception e) {
@@ -845,6 +1008,9 @@ public class VideoAPI {
     public Response getStoryboardTiles(@PathParam("videoId") Long videoId) {
         File file = storyboardService.getStoryboardImage(videoId);
         if (file == null || !file.exists()) {
+            if (storyboardService.isGenerating(videoId)) {
+                return Response.status(Response.Status.ACCEPTED).entity("Storyboard is being generated").build();
+            }
             return Response.status(Response.Status.NOT_FOUND).build();
         }
         return Response.ok(file)

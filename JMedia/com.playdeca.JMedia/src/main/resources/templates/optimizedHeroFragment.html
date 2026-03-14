@@ -1,6 +1,6 @@
-<!-- Plex Style Spotlight Section -->
+<!-- standard Style Spotlight Section -->
 {#if featured != null && featured.size > 0}
-<div class="plex-spotlight">
+<div class="standard-spotlight">
     <!-- Blurred Background -->
     <img class="spotlight-bg" src="/api/video/thumbnail/{featured[0].id}" alt="">
     
@@ -10,25 +10,34 @@
         
         <div class="spotlight-info">
             <div class="spotlight-badge">FEATURED</div>
+            
             <div class="spotlight-meta">
                 <span>{featured[0].releaseYear ?: '2024'}</span>
                 <span>{featured[0].type ?: 'Movie'}</span>
                 {#if featured[0].durationSeconds}
                 <span>{formatDuration.apply(featured[0].durationSeconds)}</span>
                 {/if}
+                
+                {#if featured[0].imdbRating > 0}
+                <span style="color: #f5c518; font-weight: 800;"><i class="pi pi-star-fill mr-1"></i> {featured[0].imdbRating}</span>
+                {/if}
             </div>
             
             <h1 class="spotlight-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
             
+            {#if featured[0].tagline}
+            <p class="spotlight-tagline" style="font-size: 1.2rem; font-style: italic; color: rgba(255, 255, 255, 0.6); margin: 0.5rem 0 1rem; font-weight: 300;">{featured[0].tagline}</p>
+            {/if}
+            
             <p class="spotlight-description">
-                {featured[0].description ?: 'No description available for this featured content.'}
+                {featured[0].overview ?: featured[0].description ?: 'No description available for this featured content.'}
             </p>
             
-            <div class="spotlight-actions">
-                <button class="button is-success" onclick="window.selectItem({featured[0].id}, 'play')">
+            <div class="spotlight-actions mt-5">
+                <button class="button is-success is-rounded" onclick="window.selectItem({featured[0].id}, 'play')">
                     <i class="pi pi-play mr-2"></i> Play Now
                 </button>
-                <button class="button is-dark" onclick="window.selectItem({featured[0].id}, 'details')">
+                <button class="button is-dark is-rounded" onclick="window.selectItem({featured[0].id}, 'details')">
                     <i class="pi pi-info-circle mr-2"></i> More Info
                 </button>
             </div>
@@ -36,14 +45,10 @@
     </div>
 </div>
 {#else}
-<div class="plex-spotlight" style="display: flex; align-items: center; justify-content: center; background: #1a1a1a;">
+<div class="standard-spotlight" style="display: flex; align-items: center; justify-content: center; background: #1a1a1a;">
     <div class="has-text-centered">
         <i class="pi pi-video" style="font-size: 3rem; color: #333; margin-bottom: 1rem;"></i>
         <p style="color: #666;">No featured content available</p>
     </div>
 </div>
 {/if}
-
-<style>
-/* Local style overrides for spotlight if needed */
-</style>

@@ -373,11 +373,13 @@ public class VideoUiApi {
         }
 
         Models.Video nextEpisode = videoService.findNextEpisode(item);
+        Models.Video prevEpisode = videoService.findPreviousEpisode(item);
 
         return playbackFragment
                 .data("item", item)
                 .data("resumeTime", resumeTime)
                 .data("nextEpisodeId", nextEpisode != null ? nextEpisode.id : null)
+                .data("prevEpisodeId", prevEpisode != null ? prevEpisode.id : null)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .data("json", (ValueResolver) (ctx) -> {
                     try { return java.util.concurrent.CompletableFuture.completedFuture(objectMapper.writeValueAsString(ctx.getBase())); }

@@ -29,27 +29,27 @@
             <p>Try scanning your library</p>
         </div>
     {#else}
-        <div class="plex-grid">
+        <div class="standard-grid">
             {#for movie in movies}
-                <div class="plex-card" data-video-id="{movie.id}" onclick="window.selectItem({movie.id}, 'details')">
-                    <div class="plex-card-poster">
+                <div class="standard-card" data-video-id="{movie.id}" onclick="window.selectItem({movie.id}, 'details')">
+                    <div class="standard-card-poster">
                         <img class="poster-img" src="/api/video/thumbnail/{movie.id}" alt="{movie.title}" loading="lazy">
-                        <div class="plex-card-overlay">
-                            <div class="plex-play-btn" onclick="event.stopPropagation(); window.selectItem({movie.id}, 'play')">
+                        <div class="standard-card-overlay">
+                            <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({movie.id}, 'play')">
                                 <i class="pi pi-play"></i>
                             </div>
                         </div>
                     </div>
-                    <div class="plex-card-info">
-                        <div class="plex-card-title">{movie.title}</div>
-                        <div class="plex-card-meta">{movie.releaseYear}</div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title">{movie.title}</div>
+                        <div class="standard-card-meta">{movie.releaseYear}</div>
                     </div>
                 </div>
             {/for}
         </div>
 
         {#if totalPages > 1}
-        <nav class="plex-pagination mt-6" role="navigation" aria-label="pagination">
+        <nav class="standard-pagination mt-6" role="navigation" aria-label="pagination">
             <div class="is-flex is-align-items-center is-justify-content-center">
                 <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
                    href="javascript:void(0)"

@@ -99,20 +99,30 @@
             
             // 4. Volume Slider (only if not dragging)
             if (!window.SynchronizationManager.getFlag('draggingVolume') && els.volumeSlider) {
-                const volValue = state.volume * 100;
+                const volValue = Math.sqrt(state.volume) * 100; // Square root
                 els.volumeSlider.value = volValue;
                 els.volumeSlider.style.setProperty('--slider-progress', `${volValue}%`);
             }
             
             // 5. Shuffle and Repeat icons
             if (els.shuffleIcon) {
-                const isActive = state.shuffleMode === 'SHUFFLE' || state.shuffleMode === 'SMART_SHUFFLE';
-                els.shuffleIcon.className = isActive ? 'pi pi-sort-alt has-text-warning' : 'pi pi-sort-alt';
+                if (state.shuffleMode === 'SMART_SHUFFLE') {
+                    els.shuffleIcon.className = 'pi pi-sparkles has-text-success';
+                } else if (state.shuffleMode === 'SHUFFLE') {
+                    els.shuffleIcon.className = 'pi pi-sort-alt has-text-info';
+                } else {
+                    els.shuffleIcon.className = 'pi pi-sort-alt';
+                }
             }
             
             if (els.repeatIcon) {
-                const isActive = state.repeatMode === 'ONE' || state.repeatMode === 'ALL';
-                els.repeatIcon.className = isActive ? 'pi pi-refresh has-text-warning' : 'pi pi-refresh';
+                if (state.repeatMode === 'ALL') {
+                    els.repeatIcon.className = 'pi pi-refresh has-text-success';
+                } else if (state.repeatMode === 'ONE') {
+                    els.repeatIcon.className = 'pi pi-refresh has-text-info';
+                } else {
+                    els.repeatIcon.className = 'pi pi-refresh';
+                }
             }
             
             // 6. Cover Artwork

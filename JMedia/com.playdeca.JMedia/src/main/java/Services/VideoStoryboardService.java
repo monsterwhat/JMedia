@@ -46,14 +46,16 @@ public class VideoStoryboardService {
         public int columns;
         public int rows;
         public int totalTiles;
+        public boolean isReady;
 
-        public StoryboardMetadata(double interval, int width, int height, int columns, int rows, int totalTiles) {
+        public StoryboardMetadata(double interval, int width, int height, int columns, int rows, int totalTiles, boolean isReady) {
             this.interval = interval;
             this.width = width;
             this.height = height;
             this.columns = columns;
             this.rows = rows;
             this.totalTiles = totalTiles;
+            this.isReady = isReady;
         }
     }
 
@@ -85,7 +87,7 @@ public class VideoStoryboardService {
         double interval = durationSeconds / TOTAL_TILES;
         int tileHeight = (int) (TILE_WIDTH * 9.0 / 16.0);
         
-        return new StoryboardMetadata(interval, TILE_WIDTH, tileHeight, COLUMNS, ROWS, TOTAL_TILES);
+        return new StoryboardMetadata(interval, TILE_WIDTH, tileHeight, COLUMNS, ROWS, TOTAL_TILES, exists);
     }
 
     public boolean isGenerating(Long videoId) {

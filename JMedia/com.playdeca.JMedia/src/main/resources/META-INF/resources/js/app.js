@@ -13,7 +13,7 @@ class App {
     async init() {
         window.addEventListener('popstate', () => this.handleRoute());
         
-        const layout = document.getElementById('plex-layout');
+        const layout = document.getElementById('standard-layout');
         if (layout && localStorage.getItem('sidebarCollapsed') === 'true') {
             layout.classList.add('collapsed');
         }
@@ -29,7 +29,7 @@ class App {
             if (!res.ok) return;
             const json = await res.json();
             if (json && json.data) {
-                const layout = document.getElementById('plex-layout');
+                const layout = document.getElementById('standard-layout');
                 if (layout) {
                     if (json.data === 'right') layout.classList.add('sidebar-right');
                     else layout.classList.remove('sidebar-right');
@@ -159,7 +159,7 @@ class App {
         // 2. Video Group: Only for Video View
         if (videoGroup) videoGroup.style.display = isVideo ? 'block' : 'none';
 
-        // 3. Music Group (Complex): For Music and Import
+        // 3. Music Group (Comstandard): For Music and Import
         if (musicGroup) {
             musicGroup.style.display = (isMusic || isImport) ? 'block' : 'none';
             const playlistLabel = musicGroup.querySelector('.nav-label.mt-3');

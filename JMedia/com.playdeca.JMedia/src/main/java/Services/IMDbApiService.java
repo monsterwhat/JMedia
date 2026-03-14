@@ -34,7 +34,7 @@ public class IMDbApiService {
         
         try {
             String query = URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8);
-            String url = IMDB_API_BASE + "/search/titles?q=" + query;
+            String url = IMDB_API_BASE + "/search/titles?query=" + query;
             
             LOG.info("Searching IMDb for series: {}", seriesTitle);
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();

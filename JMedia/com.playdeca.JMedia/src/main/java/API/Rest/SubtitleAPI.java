@@ -243,24 +243,30 @@ public class SubtitleAPI {
                 // Internal track - extract on-the-fly with offset for performance
                 webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track, offset);
             } else {
-                // External track - read and convert
+                // External track - read and convert using the robust converter service
                 java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
                 if (!java.nio.file.Files.exists(subtitlePath)) {
                     return Response.status(Response.Status.NOT_FOUND)
-                            .entity("Subtitle file not found")
+                            .entity("Subtitle file not found at: " + track.fullPath)
                             .build();
                 }
                 
-                try {
-                    webVTTContent = formatConverter.convertToWebVTT(track);
-                } catch (IOException e) {
-                    webVTTContent = convertToWebVTT(track);
-                }
+                // Convert to WebVTT
+                webVTTContent = formatConverter.convertToWebVTT(track);
 
-                // Apply time offset if requested (for MKV remux seeking)
+                // Apply time offset if requested (for seeking in remuxed streams)
                 if (offset > 0) {
                     webVTTContent = formatConverter.applyOffset(webVTTContent, offset);
                 }
+            }
+
+            // Ensure we at least have a WEBVTT header
+            if (webVTTContent == null || webVTTContent.trim().isEmpty()) {
+                webVTTContent = "WEBVTT\n\nNOTE Empty or invalid subtitle conversion for track " + trackId + "\n";
+                LOGGER.warn("Subtitle track {} (format: {}) returned empty content. Fallback header provided.", trackId, track.format);
+            } else if (webVTTContent.trim().equals("WEBVTT")) {
+                webVTTContent = "WEBVTT\n\nNOTE Header-only content for track " + trackId + "\n";
+                LOGGER.warn("Subtitle track {} (format: {}) returned header-only VTT content.", trackId, track.format);
             }
 
             return Response.ok(webVTTContent)
@@ -269,7 +275,7 @@ public class SubtitleAPI {
                     .build();
 
         } catch (Exception e) {
-            LOGGER.error("Error streaming subtitle track {}: {}", trackId, e.getMessage());
+            LOGGER.error("Error streaming subtitle track {}: {}", trackId, e.getMessage(), e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity("Failed to stream subtitle: " + e.getMessage())
                     .build();
@@ -339,94 +345,6 @@ public class SubtitleAPI {
     }
     
     // ========== UTILITY METHODS ==========
-    
-    private String convertToWebVTT(SubtitleTrack track) {
-        try {
-            // Read the subtitle file content
-            String content = java.nio.file.Files.readString(java.nio.file.Paths.get(track.fullPath));
-            
-            // Perform basic format conversion based on file type
-            switch (track.format.toLowerCase()) {
-                case "srt":
-                    return convertSRTToWebVTT(content);
-                case "vtt":
-                    if (!content.startsWith("WEBVTT")) {
-                        return "WEBVTT\n\n" + content;
-                    }
-                    return content;
-                case "ass":
-                case "ssa":
-                    return convertASSToWebVTT(content);
-                default:
-                    return "WEBVTT\n\nNOTE Unsupported format: " + track.format + "\n\n" + content;
-            }
-        } catch (IOException e) {
-            return "WEBVTT\n\nERROR: Could not read subtitle file\n";
-        }
-    }
-    
-    private String convertSRTToWebVTT(String srtContent) {
-        StringBuilder webVTT = new StringBuilder();
-        webVTT.append("WEBVTT\n\n");
-        
-        String[] lines = srtContent.split("\\r?\\n");
-        boolean inCue = false;
-        
-        for (String line : lines) {
-            line = line.trim();
-            
-            if (line.isEmpty()) {
-                if (inCue) {
-                    webVTT.append("\n");
-                    inCue = false;
-                }
-                continue;
-            }
-            
-            // Convert SRT timestamps to WebVTT format
-            if (line.contains("-->")) {
-                line = line.replace(",", "."); // Replace comma with dot for milliseconds
-                webVTT.append(line).append("\n");
-                inCue = true;
-            } else if (line.matches("\\d+")) {
-                // Skip sequence numbers
-                continue;
-            } else if (inCue) {
-                webVTT.append(line).append("\n");
-            }
-        }
-        
-        return webVTT.toString();
-    }
-    
-    private String convertASSToWebVTT(String assContent) {
-        StringBuilder webVTT = new StringBuilder();
-        webVTT.append("WEBVTT\n\n");
-        webVTT.append("STYLE\n");
-        webVTT.append("::cue {\n");
-        webVTT.append("  background-color: transparent;\n");
-        webVTT.append("  color: white;\n");
-        webVTT.append("  font-family: Arial, sans-serif;\n");
-        webVTT.append("}\n\n");
-        
-        // Simple ASS to WebVTT conversion (ignores advanced styling)
-        String[] lines = assContent.split("\\r?\\n");
-        for (String line : lines) {
-            line = line.trim();
-            if (line.startsWith("Dialogue:")) {
-                // Extract dialogue text from ASS format
-                String[] parts = line.substring(9).split(",", 9);
-                if (parts.length >= 9) {
-                    String dialogue = parts[8].replace("{\\N}", "\n").replaceAll("\\{[^}]*\\}", "");
-                    if (!dialogue.trim().isEmpty()) {
-                        webVTT.append(dialogue).append("\n\n");
-                    }
-                }
-            }
-        }
-        
-        return webVTT.toString();
-    }
     
     private Map<String, Object> createSuccessResponse(String message) {
         Map<String, Object> response = new HashMap<>();

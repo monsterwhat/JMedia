@@ -1,4 +1,4 @@
-/* Modern YouTube-Style Player CSS - Maximum Specificity */
+/* Modern standard2-Style Player CSS - Maximum Specificity */
 :root {
     --player-primary: #48c774 !important; /* Green */
     --player-bg: #000 !important;
@@ -428,8 +428,8 @@ video::cue {
     color: #fff !important;
 }
 
-/* --- Skip Intro/Outro Buttons --- */
-.skip-intro-container, .skip-outro-container {
+/* --- Skip Intro/Outro/Recap Buttons --- */
+.skip-intro-container, .skip-outro-container, .skip-recap-container {
     position: absolute !important;
     bottom: 100px !important;
     right: 30px !important;
@@ -437,7 +437,12 @@ video::cue {
     transition: all 0.3s ease !important;
 }
 
-.skip-intro-container .button, .skip-outro-container .button {
+/* If by any chance they overlap in time, we want them to stack slightly */
+.skip-recap-container { bottom: 160px !important; }
+.skip-intro-container { bottom: 100px !important; }
+.skip-outro-container { bottom: 100px !important; }
+
+.skip-intro-container .button, .skip-outro-container .button, .skip-recap-container .button {
     background-color: rgba(0, 0, 0, 0.7) !important;
     border: 1px solid rgba(255, 255, 255, 0.3) !important;
     color: #fff !important;
@@ -447,13 +452,13 @@ video::cue {
     box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
 }
 
-.skip-intro-container .button:hover, .skip-outro-container .button:hover {
+.skip-intro-container .button:hover, .skip-outro-container .button:hover, .skip-recap-container .button:hover {
     background-color: var(--player-primary) !important;
     border-color: var(--player-primary) !important;
     transform: scale(1.05) !important;
 }
 
-.controls-hidden .skip-intro-container, .controls-hidden .skip-outro-container {
+.controls-hidden .skip-intro-container, .controls-hidden .skip-outro-container, .controls-hidden .skip-recap-container {
     bottom: 30px !important;
 }
 

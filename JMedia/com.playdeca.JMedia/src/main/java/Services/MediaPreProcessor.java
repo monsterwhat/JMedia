@@ -74,7 +74,16 @@ public class MediaPreProcessor {
                 pendingMedia.rawMediaType = "episode";
                 pendingMedia.rawSeason = Integer.parseInt(matcher.group(2));
                 pendingMedia.rawEpisode = Integer.parseInt(matcher.group(3));
-                pendingMedia.rawTitle = matcher.group(4).trim().isEmpty() ? null : matcher.group(4).trim();
+                String rawHint = matcher.group(4).trim();
+                if (!rawHint.isEmpty()) {
+                    // Clean technical tags from the title hint
+                    String cleanedHint = rawHint.replaceAll("(?i)\\b(720p|1080p|2160p|4k|nf|webrip|x264|x265|hevc|galaxytg|galaxyty|hdtv|bluray)\\b", "")
+                                               .replaceAll("[._\\-\\[\\]\\(\\)]+", " ")
+                                               .trim();
+                    pendingMedia.rawTitle = cleanedHint.isEmpty() ? null : cleanedHint;
+                } else {
+                    pendingMedia.rawTitle = null;
+                }
                 pendingMedia.rawShowName = inferBasicShowName(videoPath);
                 isEpisode = true;
                 break;

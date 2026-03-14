@@ -69,7 +69,7 @@ public class ThumbnailService {
             String thumbnailFileName = "video_" + videoId + ".webp";
             Path outputPath = thumbnailDir.resolve(thumbnailFileName);
             
-            // 1. STRATEGY A: Try to find local sidecar artwork (common Plex/Kodi convention)
+            // 1. STRATEGY A: Try to find local sidecar artwork (common standard/Kodi convention)
             Path videoFilePath = Paths.get(videoPath);
             Path videoDir = videoFilePath.getParent();
             if (videoDir != null && Files.exists(videoDir)) {

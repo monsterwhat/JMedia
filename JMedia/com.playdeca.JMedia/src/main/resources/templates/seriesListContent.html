@@ -29,13 +29,13 @@
             <p>Try scanning your library or check if your episodes have series titles.</p>
         </div>
     {#else}
-        <div class="plex-grid">
+        <div class="standard-grid">
             {#for entry in series}
-                <div class="plex-card" 
+                <div class="standard-card" 
                      data-series-title="{entry.rawTitle}"
                      data-sample-video-id="{entry.sampleVideoId}"
                      onclick="window.switchSection('seasons', \{encodedTitle: '{entry.encodedTitle}'\})">
-                    <div class="plex-card-poster">
+                    <div class="standard-card-poster">
                         {#if entry.sampleVideoId}
                             <img class="poster-img" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy">
                         {#else}
@@ -44,16 +44,16 @@
                             </div>
                         {/if}
                     </div>
-                    <div class="plex-card-info">
-                        <div class="plex-card-title">{entry.rawTitle}</div>
-                        <div class="plex-card-meta">Series</div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title">{entry.rawTitle}</div>
+                        <div class="standard-card-meta">Series</div>
                     </div>
                 </div>
             {/for}
         </div>
 
         {#if totalPages > 1}
-        <nav class="plex-pagination mt-6" role="navigation" aria-label="pagination">
+        <nav class="standard-pagination mt-6" role="navigation" aria-label="pagination">
             <div class="is-flex is-align-items-center is-justify-content-center">
                 <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
                    href="javascript:void(0)"

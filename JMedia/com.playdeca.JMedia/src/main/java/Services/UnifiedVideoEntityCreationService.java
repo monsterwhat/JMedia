@@ -98,12 +98,8 @@ public class UnifiedVideoEntityCreationService {
         
         Video persisted = videoService.persist(video);
         
-        // Enrich with IntroDB data
-        try {
-            videoMetadataService.enrichVideoWithIntroData(persisted);
-        } catch (Exception e) {
-            LOG.error("Failed to enrich video with IntroDB data: " + e.getMessage());
-        }
+        // Removed automatic IntroDB enrichment on creation to avoid rate limits on initial scan.
+        // IntroDB data will now be fetched on-demand during playback or via manual "Deep Reload".
         
         // Generate thumbnail
         try {

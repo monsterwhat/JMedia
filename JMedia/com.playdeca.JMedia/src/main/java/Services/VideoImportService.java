@@ -114,7 +114,8 @@ public class VideoImportService {
         String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
         Path rootPath = libPathStr != null ? Paths.get(libPathStr) : filePath.getParent();
         Set<String> existingPaths = loadExistingMediaPaths();
-        return processVideoFile(filePath, rootPath, false, existingPaths);
+        // Set metadataOnly to true so it doesn't skip existing videos
+        return processVideoFile(filePath, rootPath, true, existingPaths);
     }
 
     @Transactional

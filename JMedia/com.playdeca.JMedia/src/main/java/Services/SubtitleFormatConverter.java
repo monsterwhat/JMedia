@@ -10,14 +10,17 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class SubtitleFormatConverter {
     
+    private static final Logger LOGGER = LoggerFactory.getLogger(SubtitleFormatConverter.class);
     private static final Pattern ASS_HEADER_PATTERN = Pattern.compile("^\\[V4\\+? Styles\\+?\\]");
     private static final Pattern ASS_DIALOGUE_PATTERN = Pattern.compile("^Dialogue:");
     private static final Pattern SRT_TIMESTAMP_PATTERN = 
-        Pattern.compile("(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})\\s*-->\\s*(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})");
+        Pattern.compile("(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{1,2})[\\,\\.](\\d{1,3})\\s*-+>\\s*(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{1,2})[\\,\\.](\\d{1,3})");
     
     public String convertToWebVTT(SubtitleTrack track) throws IOException {
         switch (track.format.toLowerCase()) {
@@ -136,50 +139,62 @@ public class SubtitleFormatConverter {
     }
 
     private String convertSRTToWebVTT(SubtitleTrack track) throws IOException {
+        String content = readSubtitleFile(track.fullPath);
+        if (content == null || content.trim().isEmpty()) return "WEBVTT\n\nNOTE Empty file\n";
+
         StringBuilder webVTT = new StringBuilder();
         webVTT.append("WEBVTT\n\n");
-        
-        String content = readSubtitleFile(track.fullPath);
-        if (content == null) return "WEBVTT\n\n";
 
-        // Normalize line endings to \n and remove potential BOM or junk
+        // Normalize line endings and remove BOM
+        content = content.replace("\uFEFF", "");
         content = content.replace("\r\n", "\n").replace("\r", "\n");
-        
-        // Split by double-newline or more (blocks)
-        String[] blocks = content.split("\\n\\s*\\n+");
-        
-        for (String block : blocks) {
-            block = block.trim();
-            if (block.isEmpty()) continue;
+        String[] lines = content.split("\n");
 
-            String[] lines = block.split("\\n");
-            boolean foundTimestamp = false;
-            StringBuilder textBuilder = new StringBuilder();
-            
-            for (String line : lines) {
-                line = line.trim();
-                if (line.isEmpty()) continue;
-                
-                Matcher matcher = SRT_TIMESTAMP_PATTERN.matcher(line);
-                if (matcher.find()) {
-                    String startTime = convertSRTTimeToWebVTT(
-                        matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(4));
-                    String endTime = convertSRTTimeToWebVTT(
-                        matcher.group(5), matcher.group(6), matcher.group(7), matcher.group(8));
-                    
-                    webVTT.append(startTime).append(" --> ").append(endTime).append("\n");
-                    foundTimestamp = true;
-                } else if (foundTimestamp) {
-                    textBuilder.append(line).append("\n");
+        boolean inCue = false;
+        StringBuilder cueText = new StringBuilder();
+
+        for (String line : lines) {
+            line = line.trim();
+            if (line.isEmpty()) {
+                if (inCue) {
+                    webVTT.append(cueText.toString().trim()).append("\n\n");
+                    cueText.setLength(0);
+                    inCue = false;
                 }
+                continue;
             }
-            
-            if (foundTimestamp) {
-                String text = convertSRTFormattingToWebVTT(textBuilder.toString().trim());
-                webVTT.append(text).append("\n\n");
+
+            Matcher matcher = SRT_TIMESTAMP_PATTERN.matcher(line);
+            if (matcher.find()) {
+                if (inCue) {
+                    webVTT.append(cueText.toString().trim()).append("\n\n");
+                    cueText.setLength(0);
+                }
+                
+                String startTime = convertSRTTimeToWebVTT(
+                    matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(4));
+                String endTime = convertSRTTimeToWebVTT(
+                    matcher.group(5), matcher.group(6), matcher.group(7), matcher.group(8));
+                
+                webVTT.append(startTime).append(" --> ").append(endTime).append("\n");
+                inCue = true;
+            } else if (inCue) {
+                cueText.append(convertSRTFormattingToWebVTT(line)).append("\n");
             }
         }
+
+        if (inCue && cueText.length() > 0) {
+            webVTT.append(cueText.toString().trim()).append("\n\n");
+            inCue = false;
+        }
         
+        if (webVTT.toString().trim().equals("WEBVTT")) {
+            webVTT.append("NOTE No subtitle cues were found or parsed from the source file.\n");
+            webVTT.append("NOTE Content length: ").append(content.length()).append("\n");
+            String preview = content.length() > 100 ? content.substring(0, 100) : content;
+            webVTT.append("NOTE Content preview: ").append(preview.replace("\n", " [NL] ")).append("\n");
+        }
+
         return webVTT.toString();
     }
     
@@ -234,10 +249,38 @@ public class SubtitleFormatConverter {
     }
     
     private String readSubtitleFile(String fullPath) throws IOException {
-        // Try UTF-8 first, then other common encodings
         byte[] fileBytes = Files.readAllBytes(Path.of(fullPath));
+        if (fileBytes.length < 4) return "";
+
+        // Check for ZIP magic number (PK..)
+        if (fileBytes[0] == 0x50 && fileBytes[1] == 0x4B && fileBytes[2] == 0x03 && fileBytes[3] == 0x04) {
+            try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new ByteArrayInputStream(fileBytes))) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    if (entry.isDirectory()) continue;
+                    String name = entry.getName().toLowerCase();
+                    if (name.endsWith(".srt") || name.endsWith(".ass") || name.endsWith(".ssa") || name.endsWith(".vtt")) {
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        byte[] buffer = new byte[4096];
+                        int len;
+                        while ((len = zis.read(buffer)) > 0) baos.write(buffer, 0, len);
+                        fileBytes = baos.toByteArray();
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to extract ZIP subtitle: " + e.getMessage());
+            }
+        } 
+        // Check for GZIP magic number
+        else if (fileBytes[0] == (byte)0x1F && fileBytes[1] == (byte)0x8B) {
+            try (java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(new ByteArrayInputStream(fileBytes))) {
+                fileBytes = gzis.readAllBytes();
+            } catch (Exception e) {
+                LOGGER.error("Failed to extract GZIP subtitle: " + e.getMessage());
+            }
+        }
         
-        // Detect encoding by looking for BOM or common patterns
         Charset encoding = detectEncoding(fileBytes);
         return new String(fileBytes, encoding);
     }
@@ -267,11 +310,16 @@ public class SubtitleFormatConverter {
     }
     
     private String convertSRTTimeToWebVTT(String hours, String minutes, String seconds, String milliseconds) {
-        return String.format("%02d:%02d:%02d.%03d",
-            Integer.parseInt(hours),
-            Integer.parseInt(minutes),
-            Integer.parseInt(seconds),
-            Integer.parseInt(milliseconds));
+        int h = (hours == null || hours.isEmpty()) ? 0 : Integer.parseInt(hours);
+        int m = Integer.parseInt(minutes);
+        int s = Integer.parseInt(seconds);
+        
+        // Handle variations in millisecond digits (1-3 digits)
+        int ms = Integer.parseInt(milliseconds);
+        if (milliseconds.length() == 1) ms *= 100;
+        else if (milliseconds.length() == 2) ms *= 10;
+        
+        return String.format("%02d:%02d:%02d.%03d", h, m, s, ms);
     }
     
     private String convertSRTFormattingToWebVTT(String text) {
@@ -375,26 +423,30 @@ public class SubtitleFormatConverter {
     }
     
     private String convertASSTimeToWebVTT(String assTime) {
-        // Convert ASS time format H:MM:SS.cs to WebVTT
+        // Convert ASS time format H:MM:SS.cs to WebVTT H:MM:SS.mmm
         try {
+            assTime = assTime.trim();
             String[] timeParts = assTime.split(":");
-            if (timeParts.length != 3) return "";
+            if (timeParts.length != 3) return "00:00:00.000";
             
-            String hours = timeParts[0];
-            String[] minutesParts = timeParts[1].split("\\.");
-            String minutes = minutesParts[0];
-            String[] secondsParts = minutesParts[1].split(",");
-            String seconds = secondsParts[0];
-            String centiseconds = secondsParts[1];
+            int hours = Integer.parseInt(timeParts[0]);
+            int minutes = Integer.parseInt(timeParts[1]);
             
-            return String.format("%02d:%02d:%02d.%03d",
-                Integer.parseInt(hours),
-                Integer.parseInt(minutes),
-                Integer.parseInt(seconds),
-                Integer.parseInt(centiseconds));
-                
+            String[] secondsParts = timeParts[2].split("\\.");
+            int seconds = Integer.parseInt(secondsParts[0]);
+            
+            // cs is centiseconds (1/100), WebVTT wants milliseconds (1/1000)
+            int ms = 0;
+            if (secondsParts.length > 1) {
+                String csStr = secondsParts[1];
+                if (csStr.length() == 1) ms = Integer.parseInt(csStr) * 100;
+                else if (csStr.length() == 2) ms = Integer.parseInt(csStr) * 10;
+                else if (csStr.length() >= 3) ms = Integer.parseInt(csStr.substring(0, 3));
+            }
+            
+            return String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, ms);
         } catch (Exception e) {
-            return "";
+            return "00:00:00.000";
         }
     }
     

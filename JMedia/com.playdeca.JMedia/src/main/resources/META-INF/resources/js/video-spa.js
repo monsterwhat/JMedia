@@ -30,10 +30,19 @@ class VideoSPA {
     }
 
     async switchSection(section, params = {}, bypassHistory = false) {
+        console.log(`[VideoSPA] Switching to section: ${section}`, params);
         this.showLoading();
         
         if (!bypassHistory) {
-            this.backDestination = null;
+            // Save current state as back destination before moving to playback or details
+            if (section === 'playback' || section === 'details' || section === 'episodes' || section === 'seasons') {
+                 if (this.currentSection !== section) {
+                     this.backDestination = { section: this.currentSection, params: { ...this.currentParams } };
+                     console.log('[VideoSPA] Saved back destination:', this.backDestination);
+                 }
+            } else {
+                this.backDestination = null;
+            }
         }
         
         if (section === 'home') {
@@ -61,11 +70,35 @@ class VideoSPA {
     }
     
     goBack() {
+        console.log('[VideoSPA] goBack called. Saved Destination:', this.backDestination);
+        
         if (this.backDestination) {
             const dest = this.backDestination;
             this.backDestination = null;
             this.switchSection(dest.section, dest.params || {}, true);
             return;
+        }
+        
+        // Fallback: Check if we are in the player and can infer destination from metadata
+        const player = document.getElementById('customPlayer');
+        if (player) {
+            const type = (player.getAttribute('data-type') || '').toLowerCase();
+            const seriesTitle = player.getAttribute('data-series-title');
+            const seasonNumber = player.getAttribute('data-season-number');
+            const videoId = player.getAttribute('data-video-id');
+
+            if (type === 'episode' && seriesTitle) {
+                console.log('[VideoSPA] Inferring back to episodes list');
+                this.switchSection('episodes', { 
+                    seriesTitle: seriesTitle, 
+                    seasonNumber: seasonNumber || 1 
+                }, true);
+                return;
+            } else if (videoId) {
+                console.log('[VideoSPA] Inferring back to details page');
+                this.switchSection('details', { videoId: videoId }, true);
+                return;
+            }
         }
         
         if (window.history.length > 1) {
@@ -181,6 +214,22 @@ class VideoSPA {
     updateContent(html) {
         const contentDiv = document.getElementById('spa-content');
         if (contentDiv) {
+            // Preservation of global modals that might have been moved into the content (e.g. by SimplePlayer for fullscreen)
+            ['subtitleManagementModal', 'editVideoModal'].forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal) {
+                    // Close modal when switching sections
+                    modal.classList.remove('is-active');
+                    
+                    // Move it to body to ensure it's outside of any content being replaced
+                    // This is a safety measure in case it was appended to the player or another temporary container
+                    if (document.body !== modal.parentElement) {
+                        console.log(`[VideoSPA] Moving global modal back to body: ${id}`);
+                        document.body.appendChild(modal);
+                    }
+                }
+            });
+
             contentDiv.innerHTML = html;
             if (window.htmx) {
                 htmx.process(contentDiv);
@@ -219,7 +268,7 @@ class VideoSPA {
     }
 
     toggleSidebar() {
-        const layout = document.getElementById('plex-layout');
+        const layout = document.getElementById('standard-layout');
         if (layout) {
             layout.classList.toggle('collapsed');
             localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
@@ -248,7 +297,7 @@ class VideoSPA {
             const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
             const json = await res.json();
             if (res.ok && json.data) {
-                const layout = document.getElementById('plex-layout');
+                const layout = document.getElementById('standard-layout');
                 if (layout) {
                     if (json.data === 'right') {
                         layout.classList.add('sidebar-right');
@@ -264,7 +313,7 @@ class VideoSPA {
     
     init() {
         if (localStorage.getItem('sidebarCollapsed') === 'true') {
-             const layout = document.getElementById('plex-layout');
+             const layout = document.getElementById('standard-layout');
              if(layout) layout.classList.add('collapsed');
         }
         

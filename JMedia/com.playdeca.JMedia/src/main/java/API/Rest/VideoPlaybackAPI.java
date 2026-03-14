@@ -23,6 +23,15 @@ public class VideoPlaybackAPI {
 
     @Inject
     private VideoStateService videoStateService;
+    
+    @Inject
+    Services.VideoService videoService;
+    
+    @Inject
+    Services.VideoMetadataService videoMetadataService;
+    
+    @Inject
+    org.eclipse.microprofile.context.ManagedExecutor executor;
 
     @POST
     @Path("/toggle")
@@ -44,6 +53,31 @@ public class VideoPlaybackAPI {
         try {
             videoController.selectVideo(videoId);
             videoController.togglePlay(); // Ensure playing
+            
+            // Check if we need to enrich with IntroDB data on-demand
+            executor.submit(() -> {
+                io.quarkus.arc.ManagedContext requestContext = io.quarkus.arc.Arc.container().requestContext();
+                if (!requestContext.isActive()) {
+                    requestContext.activate();
+                }
+                try {
+                    Models.Video video = Models.Video.findById(videoId);
+                    if (video != null && "episode".equalsIgnoreCase(video.type)) {
+                        // If intro data is missing, try to fetch it now
+                        if (video.introStart == null) {
+                            System.out.println("Triggering on-demand IntroDB fetch for video: " + video.title);
+                            videoMetadataService.enrichVideoWithIntroData(video);
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error in on-demand IntroDB fetch: " + e.getMessage());
+                } finally {
+                    if (requestContext.isActive()) {
+                        requestContext.deactivate();
+                    }
+                }
+            });
+            
             return Response.ok("{\"success\":true,\"message\":\"Video playing\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -165,14 +199,24 @@ public class VideoPlaybackAPI {
                 // Also update the specific video record for individual resume logic
                 Models.Video video = Models.Video.findById(videoId);
                 if (video != null) {
+                    // Probe duration if missing
+                    if (video.duration == null || video.duration <= 0) {
+                        videoService.probeVideoDuration(video);
+                    }
+
                     video.lastWatched = java.time.LocalDateTime.now();
                     video.resumeTime = (long) (seconds * 1000); // Store in milliseconds
-                    if (video.duration != null && video.duration > 0) {
-                        video.watchProgress = seconds / (video.duration / 1000.0);
-                        if (video.watchProgress > 0.98) {
-                            video.watched = true;
-                            video.watchProgress = 1.0;
-                        }
+                    
+                    double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
+                    double progressRatio = (durationSeconds > 0) ? Math.min(1.0, seconds / durationSeconds) : 0;
+                    
+                    video.watchProgress = progressRatio;
+                    // Mark as watched if over 95% complete
+                    if (progressRatio >= 0.95) {
+                        video.watched = true;
+                        video.watchProgress = 1.0;
+                    } else {
+                        video.watched = false;
                     }
                     video.persist();
                 }

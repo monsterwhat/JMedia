@@ -42,9 +42,80 @@ class SimplePlayer {
             recapStart: parseFloat(this.container.dataset.recapStart || 0),
             recapEnd: parseFloat(this.container.dataset.recapEnd || 0)
         };
+        
+        console.log('[SimplePlayer] Loaded Markers:', this.markers);
 
+        // If markers are missing, try to refresh them once after a short delay (for on-demand enrichment)
+        if (this.markers.introEnd === 0 && this.markers.outroStart === 0 && this.markers.recapEnd === 0) {
+            console.log('[SimplePlayer] Markers missing, scheduling a refresh in 5 seconds...');
+            setTimeout(() => this.refreshMarkers(), 5000);
+        }
+        
         window.currentPlayerInstance = this;
+        // Compatibility with existing subtitle components (subtitleTrackSelector, etc)
+        window.player = this;
+
         this.init();
+    }
+
+    // Compatibility methods for other components (subtitleTrackSelector, etc)
+    textTracks() {
+        return this.video.textTracks;
+    }
+
+    updateSubtitleUI() {
+        console.log('[SimplePlayer] updateSubtitleUI called');
+        // This is a placeholder for components that expect this method
+    }
+
+    addRemoteTextTrack(trackObj, manualActivation = true) {
+        console.log('[SimplePlayer] Adding remote text track:', trackObj);
+
+        const trackEl = document.createElement('track');
+        trackEl.kind = trackObj.kind || 'subtitles';
+        trackEl.label = trackObj.label;
+        trackEl.srclang = trackObj.language;
+        trackEl.src = trackObj.src;
+        trackEl.default = trackObj.default || false;
+
+        this.video.appendChild(trackEl);
+
+        if (manualActivation) {
+            trackEl.onload = () => {
+                // Give some browsers more time to register the track object
+                setTimeout(() => {
+                    if (trackEl.track) trackEl.track.mode = 'showing';
+                    this.updateSubtitleUI(); // Refresh UI to show the new track
+                }, 100);
+            };
+            // Fallback for immediate activation attempt
+            if (trackEl.track) {
+                setTimeout(() => { trackEl.track.mode = 'showing'; }, 100);
+            }
+        }
+
+        return trackEl;
+    }
+
+    async refreshMarkers() {
+        console.log('[SimplePlayer] Refreshing markers from server...');
+        try {
+            const res = await fetch(`/api/video/${this.videoId}`);
+            const json = await res.json();
+            // VideoAPI returns ApiResponse { success: true, data: video }
+            if (json && json.success && json.data) {
+                const video = json.data;
+                this.markers.introStart = parseFloat(video.introStart || 0);
+                this.markers.introEnd = parseFloat(video.introEnd || 0);
+                this.markers.outroStart = parseFloat(video.outroStart || 0);
+                this.markers.outroEnd = parseFloat(video.outroEnd || 0);
+                this.markers.recapStart = parseFloat(video.recapStart || 0);
+                this.markers.recapEnd = parseFloat(video.recapEnd || 0);
+                console.log('[SimplePlayer] Markers updated from server:', this.markers);
+            }
+        } catch (e) {
+            console.error('[SimplePlayer] Failed to refresh markers:', e);
+        }
     }
 
     init() {
@@ -124,12 +195,22 @@ class SimplePlayer {
         const old = this.container.querySelectorAll('.controls-container, .media-info, .big-play-btn, .subtitle-menu, .buffering-overlay');
         old.forEach(el => el.remove());
 
-        const isEpisode = (this.container.dataset.type === 'Episode' || this.container.dataset.type === 'episode');
-        const hasNext = (this.container.dataset.nextId && this.container.dataset.nextId !== 'null');
+        const type = (this.container.dataset.type || '').toLowerCase();
+        const isEpisode = type === 'episode';
+        const nextId = this.container.dataset.nextId;
+        const hasNext = (nextId && nextId !== 'null' && nextId !== '');
+
+        console.log('[SimplePlayer] buildUI Metadata:', { type, isEpisode, nextId, hasNext });
 
         const uiHTML = `
             <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
             <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
+
+            <div class="skip-recap-container" id="skipRecapBtn" style="display: none;">
+                <button class="button is-info is-rounded">
+                    <i class="pi pi-history mr-2"></i> Skip Recap
+                </button>
+            </div>
 
             <div class="skip-intro-container" id="skipIntroBtn" style="display: none;">
                 <button class="button is-info is-rounded">
@@ -145,11 +226,19 @@ class SimplePlayer {
 
             <div class="media-info">
                 <div class="back-button-container">
-                    <button class="back-btn" id="videoBackBtn" title="Go Back">
+                    <button class="back-btn" id="videoBackBtn" title="Go Back" onclick="if(window.currentPlayerInstance) window.currentPlayerInstance.goBack();"
+                            data-type="${this.container.dataset.type || ''}"
+                            data-video-id="${this.videoId}"
+                            data-series-title="${this.container.dataset.seriesTitle || ''}"
+                            data-season-number="${this.container.dataset.seasonNumber || 1}">
                         <i class="pi pi-arrow-left"></i>
                     </button>
                 </div>
-                <div class="info-title" id="videoTitleLink" style="cursor: pointer;" title="View Details">${this.container.dataset.title || 'Video'}</div>
+                <div class="info-title" id="videoTitleLink" style="cursor: pointer;" title="View Details" onclick="if(window.currentPlayerInstance) window.currentPlayerInstance.goToDetails();"
+                     data-type="${this.container.dataset.type || ''}"
+                     data-video-id="${this.videoId}"
+                     data-series-title="${this.container.dataset.seriesTitle || ''}"
+                     data-season-number="${this.container.dataset.seasonNumber || 1}">${this.container.dataset.title || 'Video'}</div>
                 ${this.container.dataset.meta ? `<div class="info-meta" style="font-size: 0.9rem; color: rgba(255,255,255,0.7); margin-left: 10px; margin-top: 4px;">${this.container.dataset.meta}</div>` : ''}
             </div>
 
@@ -249,6 +338,7 @@ class SimplePlayer {
 
         this.skipIntroBtn = this.container.querySelector('#skipIntroBtn');
         this.skipOutroBtn = this.container.querySelector('#skipOutroBtn');
+        this.skipRecapBtn = this.container.querySelector('#skipRecapBtn');
 
         this.subOffset = 0;
 
@@ -274,6 +364,18 @@ class SimplePlayer {
             };
         }
 
+        if (this.skipRecapBtn) {
+            this.skipRecapBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (this.markers.recapEnd > 0) {
+                    const isMKV = (this.container.dataset.path || '').toLowerCase().endsWith('.mkv');
+                    if (isMKV) this.performServerSeek(this.markers.recapEnd);
+                    else this.video.currentTime = this.markers.recapEnd;
+                    this.skipRecapBtn.style.display = 'none';
+                }
+            };
+        }
+
         if (this.skipOutroBtn) {
             this.skipOutroBtn.onclick = (e) => {
                 e.stopPropagation();
@@ -283,7 +385,7 @@ class SimplePlayer {
                     else this.video.currentTime = this.markers.outroEnd;
                     this.skipOutroBtn.style.display = 'none';
                 } else {
-                    // If no outro end, just go to next or end
+                    // If no outro end, just go to next episode or end
                     this.playNextEpisode();
                 }
             };
@@ -350,18 +452,43 @@ class SimplePlayer {
             this.progressBar.style.width = Math.min(100, pct) + '%';
             this.timeCurrent.innerText = this.formatTime(displayTime);
 
+            // Recap Skip logic
+            if (this.markers.recapEnd > 0 && displayTime >= this.markers.recapStart && displayTime < this.markers.recapEnd) {
+                if (this.skipRecapBtn.style.display !== 'block') {
+                    console.log('[SimplePlayer] Showing Skip Recap');
+                    this.skipRecapBtn.style.display = 'block';
+                }
+            } else {
+                this.skipRecapBtn.style.display = 'none';
+            }
+
             // Intro Skip logic: show if within intro markers
             if (this.markers.introEnd > 0 && displayTime >= this.markers.introStart && displayTime < this.markers.introEnd) {
-                this.skipIntroBtn.style.display = 'block';
+                if (this.skipIntroBtn.style.display !== 'block') {
+                    console.log('[SimplePlayer] Showing Skip Intro');
+                    this.skipIntroBtn.style.display = 'block';
+                }
             } else {
                 this.skipIntroBtn.style.display = 'none';
             }
 
-            // Outro Skip logic: show if approaching outro (starting 10s before)
-            if (this.markers.outroStart > 0 && displayTime >= (this.markers.outroStart - 10) && displayTime < this.markers.outroStart) {
-                this.skipOutroBtn.style.display = 'block';
+            // Outro Skip logic: show if during credits (outroStart onwards)
+            if (this.markers.outroStart > 0 && displayTime >= this.markers.outroStart) {
+                // If there's an outroEnd, only show until then. Otherwise show until end.
+                if (this.markers.outroEnd > 0 && displayTime >= this.markers.outroEnd) {
+                    if (this.skipOutroBtn.style.display !== 'none') {
+                        this.skipOutroBtn.style.display = 'none';
+                    }
+                } else {
+                    if (this.skipOutroBtn.style.display !== 'block') {
+                        console.log('[SimplePlayer] Showing Skip Outro');
+                        this.skipOutroBtn.style.display = 'block';
+                    }
+                }
             } else {
-                this.skipOutroBtn.style.display = 'none';
+                if (this.skipOutroBtn.style.display !== 'none') {
+                    this.skipOutroBtn.style.display = 'none';
+                }
             }
         };
 
@@ -392,7 +519,7 @@ class SimplePlayer {
         this.bigPlay.onclick = (e) => { e.stopPropagation(); toggle(); };
         
         this.container.onclick = (e) => {
-            if (e.target.closest('.controls-container') || e.target.closest('.subtitle-menu')) return;
+            if (e.target.closest('.controls-container') || e.target.closest('.subtitle-menu') || e.target.closest('.modal')) return;
             toggle();
         };
 
@@ -713,8 +840,16 @@ class SimplePlayer {
         }
         this.subtitleMenu.classList.remove('active');
 
-        const old = this.video.querySelectorAll('track');
-        old.forEach(t => t.remove());
+        // Clear any existing tracks from the DOM and ensure they are disabled in the video element
+        const oldTracks = this.video.querySelectorAll('track');
+        oldTracks.forEach(t => t.remove());
+        
+        // Also clear from the textTracks list (some browsers keep them around)
+        if (this.video.textTracks) {
+            for (let i = 0; i < this.video.textTracks.length; i++) {
+                this.video.textTracks[i].mode = 'disabled';
+            }
+        }
 
         if (trackId === 'off' || !trackId) {
             this.lastSelectedTrackId = 'off';
@@ -725,10 +860,10 @@ class SimplePlayer {
         this.lastSelectedTrackId = trackId;
         localStorage.setItem('jmedia_last_track_' + this.videoId, trackId);
 
-        const track = document.createElement('track');
-        track.kind = 'subtitles';
-        track.label = element ? element.innerText : 'Subtitle';
-        track.srclang = 'en';
+        const trackEl = document.createElement('track');
+        trackEl.kind = 'subtitles';
+        trackEl.label = element ? element.innerText : 'Subtitle';
+        trackEl.srclang = 'en';
         
         // Correct endpoint is /track/, and we MUST pass the start offset for sync (especially for MKV)
         let src = `/api/video/subtitles/track/${trackId}`;
@@ -736,15 +871,46 @@ class SimplePlayer {
             src += `?start=${this.streamStartOffset}`;
         }
         
-        track.src = src;
-        track.default = true;
-        this.video.appendChild(track);
-        
-        // Ensure the track is actually showing
-        if (this.video.textTracks && this.video.textTracks.length > 0) {
-            this.video.textTracks[0].mode = 'showing';
-        }
-    }
+        trackEl.src = src;
+        trackEl.default = true;
+
+        console.log(`[SimplePlayer] Appending track: ${trackEl.label} with src: ${src}`);
+        this.video.appendChild(trackEl);
+
+        // Force browser to recognize the new track
+        trackEl.onload = () => {
+            console.log(`[SimplePlayer] Track loaded: ${trackEl.label}`);
+            setTimeout(() => {
+                if (trackEl.track) {
+                    trackEl.track.mode = 'showing';
+                    console.log(`[SimplePlayer] Track mode set to showing (onload)`);
+                }
+            }, 100);
+        };
+
+        trackEl.onerror = (e) => {
+            console.error(`[SimplePlayer] Failed to load subtitle track: ${src}`, e);
+        };
+
+        // Fallback for browsers that don't trigger onload for tracks reliably
+        setTimeout(() => {
+            if (trackEl.track && trackEl.track.mode !== 'showing') {
+                trackEl.track.mode = 'showing';
+                console.log(`[SimplePlayer] Track mode set to showing (timeout fallback)`);
+            }
+        }, 500);
+
+        // Also check all textTracks to be sure
+        setTimeout(() => {
+            const tracks = this.video.textTracks;
+            for (let i = 0; i < tracks.length; i++) {
+                if (tracks[i].label === trackEl.label) {
+                    tracks[i].mode = 'showing';
+                } else {
+                    tracks[i].mode = 'disabled';
+                }
+            }
+        }, 1000);    }
 
     adjustSubtitleOffset(seconds, reset = false) {
         if (reset) this.subOffset = 0;
@@ -793,15 +959,26 @@ class SimplePlayer {
     }
 
     loadStoryboard() {
+        if (!this.videoId) return;
         const url = `/api/video/storyboard/${this.videoId}/metadata`;
         fetch(url)
             .then(res => res.ok ? res.json() : null)
             .then(data => {
                 if (data && data.success) {
                     this.storyboard.metadata = data.data;
-                    this.storyboard.loaded = true;
-                    console.log('[SimplePlayer] Storyboard metadata loaded');
+                    if (data.data.isReady) {
+                        this.storyboard.loaded = true;
+                        console.log('[SimplePlayer] Storyboard metadata and image ready');
+                    } else {
+                        console.log('[SimplePlayer] Storyboard still generating, retrying in 5s...');
+                        setTimeout(() => this.loadStoryboard(), 5000);
+                    }
                 }
+            })
+            .catch(err => {
+                console.error('[SimplePlayer] Error loading storyboard metadata:', err);
+                // Retry on network error too
+                setTimeout(() => this.loadStoryboard(), 10000);
             });
     }
 
@@ -834,22 +1011,36 @@ class SimplePlayer {
         fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST' });
     }
 
+    async reportProgressInternal(time) {
+        fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST' });
+    }
+
     async playNextEpisode() {
         const nextId = this.container.dataset.nextId;
         if (nextId && nextId !== 'null') {
-            window.location.href = `/video/play/${nextId}`;
+            if (window.videoSPA) {
+                window.videoSPA.playVideo(nextId);
+            } else {
+                window.location.href = `/video?section=playback&videoId=${nextId}`;
+            }
         }
     }
 
     async playPreviousEpisode() {
         const prevId = this.container.dataset.prevId;
         if (prevId && prevId !== 'null') {
-            window.location.href = `/video/play/${prevId}`;
+            if (window.videoSPA) {
+                window.videoSPA.playVideo(prevId);
+            } else {
+                window.location.href = `/video?section=playback&videoId=${prevId}`;
+            }
         }
     }
 
     async goBack() {
-        if (window.app) {
+        if (window.videoSPA) {
+            window.videoSPA.goBack();
+        } else if (window.app) {
             window.app.navigate('/video');
         } else {
             window.location.href = '/video';
@@ -857,13 +1048,14 @@ class SimplePlayer {
     }
 
     async goToDetails() {
-        if (window.app) {
-             const type = (this.container.dataset.type || 'Movie').toLowerCase();
-             const id = this.videoId;
-             window.app.navigate(`/video?section=details&type=${type}&id=${id}`);
+        if (window.videoSPA) {
+            const player = this.container || document.getElementById('customPlayer');
+            const videoId = player ? (player.getAttribute('data-video-id') || this.videoId) : this.videoId;
+            window.videoSPA.switchSection('details', { videoId: videoId });
+        } else if (window.app) {
+            window.app.navigate('/video');
         } else {
-            const type = (this.container.dataset.type || 'Movie').toLowerCase();
-            window.location.href = `/video?section=details&type=${type}&id=${this.videoId}`;
+            window.location.href = '/video';
         }
     }
 

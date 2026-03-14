@@ -41,7 +41,7 @@
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
                     <img src="/api/video/thumbnail/{show.representativeId}" style="width: 100%; height: 100%; object-fit: cover;">
-                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--plex-accent); border: 1px solid var(--plex-accent);">
+                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--standard-accent); border: 1px solid var(--standard-accent);">
                         SHOW
                     </div>
                 </div>
@@ -51,7 +51,7 @@
                         {show.seriesTitle}
                     </h3>
                     
-                    <p class="is-size-7" style="color: var(--plex-accent); margin-bottom: 4px;">
+                    <p class="is-size-7" style="color: var(--standard-accent); margin-bottom: 4px;">
                         <i class="pi pi-desktop mr-1"></i> {show.episodeCount} Episodes
                         <span class="has-text-grey-light ml-2">{show.seasonCount} Seasons</span>
                     </p>
@@ -67,7 +67,7 @@
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
                     <img src="/api/video/thumbnail/{video.id}" style="width: 100%; height: 100%; object-fit: cover;">
-                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--plex-accent); border: 1px solid var(--plex-accent);">
+                    <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--standard-accent); border: 1px solid var(--standard-accent);">
                         {video.type.toUpperCase()}
                     </div>
                     <div class="card-actions-overlay" style="position: absolute; top: 0; right: 0; padding: 8px; display: flex; gap: 8px;">
@@ -83,7 +83,7 @@
                     </h3>
                     
                     {#if video.type == 'episode'}
-                    <p class="is-size-7" style="color: var(--plex-accent); margin-bottom: 4px;">
+                    <p class="is-size-7" style="color: var(--standard-accent); margin-bottom: 4px;">
                         <i class="pi pi-desktop mr-1"></i> {video.seriesTitle ?: 'Unknown Series'}
                         <span class="has-text-grey-light ml-2">S{video.seasonNumber ?: 0} E{video.episodeNumber ?: 0}</span>
                     </p>
@@ -118,7 +118,7 @@
         </header>
         <section class="modal-card-body" id="editModalBody" style="background: #1a1a1a; color: white;">
             <div class="is-flex is-justify-content-center p-6">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--plex-accent);"></i>
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
             </div>
         </section>
     </div>
@@ -128,7 +128,7 @@
     .manage-grid-card:hover {
         transform: translateY(-5px);
         background: rgba(255,255,255,0.08) !important;
-        border-color: var(--plex-accent) !important;
+        border-color: var(--standard-accent) !important;
         box-shadow: 0 10px 20px rgba(0,0,0,0.3);
     }
 </style>

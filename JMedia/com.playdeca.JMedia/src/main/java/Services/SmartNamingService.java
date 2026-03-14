@@ -222,15 +222,26 @@ public class SmartNamingService {
     private EpisodeDetection detectEpisodeInfo(String filename, PathAnalysis pathAnalysis) {
         EpisodeDetection detection = new EpisodeDetection();
 
-        // 1. S01E01 Pattern
-        Pattern s01e01 = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
+        // 1. S01E01 Pattern - Enhanced to capture show name prefix
+        Pattern s01e01 = Pattern.compile("(?i)(.*?)[\\s\\._-]*[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
         Matcher m1 = s01e01.matcher(filename);
         if (m1.matches()) {
+            String prefix = m1.group(1).trim();
             detection.season = Integer.parseInt(m1.group(2));
             detection.episode = Integer.parseInt(m1.group(3));
             String hint = m1.group(4).trim();
-            // Remove extension from hint
-            detection.titleHint = hint.replaceFirst("\\.[^.]+$", "");
+            
+            if (!prefix.isEmpty()) {
+                detection.showNameHint = cleanShowName(prefix);
+            }
+            
+            // Remove extension and common technical tags from hint
+            String hintClean = hint.replaceFirst("\\.[^.]+$", "");
+            if (hintClean.matches("(?i)^[\\s\\._-]*(720p|1080p|2160p|4k|nf|webrip|x264|x265|hevc|galaxytg|galaxyty|hdtv|bluray).*")) {
+                detection.titleHint = null;
+            } else {
+                detection.titleHint = hintClean.trim();
+            }
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SxxExx";
             detection.confidence = 0.9;
@@ -239,8 +250,8 @@ public class SmartNamingService {
 
         // 2. 1x01 Pattern (Ensure it doesn't match years like 1993)
         // We look for numbers separated by x that are small (usually < 50 for season, < 100 for episode)
-        Pattern simpleX = Pattern.compile("(?i)(.*?)(\\b[0-3]?\\d)[x×]([0-1]?\\d{1,2}\\b)(.*)");
-        Matcher m2 = simpleX.matcher(filename);
+        Pattern simstandard = Pattern.compile("(?i)(.*?)(\\b[0-3]?\\d)[x×]([0-1]?\\d{1,2}\\b)(.*)");
+        Matcher m2 = simstandard.matcher(filename);
         if (m2.matches()) {
             detection.season = Integer.parseInt(m2.group(2));
             detection.episode = Integer.parseInt(m2.group(3));
@@ -387,6 +398,11 @@ public class SmartNamingService {
     private String extractShowName(String rawShowName, String filename, PathAnalysis pathAnalysis, 
                                   EpisodeDetection episodeDetection, String relativePath) {
         
+        // 0. Use hint from episode detection (filename prefix) if high confidence
+        if (episodeDetection.showNameHint != null && !episodeDetection.showNameHint.equals("Unknown Show")) {
+            return episodeDetection.showNameHint;
+        }
+
         // 1. STRONGEST HINT: If we know where the "TV Shows" folder is, the next folder is usually the show name
         if ("episode".equals(pathAnalysis.directoryTypeHint) && pathAnalysis.libraryRootIndex != -1) {
             Path path = Paths.get(relativePath);
@@ -799,6 +815,7 @@ public class SmartNamingService {
         public Integer season;
         public Integer episode;
         public String titleHint;
+        public String showNameHint;
         public boolean hasEpisodePattern;
         public boolean hasSeasonFolder;
         public String detectionMethod;

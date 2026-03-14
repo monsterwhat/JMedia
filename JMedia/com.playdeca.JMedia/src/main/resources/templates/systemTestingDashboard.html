@@ -336,7 +336,7 @@ async function testDatabasePerformance() {
         const tests = [
             fetch('/api/video/genres'), // Simple query
             fetch('/api/video/genre/action?limit=10'), // Query with parameters
-            fetch('/api/video/carousels/genre') // Complex join query
+            fetch('/api/video/carousels/genre') // Comstandard join query
         ];
         
         const promises = tests.map(test => test);

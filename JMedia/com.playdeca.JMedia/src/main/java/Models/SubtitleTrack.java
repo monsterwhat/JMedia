@@ -41,6 +41,7 @@ public class SubtitleTrack extends PanacheEntity {
     // Relationships
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "video_id")
+    @com.fasterxml.jackson.annotation.JsonIgnore
     public Video video;
     
     // User Preferences

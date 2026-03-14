@@ -20,7 +20,7 @@
 
         <div class="series-info-overlay">
             <div class="series-meta-overlay">
-                <span class="tag is-info" style="background: var(--plex-accent); color: white; font-weight: bold; padding: 0.5rem 1rem; height: auto; border-radius: 8px;">{seasons.size()} SEASONS</span>
+                <span class="tag is-info" style="background: var(--standard-accent); color: white; font-weight: bold; padding: 0.5rem 1rem; height: auto; border-radius: 8px;">{seasons.size()} SEASONS</span>
                 {#if sampleVideo && sampleVideo.releaseYear}
                     <span class="ml-4" style="font-weight: 600; font-size: 1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.8); color: rgba(255,255,255,0.7);">{sampleVideo.releaseYear}</span>
                 {/if}
@@ -37,14 +37,14 @@
         <p>We couldn't find any seasons for this show.</p>
     </div>
 {#else}
-    <div class="plex-grid" style="padding: 0 1rem;">
+    <div class="standard-grid" style="padding: 0 1rem;">
         {#for season in seasons}
-            <div class="plex-card" 
+            <div class="standard-card" 
                  data-series-title="{seriesTitle}"
                  data-season-number="{season.seasonNumber}"
                  data-sample-video-id="{season.sampleVideoId}"
                  onclick="window.switchSection('episodes', \{seriesTitle: '{encodedSeriesTitle}', seasonNumber: {season.seasonNumber}\})">
-                <div class="plex-card-poster">
+                <div class="standard-card-poster">
                     {#if season.sampleVideoId}
                         <img class="poster-img" src="/api/video/thumbnail/{season.sampleVideoId}" alt="Season {season.seasonNumber}" loading="lazy">
                     {#else}
@@ -53,9 +53,9 @@
                         </div>
                     {/if}
                 </div>
-                <div class="plex-card-info">
-                    <div class="plex-card-title">Season {season.seasonNumber}</div>
-                    <div class="plex-card-meta">Season</div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">Season {season.seasonNumber}</div>
+                    <div class="standard-card-meta">Season</div>
                 </div>
             </div>
         {/for}

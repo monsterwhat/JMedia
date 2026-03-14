@@ -231,7 +231,16 @@ class VideoContextMenu {
     async reloadMetadata() {
         try {
             this.showNotification('Reloading metadata...', 'info');
-            const response = await fetch(`/api/video/metadata/${this.currentVideoId}/reload`, {
+            
+            let url = `/api/video/metadata/${this.currentVideoId}/reload`;
+            
+            if (this.currentVideoData.type === 'Show' || this.currentVideoData.type === 'Series') {
+                url = `/api/video/metadata/series/${encodeURIComponent(this.currentVideoData.title)}/reload`;
+            } else if (this.currentVideoData.type === 'Season') {
+                url = `/api/video/metadata/series/${encodeURIComponent(this.currentVideoData.seriesTitle)}/season/${this.currentVideoData.seasonNumber}/reload`;
+            }
+
+            const response = await fetch(url, {
                 method: 'POST'
             });
             
@@ -340,7 +349,7 @@ class VideoContextMenu {
 function addContextMenuHandlers() {
     // Target all common video card classes
     const cardSelectors = [
-        '.plex-card',
+        '.standard-card',
         '.streaming-card',
         '.episode-entry',
         '.content-card',
@@ -379,7 +388,7 @@ function extractVideoData(el) {
         // 1. Check data attributes (most reliable)
         const data = {
             id: target.dataset.videoId || target.dataset.sampleVideoId,
-            title: target.dataset.title || target.dataset.seriesTitle || target.querySelector('.plex-card-title, .card-title, .episode-title-text')?.textContent.trim() || target.textContent.trim(),
+            title: target.dataset.title || target.dataset.seriesTitle || target.querySelector('.standard-card-title, .card-title, .episode-title-text')?.textContent.trim() || target.textContent.trim(),
             type: target.dataset.type || (target.classList.contains('episode-entry') ? 'Episode' : 'Video')
         };
 

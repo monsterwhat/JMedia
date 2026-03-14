@@ -10,25 +10,25 @@
         <p>Your watch history will appear here.</p>
     </div>
 {#else}
-    <div class="plex-grid">
+    <div class="standard-grid">
         {#for video in videos}
-            <div class="plex-card" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'details')">
-                <div class="plex-card-poster">
+            <div class="standard-card" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'details')">
+                <div class="standard-card-poster">
                     <img class="poster-img" src="/api/video/thumbnail/{video.id}" alt="{video.title}" loading="lazy">
-                    <div class="plex-card-overlay">
-                        <div class="plex-play-btn" onclick="event.stopPropagation(); window.selectItem({video.id}, 'play')">
+                    <div class="standard-card-overlay">
+                        <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({video.id}, 'play')">
                             <i class="pi pi-play"></i>
                         </div>
                     </div>
                     {#if video.watchProgress and video.watchProgress > 0 and video.watchProgress < threshold}
                     <div class="progress-container" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.2);">
-                        <div class="progress-bar" style="width: {video.watchProgressPercent}%; height: 100%; background: var(--plex-accent);"></div>
+                        <div class="progress-bar" style="width: {video.watchProgressPercent}%; height: 100%; background: var(--standard-accent);"></div>
                     </div>
                     {/if}
                 </div>
-                <div class="plex-card-info">
-                    <div class="plex-card-title">{video.title ?: video.seriesTitle}</div>
-                    <div class="plex-card-meta">
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{video.title ?: video.seriesTitle}</div>
+                    <div class="standard-card-meta">
                         {#if video.type == 'episode'}
                             S{video.seasonNumber}E{video.episodeNumber}
                         {#else}

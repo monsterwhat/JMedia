@@ -1,7 +1,7 @@
-<header class="plex-header">
+<header class="standard-header">
     <div class="search-container">
         <div class="control has-icons-left">
-            <input class="input is-rounded plex-search" type="text" placeholder="Search songs..." name="search" id="globalSearchInput"
+            <input class="input is-rounded standard-search" type="text" placeholder="Search songs..." name="search" id="globalSearchInput"
                    hx-get="/api/music/ui/search-results/{profileId}"
                    hx-trigger="keyup changed delay:500ms, search"
                    hx-target="#searchResultsContainer"
@@ -26,7 +26,7 @@
     </div>
 </header>
 
-<main class="plex-content">
+<main class="standard-content">
     <div class="import-main-wrapper" style="padding: 1.5rem; max-height: calc(100vh - 180px); overflow-y: auto;">
         <div class="glass-box" style="padding: 1.5rem;">
             <h2 class="title is-4 mb-4">Import Interface</h2>
