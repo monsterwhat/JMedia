@@ -208,7 +208,6 @@ body {
     grid-template-columns: repeat(auto-fill, 160px);
     justify-content: center;
     gap: 2rem;
-    padding: 2rem 0 0 0;
     list-style: none;
     margin: 0;
 }
@@ -2310,7 +2309,7 @@ input[type="range"]::-webkit-slider-thumb {
     .standard-sidebar {
         position: absolute;
         height: 100%;
-        width: 72px;
+        width: 50px;
         z-index: 200;
         overflow-y: auto;
     }
@@ -2320,7 +2319,11 @@ input[type="range"]::-webkit-slider-thumb {
     }
 
     .standard-layout.collapsed .standard-sidebar {
-        width: 72px !important;
+        width: 50px !important;
+    }
+
+    .standard-layout.sidebar-right.collapsed .standard-sidebar {
+        transform: translateX(calc(100% - 50px));
     }
 
     .standard-main {
@@ -2331,7 +2334,7 @@ input[type="range"]::-webkit-slider-thumb {
 
     /* Adjust content padding for sidebar */
     .standard-content {
-        padding-left: 72px !important;
+        padding-left: 50px !important;
         padding-right: 0 !important;
         transition: padding 0.2s ease;
     }
@@ -2343,7 +2346,7 @@ input[type="range"]::-webkit-slider-thumb {
     /* Right sidebar adjustments */
     .standard-layout.sidebar-right .standard-content {
         padding-left: 0 !important;
-        padding-right: 72px !important;
+        padding-right: 50px !important;
     }
 
     .standard-layout.sidebar-right:not(.collapsed) .standard-content {
@@ -2352,6 +2355,15 @@ input[type="range"]::-webkit-slider-thumb {
 
     .mobile-bottom-nav {
         display: flex !important;
+    }
+
+    /* Settings page mobile scroll */
+    .settings-page .standard-content {
+        height: 100%;
+    }
+
+    .settings-page .settings-main-wrapper {
+        height: 100%;
     }
 
     .standard-header {
@@ -2379,7 +2391,8 @@ input[type="range"]::-webkit-slider-thumb {
     /* Adjust mobile-song-list grid based on sidebar state */
     .standard-layout.collapsed .standard-content .mobile-song-list {
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
-        gap: 1rem !important;
+        gap: 0.5rem !important;
+        margin: 0.5rem !important;
     }
 
     .standard-layout:not(.collapsed) .standard-content .mobile-song-list {
