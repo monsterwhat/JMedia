@@ -7,6 +7,7 @@ import Services.ThumbnailService;
 import Services.TranscodingService;
 import Services.VideoImportService;
 import Services.VideoService;
+import Services.MediaPreProcessor;
 import Controllers.NamingController;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -78,6 +79,9 @@ public class VideoAPI {
 
     @Inject
     NamingController namingController;
+    
+    @Inject
+    MediaPreProcessor mediaPreProcessor;
 
     @Inject
     Services.VideoMetadataService videoMetadataService;
@@ -309,14 +313,9 @@ public class VideoAPI {
         String filename = videoFile.getName().toLowerCase();
         boolean isMKV = filename.endsWith(".mkv");
         boolean isIOS = transcodingService.isIOSClient(userAgent);
-        
-        double effectiveStartSeconds = startSeconds;
-        if (isIOS) {
-            effectiveStartSeconds = 0;
-        }
 
         if (isMKV) {
-            return streamRemuxedMKV(video, videoFile, effectiveStartSeconds, userAgent);
+            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent);
         }
 
         if (isIOS) {
@@ -324,7 +323,7 @@ public class VideoAPI {
                 videoService.probeVideoMetadata(video);
             }
             if (transcodingService.isIOSTranscodeNeeded(video)) {
-                return streamRemuxedMKV(video, videoFile, effectiveStartSeconds, userAgent);
+                return streamRemuxedMKV(video, videoFile, startSeconds, userAgent);
             }
         }
 
@@ -437,16 +436,21 @@ public class VideoAPI {
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting per-video library scan: {}", videoLibraryPath);
                     List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), false);
-                    LOG.info("Found {} items. Starting individual processing...", discovered.size());
+                    LOG.info("Found {} items. Starting batch processing...", discovered.size());
 
-                    for (Models.PendingMedia pending : discovered) {
-                        try {
-                            namingController.processPendingMedia(pending.id);
-                            unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                        } catch (Exception e) {
-                            LOG.error("Error processing video {}: {}", pending.originalFilename, e.getMessage());
-                        }
-                    }
+                    List<Long> pendingIds = discovered.stream()
+                        .map(p -> p.id)
+                        .collect(Collectors.toList());
+
+                    List<Models.PendingMedia> processed = mediaPreProcessor.processPendingMediaBatch(pendingIds, true);
+                    
+                    List<Models.Video> videos = unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(pendingIds, true);
+                    
+                    List<Long> videoIds = videos.stream()
+                        .map(v -> v.id)
+                        .collect(Collectors.toList());
+                    thumbnailService.generateThumbnailsBatch(videoIds, true);
+                    
                     LOG.info("Full video library scan and processing completed");
                 }
             } catch (Exception e) {
@@ -458,7 +462,7 @@ public class VideoAPI {
             }
         });
 
-        return Response.ok(ApiResponse.success("Video library scan started. Items will appear one by one.")).build();
+        return Response.ok(ApiResponse.success("Video library scan started. Items will be processed in batch.")).build();
     }
 
     @POST
@@ -477,15 +481,16 @@ public class VideoAPI {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting video metadata reload: {}", videoLibraryPath);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), true);
-                    for (Models.PendingMedia pending : discovered) {
-                        try {
-                            namingController.processPendingMedia(pending.id);
-                            unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                        } catch (Exception e) {
-                            LOG.error("Error reloading metadata for {}: {}", pending.originalFilename, e.getMessage());
-                        }
-                    }
+                    List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), true, true);
+                    
+                    List<Long> pendingIds = discovered.stream()
+                        .map(p -> p.id)
+                        .collect(Collectors.toList());
+                    
+                    List<Models.PendingMedia> processed = mediaPreProcessor.processPendingMediaBatch(pendingIds, true);
+                    
+                    List<Models.Video> videos = unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(pendingIds, true);
+                    
                     thumbnailService.queueAllVideosForRegeneration();
                     LOG.info("Video metadata reload completed");
                 }
@@ -497,7 +502,7 @@ public class VideoAPI {
                 }
             }
         });
-        return Response.ok(ApiResponse.success("Video metadata reload started. Items will be updated one by one.")).build();
+        return Response.ok(ApiResponse.success("Video metadata reload started. Items will be updated in batch.")).build();
     }
 
     @POST
@@ -717,7 +722,7 @@ public class VideoAPI {
                     LOG.info("Loaded {} existing paths. Starting scan...", existingPaths.size());
                     
                     LOG.info("Starting folder scan for series: {}", seriesTitle);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeriesFolder, false);
+                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeriesFolder, false, true);
                     LOG.info("Scan complete. Discovered {} files for series: {}", discovered.size(), seriesTitle);
                     
                     Set<String> discoveredPaths = discovered.stream()
@@ -810,7 +815,7 @@ public class VideoAPI {
                         .collect(Collectors.toSet());
                     
                     LOG.info("Starting folder scan for season: {} S{}", seriesTitle, seasonNumber);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeasonFolder, false);
+                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeasonFolder, false, true);
                     LOG.info("Scan complete. Discovered {} files for season: {} S{}", discovered.size(), seriesTitle, seasonNumber);
                     
                     Set<String> discoveredPaths = discovered.stream()

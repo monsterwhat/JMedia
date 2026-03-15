@@ -87,14 +87,6 @@ public class TranscodingService {
         boolean canCopyAudio = canCopyAudio(video);
         boolean needsAudioTranscode = !canCopyAudio;
 
-        if (!needsVideoTranscode && !needsAudioTranscode && !isIOS) {
-            String mkvmergePath = discoveryService.findMkvmerge();
-            if (mkvmergePath != null) {
-                streamViaMkvmerge(mkvmergePath, videoFile, output);
-                return;
-            }
-        }
-
         streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output);
     }
 
@@ -209,9 +201,9 @@ public class TranscodingService {
 
         if (isIOS) {
             command.addAll(List.of(
-                "-tune", "zerolatency",
-                "-preset", "ultrafast",
                 "-f", "mp4",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                "-avoid_negative_ts", "make_zero",
                 "pipe:1"
             ));
         } else {

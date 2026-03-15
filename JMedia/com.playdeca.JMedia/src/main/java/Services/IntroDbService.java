@@ -73,13 +73,14 @@ public class IntroDbService {
                 JsonNode root = objectMapper.readTree(response.body());
                 MediaMetadata metadata = new MediaMetadata();
                 
-                // Both APIs share the same structure for these segments
                 metadata.intro = parseSegment(root.path("intro"));
                 metadata.recap = parseSegment(root.path("recap"));
                 metadata.outro = parseSegment(root.path("credits"));
                 
-                LOG.info("IntroDB: Successfully retrieved data from {}", baseUrl);
-                return Optional.of(metadata);
+                if (metadata.intro.isPresent() || metadata.recap.isPresent() || metadata.outro.isPresent()) {
+                    LOG.info("IntroDB: Successfully retrieved data from {}", baseUrl);
+                    return Optional.of(metadata);
+                }
             }
         } catch (Exception e) {
             LOG.warn("IntroDB: Request to {} failed: {}", baseUrl, e.getMessage());

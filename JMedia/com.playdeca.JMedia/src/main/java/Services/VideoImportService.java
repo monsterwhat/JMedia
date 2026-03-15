@@ -7,7 +7,6 @@ import Models.VideoHistory;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -16,8 +15,9 @@ import java.util.stream.Stream;
 import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Map;
+import java.util.HashMap;
+import java.time.Instant;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorCompletionService;
@@ -33,6 +33,19 @@ public class VideoImportService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(VideoImportService.class);
 
+    public static class ScanContext {
+        public final Map<String, MediaFile> mediaFileByPath = new HashMap<>();
+        public final Map<String, Video> videoByPath = new HashMap<>();
+        public final Map<Long, PendingMedia> pendingByMediaFileId = new HashMap<>();
+        public final Map<String, Long> lastModifiedByPath = new HashMap<>();
+        public Instant lastScanTime;
+    }
+
+    public interface ScanProgressCallback {
+        void onFileDiscovered(PendingMedia media, int index, int total);
+        void onProgress(int discovered, int total, String status);
+    }
+
     @Inject
     LoggingService loggingService;
 
@@ -45,38 +58,89 @@ public class VideoImportService {
     @Inject
     SettingsService settingsService;
 
-    @Inject
-    EntityManager em;
-
     private static final int THREADS = Math.max(4, Runtime.getRuntime().availableProcessors() - 1);
     private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+
+    public ScanContext loadScanContext() {
+        ScanContext ctx = new ScanContext();
+        
+        List<MediaFile> allMediaFiles = MediaFile.listAll();
+        for (MediaFile mf : allMediaFiles) {
+            ctx.mediaFileByPath.put(mf.path, mf);
+            ctx.lastModifiedByPath.put(mf.path, mf.lastModified);
+        }
+        
+        List<Video> allVideos = Video.listAll();
+        for (Video v : allVideos) {
+            ctx.videoByPath.put(v.path, v);
+        }
+        
+        List<PendingMedia> allPending = PendingMedia.listAll();
+        for (PendingMedia pm : allPending) {
+            if (pm.mediaFile != null) {
+                ctx.pendingByMediaFileId.put(pm.mediaFile.id, pm);
+            }
+        }
+        
+        ctx.lastScanTime = Instant.now();
+        return ctx;
+    }
 
     @Transactional
     @ActivateRequestContext
     public List<PendingMedia> scan(Path directory, boolean metadataOnly) {
-        loggingService.addLog("Starting video scan of directory: " + directory);
+        return scan(directory, metadataOnly, null, false);
+    }
+
+    @Transactional
+    @ActivateRequestContext
+    public List<PendingMedia> scan(Path directory, boolean metadataOnly, boolean forceFullScan) {
+        return scan(directory, metadataOnly, null, forceFullScan);
+    }
+
+    @Transactional
+    @ActivateRequestContext
+    public List<PendingMedia> scan(Path directory, boolean metadataOnly, ScanProgressCallback callback) {
+        return scan(directory, metadataOnly, callback, false);
+    }
+
+    @Transactional
+    @ActivateRequestContext
+    public List<PendingMedia> scan(Path directory, boolean metadataOnly, ScanProgressCallback callback, boolean forceFullScan) {
+        loggingService.addLog("Starting video scan of directory: " + directory + (forceFullScan ? " (full scan)" : " (incremental)"));
         mediaPreProcessor.clearCache();
         List<PendingMedia> discoveredMedia = new ArrayList<>();
         try {
-            Set<String> existingPaths = loadExistingMediaPaths();
-            loggingService.addLog("Loaded " + existingPaths.size() + " existing media records");
+            ScanContext ctx = loadScanContext();
+            loggingService.addLog("Loaded " + ctx.mediaFileByPath.size() + " existing media records, " 
+                + ctx.videoByPath.size() + " videos, " + ctx.pendingByMediaFileId.size() + " pending");
+            
             String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
             Path rootPath = libPathStr != null ? Paths.get(libPathStr) : directory;
             
             ExecutorCompletionService<PendingMedia> completion = new ExecutorCompletionService<>(executor);
             AtomicInteger submittedTasks = new AtomicInteger();
+            AtomicInteger skippedFiles = new AtomicInteger();
             
             loggingService.addLog("Scanning filesystem...");
+            LOGGER.info("DEBUG: Starting filesystem walk on: {}", directory);
             try (Stream<Path> paths = Files.walk(directory)) {
-                paths.filter(Files::isRegularFile)
+                List<Path> videoFiles = paths.filter(Files::isRegularFile)
                         .filter(this::isVideoFile)
-                        .forEach(path -> {
-                            submittedTasks.incrementAndGet();
-                            completion.submit(() -> processVideoFile(path, rootPath, metadataOnly, existingPaths));
-                        });
+                        .toList();
+                LOGGER.info("DEBUG: Found {} video files in filesystem", videoFiles.size());
+                loggingService.addLog("Found " + videoFiles.size() + " video files in filesystem");
+                for (Path path : videoFiles) {
+                    submittedTasks.incrementAndGet();
+                    completion.submit(() -> processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles));
+                }
             }
             
             int totalFiles = submittedTasks.get();
+            int skipped = skippedFiles.get();
+            if (skipped > 0) {
+                loggingService.addLog("Skipped " + skipped + " unchanged files (incremental scan)");
+            }
             loggingService.addLog("Found " + totalFiles + " video files. Starting discovery phase...");
             
             for (int i = 0; i < totalFiles; i++) {
@@ -85,9 +149,16 @@ public class VideoImportService {
                     PendingMedia result = future.get();
                     if (result != null) {
                         discoveredMedia.add(result);
+                        if (callback != null) {
+                            callback.onFileDiscovered(result, i + 1, totalFiles);
+                        }
                     }
                     if ((i + 1) % 50 == 0) {
-                        loggingService.addLog("Discovered " + (i + 1) + " / " + totalFiles + " files...");
+                        String status = "Discovered " + (i + 1) + " / " + totalFiles + " files...";
+                        loggingService.addLog(status);
+                        if (callback != null) {
+                            callback.onProgress(discoveredMedia.size(), totalFiles, status);
+                        }
                     }
                 } catch (Exception e) {
                     LOGGER.error("Error during parallel discovery: " + e.getMessage());
@@ -100,11 +171,6 @@ public class VideoImportService {
         return discoveredMedia;
     }
 
-    private Set<String> loadExistingMediaPaths() {
-        List<String> paths = em.createQuery("select m.path from MediaFile m", String.class).getResultList();
-        return new HashSet<>(paths);
-    }
-
     @Transactional
     @ActivateRequestContext
     public PendingMedia scanSingleFile(Path filePath) {
@@ -113,9 +179,8 @@ public class VideoImportService {
         
         String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
         Path rootPath = libPathStr != null ? Paths.get(libPathStr) : filePath.getParent();
-        Set<String> existingPaths = loadExistingMediaPaths();
-        // Set metadataOnly to true so it doesn't skip existing videos
-        return processVideoFile(filePath, rootPath, true, existingPaths);
+        ScanContext ctx = loadScanContext();
+        return processVideoFile(filePath, rootPath, true, ctx);
     }
 
     @Transactional
@@ -175,29 +240,70 @@ public class VideoImportService {
 
     @Transactional
     @ActivateRequestContext
-    protected PendingMedia processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, Set<String> existingPaths) {
+    protected PendingMedia processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx) {
+        return processVideoFile(filePath, rootPath, metadataOnly, ctx, false, null);
+    }
+
+    @Transactional
+    @ActivateRequestContext
+    protected PendingMedia processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx, boolean forceFullScan, AtomicInteger skippedFiles) {
         String filePathStr = filePath.toString();
         String filename = filePath.getFileName().toString();
+        
+        MediaFile existingFile = ctx.mediaFileByPath.get(filePathStr);
+        if (existingFile == null) {
+            LOGGER.info("DEBUG: New file (not in DB): {}", filePathStr);
+        } else {
+            LOGGER.info("DEBUG: Existing file in DB: {}, hasVideo: {}, metadataOnly: {}", 
+                filePathStr, ctx.videoByPath.containsKey(filePathStr), metadataOnly);
+        }
+        
         try {
-            if (existingPaths.contains(filePathStr)) {
-                MediaFile existingFile = MediaFile.find("path", filePathStr).firstResult();
-                if (existingFile != null) {
-                    // For subtitles, we don't need a PendingMedia/Video entity
-                    if (filename.toLowerCase().endsWith(".srt")) {
-                        return null; 
+            if (existingFile != null) {
+                boolean fileChanged = true;
+                if (!forceFullScan) {
+                    Long dbLastModified = ctx.lastModifiedByPath.get(filePathStr);
+                    if (dbLastModified != null) {
+                        long fsLastModified = Files.getLastModifiedTime(filePath).toMillis();
+                        if (dbLastModified == fsLastModified) {
+                            fileChanged = false;
+                        }
                     }
-                    
-                    Video existingVideo = Video.find("path", filePathStr).firstResult();
-                    if (existingVideo != null && !metadataOnly) {
+                }
+                
+                if (filename.toLowerCase().endsWith(".srt")) {
+                    return null; 
+                }
+                
+                Video existingVideo = ctx.videoByPath.get(filePathStr);
+                
+                // Skip if file unchanged AND already has a Video (fully processed)
+                if (!fileChanged && existingVideo != null && !metadataOnly) {
+                    if (skippedFiles != null) {
+                        skippedFiles.incrementAndGet();
+                    }
+                    return null;
+                }
+                
+                // Skip if file unchanged AND has pending media (already discovered)
+                if (!fileChanged) {
+                    Long mediaFileId = existingFile.id;
+                    PendingMedia existingPending = ctx.pendingByMediaFileId.get(mediaFileId);
+                    if (existingPending != null) {
+                        if (skippedFiles != null) {
+                            skippedFiles.incrementAndGet();
+                        }
                         return null;
                     }
-                    PendingMedia pending = PendingMedia.findByMediaFile(existingFile);
-                    if (pending == null) {
-                        return mediaPreProcessor.createPendingMedia(existingFile, filePath, rootPath);
-                    }
-                    return pending;
                 }
-                return null;
+                
+                // File is new or changed - process it
+                Long mediaFileId = existingFile.id;
+                PendingMedia pending = ctx.pendingByMediaFileId.get(mediaFileId);
+                if (pending == null) {
+                    return mediaPreProcessor.createPendingMedia(existingFile, filePath, rootPath);
+                }
+                return pending;
             }
             if (!metadataOnly) {
                 MediaFile mediaFile = new MediaFile();
@@ -207,7 +313,9 @@ public class VideoImportService {
                 mediaFile.size = Files.size(filePath);
                 mediaFile.persist();
                 
-                // Only create pending media for videos
+                ctx.mediaFileByPath.put(filePathStr, mediaFile);
+                ctx.lastModifiedByPath.put(filePathStr, mediaFile.lastModified);
+                
                 if ("video".equals(mediaFile.type)) {
                     return mediaPreProcessor.createPendingMedia(mediaFile, filePath, rootPath);
                 }

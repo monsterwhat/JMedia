@@ -627,4 +627,41 @@ public class VideoMetadataService {
 
         return Optional.empty();
     }
+    
+    /**
+     * Fetch episode-specific image URL from TMDB
+     */
+    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber) {
+        if (seriesTitle == null || seriesTitle.isBlank()) return Optional.empty();
+        
+        String tmdbKey = getApiKey();
+        if (tmdbKey == null || tmdbKey.isBlank()) {
+            return Optional.empty();
+        }
+        
+        try {
+            String searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8));
+            JsonNode searchResult = fetchJson(searchUrl);
+            
+            if (searchResult == null || !searchResult.has("results") || searchResult.get("results").isEmpty()) {
+                return Optional.empty();
+            }
+            
+            String tvShowId = searchResult.get("results").get(0).get("id").asText();
+            
+            String episodeUrl = String.format(TMDB_EPISODE_DETAILS, tvShowId, seasonNumber, episodeNumber, tmdbKey);
+            JsonNode episodeResult = fetchJson(episodeUrl);
+            
+            if (episodeResult != null && episodeResult.has("still_path")) {
+                String stillPath = episodeResult.get("still_path").asText();
+                if (stillPath != null && !stillPath.isEmpty()) {
+                    return Optional.of(TMDB_IMAGE_BASE + stillPath);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch episode image for {} S{}E{}: {}", seriesTitle, seasonNumber, episodeNumber, e.getMessage());
+        }
+        
+        return Optional.empty();
+    }
 }

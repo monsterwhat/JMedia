@@ -120,6 +120,7 @@ class App {
                  }
             }
             if (viewName === 'settings' && typeof window.initSettingsView === 'function') window.initSettingsView();
+            if (viewName === 'settings' && typeof window.initVideoSettingsView === 'function') window.initVideoSettingsView();
 
         } catch (error) {
             console.error('Failed to load view:', error);

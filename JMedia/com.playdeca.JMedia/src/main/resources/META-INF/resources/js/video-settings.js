@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", () => {
+window.initVideoSettingsView = function() {
     console.log("[VideoSettings] Initializing...");
     
     const browseVideoFolderBtn = document.getElementById("browseVideoFolderBtn");
@@ -64,7 +64,6 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    // Video library toggle functionality
     const toggle = document.getElementById("enableVideoLibraryToggle");
     const options = document.getElementById("videoLibraryOptions");
     
@@ -74,7 +73,6 @@ document.addEventListener("DOMContentLoaded", () => {
             else options.classList.add('is-hidden');
         };
 
-        // Initial state from localStorage
         const isEnabled = localStorage.getItem('videoLibraryEnabled') === 'true';
         toggle.checked = isEnabled;
         applyState(isEnabled);
@@ -86,4 +84,4 @@ document.addEventListener("DOMContentLoaded", () => {
             else Toast.info("Video library disabled");
         });
     }
-});
+};

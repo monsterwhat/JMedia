@@ -39,6 +39,15 @@ public class SmartNamingService {
     private static final List<String> TV_SHOW_INDICATORS = Arrays.asList(
         "season", "episode", "ep", "series", "show", "complete", "hdtv"
     );
+    
+    // Pre-compiled episode detection patterns
+    private static final Pattern EPISODE_SXXEXX = Pattern.compile("(?i)(.*?)[\\s\\._-]*[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
+    private static final Pattern EPISODE_SXXEXX_PREFIX = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})");
+    private static final Pattern EPISODE_XXY = Pattern.compile("(?i)(.*?)(\\b[0-3]?\\d)[x×]([0-1]?\\d{1,2}\\b)(.*)");
+    private static final Pattern EPISODE_ONLY = Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)");
+    private static final Pattern EPISODE_SIMPLE = Pattern.compile("(?i)(.*?)[\\s\\._-]+(\\d{1,3})(\\s*v\\d+)?\\.[^.]+$");
+    private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(19|20)\\d{2}\\b");
+    private static final Pattern SEASON_FOLDER_PATTERN = Pattern.compile("(?i)season[s]?[-_.]?(\\d+)");
 
     public static class NamingResult {
         public final String mediaType; // "movie" or "episode"
@@ -223,8 +232,7 @@ public class SmartNamingService {
         EpisodeDetection detection = new EpisodeDetection();
 
         // 1. S01E01 Pattern - Enhanced to capture show name prefix
-        Pattern s01e01 = Pattern.compile("(?i)(.*?)[\\s\\._-]*[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
-        Matcher m1 = s01e01.matcher(filename);
+        Matcher m1 = EPISODE_SXXEXX.matcher(filename);
         if (m1.matches()) {
             String prefix = m1.group(1).trim();
             detection.season = Integer.parseInt(m1.group(2));
@@ -250,8 +258,7 @@ public class SmartNamingService {
 
         // 2. 1x01 Pattern (Ensure it doesn't match years like 1993)
         // We look for numbers separated by x that are small (usually < 50 for season, < 100 for episode)
-        Pattern simstandard = Pattern.compile("(?i)(.*?)(\\b[0-3]?\\d)[x×]([0-1]?\\d{1,2}\\b)(.*)");
-        Matcher m2 = simstandard.matcher(filename);
+        Matcher m2 = EPISODE_XXY.matcher(filename);
         if (m2.matches()) {
             detection.season = Integer.parseInt(m2.group(2));
             detection.episode = Integer.parseInt(m2.group(3));
@@ -263,8 +270,7 @@ public class SmartNamingService {
             return detection;
         }
         // 3. "Episode 01" Pattern
-        Pattern epOnly = Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)");
-        Matcher m3 = epOnly.matcher(filename);
+        Matcher m3 = EPISODE_ONLY.matcher(filename);
         if (m3.matches()) {
             detection.season = null;
             detection.episode = Integer.parseInt(m3.group(2));
@@ -278,8 +284,7 @@ public class SmartNamingService {
 
         // 4. " - 01" or " 01" Pattern (Common in anime/simple sets)
         // We look for a number at the end or preceded by a dash/space, not part of a year
-        Pattern simpleNum = Pattern.compile("(?i)(.*?)[\\s\\._-]+(\\d{1,3})(\\s*v\\d+)?\\.[^.]+$");
-        Matcher m4 = simpleNum.matcher(filename);
+        Matcher m4 = EPISODE_SIMPLE.matcher(filename);
         if (m4.matches()) {
             int num = Integer.parseInt(m4.group(2));
             // Basic sanity check: if it's not a year
@@ -419,8 +424,7 @@ public class SmartNamingService {
                         return cleanShowName(rawShowName);
                     }
                     // Or from the part of the filename before SxxExx
-                    Pattern s01e01 = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})");
-                    Matcher m = s01e01.matcher(filename);
+                    Matcher m = EPISODE_SXXEXX_PREFIX.matcher(filename);
                     if (m.find()) {
                         String name = cleanShowName(m.group(1));
                         if (!name.equals("Unknown Show") && name.length() > 2) return name;
@@ -455,8 +459,7 @@ public class SmartNamingService {
         }
         
         // 3. Extract from filename if it has SxxExx pattern (the part before SxxExx)
-        Pattern s01e01 = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})");
-        Matcher m = s01e01.matcher(filename);
+        Matcher m = EPISODE_SXXEXX_PREFIX.matcher(filename);
         if (m.find()) {
             String nameFromFilename = cleanShowName(m.group(1));
             if (!nameFromFilename.equals("Unknown Show") && nameFromFilename.length() > 2) {
@@ -574,8 +577,7 @@ public class SmartNamingService {
         }
         
         // Try to extract from filename
-        java.util.regex.Pattern yearPattern = java.util.regex.Pattern.compile("\\b(19|20)\\d{2}\\b");
-        java.util.regex.Matcher matcher = yearPattern.matcher(filename);
+        Matcher matcher = YEAR_PATTERN.matcher(filename);
         if (matcher.find()) {
             try {
                 return Integer.parseInt(matcher.group());
@@ -587,7 +589,7 @@ public class SmartNamingService {
         // Try to extract from folder names
         String[] parts = (pathAnalysis.parentFolder + " " + pathAnalysis.grandParentFolder).split(" ");
         for (String part : parts) {
-            matcher = yearPattern.matcher(part);
+            matcher = YEAR_PATTERN.matcher(part);
             if (matcher.find()) {
                 try {
                     return Integer.parseInt(matcher.group());
@@ -774,8 +776,7 @@ public class SmartNamingService {
      * Extracts season number from folder name
      */
     private Integer extractSeasonFromFolder(String folderName) {
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(?i)season[s]?[-_.]?(\\d+)");
-        java.util.regex.Matcher matcher = pattern.matcher(folderName);
+        Matcher matcher = SEASON_FOLDER_PATTERN.matcher(folderName);
         if (matcher.find()) {
             try {
                 return Integer.parseInt(matcher.group(1));

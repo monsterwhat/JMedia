@@ -12,6 +12,7 @@ public class SubtitleTrack extends PanacheEntity {
 
     // File Information
     public String filename;
+    @Column(length = 500)
     public String fullPath;
     public String format; // "srt", "vtt", "ass", "ssa"
     public String encoding; // "UTF-8", "ISO-8859-1"

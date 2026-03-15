@@ -176,7 +176,7 @@ public class VideoManagementApi {
 
         LOG.info("Forcing rescan for series '{}' in {} directories", seriesTitle, parentDirs.size());
         for (java.nio.file.Path dir : parentDirs) {
-            videoImportService.scan(dir, false);
+            videoImportService.scan(dir, false, true);
         }
 
         return Response.ok("Rescan started for series directories").build();

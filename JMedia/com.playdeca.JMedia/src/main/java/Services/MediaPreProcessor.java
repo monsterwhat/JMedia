@@ -6,16 +6,38 @@ import Models.PendingMedia.ProcessingStatus;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.annotation.PreDestroy;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class MediaPreProcessor {
 
+    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
+    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+
+    private static final Pattern EPISODE_PATTERN_SXXEXX = 
+        Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
+    private static final Pattern EPISODE_PATTERN_XXY = 
+        Pattern.compile("(?i)(.*?)(\\d{1,2})[x×](\\d{1,3})(.*)");
+    private static final Pattern YEAR_PATTERN = 
+        Pattern.compile("\\b(19|20)\\d{2}\\b");
+    private static final Pattern QUALITY_PATTERN = 
+        Pattern.compile("(?i)\\b(720p|1080p|2160p|4k|nf|webrip|x264|x265|hevc|galaxytg|galaxyty|hdtv|bluray)\\b");
+    private static final Pattern SEASON_FOLDER_PATTERN = 
+        Pattern.compile("(?i)season[s]?[-_.]?\\d{1,3}");
+    
     @Inject
     LoggingService loggingService;
     
@@ -61,11 +83,7 @@ public class MediaPreProcessor {
      * Extracts raw detection data using simple patterns (Phase 1)
      */
     private void extractRawDetectionData(PendingMedia pendingMedia, String filename, Path videoPath) {
-        // Advanced episode detection patterns
-        Pattern[] episodePatterns = {
-            Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)"),
-            Pattern.compile("(?i)(.*?)(\\d{1,2})[x×](\\d{1,3})(.*)")
-        };
+        Pattern[] episodePatterns = {EPISODE_PATTERN_SXXEXX, EPISODE_PATTERN_XXY};
         
         boolean isEpisode = false;
         for (Pattern pattern : episodePatterns) {
@@ -76,8 +94,7 @@ public class MediaPreProcessor {
                 pendingMedia.rawEpisode = Integer.parseInt(matcher.group(3));
                 String rawHint = matcher.group(4).trim();
                 if (!rawHint.isEmpty()) {
-                    // Clean technical tags from the title hint
-                    String cleanedHint = rawHint.replaceAll("(?i)\\b(720p|1080p|2160p|4k|nf|webrip|x264|x265|hevc|galaxytg|galaxyty|hdtv|bluray)\\b", "")
+                    String cleanedHint = QUALITY_PATTERN.matcher(rawHint).replaceAll("")
                                                .replaceAll("[._\\-\\[\\]\\(\\)]+", " ")
                                                .trim();
                     pendingMedia.rawTitle = cleanedHint.isEmpty() ? null : cleanedHint;
@@ -145,8 +162,7 @@ public class MediaPreProcessor {
     }
     
     private Integer extractYearFromFilename(String filename) {
-        Pattern yearPattern = Pattern.compile("\\b(19|20)\\d{2}\\b");
-        Matcher matcher = yearPattern.matcher(filename);
+        Matcher matcher = YEAR_PATTERN.matcher(filename);
         if (matcher.find()) {
             try {
                 return Integer.parseInt(matcher.group());
@@ -159,7 +175,29 @@ public class MediaPreProcessor {
     
     @Transactional
     public void processPendingMedia() {
+        processPendingMedia(false);
+    }
+    
+    @Transactional
+    public void processPendingMedia(boolean parallel) {
         List<PendingMedia> pendingList = PendingMedia.findPendingProcessing();
+        
+        if (pendingList.isEmpty()) {
+            loggingService.addLog("MediaProcessor: No pending media to process.");
+            return;
+        }
+        
+        loggingService.addLog("MediaProcessor: Processing " + pendingList.size() + " pending items (" 
+            + (parallel ? "parallel" : "sequential") + ")...");
+        
+        if (parallel && pendingList.size() > 1) {
+            processPendingMediaParallel(pendingList);
+        } else {
+            processPendingMediaSequential(pendingList);
+        }
+    }
+    
+    private void processPendingMediaSequential(List<PendingMedia> pendingList) {
         int processedCount = 0;
         
         for (PendingMedia pending : pendingList) {
@@ -172,6 +210,40 @@ public class MediaPreProcessor {
         }
         
         loggingService.addLog("MediaProcessor: Smart processing completed for " + processedCount + " items.");
+    }
+    
+    private void processPendingMediaParallel(List<PendingMedia> pendingList) {
+        ExecutorCompletionService<Void> completion = new ExecutorCompletionService<>(executor);
+        final int[] processedCount = {0};
+        final int[] errorCount = {0};
+        
+        for (PendingMedia pending : pendingList) {
+            completion.submit(() -> {
+                try {
+                    processSinglePendingMedia(pending);
+                    synchronized (processedCount) {
+                        processedCount[0]++;
+                    }
+                } catch (Exception e) {
+                    synchronized (errorCount) {
+                        errorCount[0]++;
+                    }
+                    loggingService.addLog("MediaProcessor: Error processing " + pending.originalFilename + ": " + e.getMessage());
+                }
+                return null;
+            });
+        }
+        
+        for (int i = 0; i < pendingList.size(); i++) {
+            try {
+                completion.take().get();
+            } catch (Exception e) {
+                loggingService.addLog("MediaProcessor: Error waiting for task: " + e.getMessage());
+            }
+        }
+        
+        loggingService.addLog("MediaProcessor: Parallel processing completed for " + processedCount[0] 
+            + " items (" + errorCount[0] + " errors).");
     }
     
     @Transactional
@@ -222,6 +294,101 @@ public class MediaPreProcessor {
     
     public void clearCache() {
         processingCache.clear();
+    }
+    
+    /**
+     * Process multiple pending media items in parallel by ID
+     * @param pendingIds List of PendingMedia IDs to process
+     * @param parallel If true, use parallel processing; if false, sequential
+     * @return List of processed PendingMedia
+     */
+    public List<PendingMedia> processPendingMediaBatch(List<Long> pendingIds, boolean parallel) {
+        if (pendingIds == null || pendingIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        loggingService.addLog("MediaProcessor: Processing batch of " + pendingIds.size() + " items (" 
+            + (parallel ? "parallel" : "sequential") + ")...");
+        
+        if (parallel && pendingIds.size() > 1) {
+            return processPendingMediaBatchParallel(pendingIds);
+        } else {
+            return processPendingMediaBatchSequential(pendingIds);
+        }
+    }
+    
+    private List<PendingMedia> processPendingMediaBatchSequential(List<Long> pendingIds) {
+        List<PendingMedia> results = new ArrayList<>();
+        int processedCount = 0;
+        
+        for (Long id : pendingIds) {
+            try {
+                PendingMedia pending = PendingMedia.findById(id);
+                if (pending != null) {
+                    processSinglePendingMedia(pending);
+                    results.add(pending);
+                    processedCount++;
+                }
+            } catch (Exception e) {
+                loggingService.addLog("MediaProcessor: Error processing pending media " + id + ": " + e.getMessage());
+            }
+        }
+        
+        loggingService.addLog("MediaProcessor: Batch sequential processing completed for " + processedCount + " items.");
+        return results;
+    }
+    
+    private List<PendingMedia> processPendingMediaBatchParallel(List<Long> pendingIds) {
+        ExecutorCompletionService<Void> completion = new ExecutorCompletionService<>(executor);
+        List<PendingMedia> results = Collections.synchronizedList(new ArrayList<>());
+        final int[] processedCount = {0};
+        final int[] errorCount = {0};
+        
+        for (Long id : pendingIds) {
+            completion.submit(() -> {
+                try {
+                    PendingMedia pending = PendingMedia.findById(id);
+                    if (pending != null) {
+                        processSinglePendingMedia(pending);
+                        results.add(pending);
+                        synchronized (processedCount) {
+                            processedCount[0]++;
+                        }
+                    }
+                } catch (Exception e) {
+                    synchronized (errorCount) {
+                        errorCount[0]++;
+                    }
+                    loggingService.addLog("MediaProcessor: Error processing pending media " + id + ": " + e.getMessage());
+                }
+                return null;
+            });
+        }
+        
+        for (int i = 0; i < pendingIds.size(); i++) {
+            try {
+                completion.take().get();
+            } catch (Exception e) {
+                loggingService.addLog("MediaProcessor: Error waiting for task: " + e.getMessage());
+            }
+        }
+        
+        loggingService.addLog("MediaProcessor: Batch parallel processing completed for " + processedCount[0] 
+            + " items (" + errorCount[0] + " errors).");
+        return results;
+    }
+    
+    @PreDestroy
+    public void shutdownExecutor() {
+        try {
+            executor.shutdown();
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException ignored) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
     
     public static class ProcessingStats {

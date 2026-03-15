@@ -13,11 +13,19 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorCompletionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.imageio.ImageIO;
@@ -27,7 +35,10 @@ public class ThumbnailService {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(ThumbnailService.class);
     private static final String THUMBNAIL_DIR = "thumbnails";
+    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
     
+    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+
     @Inject
     EntityManager entityManager;
 
@@ -41,6 +52,23 @@ public class ThumbnailService {
     private final ConcurrentHashMap<String, String> showThumbnailCache = new ConcurrentHashMap<>();
     private final BlockingQueue<ThumbnailJob> thumbnailQueue = new LinkedBlockingQueue<>();
     private ThumbnailProcessingStatus processingStatus = new ThumbnailProcessingStatus();
+    
+    private static class ShowMetadata {
+        public String posterUrl;
+        public String backdropUrl;
+        public String tmdbId;
+        public Instant fetchedAt;
+        
+        public ShowMetadata(String posterUrl, String backdropUrl, String tmdbId) {
+            this.posterUrl = posterUrl;
+            this.backdropUrl = backdropUrl;
+            this.tmdbId = tmdbId;
+            this.fetchedAt = Instant.now();
+        }
+    }
+    
+    private final ConcurrentHashMap<String, ShowMetadata> showMetadataCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> episodeImageCache = new ConcurrentHashMap<>();
     
     @Transactional
     public String generateThumbnail(Long videoId, String videoPath) {
@@ -162,6 +190,120 @@ public class ThumbnailService {
         java.net.URL imageUrl = new java.net.URL(url);
         try (java.io.InputStream in = imageUrl.openStream()) {
             Files.copy(in, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+    
+    private ShowMetadata getCachedShowMetadata(String showTitle) {
+        if (showTitle == null) return null;
+        return showMetadataCache.get(showTitle.toLowerCase().trim());
+    }
+    
+    private void cacheShowMetadata(String showTitle, String posterUrl, String backdropUrl, String tmdbId) {
+        if (showTitle != null && posterUrl != null) {
+            showMetadataCache.put(showTitle.toLowerCase().trim(), 
+                new ShowMetadata(posterUrl, backdropUrl, tmdbId));
+        }
+    }
+    
+    private String getEpisodeCacheKey(String seriesTitle, int season, int episode) {
+        return (seriesTitle + "_s" + season + "e" + episode).toLowerCase().trim();
+    }
+    
+    /**
+     * Generate thumbnails for multiple videos with intelligent caching
+     * @param videoIds List of video IDs
+     * @param isBatchMode If true, use series-level caching aggressively
+     * @return Map of videoId -> thumbnail path
+     */
+    public Map<Long, String> generateThumbnailsBatch(List<Long> videoIds, boolean isBatchMode) {
+        if (videoIds == null || videoIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        
+        LOGGER.info("Generating thumbnails for batch of {} videos (batchMode={})", videoIds.size(), isBatchMode);
+        
+        Map<Long, String> results = new ConcurrentHashMap<>();
+        ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(executor);
+        
+        for (Long videoId : videoIds) {
+            completion.submit(() -> {
+                Video video = entityManager.find(Video.class, videoId);
+                if (video != null) {
+                    return generateThumbnailWithContext(videoId, video.path, isBatchMode);
+                }
+                return null;
+            });
+        }
+        
+        int completed = 0;
+        while (completed < videoIds.size()) {
+            try {
+                var future = completion.take();
+                completed++;
+                if (completed % 100 == 0) {
+                    LOGGER.info("Thumbnail batch progress: {}/{}", completed, videoIds.size());
+                }
+            } catch (Exception e) {
+                LOGGER.error("Error generating thumbnail: {}", e.getMessage());
+            }
+        }
+        
+        LOGGER.info("Thumbnail batch completed for {} videos", videoIds.size());
+        return results;
+    }
+    
+    /**
+     * Generate thumbnail with context awareness
+     * @param videoId Video ID
+     * @param videoPath Path to video file
+     * @param isBatchMode If true, prefer series poster; if false, prefer episode-specific
+     * @return Thumbnail path or null
+     */
+    public String generateThumbnailWithContext(Long videoId, String videoPath, boolean isBatchMode) {
+        try {
+            Video video = entityManager.find(Video.class, videoId);
+            if (video == null) return null;
+            
+            if (isBatchMode) {
+                String seriesKey = video.seriesTitle != null ? video.seriesTitle.toLowerCase().trim() : null;
+                ShowMetadata cached = showMetadataCache.get(seriesKey);
+                if (cached != null) {
+                    LOGGER.debug("Using cached series metadata for batch: {}", seriesKey);
+                    Path thumbnailDir = getThumbnailDirectory();
+                    String thumbnailFileName = "video_" + videoId + ".webp";
+                    Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+                    downloadImage(cached.posterUrl, outputPath);
+                    return finalizeThumbnail(videoId, outputPath.toString());
+                }
+            }
+            
+            if (!isBatchMode && "episode".equalsIgnoreCase(video.type)) {
+                String episodeKey = getEpisodeCacheKey(video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                String cachedEpisode = episodeImageCache.get(episodeKey);
+                if (cachedEpisode != null) {
+                    Path thumbnailDir = getThumbnailDirectory();
+                    String thumbnailFileName = "video_" + videoId + ".webp";
+                    Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+                    downloadImage(cachedEpisode, outputPath);
+                    return finalizeThumbnail(videoId, outputPath.toString());
+                }
+                
+                Optional<String> episodeImage = metadataService.fetchEpisodeImageUrl(
+                    video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                if (episodeImage.isPresent()) {
+                    episodeImageCache.put(episodeKey, episodeImage.get());
+                    Path thumbnailDir = getThumbnailDirectory();
+                    String thumbnailFileName = "video_" + videoId + ".webp";
+                    Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+                    downloadImage(episodeImage.get(), outputPath);
+                    return finalizeThumbnail(videoId, outputPath.toString());
+                }
+            }
+            
+            return generateThumbnail(videoId, videoPath);
+        } catch (Exception e) {
+            LOGGER.error("Error generating thumbnail with context for video {}: {}", videoId, e.getMessage());
+            return null;
         }
     }
 

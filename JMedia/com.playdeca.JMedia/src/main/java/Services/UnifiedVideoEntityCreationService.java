@@ -5,10 +5,16 @@ import Models.PendingMedia.ProcessingStatus;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.annotation.PreDestroy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +22,9 @@ import org.slf4j.LoggerFactory;
 public class UnifiedVideoEntityCreationService {
     
     private static final Logger LOG = LoggerFactory.getLogger(UnifiedVideoEntityCreationService.class);
+    
+    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
+    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
 
     @Inject
     VideoService videoService;
@@ -109,6 +118,83 @@ public class UnifiedVideoEntityCreationService {
         }
         
         return persisted;
+    }
+    
+    /**
+     * Process multiple pending media items and create Video entities in parallel
+     * @param pendingIds List of PendingMedia IDs
+     * @param parallel Whether to process in parallel
+     * @return List of created/updated Video entities
+     */
+    public List<Video> createVideosFromPendingMediaBatch(List<Long> pendingIds, boolean parallel) {
+        if (pendingIds == null || pendingIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        LOG.info("Creating videos from batch of {} items ({})...", pendingIds.size(), 
+            parallel ? "parallel" : "sequential");
+        
+        if (parallel && pendingIds.size() > 1) {
+            return createVideosFromPendingMediaBatchParallel(pendingIds);
+        } else {
+            return createVideosFromPendingMediaBatchSequential(pendingIds);
+        }
+    }
+    
+    private List<Video> createVideosFromPendingMediaBatchSequential(List<Long> pendingIds) {
+        List<Video> results = new ArrayList<>();
+        int count = 0;
+        
+        for (Long id : pendingIds) {
+            try {
+                Video video = createVideoFromPendingMedia(id);
+                if (video != null) {
+                    results.add(video);
+                    count++;
+                    if (count % 50 == 0) {
+                        LOG.info("Sequential batch progress: {} video entities created", count);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.error("Error creating video from pending media {}: {}", id, e.getMessage());
+            }
+        }
+        
+        LOG.info("Sequential batch completed: {} video entities created", count);
+        return results;
+    }
+    
+    private List<Video> createVideosFromPendingMediaBatchParallel(List<Long> pendingIds) {
+        ExecutorCompletionService<Video> completion = new ExecutorCompletionService<>(executor);
+        List<Video> results = Collections.synchronizedList(new ArrayList<>());
+        final int[] count = {0};
+        
+        for (Long id : pendingIds) {
+            completion.submit(() -> {
+                Video video = createVideoFromPendingMedia(id);
+                if (video != null) {
+                    results.add(video);
+                    synchronized (count) {
+                        count[0]++;
+                        if (count[0] % 50 == 0) {
+                            LOG.info("Parallel batch progress: {} video entities created", count[0]);
+                        }
+                    }
+                }
+                return video;
+            });
+        }
+        
+        for (int i = 0; i < pendingIds.size(); i++) {
+            try {
+                completion.take().get();
+            } catch (Exception e) {
+                LOG.error("Error waiting for video creation task: {}", e.getMessage());
+            }
+        }
+        
+        LOG.info("Parallel batch completed: {} video entities created", count[0]);
+        return results;
     }
     
     @jakarta.enterprise.context.control.ActivateRequestContext
@@ -246,5 +332,18 @@ public class UnifiedVideoEntityCreationService {
             return filename.substring(lastDot + 1).toLowerCase();
         }
         return "mp4";
+    }
+    
+    @PreDestroy
+    public void shutdownExecutor() {
+        try {
+            executor.shutdown();
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException ignored) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }
