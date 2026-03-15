@@ -17,7 +17,8 @@ initializeAudioElement();
 const musicState = {
     currentSongId: null, songName: "Loading...", artist: "Unknown Artist",
     playing: false, currentTime: 0, duration: 0, volume: 0.8,
-    shuffleMode: "OFF", repeatMode: "OFF", cue: [], hasLyrics: false
+    shuffleMode: "OFF", repeatMode: "OFF", cue: [], hasLyrics: false,
+    currentSongData: null
 };
 window.musicState = musicState;
 
@@ -68,6 +69,21 @@ function formatTime(s) {
     if (!s || isNaN(s)) return "0:00";
     return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 }
+
+function updateCoverImage() {
+    const coverImg = document.getElementById('songCoverImage');
+    const coverFallback = document.getElementById('songCoverFallback');
+    if (coverImg && musicState.currentSongId) {
+        if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
+            coverImg.src = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
+        } else {
+            coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
+        }
+        coverImg.style.display = 'block';
+        if (coverFallback) coverFallback.style.display = 'none';
+    }
+}
+window.updateCoverImage = updateCoverImage;
 
 function updateMusicBar() {
     const {songName, artist, playing, currentTime, duration, volume, shuffleMode, repeatMode} = musicState;
@@ -126,11 +142,15 @@ function updateMusicBar() {
         }
     }
     
-    // Artwork
+    // Artwork - use stored artworkBase64 if available
     const coverImg = document.getElementById('songCoverImage');
     const coverFallback = document.getElementById('songCoverFallback');
     if (coverImg && musicState.currentSongId) {
-        coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
+        if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
+            coverImg.src = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
+        } else {
+            coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
+        }
         coverImg.style.display = 'block';
         if (coverFallback) coverFallback.style.display = 'none';
     }
@@ -299,7 +319,8 @@ function apiPost(type, value = null, silent = false) {
 
     fetch(url, {
         method: 'POST',
-        headers: headers
+        headers: headers,
+        credentials: 'same-origin'
     }).then(response => {
         if (response.ok && successMessage && window.Toast && !silent) {
             window.Toast.success(successMessage);
@@ -403,12 +424,51 @@ function connectWS() {
                 musicState.currentSongId = state.currentSongId;
                 musicState.songName = state.songName;
                 musicState.artist = state.artistName;
+                
+                // Fetch full song data including artworkBase64
+                const profileId = window.globalActiveProfileId || '1';
+                if (state.currentSongId) {
+                    fetch(`/api/music/playback/current/${profileId}`, { credentials: 'same-origin' })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data && data.data) {
+                                musicState.currentSongData = data.data;
+                                musicState.hasLyrics = data.data.lyrics != null;
+                                updateCoverImage();
+                            }
+                        })
+                        .catch(err => console.error('[MusicBar] Failed to fetch song data:', err));
+                }
+                
+                // Update cover immediately with existing data or fallback
+                updateCoverImage();
+                
+                // Get artwork URL - prefer stored base64, fallback to API
+                let artworkUrl = null;
+                if (state.currentSongId) {
+                    if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
+                        artworkUrl = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
+                    } else {
+                        artworkUrl = `/api/music/cover/${state.currentSongId}`;
+                    }
+                }
+                
+                if (window.updateMediaSessionMetadata) {
+                    window.updateMediaSessionMetadata(
+                        state.songName,
+                        state.artistName,
+                        artworkUrl
+                    );
+                }
                 updateAudioSource(state.currentSongId, state.playing);
             } else {
                 if (state.playing && audio.paused) {
                     audio.play().catch(() => {});
                 } else if (!state.playing && !audio.paused) {
                     audio.pause();
+                }
+                if (window.updateMediaSessionPlaybackState) {
+                    window.updateMediaSessionPlaybackState(state.playing);
                 }
                 updateMusicBar();
             }

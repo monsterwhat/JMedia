@@ -18,6 +18,79 @@
     z-index: 1 !important;
 }
 
+/* Mobile portrait (vertical phones) */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+    .player-container {
+        height: 56.25vw !important;
+        min-height: 35vh !important;
+        max-height: 60vh !important;
+        border-radius: 8px !important;
+    }
+    
+    .player-container.is-css-fullscreen {
+        height: 100dvh !important;
+        border-radius: 0 !important;
+    }
+    
+    .controls-container {
+        padding: 8px 12px !important;
+    }
+    
+    .control-btn {
+        padding: 5px !important;
+    }
+    
+    .control-btn i {
+        font-size: 1.1rem !important;
+    }
+    
+    .time-display {
+        font-size: 0.7rem !important;
+    }
+    
+    .skip-btn .skip-val {
+        font-size: 0.6rem !important;
+    }
+    
+    .media-info {
+        padding: 20px 15px !important;
+    }
+    
+    .info-title {
+        font-size: 1rem !important;
+    }
+    
+    .info-meta {
+        font-size: 0.75rem !important;
+    }
+    
+    .big-play-btn {
+        width: 60px !important;
+        height: 60px !important;
+    }
+    
+    /* Controls row adjustments */
+    .controls-row {
+        gap: 6px !important;
+    }
+    
+    .control-btn {
+        padding: 4px !important;
+    }
+    
+    .volume-container {
+        display: none !important;
+    }
+    
+    #videoMuteBtn {
+        display: none !important;
+    }
+    
+    .skip-btn {
+        display: none !important;
+    }
+}
+
 .video-wrapper {
     width: 100% !important;
     height: 100% !important;
@@ -127,6 +200,33 @@
     border-radius: 0 !important;
 }
 
+/* CSS-based fullscreen for mobile (fallback when Fullscreen API not supported) */
+.player-container.is-css-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    background: #000 !important;
+    z-index: 2147483647 !important;
+}
+
+/* Mobile portrait CSS fullscreen - use dynamic viewport height */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+    .player-container.is-css-fullscreen {
+        height: 100dvh !important;
+    }
+}
+
+.player-container.is-css-fullscreen #videoElement {
+    border-radius: 0 !important;
+}
+
+.player-container.is-css-fullscreen .controls-container {
+    padding-bottom: 30px !important;
+}
+
 .player-container.is-fullscreen #videoElement {
     border-radius: 0 !important;
 }
@@ -219,6 +319,26 @@
 .progress-container:hover .progress-filled::after,
 .player-container.user-active .progress-filled::after {
     opacity: 1 !important;
+}
+
+/* Intro/Outro Markers on Progress Bar */
+.progress-intro-marker,
+.progress-outro-marker {
+    position: absolute !important;
+    top: 0 !important;
+    height: 100% !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+}
+
+.progress-intro-marker {
+    background: rgba(255, 235, 59, 0.35) !important;
+    border-left: 2px solid rgba(255, 235, 59, 0.8) !important;
+}
+
+.progress-outro-marker {
+    background: rgba(255, 152, 0, 0.35) !important;
+    border-right: 2px solid rgba(255, 152, 0, 0.8) !important;
 }
 
 /* Controls Row */

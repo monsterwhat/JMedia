@@ -125,11 +125,17 @@
                 }
             }
             
-            // 6. Cover Artwork
+            // 6. Cover Artwork - use stored artworkBase64 if available
             const coverImg = document.getElementById('songCoverImage');
             const coverFallback = document.getElementById('songCoverFallback');
             if (coverImg && state.currentSongId) {
-                coverImg.src = `/api/music/cover/${state.currentSongId}`;
+                // Try to get artwork from musicState (which stores full song data)
+                const musicStateData = window.musicState?.currentSongData;
+                if (musicStateData && musicStateData.artworkBase64) {
+                    coverImg.src = `data:image/jpeg;base64,${musicStateData.artworkBase64}`;
+                } else {
+                    coverImg.src = `/api/music/cover/${state.currentSongId}`;
+                }
                 coverImg.style.display = 'block';
                 if (coverFallback) coverFallback.style.display = 'none';
             }

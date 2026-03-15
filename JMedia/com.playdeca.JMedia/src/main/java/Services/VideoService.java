@@ -14,6 +14,8 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -302,6 +304,49 @@ public class VideoService {
                          Sort.by("seasonNumber", Sort.Direction.Ascending)
                          .and("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, true);
+    }
+
+    @Transactional
+    public Path getSeriesFolderPath(String seriesTitle) {
+        Video episode = Video.find("seriesTitle = ?1 and isActive = true", seriesTitle)
+            .firstResult();
+        if (episode == null || episode.path == null) {
+            return null;
+        }
+        
+        Path episodePath = Paths.get(episode.path);
+        Path parent = episodePath.getParent();
+        if (parent == null) {
+            return null;
+        }
+        return parent.getParent();
+    }
+
+    @Transactional
+    public Path getSeasonFolderPath(String seriesTitle, Integer seasonNumber) {
+        Video episode = Video.find("seriesTitle = ?1 and seasonNumber = ?2 and isActive = true",
+            seriesTitle, seasonNumber).firstResult();
+        if (episode == null || episode.path == null) {
+            return null;
+        }
+        
+        Path episodePath = Paths.get(episode.path);
+        Path parent = episodePath.getParent();
+        return parent;
+    }
+
+    @Transactional
+    public Path getSeasonFolderPathFallback(String seriesTitle, Integer seasonNumber) {
+        Video episode = Video.find("seriesTitle = ?1 and isActive = true", seriesTitle)
+            .firstResult();
+        if (episode == null || episode.path == null) {
+            return null;
+        }
+        
+        Path episodePath = Paths.get(episode.path);
+        Path seriesFolder = episodePath.getParent().getParent();
+        String seasonFolderName = "Season " + seasonNumber;
+        return seriesFolder.resolve(seasonFolderName);
     }
 
 

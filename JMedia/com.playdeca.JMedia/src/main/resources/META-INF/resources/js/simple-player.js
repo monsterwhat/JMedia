@@ -56,6 +56,23 @@ class SimplePlayer {
         window.player = this;
 
         this.init();
+
+        // Restore fullscreen if it was set before episode transition
+        if (sessionStorage.getItem('jmedia_restore_fullscreen') === 'true') {
+            sessionStorage.removeItem('jmedia_restore_fullscreen');
+            setTimeout(() => {
+                const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+                if (this.container && !isFullscreen) {
+                    if (this.container.requestFullscreen) {
+                        this.container.requestFullscreen().catch(err => {
+                            console.log('[SimplePlayer] Could not restore fullscreen:', err.message);
+                        });
+                    } else if (this.container.webkitEnterFullscreen) {
+                        this.container.webkitEnterFullscreen();
+                    }
+                }
+            }, 500);
+        }
     }
 
     // Compatibility methods for other components (subtitleTrackSelector, etc)
@@ -112,9 +129,41 @@ class SimplePlayer {
                 this.markers.recapStart = parseFloat(video.recapStart || 0);
                 this.markers.recapEnd = parseFloat(video.recapEnd || 0);
                 console.log('[SimplePlayer] Markers updated from server:', this.markers);
+
+                // Update progress markers after refresh
+                const isMKV = (this.container.dataset.path || '').toLowerCase().endsWith('.mkv');
+                const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
+                const duration = (isMKV && manualDuration > 0) ? manualDuration : 
+                               (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
+                this.updateProgressMarkers(duration);
             }
         } catch (e) {
             console.error('[SimplePlayer] Failed to refresh markers:', e);
+        }
+    }
+
+    updateProgressMarkers(duration) {
+        if (!this.progressIntroMarker || !this.progressOutroMarker || !duration || duration <= 0) return;
+
+        // Intro marker (from introStart to introEnd)
+        if (this.markers.introStart > 0 && this.markers.introEnd > 0) {
+            const introStartPct = (this.markers.introStart / duration) * 100;
+            const introEndPct = (this.markers.introEnd / duration) * 100;
+            this.progressIntroMarker.style.left = introStartPct + '%';
+            this.progressIntroMarker.style.width = (introEndPct - introStartPct) + '%';
+            this.progressIntroMarker.style.display = 'block';
+        } else {
+            this.progressIntroMarker.style.display = 'none';
+        }
+
+        // Outro marker (from outroStart to end)
+        if (this.markers.outroStart > 0) {
+            const outroStartPct = (this.markers.outroStart / duration) * 100;
+            this.progressOutroMarker.style.left = outroStartPct + '%';
+            this.progressOutroMarker.style.width = (100 - outroStartPct) + '%';
+            this.progressOutroMarker.style.display = 'block';
+        } else {
+            this.progressOutroMarker.style.display = 'none';
         }
     }
 
@@ -141,8 +190,9 @@ class SimplePlayer {
         // Setup initial source
         const isMKV = (this.container.dataset.path || '').toLowerCase().endsWith('.mkv');
         const savedTime = parseFloat(this.container.dataset.startTime || 0);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         
-        if (isMKV && savedTime > 0) {
+        if (isMKV && savedTime > 0 && !isIOS) {
             console.log(`[SimplePlayer] MKV detected, resuming from ${savedTime}s via server-side seek`);
             this.streamStartOffset = savedTime;
             this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
@@ -250,6 +300,8 @@ class SimplePlayer {
                 <div class="progress-container">
                     <div class="progress-buffered" style="width: 0%;"></div>
                     <div class="progress-filled" style="width: 0%;"></div>
+                    <div class="progress-intro-marker" style="display: none;"></div>
+                    <div class="progress-outro-marker" style="display: none;"></div>
                 </div>
                 
                 <div class="controls-row">
@@ -321,6 +373,8 @@ class SimplePlayer {
         this.bigPlay = this.container.querySelector('.big-play-btn');
         this.progressBar = this.container.querySelector('.progress-filled');
         this.progressContainer = this.container.querySelector('.progress-container');
+        this.progressIntroMarker = this.container.querySelector('.progress-intro-marker');
+        this.progressOutroMarker = this.container.querySelector('.progress-outro-marker');
         this.previewContainer = this.container.querySelector('#scrollPreview');
         this.previewTime = this.container.querySelector('#previewTime');
         this.timeCurrent = this.container.querySelector('#videoCurrentTime');
@@ -438,6 +492,11 @@ class SimplePlayer {
 
         this.video.onwaiting = () => this.buffering.style.display = 'block';
         this.video.onplaying = () => this.buffering.style.display = 'none';
+
+        this.video.addEventListener('ended', () => {
+            console.log('[SimplePlayer] Video ended');
+            this.playNextEpisode();
+        });
         
         this.video.ontimeupdate = () => {
             const isMKV = (this.container.dataset.path || '').toLowerCase().endsWith('.mkv');
@@ -513,6 +572,7 @@ class SimplePlayer {
                            (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
             
             this.timeTotal.innerText = this.formatTime(duration);
+            this.updateProgressMarkers(duration);
         });
 
         this.playBtn.onclick = (e) => { e.stopPropagation(); toggle(); };
@@ -570,23 +630,37 @@ class SimplePlayer {
             };
         }
 
+        // Detect touch device more reliably
+        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
         this.muteBtn.onclick = (e) => {
             e.stopPropagation();
-            const container = this.muteBtn.closest('.volume-container');
-            
-            // On mobile/touch, first click opens the slider, second click mutes
-            if (window.innerWidth <= 800 && container && !container.classList.contains('active')) {
-                container.classList.add('active');
-                // Auto-hide after 3 seconds of inactivity
-                clearTimeout(this._volTimeout);
-                this._volTimeout = setTimeout(() => container.classList.remove('active'), 3000);
+            // Desktop: click to mute
+            if (!isTouchDevice || window.innerWidth > 800) {
+                this.toggleMute();
                 return;
             }
+            
+            // Mobile: tap shows slider, hold mutes
+            const container = this.muteBtn.closest('.volume-container');
+            if (container && !container.classList.contains('active')) {
+                container.classList.add('active');
+                clearTimeout(this._volTimeout);
+                this._volTimeout = setTimeout(() => container.classList.remove('active'), 3000);
+            }
+        };
 
-            this.video.muted = !this.video.muted;
-            this.state.muted = this.video.muted;
-            localStorage.setItem(this.muteKey, this.state.muted);
-            this.updateVolumeUI();
+        this.muteBtn.ontouchstart = (e) => {
+            if (isTouchDevice && window.innerWidth <= 800) {
+                clearTimeout(this._muteHoldTimer);
+                this._muteHoldTimer = setTimeout(() => {
+                    this.toggleMute();
+                }, 350);
+            }
+        };
+
+        this.muteBtn.ontouchend = (e) => {
+            clearTimeout(this._muteHoldTimer);
         };
 
         this.volSlider.oninput = (e) => {
@@ -651,6 +725,9 @@ class SimplePlayer {
         this.progressContainer.onmouseleave = () => {
             this.previewContainer.style.display = 'none';
         };
+        this.progressContainer.ontouchend = () => {
+            this.previewContainer.style.display = 'none';
+        };
 
         this.subtitleBtn.onclick = (e) => {
             e.stopPropagation();
@@ -659,29 +736,56 @@ class SimplePlayer {
 
         this.fullscreenBtn.onclick = (e) => {
             e.stopPropagation();
-            if (!document.fullscreenElement) {
-                this.container.requestFullscreen().catch(err => {
-                    console.error(`Error attempting to enable full-screen mode: ${err.message}`);
-                });
+            
+            // Check if already in any type of fullscreen
+            const inStandardFullscreen = document.fullscreenElement === this.container;
+            const inWebkitFullscreen = document.webkitFullscreenElement === this.container;
+            const inCssFullscreen = this.container.classList.contains('is-css-fullscreen');
+            
+            if (!inStandardFullscreen && !inWebkitFullscreen && !inCssFullscreen) {
+                // Try standard API first
+                if (this.container.requestFullscreen) {
+                    this.container.requestFullscreen().catch(err => {
+                        console.log('[SimplePlayer] Standard fullscreen failed, trying CSS fallback');
+                        this.enableCssFullscreen();
+                    });
+                } else if (this.container.webkitEnterFullscreen) {
+                    // iOS Safari video element fullscreen (less ideal)
+                    this.container.webkitEnterFullscreen();
+                } else {
+                    // Fallback: CSS-based fullscreen for mobile
+                    this.enableCssFullscreen();
+                }
             } else {
-                document.exitFullscreen();
+                // Exit fullscreen
+                if (inStandardFullscreen) {
+                    document.exitFullscreen();
+                } else if (inWebkitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (inCssFullscreen) {
+                    this.disableCssFullscreen();
+                }
             }
         };
+        
+        document.addEventListener('fullscreenchange', () => this.updateFullscreenState());
+        document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenState());
 
-        document.addEventListener('fullscreenchange', () => {
-            const icon = this.fullscreenBtn.querySelector('i');
-            if (document.fullscreenElement === this.container) {
-                this.container.classList.add('is-fullscreen');
-                if (icon) icon.className = 'pi pi-expand';
-            } else {
-                this.container.classList.remove('is-fullscreen');
-                if (icon) icon.className = 'pi pi-expand';
+        // CSS Fullscreen fallback for mobile
+        window.addEventListener('resize', () => {
+            if (this.container.classList.contains('is-css-fullscreen')) {
+                this.adjustCssFullscreen();
             }
         });
 
+        // Autohide controls - works on desktop and iPad
         this.container.onmousemove = () => this.showControls();
         this.container.ontouchstart = () => this.showControls();
-        this.container.onmouseleave = () => {
+        this.container.ontouchend = () => this.showControls(); // iPad touch interaction
+        this.container.onpointermove = () => this.showControls(); // Pointer events for both mouse and touch
+        
+        // Use pointerleave instead of mouseleave for better cross-device support
+        this.container.onpointerleave = () => {
             if (!this.video.paused) {
                 this.hideControls();
             }
@@ -690,10 +794,17 @@ class SimplePlayer {
         // Also ensure moving over UI elements keeps them visible
         const uiElements = this.container.querySelectorAll('.controls-container, .media-info, .subtitle-menu');
         uiElements.forEach(el => {
-            el.onmousemove = (e) => {
+            el.onpointermove = (e) => {
                 e.stopPropagation();
                 this.showControls();
             };
+        });
+
+        // Handle visibility change - hide controls when switching apps/tabs on iPad
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && !this.video.paused) {
+                this.hideControls();
+            }
         });
 
         window.addEventListener('keydown', (e) => {
@@ -723,8 +834,69 @@ class SimplePlayer {
                 case 'KeyM':
                     this.muteBtn.click();
                     break;
+                case 'Escape':
+                    if (this.container.classList.contains('is-css-fullscreen')) {
+                        this.disableCssFullscreen();
+                    }
+                    break;
             }
         });
+    }
+
+    enableCssFullscreen() {
+        console.log('[SimplePlayer] Enabling CSS fullscreen (mobile fallback)');
+        this.container.classList.add('is-css-fullscreen');
+        this.container.classList.add('is-fullscreen');
+        this.adjustCssFullscreen();
+        this.updateFullscreenIcon();
+    }
+
+    disableCssFullscreen() {
+        console.log('[SimplePlayer] Disabling CSS fullscreen');
+        this.container.classList.remove('is-css-fullscreen');
+        this.container.classList.remove('is-fullscreen');
+        // Reset container styles
+        this.container.style.position = '';
+        this.container.style.top = '';
+        this.container.style.left = '';
+        this.container.style.width = '';
+        this.container.style.height = '';
+        this.container.style.zIndex = '';
+        document.body.style.overflow = '';
+        this.updateFullscreenIcon();
+    }
+
+    adjustCssFullscreen() {
+        // Ensure the container fills the viewport
+        this.container.style.position = 'fixed';
+        this.container.style.top = '0';
+        this.container.style.left = '0';
+        this.container.style.width = '100vw';
+        this.container.style.height = '100vh';
+        this.container.style.zIndex = '9999';
+        document.body.style.overflow = 'hidden';
+    }
+
+    updateFullscreenState() {
+        const inStandardFullscreen = document.fullscreenElement === this.container;
+        const inWebkitFullscreen = document.webkitFullscreenElement === this.container;
+        
+        if (inStandardFullscreen || inWebkitFullscreen) {
+            this.container.classList.add('is-fullscreen');
+        } else if (!this.container.classList.contains('is-css-fullscreen')) {
+            this.container.classList.remove('is-fullscreen');
+        }
+        this.updateFullscreenIcon();
+    }
+
+    updateFullscreenIcon() {
+        const icon = this.fullscreenBtn ? this.fullscreenBtn.querySelector('i') : null;
+        if (icon) {
+            const isFullscreen = document.fullscreenElement === this.container || 
+                               document.webkitFullscreenElement === this.container ||
+                               this.container.classList.contains('is-css-fullscreen');
+            icon.className = isFullscreen ? 'pi pi-expand' : 'pi pi-expand';
+        }
     }
 
     formatTime(seconds) {
@@ -752,6 +924,13 @@ class SimplePlayer {
         }
     }
 
+    toggleMute() {
+        this.video.muted = !this.video.muted;
+        this.state.muted = this.video.muted;
+        localStorage.setItem(this.muteKey, this.state.muted);
+        this.updateVolumeUI();
+    }
+
     showControls() {
         this.container.classList.remove('controls-hidden');
         document.documentElement.style.setProperty('--sub-lift', '80px');
@@ -769,6 +948,9 @@ class SimplePlayer {
         this.container.classList.add('controls-hidden');
         document.documentElement.style.setProperty('--sub-lift', '0px');
         this.subtitleMenu.classList.remove('active');
+        if (this.previewContainer) {
+            this.previewContainer.style.display = 'none';
+        }
         clearTimeout(this.userActiveTimeout);
     }
 
@@ -934,6 +1116,8 @@ class SimplePlayer {
                     cue.startTime = cue._originalStart + this.subOffset;
                     cue.endTime = cue._originalEnd + this.subOffset;
                 }
+                // Force browser to re-evaluate active cues after modifying cue times
+                this.video.currentTime = this.video.currentTime;
             }
         }
     }
@@ -1008,16 +1192,21 @@ class SimplePlayer {
     reportProgress(playing) {
         if (!playing) return;
         const time = this.video.currentTime + this.streamStartOffset;
-        fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST' });
+        fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST', credentials: 'same-origin' });
     }
 
     async reportProgressInternal(time) {
-        fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST' });
+        fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST', credentials: 'same-origin' });
     }
 
     async playNextEpisode() {
         const nextId = this.container.dataset.nextId;
         if (nextId && nextId !== 'null') {
+            // Store fullscreen state before navigation
+            const isFullscreen = document.fullscreenElement === this.container || document.webkitFullscreenElement === this.container;
+            if (isFullscreen) {
+                sessionStorage.setItem('jmedia_restore_fullscreen', 'true');
+            }
             if (window.videoSPA) {
                 window.videoSPA.playVideo(nextId);
             } else {
@@ -1029,6 +1218,11 @@ class SimplePlayer {
     async playPreviousEpisode() {
         const prevId = this.container.dataset.prevId;
         if (prevId && prevId !== 'null') {
+            // Store fullscreen state before navigation
+            const isFullscreen = document.fullscreenElement === this.container || document.webkitFullscreenElement === this.container;
+            if (isFullscreen) {
+                sessionStorage.setItem('jmedia_restore_fullscreen', 'true');
+            }
             if (window.videoSPA) {
                 window.videoSPA.playVideo(prevId);
             } else {
@@ -1061,8 +1255,15 @@ class SimplePlayer {
 
     performServerSeek(time) {
         console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
-        this.streamStartOffset = time;
-        this.video.src = `/api/video/stream/${this.videoId}?start=${time}`;
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        if (isIOS) {
+            this.streamStartOffset = 0;
+            this.video.currentTime = time;
+        } else {
+            this.streamStartOffset = time;
+            this.video.src = `/api/video/stream/${this.videoId}?start=${time}`;
+        }
         
         // Refresh subtitles if one is selected to ensure it gets the correct start offset
         if (this.lastSelectedTrackId && this.lastSelectedTrackId !== 'off') {

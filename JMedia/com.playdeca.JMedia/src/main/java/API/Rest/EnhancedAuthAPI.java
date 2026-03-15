@@ -69,16 +69,25 @@ public class EnhancedAuthAPI {
             // Create session
             Session session = sessionService.createSession(String.valueOf(user.id), user.getUsername(), ipAddress);
             
+            // Local network check for secure cookie bypass
+            boolean isLocalNetwork = isLocalNetwork(ipAddress);
+            System.out.println("[DEBUG] Login from IP: " + ipAddress + ", isLocalNetwork: " + isLocalNetwork);
+            
             // Create secure session cookie (7 days = 604800 seconds)
-            NewCookie sessionCookie = new NewCookie.Builder("JMEDIA_SESSION")
+            // Skip secure flag on local network (192.168.100.*, 10.50.0.*)
+            NewCookie.Builder cookieBuilder = new NewCookie.Builder("JMEDIA_SESSION")
                     .value(session.sessionId)
                     .path("/")
-                    .maxAge(604800) // 7 days
+                    .maxAge(604800)
                     .httpOnly(true)
-                    .secure(true)
                     .sameSite(NewCookie.SameSite.LAX)
-                    .comment("JMedia authentication session")
-                    .build();
+                    .comment("JMedia authentication session");
+            
+            if (!isLocalNetwork) {
+                cookieBuilder.secure(true);
+            }
+            
+            NewCookie sessionCookie = cookieBuilder.build();
             
             boolean isAdmin = "admin".equals(user.getGroupName());
             boolean needsSetup = isAdmin && setupController.isFirstTimeSetup();
@@ -237,9 +246,14 @@ public class EnhancedAuthAPI {
     }
     
     private void logFailedLoginAttempt(String username, String ipAddress, String reason) {
-        // In a real implementation, you would log to database
-        // For now, we'll log to console
         System.out.println("Failed login attempt for user '" + username + "' from IP " + ipAddress + " - " + reason);
+    }
+    
+    private boolean isLocalNetwork(String ipAddress) {
+        if (ipAddress == null) return false;
+        return ipAddress.startsWith("192.168.100.") || 
+               ipAddress.startsWith("10.50.0.") ||
+               ipAddress.equals("127.0.0.1");
     }
     
     public static class LoginRequest {

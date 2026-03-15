@@ -7,7 +7,11 @@
         
         <!-- Shared Scripts -->
         <script src="/js/theme-initializer.js"></script>
+        <script src="/js/fetch-credentials.js"></script>
         <script src="/js/htmx.min.js"></script>
+        <script>
+            htmx.config.withCredentials = true;
+        </script>
         <script defer src="/lib/alpine.min.js"></script>
         <script>
             document.addEventListener('alpine:init', () => {

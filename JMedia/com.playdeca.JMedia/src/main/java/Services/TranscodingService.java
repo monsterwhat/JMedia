@@ -42,7 +42,23 @@ public class TranscodingService {
         return codec.equals("aac") || codec.equals("mp3");
     }
 
-    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, OutputStream output) throws IOException {
+    public boolean isIOSClient(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return false;
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        return ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod");
+    }
+
+    public boolean isIOSTranscodeNeeded(Video video) {
+        if (video.videoCodec == null) {
+            return true;
+        }
+        String codec = video.videoCodec.toLowerCase(Locale.ROOT);
+        return !codec.contains("h264") && !codec.contains("avc");
+    }
+
+    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output) throws IOException {
         String ffmpegPath = discoveryService.findFFmpegExecutable();
         if (ffmpegPath == null) {
             throw new IOException("FFmpeg not found");
@@ -52,6 +68,9 @@ public class TranscodingService {
             videoService.probeVideoMetadata(video);
         }
 
+        boolean isIOS = isIOSClient(userAgent);
+        LOG.info("iOS client: {}, User-Agent: {}", isIOS, userAgent);
+        
         boolean needsVideoTranscode = video.videoCodec == null || 
                                      (!video.videoCodec.toLowerCase().contains("h264") && 
                                       !video.videoCodec.toLowerCase().contains("avc") &&
@@ -60,7 +79,87 @@ public class TranscodingService {
                                       !video.videoCodec.toLowerCase().contains("vp9") &&
                                       !video.videoCodec.toLowerCase().contains("av1"));
 
+        if (isIOS && isIOSTranscodeNeeded(video)) {
+            LOG.info("iOS client detected - forcing transcoding for codec: {}", video.videoCodec);
+            needsVideoTranscode = true;
+        }
+
         boolean canCopyAudio = canCopyAudio(video);
+        boolean needsAudioTranscode = !canCopyAudio;
+
+        if (!needsVideoTranscode && !needsAudioTranscode && !isIOS) {
+            String mkvmergePath = discoveryService.findMkvmerge();
+            if (mkvmergePath != null) {
+                streamViaMkvmerge(mkvmergePath, videoFile, output);
+                return;
+            }
+        }
+
+        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output);
+    }
+
+    private void streamViaMkvmerge(String mkvmergePath, File videoFile, OutputStream output) throws IOException {
+        LOG.info("Using mkvmerge for instant remux: {}", videoFile.getName());
+        
+        List<String> command = new ArrayList<>();
+        command.add(mkvmergePath);
+        command.add("-o");
+        command.add("-");
+        command.add("--no-attachments");
+        command.add(videoFile.getAbsolutePath());
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        
+        String processKey = videoFile.getName() + "-mkvmerge-" + System.currentTimeMillis();
+        activeProcesses.put(processKey, process);
+
+        try (InputStream is = process.getInputStream()) {
+            byte[] buffer = new byte[1024 * 1024];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                try {
+                    output.write(buffer, 0, read);
+                } catch (IOException e) {
+                    break;
+                }
+            }
+        } finally {
+            activeProcesses.remove(processKey);
+            try {
+                int exitCode = process.waitFor();
+                LOG.info("mkvmerge exited with code {} for {}", exitCode, videoFile.getName());
+            } catch (InterruptedException e) {
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                }
+            }
+        }
+    }
+
+    private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds, 
+                                  boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS, OutputStream output) throws IOException {
+        String hardwareEncoder = discoveryService.detectHardwareEncoder();
+        
+        boolean isHardwareEncoder = hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc");
+        
+        String videoEncoder;
+        String preset = "ultrafast";
+        if (needsVideoTranscode) {
+            if (isHardwareEncoder) {
+                videoEncoder = hardwareEncoder;
+                if (hardwareEncoder.contains("nvenc")) {
+                    preset = "fast";
+                } else {
+                    preset = "medium";
+                }
+            } else {
+                videoEncoder = "libx264";
+            }
+        } else {
+            videoEncoder = "copy";
+        }
 
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
@@ -78,11 +177,16 @@ public class TranscodingService {
         command.add("-map"); command.add("0:a:0?");
 
         if (needsVideoTranscode) {
-            LOG.info("Transcoding video for {} (source codec: {})", videoFile.getName(), video.videoCodec);
-            command.add("-c:v"); command.add("libx264");
-            command.add("-preset"); command.add("ultrafast");
-            command.add("-crf"); command.add("23");
-            command.add("-pix_fmt"); command.add("yuv420p");
+            LOG.info("Transcoding video for {} (source codec: {}, encoder: {})", videoFile.getName(), video.videoCodec, videoEncoder);
+            command.add("-c:v"); command.add(videoEncoder);
+            if (!videoEncoder.equals("copy")) {
+                command.add("-preset"); command.add(preset);
+                command.add("-crf"); command.add("23");
+                command.add("-pix_fmt"); command.add("yuv420p");
+                if (isIOS && (videoEncoder.equals("libx264") || videoEncoder.equals("h264_nvenc"))) {
+                    command.add("-profile:v"); command.add("main");
+                }
+            }
         } else {
             LOG.info("Remuxing video for {} (source codec: {})", videoFile.getName(), video.videoCodec);
             command.add("-c:v"); command.add("copy");
@@ -103,12 +207,21 @@ public class TranscodingService {
             ));
         }
 
-        command.addAll(List.of(
-            "-avoid_negative_ts", "make_zero",
-            "-f", "mp4",
-            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-            "pipe:1"
-        ));
+        if (isIOS) {
+            command.addAll(List.of(
+                "-tune", "zerolatency",
+                "-preset", "ultrafast",
+                "-f", "mp4",
+                "pipe:1"
+            ));
+        } else {
+            command.addAll(List.of(
+                "-avoid_negative_ts", "make_zero",
+                "-f", "mp4",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                "pipe:1"
+            ));
+        }
 
         ProcessBuilder pb = new ProcessBuilder(command);
         Process process = pb.start();

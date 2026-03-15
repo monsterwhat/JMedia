@@ -67,7 +67,7 @@
                 
                 // Trigger next song
                 if (window.globalActiveProfileId) {
-                    fetch(`/api/music/playback/next/${window.globalActiveProfileId}`, { method: 'POST' });
+                    fetch(`/api/music/playback/next/${window.globalActiveProfileId}`, { method: 'POST', credentials: 'same-origin' });
                 }
             };
             

@@ -366,7 +366,7 @@ window.switchSection = (section, params) => window.videoSPA.switchSection(sectio
 
 window.addToWatchlist = async (title, id) => {
     try {
-        const response = await fetch(`/api/video/watchlist/toggle/${id}`, { method: 'POST' });
+        const response = await fetch(`/api/video/watchlist/toggle/${id}`, { method: 'POST', credentials: 'same-origin' });
         const result = await response.json();
         
         if (result.success) {

@@ -25,6 +25,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import jakarta.ws.rs.core.StreamingOutput;
 import java.io.RandomAccessFile;
@@ -276,6 +278,7 @@ public class VideoAPI {
     @Path("/stream/{videoId}")
     public Response streamVideo(@PathParam("videoId") Long videoId, 
                                @HeaderParam("Range") String rangeHeader,
+                               @HeaderParam("User-Agent") String userAgent,
                                @QueryParam("start") @DefaultValue("0") double startSeconds) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
@@ -305,18 +308,33 @@ public class VideoAPI {
 
         String filename = videoFile.getName().toLowerCase();
         boolean isMKV = filename.endsWith(".mkv");
+        boolean isIOS = transcodingService.isIOSClient(userAgent);
+        
+        double effectiveStartSeconds = startSeconds;
+        if (isIOS) {
+            effectiveStartSeconds = 0;
+        }
 
         if (isMKV) {
-            return streamRemuxedMKV(video, videoFile, startSeconds);
+            return streamRemuxedMKV(video, videoFile, effectiveStartSeconds, userAgent);
+        }
+
+        if (isIOS) {
+            if (video.videoCodec == null || video.audioCodec == null) {
+                videoService.probeVideoMetadata(video);
+            }
+            if (transcodingService.isIOSTranscodeNeeded(video)) {
+                return streamRemuxedMKV(video, videoFile, effectiveStartSeconds, userAgent);
+            }
         }
 
         return streamDirectFile(videoFile, rangeHeader);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds) {
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent) {
         StreamingOutput streamingOutput = output -> {
             try {
-                transcodingService.streamRemuxedMKV(video, videoFile, startSeconds, output);
+                transcodingService.streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output);
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
                     LOG.error("MKV Remux streaming error for {}: {}", videoFile.getName(), e.getMessage());
@@ -339,11 +357,20 @@ public class VideoAPI {
             try {
                 String[] parts = rangeHeader.replace("bytes=", "").split("-");
                 start = Long.parseLong(parts[0]);
+
                 if (parts.length > 1 && !parts[1].isEmpty()) {
                     end = Long.parseLong(parts[1]);
+                } else {
+                    end = fileLength - 1;
+                }
+
+                if (end >= fileLength) {
+                    end = fileLength - 1;
                 }
             } catch (Exception e) {
                 LOG.warn("Invalid Range header '{}': {}", rangeHeader, e.getMessage());
+                start = 0;
+                end = fileLength - 1;
             }
         }
 
@@ -376,7 +403,7 @@ public class VideoAPI {
             }
         };
 
-        Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? 206 : 200)
+        Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? Response.Status.PARTIAL_CONTENT : Response.Status.OK)
                 .entity(streamingOutput)
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", mimeType)
@@ -661,38 +688,81 @@ public class VideoAPI {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
-            List<Models.Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
-            if (episodes.isEmpty()) {
+            List<Models.Video> existingEpisodes = videoService.findEpisodesForSeries(seriesTitle);
+            if (existingEpisodes.isEmpty()) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Series not found")).build();
             }
-            LOG.info("DEBUG: Reloading metadata for series: {}, found {} episodes", seriesTitle, episodes.size());
+            
+            String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            java.nio.file.Path seriesFolderPath = videoService.getSeriesFolderPath(seriesTitle);
+            if (seriesFolderPath == null) {
+                return Response.serverError().entity(ApiResponse.error("Could not determine series folder path")).build();
+            }
+            
+            java.nio.file.Path fullSeriesFolder = seriesFolderPath.isAbsolute() 
+                ? seriesFolderPath 
+                : Paths.get(videoLibraryPath, seriesFolderPath.toString());
+            
+            LOG.info("Scanning folder for series '{}': {}", seriesTitle, fullSeriesFolder);
+            LOG.info("Reloading metadata for series: {}, found {} existing episodes", seriesTitle, existingEpisodes.size());
+            
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-                    for (Models.Video video : episodes) {
-                        try {
-                            LOG.info("DEBUG: Batch processing episode: {}", video.title);
-                            java.nio.file.Path vPath = Paths.get(video.path);
-                            java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
-                            
-                            Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
-                            if (pending != null) {
-                                namingController.processPendingMedia(pending.id);
-                                Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                                if (persisted != null) {
-                                    LOG.info("DEBUG: Enriching series episode: {}", persisted.title);
-                                    videoMetadataService.fetchAndEnrichMetadata(persisted);
-                                }
-                            }
-                            // Add small delay to avoid 429 rate limits
-                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-                        } catch (Exception e) {
-                            LOG.error("Error reloading metadata for episode {} in series {}: {}", video.title, seriesTitle, e.getMessage());
+                    LOG.info("EXECUTOR STARTED for series: {}. Loading existing paths...", seriesTitle);
+                    Set<String> existingPaths = existingEpisodes.stream()
+                        .map(e -> e.path)
+                        .collect(Collectors.toSet());
+                    LOG.info("Loaded {} existing paths. Starting scan...", existingPaths.size());
+                    
+                    LOG.info("Starting folder scan for series: {}", seriesTitle);
+                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeriesFolder, false);
+                    LOG.info("Scan complete. Discovered {} files for series: {}", discovered.size(), seriesTitle);
+                    
+                    Set<String> discoveredPaths = discovered.stream()
+                        .map(pm -> pm.originalPath)
+                        .collect(Collectors.toSet());
+                    
+                    int deletedCount = 0;
+                    LOG.info("Checking {} existing episodes for missing files...", existingEpisodes.size());
+                    for (Models.Video episode : existingEpisodes) {
+                        if (!discoveredPaths.contains(episode.path)) {
+                            LOG.info("Deleting missing episode: {}", episode.path);
+                            episode.delete();
+                            deletedCount++;
                         }
                     }
-                    LOG.info("Metadata reload completed for series: {}", seriesTitle);
+                    LOG.info("Deleted {} missing episodes from series {}. Now processing {} discovered files...", deletedCount, seriesTitle, discovered.size());
+                    
+                    int processed = 0;
+                    int newCount = 0;
+                    int updatedCount = 0;
+                    int total = discovered.size();
+                    for (Models.PendingMedia pending : discovered) {
+                        processed++;
+                        LOG.info("Processing episode {}/{}: {}", processed, total, pending.originalFilename);
+                        try {
+                            boolean isNew = !existingPaths.contains(pending.originalPath);
+                            namingController.processPendingMedia(pending.id);
+                            Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
+                            if (persisted != null) {
+                                videoMetadataService.fetchAndEnrichMetadata(persisted);
+                                if (isNew) {
+                                    newCount++;
+                                    LOG.info("[{}/{}] NEW episode: {} S{}E{}", processed, total, pending.originalFilename, pending.getFinalSeason(), pending.getFinalEpisode());
+                                } else {
+                                    updatedCount++;
+                                }
+                            }
+                            LOG.info("Sleeping 500ms...");
+                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                            LOG.info("Wake up, continuing...");
+                        } catch (Exception e) {
+                            LOG.error("Error processing episode {} in series {}: {}", pending.originalFilename, seriesTitle, e.getMessage(), e);
+                        }
+                    }
+                    LOG.info("Metadata reload COMPLETED for series: {}. New: {}, Updated: {}, Deleted: {}", seriesTitle, newCount, updatedCount, deletedCount);
                 } finally {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }
@@ -713,38 +783,78 @@ public class VideoAPI {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
-            List<Models.Video> episodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
-            if (episodes.isEmpty()) {
-                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Season not found")).build();
+            List<Models.Video> existingEpisodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+            
+            String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            java.nio.file.Path seasonFolderPath = videoService.getSeasonFolderPath(seriesTitle, seasonNumber);
+            if (seasonFolderPath == null) {
+                seasonFolderPath = videoService.getSeasonFolderPathFallback(seriesTitle, seasonNumber);
             }
-            LOG.info("DEBUG: Reloading metadata for {} Season {}, found {} episodes", seriesTitle, seasonNumber, episodes.size());
+            if (seasonFolderPath == null) {
+                return Response.serverError().entity(ApiResponse.error("Could not determine season folder path")).build();
+            }
+            
+            java.nio.file.Path fullSeasonFolder = seasonFolderPath.isAbsolute() 
+                ? seasonFolderPath 
+                : Paths.get(videoLibraryPath, seasonFolderPath.toString());
+            
+            LOG.info("Scanning folder for season '{}' S{}: {}", seriesTitle, seasonNumber, fullSeasonFolder);
+            LOG.info("Reloading metadata for {} Season {}, found {} existing episodes", seriesTitle, seasonNumber, existingEpisodes.size());
+            
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-                    for (Models.Video video : episodes) {
-                        try {
-                            LOG.info("DEBUG: Batch processing season episode: {}", video.title);
-                            java.nio.file.Path vPath = Paths.get(video.path);
-                            java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
-
-                            Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
-                            if (pending != null) {
-                                namingController.processPendingMedia(pending.id);
-                                Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                                if (persisted != null) {
-                                    LOG.info("DEBUG: Enriching season episode: {}", persisted.title);
-                                    videoMetadataService.fetchAndEnrichMetadata(persisted);
-                                }
-                            }
-                            // Add small delay to avoid 429 rate limits
-                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-                        } catch (Exception e) {
-                            LOG.error("Error reloading metadata for episode in season: {}", e.getMessage());
+                    Set<String> existingPaths = existingEpisodes.stream()
+                        .map(e -> e.path)
+                        .collect(Collectors.toSet());
+                    
+                    LOG.info("Starting folder scan for season: {} S{}", seriesTitle, seasonNumber);
+                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeasonFolder, false);
+                    LOG.info("Scan complete. Discovered {} files for season: {} S{}", discovered.size(), seriesTitle, seasonNumber);
+                    
+                    Set<String> discoveredPaths = discovered.stream()
+                        .map(pm -> pm.originalPath)
+                        .collect(Collectors.toSet());
+                    
+                    int deletedCount = 0;
+                    for (Models.Video episode : existingEpisodes) {
+                        if (!discoveredPaths.contains(episode.path)) {
+                            LOG.info("Deleting missing episode: {}", episode.path);
+                            episode.delete();
+                            deletedCount++;
                         }
                     }
-                    LOG.info("Metadata reload completed for {} Season {}", seriesTitle, seasonNumber);
+                    LOG.info("Deleted {} missing episodes from season {} S{}", deletedCount, seriesTitle, seasonNumber);
+                    
+                    int processed = 0;
+                    int newCount = 0;
+                    int updatedCount = 0;
+                    int total = discovered.size();
+                    for (Models.PendingMedia pending : discovered) {
+                        processed++;
+                        try {
+                            boolean isNew = !existingPaths.contains(pending.originalPath);
+                            namingController.processPendingMedia(pending.id);
+                            Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
+                            if (persisted != null) {
+                                videoMetadataService.fetchAndEnrichMetadata(persisted);
+                                if (isNew) {
+                                    newCount++;
+                                    LOG.info("[{}/{}] NEW episode: {} S{}E{}", processed, total, pending.originalFilename, pending.getFinalSeason(), pending.getFinalEpisode());
+                                } else {
+                                    updatedCount++;
+                                }
+                            }
+                            if (processed % 10 == 0 || processed == total) {
+                                LOG.info("Progress: {}/{} episodes processed (new: {}, updated: {})", processed, total, newCount, updatedCount);
+                            }
+                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                        } catch (Exception e) {
+                            LOG.error("Error processing episode {} in season {} S{}: {}", pending.originalFilename, seriesTitle, seasonNumber, e.getMessage());
+                        }
+                    }
+                    LOG.info("Metadata reload COMPLETED for season: {} S{}. New: {}, Updated: {}, Deleted: {}", seriesTitle, seasonNumber, newCount, updatedCount, deletedCount);
                 } finally {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }

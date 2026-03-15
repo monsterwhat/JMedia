@@ -51,6 +51,43 @@ document.addEventListener('contextmenu', function(e) {
     }
 });
 
+// Long press detection for mobile/touch devices
+let longPressTimer = null;
+const LONG_PRESS_DURATION = 500;
+
+document.addEventListener('touchstart', function(e) {
+    const songRow = e.target.closest('tr[data-song-id], .mobile-song-item');
+    if (!songRow) return;
+    
+    songRow.classList.add('long-press-active');
+    
+    longPressTimer = setTimeout(() => {
+        e.preventDefault();
+        const songId = songRow.dataset.songId;
+        showCustomContextMenu(e.touches[0].pageX, e.touches[0].pageY, songId);
+    }, LONG_PRESS_DURATION);
+}, { passive: false });
+
+document.addEventListener('touchend', function(e) {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+    document.querySelectorAll('.long-press-active').forEach(el => {
+        el.classList.remove('long-press-active');
+    });
+});
+
+document.addEventListener('touchmove', function(e) {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+    document.querySelectorAll('.long-press-active').forEach(el => {
+        el.classList.remove('long-press-active');
+    });
+});
+
 document.addEventListener('click', function(e) {
     if (!e.target.closest('#customContextMenu')) {
         hideCustomContextMenu();
@@ -144,7 +181,7 @@ function loadPlaylistSubmenu(songId) {
 }
 
 window.addToPlaylist = function(playlistId, songId) {
-    fetch(`/api/music/playlists/add/${playlistId}/${songId}`, { method: 'POST' })
+    fetch(`/api/music/playlists/add/${playlistId}/${songId}`, { method: 'POST', credentials: 'same-origin' })
         .then(res => {
             if (res.ok && window.Toast) {
                 window.Toast.success('Added to playlist');

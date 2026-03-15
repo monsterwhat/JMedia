@@ -12,7 +12,7 @@
 {#else}
     <div class="standard-grid">
         {#for video in videos}
-            <div class="standard-card" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'details')">
+            <div class="standard-card" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'play')">
                 <div class="standard-card-poster">
                     <img class="poster-img" src="/api/video/thumbnail/{video.id}" alt="{video.title}" loading="lazy">
                     <div class="standard-card-overlay">

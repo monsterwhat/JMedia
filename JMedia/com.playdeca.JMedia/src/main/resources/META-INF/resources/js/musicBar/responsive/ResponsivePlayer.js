@@ -914,26 +914,36 @@
         updateCoverImage: function(state) {
             if (!this.elements.coverImage || !this.elements.coverFallback) return;
             
-            // Get artwork from current song data or use fallback
-            const hasArtwork = state.currentSongId && state.hasLyrics; // Using hasLyrics as proxy for artwork
+            // Get artwork from musicState (which stores full song data with artworkBase64)
+            const musicStateData = window.musicState?.currentSongData;
+            const hasArtwork = musicStateData && musicStateData.artworkBase64;
             
             if (hasArtwork) {
-                // Load artwork via existing system
-                if (window.ImageManager) {
-                    window.ImageManager.loadCoverImage(state.currentSongId);
-                }
-                if (this.elements.coverImage) {
-                    this.elements.coverImage.style.display = 'block';
-                }
+                // Use stored base64 artwork
+                this.elements.coverImage.src = `data:image/jpeg;base64,${musicStateData.artworkBase64}`;
+                this.elements.coverImage.style.display = 'block';
                 if (this.elements.coverFallback) {
                     this.elements.coverFallback.style.display = 'none';
                 }
             } else {
-                if (this.elements.coverImage) {
-                    this.elements.coverImage.style.display = 'none';
+                // Fallback: try to load via ImageManager or show fallback
+                if (window.ImageManager && window.ImageManager.loadCoverImage) {
+                    window.ImageManager.loadCoverImage(state.currentSongId);
                 }
-                if (this.elements.coverFallback) {
-                    this.elements.coverFallback.style.display = 'block';
+                if (state.currentSongId) {
+                    if (this.elements.coverImage) {
+                        this.elements.coverImage.style.display = 'block';
+                        this.elements.coverImage.src = `/api/music/cover/${state.currentSongId}`;
+                    }
+                    if (this.elements.coverFallback) {
+                        this.elements.coverFallback.style.display = 'none';
+                    }
+                } else {
+                    if (this.elements.coverImage) {
+                        this.elements.coverImage.style.display = 'none';
+                    }
+                    if (this.elements.coverFallback) {
+                        this.elements.coverFallback.style.display = 'block';
                 }
             }
         },
