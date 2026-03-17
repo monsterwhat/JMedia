@@ -22,7 +22,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 
 @ApplicationScoped
 public class VideoMetadataService {
@@ -69,6 +71,65 @@ public class VideoMetadataService {
 
     // Cache for show IDs to avoid rate limits during batch reloads
     private final Map<String, String> seriesImdbIdCache = new ConcurrentHashMap<>();
+    
+    // Queue for background metadata enrichment
+    private final BlockingQueue<Long> metadataQueue = new LinkedBlockingQueue<>();
+    private volatile boolean queueProcessing = false;
+    
+    /**
+     * Queue a single video for metadata enrichment
+     */
+    public void queueVideoForEnrichment(Long videoId) {
+        if (videoId != null) {
+            metadataQueue.offer(videoId);
+            LOG.debug("Queued video {} for metadata enrichment", videoId);
+        }
+    }
+    
+    /**
+     * Queue all videos for metadata enrichment
+     */
+    public void queueAllVideosForEnrichment() {
+        try {
+            List<Video> allVideos = Video.listAll();
+            for (Video video : allVideos) {
+                if (video != null && video.id != null) {
+                    metadataQueue.offer(video.id);
+                }
+            }
+            LOG.info("Queued {} videos for metadata enrichment", allVideos.size());
+        } catch (Exception e) {
+            LOG.error("Error queueing videos for enrichment: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Get the metadata queue
+     */
+    public BlockingQueue<Long> getMetadataQueue() {
+        return metadataQueue;
+    }
+    
+    /**
+     * Check if metadata queue is being processed
+     */
+    public boolean isQueueProcessing() {
+        return queueProcessing;
+    }
+    
+    /**
+     * Set queue processing flag
+     */
+    public void setQueueProcessing(boolean processing) {
+        this.queueProcessing = processing;
+    }
+    
+    /**
+     * Clear the metadata queue
+     */
+    public void clearMetadataQueue() {
+        metadataQueue.clear();
+    }
 
     @jakarta.transaction.Transactional
     public void enrichVideoWithIntroData(Models.Video video) {

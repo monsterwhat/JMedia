@@ -1,6 +1,14 @@
 // Global state tracking
 window.componentStates = { choco: false, python: false, ffmpeg: false, spotdl: false, whisper: false };
 
+document.body.addEventListener('htmx:configRequest', function(evt) {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const path = evt.detail.path;
+    if ((path.includes('/api/settings/music-library-path') || path.includes('/api/settings/video-library-path')) && !path.includes(profileId)) {
+        evt.detail.path = path.replace('/api/settings/', `/api/settings/${profileId}/`);
+    }
+});
+
 // --- Library & Metadata ---
 window.resetLibrary = async function () {
     const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
@@ -45,6 +53,68 @@ window.reloadMetadata = async function () {
     const res = await fetch(`/api/settings/${profileId}/reloadMetadata`, {method: "POST"});
     if (res.ok) {
         if(window.showToast) window.showToast("Metadata reload started", "success");
+    }
+};
+
+window.saveMusicLibraryPath = async function () {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const input = document.getElementById('musicLibraryPathInput');
+    const path = input ? input.value : '';
+    
+    if (!path || path === '(not set)') {
+        if(window.showToast) window.showToast("Please enter a valid path", "error");
+        return;
+    }
+    
+    try {
+        const formData = new URLSearchParams();
+        formData.append('musicLibraryPathInput', path);
+        
+        const res = await fetch(`/api/settings/${profileId}/music-library-path`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
+        });
+        
+        if (res.ok) {
+            if(window.showToast) window.showToast("Music library path saved", "success");
+        } else {
+            const json = await res.json();
+            if(window.showToast) window.showToast(json.error || "Failed to save", "error");
+        }
+    } catch (e) {
+        if(window.showToast) window.showToast("Error saving path", "error");
+    }
+};
+
+window.saveVideoLibraryPath = async function () {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const input = document.getElementById('videoLibraryPathInput');
+    const path = input ? input.value : '';
+    
+    if (!path || path === '(not set)') {
+        if(window.showToast) window.showToast("Please enter a valid path", "error");
+        return;
+    }
+    
+    try {
+        const formData = new URLSearchParams();
+        formData.append('videoLibraryPathInput', path);
+        
+        const res = await fetch(`/api/settings/${profileId}/video-library-path`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
+        });
+        
+        if (res.ok) {
+            if(window.showToast) window.showToast("Video library path saved", "success");
+        } else {
+            const json = await res.json();
+            if(window.showToast) window.showToast(json.error || "Failed to save", "error");
+        }
+    } catch (e) {
+        if(window.showToast) window.showToast("Error saving path", "error");
     }
 };
 
@@ -126,9 +196,27 @@ window.setupLogWebSocket = function () {
     window.logWebSocket = socket;
 };
 
+window.fixHtmxSettingsEndpoints = function() {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    
+    const buttons = [
+        { id: 'saveMusicLibraryPathBtn', endpoint: 'music-library-path' },
+        { id: 'saveVideoLibraryPathBtn', endpoint: 'video-library-path' }
+    ];
+    
+    buttons.forEach(({ id, endpoint }) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.setAttribute('hx-post', `/api/settings/${profileId}/${endpoint}`);
+        }
+    });
+};
+
 window.initSettingsView = async function() {
     console.log("Initializing Settings View");
     window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+    
+    window.fixHtmxSettingsEndpoints();
     
     await window.checkAdminStatus();
     

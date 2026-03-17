@@ -37,6 +37,12 @@ public class MediaPreProcessor {
         Pattern.compile("(?i)\\b(720p|1080p|2160p|4k|nf|webrip|x264|x265|hevc|galaxytg|galaxyty|hdtv|bluray)\\b");
     private static final Pattern SEASON_FOLDER_PATTERN = 
         Pattern.compile("(?i)season[s]?[-_.]?\\d{1,3}");
+    private static final Pattern TRACK_FOLDER_PATTERN = 
+        Pattern.compile("(?i)^(track|traccia|t)\\s*\\d{1,3}$");
+    private static final Pattern VOLUME_FOLDER_PATTERN = 
+        Pattern.compile("(?i)^(volume|vol|v)\\s*\\d{1,3}$");
+    private static final Pattern URL_PATTERN = 
+        Pattern.compile("(?i)^(www\\.|http|https)");
     
     @Inject
     LoggingService loggingService;
@@ -143,21 +149,51 @@ public class MediaPreProcessor {
 
         String showNameCandidate = parent.getFileName().toString();
         
-        // If parent is a season folder, go up one level
-        if (showNameCandidate.matches("(?i)season[s]?[-_.]?\\d{1,3}")) {
+        // If parent is a season/track/volume folder, go up one level
+        if (SEASON_FOLDER_PATTERN.matcher(showNameCandidate).matches() || 
+            TRACK_FOLDER_PATTERN.matcher(showNameCandidate).matches() ||
+            VOLUME_FOLDER_PATTERN.matcher(showNameCandidate).matches()) {
             Path grandParent = parent.getParent();
             if (grandParent != null) {
                 showNameCandidate = grandParent.getFileName().toString();
             }
         }
         
-        return showNameCandidate.replaceAll("(?i)\\b(?:s\\d{1,2}|season\\s*\\d{1,2})\\b", "").trim();
+        // Apply basic cleaning
+        showNameCandidate = showNameCandidate.replaceAll("(?i)\\b(?:s\\d{1,2}|season\\s*\\d{1,2}|t\\d{1,3}|track\\s*\\d{1,3}|vol\\d{1,3}|volume\\s*\\d{1,3})\\b", "").trim();
+        
+        // Validate and reject invalid names
+        if (showNameCandidate.isEmpty() || 
+            showNameCandidate.length() < 2 ||
+            URL_PATTERN.matcher(showNameCandidate).find() ||
+            showNameCandidate.matches("^\\d+$") ||
+            showNameCandidate.matches("(?i)^(www|http|https)")) {
+            // Try to go up another level
+            Path grandParent = parent.getParent();
+            if (grandParent != null) {
+                showNameCandidate = grandParent.getFileName().toString();
+            }
+        }
+        
+        // Final validation after going up
+        if (showNameCandidate.isEmpty() || 
+            showNameCandidate.length() < 2 ||
+            URL_PATTERN.matcher(showNameCandidate).find() ||
+            showNameCandidate.matches("^\\d+$") ||
+            showNameCandidate.matches("(?i)^(www|http|https)")) {
+            return "Unknown Show";
+        }
+        
+        return showNameCandidate;
     }
     
     private String extractTitleFromFilename(String filename) {
         String title = filename.replaceFirst("\\.[^.]+$", ""); // Remove extension
         title = title.replaceAll("\\b(19|20)\\d{2}\\b", ""); // Remove year
-        title = title.replaceAll("(?i)\\b(720p|1080p|4k|2160p|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|x264|x265|hevc)\\b", "");
+        // Remove quality indicators including YTS, 10bit, REPACK (including at end of name)
+        title = title.replaceAll("(?i)(720p|1080p|4k|2160p|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|x264|x265|hevc|yts|yify|10bit|repack)\\b", "");
+        title = title.replaceAll("(?i)(YTS|YIFY|10bit|REPACK)\\s*$", ""); // Remove trailing tags
+        title = title.replaceAll("(?i)^(YTS|YIFY)\\s*", ""); // Remove leading tags
         return title.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").replaceAll("\\s+", " ").trim();
     }
     

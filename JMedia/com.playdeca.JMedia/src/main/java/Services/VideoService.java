@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video;
+import Services.SmartNamingService;
 import Models.Genre;
 import Models.VideoGenre;
 import Models.SubtitleTrack;
@@ -36,6 +37,9 @@ public class VideoService {
     @Inject
     EnhancedSubtitleMatcher subtitleMatcher;
 
+    @Inject
+    SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
+
     // ========== CORE VIDEO OPERATIONS ==========
     
     @Transactional
@@ -53,7 +57,7 @@ public class VideoService {
     }
 
     @Inject
-    FFmpegDiscoveryService discoveryService;
+    MediaAnalysisService mediaAnalysisService;
 
     @Transactional
     public void probeVideoMetadata(Video video) {
@@ -66,133 +70,23 @@ public class VideoService {
         // Skip if already probed by another thread
         if (managedVideo.videoCodec != null && managedVideo.duration > 0) return;
 
-        String ffmpegPath = discoveryService.findFFmpegExecutable();
-        if (ffmpegPath == null) return;
-
-        try {
-            String probePath = discoveryService.findFFprobeExecutable();
-            if (probePath == null) return;
-            
-            // Get duration
-            ProcessBuilder pbDur = new ProcessBuilder(
-                probePath, 
-                "-v", "error", 
-                "-show_entries", "format=duration", 
-                "-of", "default=noprint_wrappers=1:nokey=1", 
-                managedVideo.path
-            );
-            Process pDur = pbDur.start();
-            java.util.Scanner sDur = new java.util.Scanner(pDur.getInputStream());
-            if (sDur.hasNextDouble()) {
-                managedVideo.duration = (long) (sDur.nextDouble() * 1000);
-            }
-            pDur.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-
-            // Get video codec
-            ProcessBuilder pbCodec = new ProcessBuilder(
-                probePath, 
-                "-v", "error", 
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_name", 
-                "-of", "default=noprint_wrappers=1:nokey=1", 
-                managedVideo.path
-            );
-            Process pCodec = pbCodec.start();
-            java.util.Scanner sCodec = new java.util.Scanner(pCodec.getInputStream());
-            if (sCodec.hasNext()) {
-                managedVideo.videoCodec = sCodec.next();
-            }
-            pCodec.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-
-            // Get audio codec
-            ProcessBuilder pbAudio = new ProcessBuilder(
-                probePath, 
-                "-v", "error", 
-                "-select_streams", "a:0",
-                "-show_entries", "stream=codec_name", 
-                "-of", "default=noprint_wrappers=1:nokey=1", 
-                managedVideo.path
-            );
-            Process pAudio = pbAudio.start();
-            java.util.Scanner sAudio = new java.util.Scanner(pAudio.getInputStream());
-            if (sAudio.hasNext()) {
-                managedVideo.audioCodec = sAudio.next();
-            }
-            pAudio.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-
-            managedVideo.persist();
-            // Update the passed object as well for immediate use
-            video.videoCodec = managedVideo.videoCodec;
-            video.audioCodec = managedVideo.audioCodec;
-            video.duration = managedVideo.duration;
-            
-            LOGGER.info("Successfully probed and saved metadata for video ID {}: {}ms, videoCodec={}, audioCodec={}", 
-                       managedVideo.id, managedVideo.duration, managedVideo.videoCodec, managedVideo.audioCodec);
-        } catch (Exception e) {
-            LOGGER.error("Error probing metadata for video {}: {}", video.id, e.getMessage());
-            probeVideoDuration(video);
-        }
+        mediaAnalysisService.analyze(managedVideo);
+        
+        managedVideo.persist();
+        
+        // Update the passed object as well for immediate use
+        video.videoCodec = managedVideo.videoCodec;
+        video.audioCodec = managedVideo.audioCodec;
+        video.duration = managedVideo.duration;
+        video.resolution = managedVideo.resolution;
+        video.displayResolution = managedVideo.displayResolution;
     }
 
     @Transactional
     public void probeVideoDuration(Video video) {
-        if (video == null || video.id == null || video.path == null) return;
-        
-        Video managedVideo = Video.findById(video.id);
-        if (managedVideo == null) return;
-        
-        String ffmpegPath = discoveryService.findFFmpegExecutable();
-        if (ffmpegPath == null) return;
-
-        try {
-            String probePath = discoveryService.findFFprobeExecutable();
-            ProcessBuilder pb;
-            
-            if (probePath != null) {
-                pb = new ProcessBuilder(
-                    probePath, 
-                    "-v", "error", 
-                    "-show_entries", "format=duration", 
-                    "-of", "default=noprint_wrappers=1:nokey=1", 
-                    managedVideo.path
-                );
-            } else {
-                pb = new ProcessBuilder(ffmpegPath, "-i", managedVideo.path);
-            }
-
-            Process process = pb.start();
-            java.util.Scanner scanner = new java.util.Scanner(process.getInputStream());
-            if (scanner.hasNextDouble()) {
-                double durationSeconds = scanner.nextDouble();
-                managedVideo.duration = (long) (durationSeconds * 1000);
-                managedVideo.persist();
-                video.duration = managedVideo.duration;
-                LOGGER.info("Successfully probed and updated duration for video ID {}: {}ms", managedVideo.id, managedVideo.duration);
-            } else {
-                java.util.Scanner errScanner = new java.util.Scanner(process.getErrorStream());
-                while (errScanner.hasNextLine()) {
-                    String line = errScanner.nextLine();
-                    if (line.contains("Duration:")) {
-                        String durationStr = line.split("Duration:")[1].split(",")[0].trim();
-                        String[] parts = durationStr.split(":");
-                        if (parts.length == 3) {
-                            double h = Double.parseDouble(parts[0]);
-                            double m = Double.parseDouble(parts[1]);
-                            double s = Double.parseDouble(parts[2]);
-                            managedVideo.duration = (long) ((h * 3600 + m * 60 + s) * 1000);
-                            managedVideo.persist();
-                            video.duration = managedVideo.duration;
-                            LOGGER.info("Successfully parsed duration for video ID {}: {}ms", managedVideo.id, managedVideo.duration);
-                            break;
-                        }
-                    }
-                }
-            }
-            process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (Exception e) {
-            LOGGER.error("Error probing duration for video {}: {}", video.id, e.getMessage());
-        }
+        probeVideoMetadata(video);
     }
+
 
     @Transactional
     public List<Video> findByIds(List<Long> ids) {
@@ -257,11 +151,9 @@ public class VideoService {
 
     @Transactional
     public List<String> findAllSeriesTitles() {
-        return Video.<Video>list("type = ?1", "episode")
+        return em.createQuery("SELECT DISTINCT v.seriesTitle FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL", String.class)
+                .getResultList()
                 .stream()
-                .map(v -> v.seriesTitle)
-                .filter(Objects::nonNull)
-                .distinct()
                 .sorted()
                 .collect(Collectors.toList());
     }
@@ -615,6 +507,15 @@ public class VideoService {
             video.persist();
         }
     }
+    
+    /**
+     * Discover subtitle tracks for all videos that don't have any subtitle tracks.
+     * Now delegates to SubtitleDiscoveryQueueProcessor for background processing.
+     */
+    public void discoverSubtitleTracksForAllVideos() {
+        LOGGER.info("Delegating subtitle track discovery to background processor...");
+        subtitleDiscoveryProcessor.queueAllVideos();
+    }
 
     // ========== IMPORT AND CREATION ==========
 
@@ -862,53 +763,77 @@ public class VideoService {
 
     @Transactional
     public PaginatedSeries findPaginatedSeriesTitles(int page, int limit, String sortBy, String sortDirection) {
-        List<Video> allEpisodes = Video.list("type = ?1", "episode");
-        
-        // Group by seriesTitle and find the "representative" for sorting
-        Map<String, Video> seriesMap = new HashMap<>();
-        for (Video v : allEpisodes) {
-            if (v.seriesTitle == null) continue;
-            Video existing = seriesMap.get(v.seriesTitle);
+        // Fetch only necessary fields to reduce memory pressure
+        List<Object[]> episodesData = em.createQuery(
+            "SELECT v.seriesTitle, v.dateAdded, v.lastWatched FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL", 
+            Object[].class).getResultList();
+
+        // Group by normalized seriesTitle using SmartNamingService
+        Map<String, SeriesSortData> seriesMap = new LinkedHashMap<>();
+        Map<String, String> normalizedToOriginalMap = new HashMap<>();
+
+        for (Object[] row : episodesData) {
+            String seriesTitle = (String) row[0];
+            LocalDateTime dateAdded = (LocalDateTime) row[1];
+            LocalDateTime lastWatched = (LocalDateTime) row[2];
+            
+            // Use SmartNamingService to get a normalized key for grouping
+            String normalizedKey = SmartNamingService.cleanShowName(seriesTitle).toLowerCase().trim();
+            if (normalizedKey.isEmpty()) normalizedKey = seriesTitle.toLowerCase().trim();
+
+            SeriesSortData existing = seriesMap.get(normalizedKey);
             if (existing == null) {
-                seriesMap.put(v.seriesTitle, v);
+                seriesMap.put(normalizedKey, new SeriesSortData(dateAdded, lastWatched));
+                normalizedToOriginalMap.put(normalizedKey, seriesTitle);
             } else {
-                // Update based on sort field if needed to find the "newest" or "last played" episode for the series
+                // Update based on sort field
                 if ("dateAdded".equals(sortBy)) {
-                    if (v.dateAdded != null && (existing.dateAdded == null || v.dateAdded.isAfter(existing.dateAdded))) {
-                        seriesMap.put(v.seriesTitle, v);
+                    if (dateAdded != null && (existing.dateAdded == null || dateAdded.isAfter(existing.dateAdded))) {
+                        existing.dateAdded = dateAdded;
+                        normalizedToOriginalMap.put(normalizedKey, seriesTitle);
                     }
                 } else if ("lastWatched".equals(sortBy)) {
-                    if (v.lastWatched != null && (existing.lastWatched == null || v.lastWatched.isAfter(existing.lastWatched))) {
-                        seriesMap.put(v.seriesTitle, v);
+                    if (lastWatched != null && (existing.lastWatched == null || lastWatched.isAfter(existing.lastWatched))) {
+                        existing.lastWatched = lastWatched;
+                        normalizedToOriginalMap.put(normalizedKey, seriesTitle);
                     }
                 }
             }
         }
 
-        List<String> sortedTitles = new ArrayList<>(seriesMap.keySet());
+        List<String> groupKeys = new ArrayList<>(seriesMap.keySet());
         boolean desc = "desc".equalsIgnoreCase(sortDirection);
-        
+
         Comparator<String> comparator;
         if ("dateAdded".equals(sortBy)) {
-            comparator = Comparator.comparing(title -> seriesMap.get(title).dateAdded, Comparator.nullsFirst(Comparator.naturalOrder()));
+            comparator = Comparator.comparing(key -> seriesMap.get(key).dateAdded, Comparator.nullsFirst(Comparator.naturalOrder()));
         } else if ("lastWatched".equals(sortBy)) {
-            comparator = Comparator.comparing(title -> seriesMap.get(title).lastWatched, Comparator.nullsFirst(Comparator.naturalOrder()));
+            comparator = Comparator.comparing(key -> seriesMap.get(key).lastWatched, Comparator.nullsFirst(Comparator.naturalOrder()));
         } else {
-            comparator = String::compareToIgnoreCase;
+            comparator = Comparator.comparing(key -> normalizedToOriginalMap.get(key), String.CASE_INSENSITIVE_ORDER);
         }
 
         if (desc) comparator = comparator.reversed();
-        sortedTitles.sort(comparator);
+        groupKeys.sort(comparator);
 
-        long totalCount = sortedTitles.size();
-        List<String> pagedTitles = sortedTitles.stream()
+        long totalCount = groupKeys.size();
+        List<String> pagedTitles = groupKeys.stream()
                 .skip((long) (page - 1) * limit)
                 .limit(limit)
+                .map(normalizedToOriginalMap::get)
                 .collect(Collectors.toList());
 
         return new PaginatedSeries(pagedTitles, totalCount);
     }
 
+    private static class SeriesSortData {
+        public LocalDateTime dateAdded;
+        public LocalDateTime lastWatched;
+        public SeriesSortData(LocalDateTime dateAdded, LocalDateTime lastWatched) {
+            this.dateAdded = dateAdded;
+            this.lastWatched = lastWatched;
+        }
+    }
     // ========== PAGINATION HELPER ==========
 
     public static class PaginatedVideos {

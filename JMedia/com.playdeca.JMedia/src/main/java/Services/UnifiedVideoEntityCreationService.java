@@ -23,20 +23,14 @@ public class UnifiedVideoEntityCreationService {
     
     private static final Logger LOG = LoggerFactory.getLogger(UnifiedVideoEntityCreationService.class);
     
-    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
-    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+    @Inject
+    org.eclipse.microprofile.context.ManagedExecutor managedExecutor;
 
     @Inject
     VideoService videoService;
     
     @Inject
-    EnhancedSubtitleMatcher subtitleMatcher;
-    
-    @Inject
     UserInteractionService userInteractionService;
-    
-    @Inject
-    ThumbnailService thumbnailService;
     
     @Inject
     VideoMetadataService videoMetadataService;
@@ -57,6 +51,44 @@ public class UnifiedVideoEntityCreationService {
             video = new Video();
             video.path = pending.mediaFile.path;
             video.dateAdded = java.time.LocalDateTime.now();
+        }
+        
+        // MERGE: Check if this show already exists with a similar name
+        // Also handles wrongly-split shows like "Arcane S01" merging into "Arcane"
+        if ("episode".equalsIgnoreCase(pending.getFinalMediaType()) && 
+            pending.getFinalShowName() != null && 
+            !pending.getFinalShowName().equals("Unknown Show")) {
+            
+            String normalizedNew = normalizeForMerge(pending.getFinalShowName());
+            
+            // Also try extracting base show name (removes season/quality patterns)
+            String baseShowName = SmartNamingService.cleanShowName(pending.getFinalShowName());
+            String normalizedBase = normalizeForMerge(baseShowName);
+            
+            // Find existing episodes with similar series title
+            List<String> existingTitles = videoService.findAllSeriesTitles();
+            
+            for (String existingTitle : existingTitles) {
+                String normalizedExisting = normalizeForMerge(existingTitle);
+                String normalizedExistingBase = normalizeForMerge(SmartNamingService.cleanShowName(existingTitle));
+                
+                // If normalized names match, merge into existing show
+                // Also check base names for wrongly-split shows
+                boolean match = normalizedExisting.equals(normalizedNew) || 
+                                normalizedExistingBase.equals(normalizedBase) ||
+                                normalizedExisting.equals(normalizedBase);
+                
+                if (match && !normalizedNew.isEmpty()) {
+                    // Use the shorter, cleaner series title
+                    if (pending.getFinalShowName().length() < existingTitle.length()) {
+                        pending.detectedShowName = pending.getFinalShowName(); // Use new shorter name
+                    } else {
+                        pending.detectedShowName = existingTitle; // Keep existing
+                    }
+                    LOG.info("Merging {} into existing show {}", pending.getFinalShowName(), pending.detectedShowName);
+                    break;
+                }
+            }
         }
         
         // Apply discovered metadata
@@ -85,18 +117,13 @@ public class UnifiedVideoEntityCreationService {
         video.quality = pending.mediaFile.getQualityIndicator();
         video.container = extractContainer(video.filename);
         video.hasSubtitles = pending.mediaFile.hasEmbeddedSubtitles;
+        video.mediaHash = pending.mediaFile.mediaHash;
         video.releaseGroup = pending.mediaFile.releaseGroup;
         video.source = pending.mediaFile.source;
         video.confidenceScore = pending.confidenceScore;
         
-        // Discover and associate subtitle tracks if not already present
-        if (video.subtitleTracks == null || video.subtitleTracks.isEmpty()) {
-            List<SubtitleTrack> subtitleTracks = subtitleMatcher.discoverSubtitleTracks(
-                    java.nio.file.Path.of(video.path), video);
-            if (!subtitleTracks.isEmpty()) {
-                video.subtitleTracks = subtitleTracks;
-            }
-        }
+        // Subtitle track discovery moved to post-scan to avoid 50 concurrent FFprobe processes during scan
+        // Use videoService.discoverSubtitleTracksForAllVideos() after scan completes
         
         // Set default audio language
         if (pending.mediaFile.audioLanguage != null && !pending.mediaFile.audioLanguage.isEmpty()) {
@@ -109,13 +136,7 @@ public class UnifiedVideoEntityCreationService {
         
         // Removed automatic IntroDB enrichment on creation to avoid rate limits on initial scan.
         // IntroDB data will now be fetched on-demand during playback or via manual "Deep Reload".
-        
-        // Generate thumbnail
-        try {
-            thumbnailService.generateThumbnail(persisted.id, persisted.path);
-        } catch (Exception e) {
-            LOG.error("Failed to generate thumbnail for finalized video: " + e.getMessage());
-        }
+        // Thumbnail generation is now handled by ThumbnailQueueProcessor background queue after scan completes.
         
         return persisted;
     }
@@ -165,7 +186,7 @@ public class UnifiedVideoEntityCreationService {
     }
     
     private List<Video> createVideosFromPendingMediaBatchParallel(List<Long> pendingIds) {
-        ExecutorCompletionService<Video> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<Video> completion = new ExecutorCompletionService<>(managedExecutor);
         List<Video> results = Collections.synchronizedList(new ArrayList<>());
         final int[] count = {0};
         
@@ -334,16 +355,24 @@ public class UnifiedVideoEntityCreationService {
         return "mp4";
     }
     
-    @PreDestroy
-    public void shutdownExecutor() {
-        try {
-            executor.shutdown();
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException ignored) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+    /**
+     * Normalizes show name for merge detection
+     * "Archer (2009)" -> "archer", "Archer2009" -> "archer"
+     * Also handles season patterns: "Archer S01" -> "archer", "Archer Season 1" -> "archer"
+     */
+    private String normalizeForMerge(String name) {
+        if (name == null || name.isEmpty()) return "";
+        
+        String cleaned = name.toLowerCase();
+        
+        // Remove season patterns: S01, Season 1, S1, etc.
+        cleaned = cleaned.replaceAll("(?i)\\s*s\\d{1,2}\\b", "");  // S01, S1
+        cleaned = cleaned.replaceAll("(?i)\\s*season\\s*\\d+", ""); // Season 1
+        cleaned = cleaned.replaceAll("(?i)\\s*temporada\\s*\\d+", ""); // Temporada 1
+        
+        // Remove year patterns
+        cleaned = cleaned.replaceAll("[^a-z0-9]", "").replaceAll("\\d{4}", "");
+        
+        return cleaned;
     }
 }

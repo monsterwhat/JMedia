@@ -72,6 +72,11 @@ public class ThumbnailService {
     
     @Transactional
     public String generateThumbnail(Long videoId, String videoPath) {
+        return generateThumbnail(videoId, videoPath, true); // Default: allow FFmpeg fallback
+    }
+    
+    @Transactional
+    public String generateThumbnail(Long videoId, String videoPath, boolean allowFfmpegFallback) {
         try {
             // Check if thumbnail already exists in cache and on disk
             String cachedPath = thumbnailCache.get(videoId);
@@ -151,12 +156,16 @@ public class ThumbnailService {
                 }
             }
 
-            // 3. STRATEGY C: Fallback to FFmpeg extraction at a meaningful time
-            LOGGER.info("No artwork found for ID {}, falling back to FFmpeg extraction", videoId);
-            boolean success = extractVideoFrame(videoPath, outputPath.toString());
-            
-            if (success) {
-                return finalizeThumbnail(videoId, outputPath.toString());
+            // 3. STRATEGY C: Fallback to FFmpeg extraction (skip in background queue)
+            if (allowFfmpegFallback) {
+                LOGGER.info("No artwork found for ID {}, falling back to FFmpeg extraction", videoId);
+                boolean success = extractVideoFrame(videoPath, outputPath.toString());
+                
+                if (success) {
+                    return finalizeThumbnail(videoId, outputPath.toString());
+                }
+            } else {
+                LOGGER.info("Skipping FFmpeg extraction for ID {} (background queue mode)", videoId);
             }
             
         } catch (Exception e) {
@@ -326,18 +335,34 @@ public class ThumbnailService {
                 return false;
             }
 
-            ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
-                "-ss", String.valueOf(seekSeconds),
-                "-i", videoPath,
-                "-frames:v", "1",
-                "-c:v", "libwebp",
-                "-quality", "85",
-                "-vf", "scale=480:-1",
-                "-f", "webp",
-                "-y",
-                outputPath
-            );
+            String hwDecoder = discoveryService.getHardwareDecoder(video != null ? video.videoCodec : "h264");
+            List<String> command = new ArrayList<>();
+            command.add(ffmpegPath);
+            
+            // If hardware decoder is available, it must be placed BEFORE -i
+            if (hwDecoder != null) {
+                command.add("-c:v");
+                command.add(hwDecoder);
+            }
+            
+            command.add("-ss");
+            command.add(String.valueOf(seekSeconds));
+            command.add("-i");
+            command.add(videoPath);
+            command.add("-frames:v");
+            command.add("1");
+            command.add("-c:v");
+            command.add("libwebp");
+            command.add("-quality");
+            command.add("85");
+            command.add("-vf");
+            command.add("scale=480:-1");
+            command.add("-f");
+            command.add("webp");
+            command.add("-y");
+            command.add(outputPath);
+
+            ProcessBuilder pb = new ProcessBuilder(command);
             
             Process process = pb.start();
             boolean finished = process.waitFor(20, TimeUnit.SECONDS);
@@ -436,7 +461,8 @@ public class ThumbnailService {
     }
     
     public String generateLocalThumbnail(ThumbnailJob job) {
-        return generateThumbnail(job.videoId, job.videoPath);
+        // Skip FFmpeg in background queue - only use API/placeholder
+        return generateThumbnail(job.videoId, job.videoPath, false);
     }
     
     public boolean isQueueEmpty() {

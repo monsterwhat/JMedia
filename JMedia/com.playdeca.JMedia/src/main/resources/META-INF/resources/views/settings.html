@@ -21,8 +21,8 @@
                                 <label class="label">Music Library Folder</label>
                                 <div class="field has-addons">
                                     <div class="control"><button id="browseMusicFolderBtn" class="button is-small is-warning">Browse</button></div>
-                                    <div class="control is-expanded"><input id="musicLibraryPathInput" class="input is-small" type="text" value="(not set)"></div>
-                                    <div class="control"><button id="saveMusicLibraryPathBtn" class="button is-small is-success" hx-post="/api/settings/music-library-path" hx-include="#musicLibraryPathInput" hx-swap="none">Save</button></div>
+                                    <div class="control is-expanded"><input id="musicLibraryPathInput" name="musicLibraryPathInput" class="input is-small" type="text" value="(not set)"></div>
+                                    <div class="control"><button id="saveMusicLibraryPathBtn" class="button is-small is-success" onclick="window.saveMusicLibraryPath()">Save</button></div>
                                 </div>
                             </div>
                             
@@ -39,8 +39,8 @@
                                     <label class="label">Video Library Folder</label>
                                     <div class="field has-addons">
                                         <div class="control"><button id="browseVideoFolderBtn" class="button is-small is-warning">Browse</button></div>
-                                        <div class="control is-expanded"><input id="videoLibraryPathInput" class="input is-small" type="text" value="(not set)"></div>
-                                        <div class="control"><button id="saveVideoLibraryPathBtn" class="button is-small is-success" hx-post="/api/settings/video-library-path" hx-include="#videoLibraryPathInput" hx-swap="none">Save</button></div>
+                                        <div class="control is-expanded"><input id="videoLibraryPathInput" name="videoLibraryPathInput" class="input is-small" type="text" value="(not set)"></div>
+                                        <div class="control"><button id="saveVideoLibraryPathBtn" class="button is-small is-success" onclick="window.saveVideoLibraryPath()">Save</button></div>
                                     </div>
                                 </div>
                                 <div class="field">

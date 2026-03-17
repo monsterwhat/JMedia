@@ -3,7 +3,7 @@ package API.Rest;
 import Controllers.ImportController;
 import Models.Song;
 import Services.FreeMetadataService;
-import Services.EnhancedFreeMetadataService;
+import Services.MusicEnrichmentService;
 import Services.SongService;
 import Services.AlbumArtService;
 import Services.AudioArtworkService;
@@ -36,7 +36,7 @@ public class MetadataEnrichmentApi {
     FreeMetadataService freeMetadataService;
     
     @Inject
-    EnhancedFreeMetadataService enhancedFreeMetadataService;
+    MusicEnrichmentService musicEnrichmentService;
 
     @Inject
     SongService songService;
@@ -93,12 +93,16 @@ public class MetadataEnrichmentApi {
             
             LOGGER.info("Starting enhanced metadata enrichment process for song ID {} - Artist: '{}', Title: '{}'", songId, artist, title);
             
-            EnhancedFreeMetadataService.EnhancedMetadataResult enriched = enhancedFreeMetadataService.enrichMetadata(artist, title);
+            musicEnrichmentService.enrichSong(song, true);
+            
+            LOGGER.info("Successfully enriched and updated metadata for song ID {}: {} - {}", songId, artist, title);
+            
+            MusicEnrichmentService.EnrichedMetadataResult enriched = musicEnrichmentService.enrichMetadata(artist, title);
             
             if (enriched.isEnriched()) {
                 // Update song with enriched metadata
-                LOGGER.info("EnhancedFreeMetadataService returned successful enrichment for song ID {} - Sources: {}, Confidence: {}, ProcessingTime: {}ms", 
-                    songId, enriched.getSuccessfulSources(), enriched.getConfidence(), enriched.getProcessingTimeMs());
+                LOGGER.info("MusicEnrichmentService returned successful enrichment for song ID {} - Sources: {}, BPM: {}", 
+                    songId, enriched.sources(), enriched.bpm());
                 updateSongMetadata(song, enriched);
                 
                 LOGGER.info("Successfully enriched and updated metadata for song ID {}: {} - {}", songId, artist, title);
@@ -106,8 +110,8 @@ public class MetadataEnrichmentApi {
                         .entity(createEnhancedResponse(enriched))
                         .build();
             } else {
-                LOGGER.warn("EnhancedFreeMetadataService could not enrich metadata for song ID {}: {} - {} - FailedSources: {}, ProcessingTime: {}ms", 
-                    songId, artist, title, enriched.getFailedSources(), enriched.getProcessingTimeMs());
+                LOGGER.warn("MusicEnrichmentService could not enrich metadata for song ID {}: {} - {}", 
+                    songId, artist, title);
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(createFailureResponse(enriched))
                         .build();
@@ -283,45 +287,34 @@ public class MetadataEnrichmentApi {
     }
 
     /**
-     * Updates song metadata with enhanced enriched information.
+     * Updates song metadata with enriched information.
      */
-    private void updateSongMetadata(Song song, EnhancedFreeMetadataService.EnhancedMetadataResult enriched) {
-        // Update text metadata fields
-        if (enriched.getArtist() != null) {
-            song.setArtist(enriched.getArtist());
+    private void updateSongMetadata(Song song, MusicEnrichmentService.EnrichedMetadataResult enriched) {
+        if (enriched.artist() != null) {
+            song.setArtist(enriched.artist());
         }
-        if (enriched.getTitle() != null) {
-            song.setTitle(enriched.getTitle());
+        if (enriched.title() != null) {
+            song.setTitle(enriched.title());
         }
-        if (enriched.getAlbum() != null) {
-            song.setAlbum(enriched.getAlbum());
+        if (enriched.album() != null) {
+            song.setAlbum(enriched.album());
         }
-        if (enriched.getReleaseDate() != null) {
-            song.setReleaseDate(enriched.getReleaseDate());
-        }
-        if (enriched.hasGenres()) {
-            // Set primary genre (first one)
-            List<String> genres = enriched.getGenres();
-            if (!genres.isEmpty()) {
-                song.setGenre(genres.get(0));
-            }
+        if (enriched.genre() != null && !enriched.genre().isBlank() && 
+            (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
+            song.setGenre(enriched.genre());
         }
         
-        // Process album art if available
-        if (enriched.getAlbumArtUrl() != null && !enriched.getAlbumArtUrl().trim().isEmpty()) {
-            LOGGER.info("Processing album art for song ID {}: {}", song.id, enriched.getAlbumArtUrl());
+        if (enriched.artworkUrl() != null && !enriched.artworkUrl().trim().isEmpty()) {
+            LOGGER.info("Processing album art for song ID {}: {}", song.id, enriched.artworkUrl());
             
-            // Convert URL to base64 asynchronously
-            albumArtService.convertUrlToBase64(enriched.getAlbumArtUrl())
+            albumArtService.convertUrlToBase64(enriched.artworkUrl())
                 .thenAccept(base64Artwork -> {
                     if (base64Artwork != null && !base64Artwork.trim().isEmpty()) {
-                        // Update database with base64 artwork
                         song.setArtworkBase64(base64Artwork);
                         songService.save(song);
                         
                         LOGGER.info("Successfully updated album art in database for song ID: {}", song.id);
                         
-                        // Embed artwork in file if conditions are met
                         if (shouldEmbedArtworkInFile(song)) {
                             audioArtworkService.embedArtworkInFile(song.getPath(), base64Artwork)
                                 .thenAccept(embeddingSuccess -> {
@@ -348,7 +341,6 @@ public class MetadataEnrichmentApi {
                 });
         }
         
-        // Save updated song (text metadata is saved immediately)
         songService.save(song);
     }
 
@@ -409,9 +401,9 @@ public class MetadataEnrichmentApi {
             song.setReleaseDate(enriched.getReleaseDate());
         }
         if (enriched.hasGenres()) {
-            // Set primary genre (first one)
+            // Only set if genre is missing or blank (preserve existing genre from file tags or previous enrichment)
             List<String> genres = enriched.getGenres();
-            if (!genres.isEmpty()) {
+            if (!genres.isEmpty() && (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
                 song.setGenre(genres.get(0));
             }
         }
@@ -423,28 +415,22 @@ public class MetadataEnrichmentApi {
     /**
      * Creates enhanced response object for successful enrichment.
      */
-    private Map<String, Object> createEnhancedResponse(EnhancedFreeMetadataService.EnhancedMetadataResult result) {
+    private Map<String, Object> createEnhancedResponse(MusicEnrichmentService.EnrichedMetadataResult result) {
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
         response.put("message", "Metadata enrichment successful");
-        response.put("enriched", true);
-        response.put("sources", result.getSources());
-        response.put("confidence", result.getConfidence());
-        response.put("processingTimeMs", result.getProcessingTimeMs());
-        response.put("apiResults", result.getApiResults());
-        response.put("apiResponseTimes", result.getApiResponseTimes());
-        response.put("successfulSources", result.getSuccessfulSources());
-        response.put("failedSources", result.getFailedSources());
-        response.put("hasAlbumArt", result.hasAlbumArt());
-        response.put("hasGenres", result.hasGenres());
-        response.put("genre", result.hasGenres() ? result.getGenres().get(0) : null);
-        response.put("album", result.getAlbum());
-        response.put("releaseDate", result.getReleaseDate());
-        response.put("fallbackUsed", result.isFallbackUsed());
+        response.put("enriched", result.isEnriched());
+        response.put("sources", result.sources());
+        response.put("hasAlbumArt", result.artworkUrl() != null && !result.artworkUrl().isBlank());
+        response.put("hasGenres", result.genre() != null && !result.genre().isBlank());
+        response.put("genre", result.genre());
+        response.put("album", result.album());
+        response.put("artist", result.artist());
+        response.put("title", result.title());
+        response.put("bpm", result.bpm());
         
-        if (result.getAlbumArtUrl() != null) {
-            response.put("albumArtUrl", result.getAlbumArtUrl());
-            response.put("albumArtSize", result.getAlbumArtSize());
+        if (result.artworkUrl() != null) {
+            response.put("albumArtUrl", result.artworkUrl());
         }
         
         return response;
@@ -453,21 +439,12 @@ public class MetadataEnrichmentApi {
     /**
      * Creates detailed failure response object.
      */
-    private Map<String, Object> createFailureResponse(EnhancedFreeMetadataService.EnhancedMetadataResult result) {
+    private Map<String, Object> createFailureResponse(MusicEnrichmentService.EnrichedMetadataResult result) {
         Map<String, Object> response = new HashMap<>();
         response.put("success", false);
         response.put("message", "Could not enrich metadata");
         response.put("enriched", false);
         response.put("needsEnrichment", true);
-        response.put("processingTimeMs", result.getProcessingTimeMs());
-        response.put("apiResults", result.getApiResults());
-        response.put("apiResponseTimes", result.getApiResponseTimes());
-        response.put("failedSources", result.getFailedSources());
-        response.put("fallbackUsed", result.isFallbackUsed());
-        
-        if (result.getLastError() != null) {
-            response.put("lastError", result.getLastError());
-        }
         
         return response;
     }

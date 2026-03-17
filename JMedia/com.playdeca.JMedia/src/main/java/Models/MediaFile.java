@@ -10,6 +10,7 @@ public class MediaFile extends PanacheEntity {
     public String path;
     public long size;
     public long lastModified;
+    public String mediaHash;
     public String type; // "video" or "subtitle"
     
     // Basic video metadata

@@ -8,6 +8,8 @@ import Services.TranscodingService;
 import Services.VideoImportService;
 import Services.VideoService;
 import Services.MediaPreProcessor;
+import Services.VideoScanExecutor;
+import Services.SubtitleDiscoveryQueueProcessor;
 import Controllers.NamingController;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -85,6 +87,12 @@ public class VideoAPI {
 
     @Inject
     Services.VideoMetadataService videoMetadataService;
+
+    @Inject
+    VideoScanExecutor videoScanExecutor;
+
+    @Inject
+    SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
 
     private boolean checkAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
         String sessionId = null;
@@ -435,23 +443,70 @@ public class VideoAPI {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting per-video library scan: {}", videoLibraryPath);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), false);
-                    LOG.info("Found {} items. Starting batch processing...", discovered.size());
+                    
+                    // Track processed IDs to avoid double processing
+                    java.util.Set<Long> processedIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+                    
+                    // Create a batch processing callback
+                    VideoImportService.ScanProgressCallback batchCallback = new VideoImportService.ScanProgressCallback() {
+                        private final java.util.List<Long> batchBuffer = new java.util.ArrayList<>();
+                        
+                        @Override
+                        public void onFileDiscovered(Models.PendingMedia media, int index, int total) {
+                            if (media == null) return;
+                            
+                            synchronized (batchBuffer) {
+                                batchBuffer.add(media.id);
+                                if (batchBuffer.size() >= 10) {
+                                    processBatch(new java.util.ArrayList<>(batchBuffer));
+                                    batchBuffer.clear();
+                                }
+                            }
+                        }
+                        
+                        @Override
+                        public void onProgress(int discovered, int total, String status) {
+                            // Optional: Log progress
+                        }
+                        
+                        private void processBatch(java.util.List<Long> ids) {
+                            if (ids.isEmpty()) return;
+                            try {
+                                LOG.info("Processing batch of {} items during scan...", ids.size());
+                                mediaPreProcessor.processPendingMediaBatch(ids, true);
+                                unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(ids, true);
+                                processedIds.addAll(ids);
+                            } catch (Exception e) {
+                                LOG.error("Error processing batch during scan: " + e.getMessage());
+                            }
+                        }
+                    };
 
-                    List<Long> pendingIds = discovered.stream()
+                    List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), false, batchCallback);
+                    
+                    LOG.info("Scan phase complete. Found {} items. Finalizing remaining items...", discovered.size());
+
+                    List<Long> remainingIds = discovered.stream()
                         .map(p -> p.id)
+                        .filter(id -> !processedIds.contains(id))
                         .collect(Collectors.toList());
 
-                    List<Models.PendingMedia> processed = mediaPreProcessor.processPendingMediaBatch(pendingIds, true);
-                    
-                    List<Models.Video> videos = unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(pendingIds, true);
-                    
-                    List<Long> videoIds = videos.stream()
-                        .map(v -> v.id)
-                        .collect(Collectors.toList());
-                    thumbnailService.generateThumbnailsBatch(videoIds, true);
+                    if (!remainingIds.isEmpty()) {
+                        LOG.info("Processing remaining {} items...", remainingIds.size());
+                        mediaPreProcessor.processPendingMediaBatch(remainingIds, true);
+                        unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(remainingIds, true);
+                    }
                     
                     LOG.info("Full video library scan and processing completed");
+                    
+                    // Queue metadata enrichment for background processing (runs before thumbnails)
+                    executor.submit(() -> videoMetadataService.queueAllVideosForEnrichment());
+                    
+                    // Queue thumbnails for background processing after scan completes
+                    executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
+                    
+                    // Discover subtitle tracks for all videos (post-scan to avoid 50 concurrent FFprobe)
+                    executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
                 }
             } catch (Exception e) {
                 LOG.error("Error during video scan: {}", e.getMessage(), e);
@@ -490,12 +545,14 @@ public class VideoAPI {
                     List<Models.PendingMedia> processed = mediaPreProcessor.processPendingMediaBatch(pendingIds, true);
                     
                     List<Models.Video> videos = unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(pendingIds, true);
-                    
-                    thumbnailService.queueAllVideosForRegeneration();
+
+                    executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
+                    executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
                     LOG.info("Video metadata reload completed");
+
                 }
             } catch (Exception e) {
-                LOG.error("Error during metadata reload: {}", e.getMessage(), e);
+                LOG.error("Error during metadata reload: " + e.getMessage(), e);
             } finally {
                 if (requestContext.isActive()) {
                     requestContext.deactivate();
@@ -620,6 +677,13 @@ public class VideoAPI {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Failed to get entity stats: " + e.getMessage())).build();
         }
+    }
+
+    @GET
+    @Path("/scan-status")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getScanStatus() {
+        return Response.ok(ApiResponse.success(videoImportService.getProgress())).build();
     }
 
     @GET

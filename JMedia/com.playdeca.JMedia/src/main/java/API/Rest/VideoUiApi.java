@@ -75,7 +75,7 @@ public class VideoUiApi {
     @Blocking
     public String getHeroFragment() {
         try {
-            List<Models.Video> allVideos = videoService.findAll();
+            List<Models.Video> allVideos = Models.Video.list("isActive", true);
             LOG.info("Hero fragment: Total videos found: " + allVideos.size());
             
             List<Models.Video> featured = allVideos.stream()
@@ -107,7 +107,7 @@ public class VideoUiApi {
             Map<String, Object> carouselData = getCarouselData();
             
             // Print debug info like the original class
-            System.out.println("DEBUG: Total videos found: " + videoService.findAll().size());
+            System.out.println("DEBUG: Total videos found: " + Models.Video.count("isActive", true));
             System.out.println("DEBUG: Movies: " + ((List<?>)carouselData.get("movies")).size());
             System.out.println("DEBUG: New releases: " + ((List<?>)carouselData.get("newReleases")).size());
             System.out.println("DEBUG: Trending videos: " + ((List<?>)carouselData.get("trending")).size());
@@ -447,7 +447,10 @@ public class VideoUiApi {
         java.util.Set<String> seenShows = new java.util.HashSet<>();
         data.put("tvShows", all.stream()
             .filter(v -> v.type != null && "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null)
-            .filter(v -> seenShows.add(v.seriesTitle))
+            .filter(v -> {
+                String normalized = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                return seenShows.add(normalized);
+            })
             .limit(20).collect(Collectors.toList()));
         data.put("trending", all.stream().skip(Math.min(10, all.size())).limit(15).collect(Collectors.toList()));
         return data;

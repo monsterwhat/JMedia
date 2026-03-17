@@ -182,6 +182,52 @@ class ToastSystem {
         return this.show({ ...options, message, type: 'warning' });
     }
 
+    progress(message, percent = 0) {
+        // Check if progress toast already exists
+        let toast = document.getElementById('scan-progress-toast');
+        
+        if (!toast) {
+            // Create new persistent toast
+            const toastId = 'scan-progress-toast';
+            toast = document.createElement('div');
+            toast.className = 'toast info';
+            toast.id = toastId;
+            toast.style.minWidth = '300px';
+            
+            toast.innerHTML = `
+                <div class="toast-content" style="flex-direction: column; align-items: flex-start;">
+                    <div style="display: flex; align-items: center; width: 100%; margin-bottom: 8px;">
+                        <i class="pi pi-spin pi-spinner" style="margin-right: 10px;"></i>
+                        <span id="scan-progress-message" style="flex-grow: 1;">${message}</span>
+                    </div>
+                    <div class="progress-bar-container" style="width: 100%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;">
+                        <div id="scan-progress-bar" style="width: ${percent}%; height: 100%; background: #4CAF50; transition: width 0.3s ease;"></div>
+                    </div>
+                    <div style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">App performance may be reduced</div>
+                </div>
+            `;
+            
+            this.container.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            
+            // Track it so it doesn't get auto-removed
+            this.toasts.push({ id: toastId, element: toast, type: 'progress', timestamp: Date.now(), persistent: true });
+        } else {
+            // Update existing toast
+            const msgEl = document.getElementById('scan-progress-message');
+            const barEl = document.getElementById('scan-progress-bar');
+            if (msgEl) msgEl.textContent = message;
+            if (barEl) barEl.style.width = `${percent}%`;
+        }
+        
+        // Auto-close if complete
+        if (percent >= 100) {
+            setTimeout(() => {
+                this.hideToast('scan-progress-toast');
+            }, 2000);
+        }
+    }
+
     // Escape HTML to prevent XSS
     escapeHtml(text) {
         const div = document.createElement('div');

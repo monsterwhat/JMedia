@@ -138,4 +138,40 @@ public class FFmpegDiscoveryService {
         hardwareEncoder = "libx264";
         return hardwareEncoder;
     }
+
+    private java.util.Set<String> supportedDecoders;
+
+    public String getHardwareDecoder(String codec) {
+        if (supportedDecoders == null) {
+            supportedDecoders = new java.util.HashSet<>();
+            String ffmpeg = findFFmpegExecutable();
+            if (ffmpeg != null) {
+                try {
+                    Process p = new ProcessBuilder(ffmpeg, "-hide_banner", "-decoders").start();
+                    java.util.Scanner s = new java.util.Scanner(p.getInputStream());
+                    while (s.hasNextLine()) {
+                        String line = s.nextLine();
+                        if (line.contains("nvenc") || line.contains("qsv") || line.contains("vaapi") || line.contains("cuvid")) {
+                            String[] parts = line.trim().split("\\s+");
+                            if (parts.length >= 2) supportedDecoders.add(parts[1]);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+        
+        boolean isH264 = "h264".equalsIgnoreCase(codec) || "avc".equalsIgnoreCase(codec);
+        boolean isHEVC = "hevc".equalsIgnoreCase(codec) || "h265".equalsIgnoreCase(codec);
+        
+        if (isH264) {
+            if (supportedDecoders.contains("h264_cuvid")) return "h264_cuvid";
+            if (supportedDecoders.contains("h264_qsv")) return "h264_qsv";
+            if (supportedDecoders.contains("h264_vaapi")) return "h264_vaapi";
+        } else if (isHEVC) {
+            if (supportedDecoders.contains("hevc_cuvid")) return "hevc_cuvid";
+            if (supportedDecoders.contains("hevc_qsv")) return "hevc_qsv";
+            if (supportedDecoders.contains("hevc_vaapi")) return "hevc_vaapi";
+        }
+        return null;
+    }
 }

@@ -36,17 +36,60 @@ window.initVideoSettingsView = function() {
     const scanVideoLibraryBtn = document.getElementById("scanVideoLibrary");
     if (scanVideoLibraryBtn) {
         scanVideoLibraryBtn.addEventListener('htmx:afterRequest', function (evt) {
-            if (evt.detail.successful) Toast.success("Video scan started");
-            else Toast.error("Failed to start scan");
+            if (evt.detail.successful) {
+                Toast.success("Video scan started");
+                startScanPolling();
+            } else {
+                Toast.error("Failed to start scan");
+            }
         });
     }
     
     const reloadVideoMetadataBtn = document.getElementById("reloadVideoMetadata");
     if (reloadVideoMetadataBtn) {
         reloadVideoMetadataBtn.addEventListener('htmx:afterRequest', function (evt) {
-            if (evt.detail.successful) Toast.success("Metadata reload started");
-            else Toast.error("Failed to start reload");
+            if (evt.detail.successful) {
+                Toast.success("Metadata reload started");
+                startScanPolling();
+            } else {
+                Toast.error("Failed to start reload");
+            }
         });
+    }
+
+    function startScanPolling() {
+        if (window.scanPollingInterval) clearInterval(window.scanPollingInterval);
+        
+        // Initial progress toast
+        Toast.progress("Initializing scan...", 0);
+        
+        let idleCount = 0;
+        window.scanPollingInterval = setInterval(async () => {
+            try {
+                const res = await fetch("/api/video/scan-status");
+                if (!res.ok) throw new Error("Status fetch failed");
+                
+                const json = await res.json();
+                const progress = json.data;
+                
+                if (progress && progress.isRunning) {
+                    idleCount = 0;
+                    const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+                    Toast.progress(`Scanning: ${progress.current} / ${progress.total}`, percent);
+                } else {
+                    idleCount++;
+                    // If idle for 3 checks (approx 6-9 seconds), stop polling
+                    if (idleCount >= 3) {
+                        clearInterval(window.scanPollingInterval);
+                        Toast.progress("Scan complete", 100);
+                    }
+                }
+            } catch (error) {
+                console.error("[ScanPolling] Error:", error);
+                idleCount++;
+                if (idleCount >= 5) clearInterval(window.scanPollingInterval);
+            }
+        }, 3000);
     }
 
     const resetVideoDbBtn = document.getElementById("resetVideoDb");

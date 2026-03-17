@@ -1,13 +1,15 @@
+{#for s in songs}
 <tr>
-    <td>All Songs 1</td>
-    <td>Artist 1</td>
-    <td>3:00</td>
+    <td>{s.title ?: "Unknown Title"}</td>
+    <td>{s.artist ?: "Unknown Artist"}</td>
+    <td>{formatDuration.apply(s.durationSeconds)}</td>
     <td>
-        <button class="has-text-primary" hx-post="/api/music/playback/select/{profileId}/1" hx-trigger="click" hx-swap="none">
+        <button class="has-text-primary" hx-post="/api/music/playback/select/{profileId}/{s.id}" hx-trigger="click" hx-swap="none">
             <i class="pi pi-play"></i>
         </button>
-        <button class="has-text-success" hx-post="/api/music/playlist/1/add/1" hx-trigger="click" hx-swap="none">
+        <button class="has-text-success" hx-post="/api/music/playlist/1/add/{s.id}" hx-trigger="click" hx-swap="none">
             <i class="pi pi-plus"></i>
         </button>
     </td>
 </tr>
+{/for}

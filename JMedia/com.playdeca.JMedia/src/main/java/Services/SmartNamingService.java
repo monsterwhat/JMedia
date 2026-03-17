@@ -18,36 +18,73 @@ public class SmartNamingService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SmartNamingService.class);
     
-    // Patterns for detecting TV show indicators in metadata
-    private static final Pattern[] TV_SHOW_PATTERNS = {
-        Pattern.compile("(?i)season.*\\d+.*episode.*\\d+"),
-        Pattern.compile("(?i)s\\d+.*e\\d+"),
-        Pattern.compile("(?i)\\d+x\\d+"),
-        Pattern.compile("(?i)episode.*\\d+"),
-        Pattern.compile("(?i)part.*\\d+")
-    };
+    // --- COMPILED PATTERNS FOR PERFORMANCE ---
     
-    // Quality indicators that suggest movies
-    private static final List<String> MOVIE_QUALITY_INDICATORS = Arrays.asList(
-        "bluray", "bdrip", "dvdrip", "web-dl", "webrip", "hdcam", "ts", "tc", "yts", "yify", "imax"
-    );
-    
-    // Release groups and sources to clean - using word boundaries to avoid matching substrings in legitimate words
-    private static final String RELEASE_CLEAN_REGEX = "(?i)\\b(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|hybrid|remastered|extended|collector|ultimate|proper|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|yify\\.tv|shiniori|dual-audio|multi-audio|sub|dub|galaxyrg|neonoir|mzabi|psa|pahe|800mb|10bit|tri-audio|multi-subs|bonkai77|pahe\\.in|nf|netflix|galaxytv|tgx|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|complete|vostfr|multi|amzn|amazon|web|dl|rzerox|hevc|mkv|mp4|avi|mov|wmv|m4v)\\b";
-    
-    // TV show indicators in filenames
-    private static final List<String> TV_SHOW_INDICATORS = Arrays.asList(
-        "season", "episode", "ep", "series", "show", "complete", "hdtv"
-    );
-    
-    // Pre-compiled episode detection patterns
+    // Episode detection patterns
     private static final Pattern EPISODE_SXXEXX = Pattern.compile("(?i)(.*?)[\\s\\._-]*[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})(.*)");
     private static final Pattern EPISODE_SXXEXX_PREFIX = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})");
     private static final Pattern EPISODE_XXY = Pattern.compile("(?i)(.*?)(\\b[0-3]?\\d)[x×]([0-1]?\\d{1,2}\\b)(.*)");
     private static final Pattern EPISODE_ONLY = Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)");
     private static final Pattern EPISODE_SIMPLE = Pattern.compile("(?i)(.*?)[\\s\\._-]+(\\d{1,3})(\\s*v\\d+)?\\.[^.]+$");
-    private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(19|20)\\d{2}\\b");
+    
+    // Season/Folder patterns
     private static final Pattern SEASON_FOLDER_PATTERN = Pattern.compile("(?i)season[s]?[-_.]?(\\d+)");
+    private static final Pattern SEASON_NAME_PATTERN = Pattern.compile("(?i)^s\\d{1,3}$");
+    private static final Pattern SEASON_EMBEDDED_PATTERN = Pattern.compile("(?i).*\\.s\\d{1,3}.*");
+    private static final Pattern SEASON_WORD_PATTERN = Pattern.compile("(?i)(season|libro|temporada|book|volume|chapter|episode)[s]?[-_. ]?\\d{1,3}.*");
+    private static final Pattern SPECIALS_PATTERN = Pattern.compile("(?i)(specials?)");
+    
+    // TV Show detection patterns (used for cleaning titles)
+    private static final List<Pattern> TV_SHOW_PATTERNS = Arrays.asList(
+        Pattern.compile("(?i)season.*\\d+.*episode.*\\d+"),
+        Pattern.compile("(?i)s\\d+.*e\\d+"),
+        Pattern.compile("(?i)\\d+x\\d+"),
+        Pattern.compile("(?i)episode.*\\d+"),
+        Pattern.compile("(?i)part.*\\d+")
+    );
+    
+    // Technical terms regex string (used in composite patterns)
+    private static final String RELEASE_TERMS = "720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|imax|hybrid|remastered|extended|collector|ultimate|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|dual-audio|multi-audio|tri-audio|multi-subs|10bit|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|vostfr|amzn|galaxytv|tgx|rzerox|mazar|pahe\\.in|800mb|proper|uncut|unrated|directors?.cut|nf|galaxyty";
+    
+    // Compiled cleaning patterns
+    private static final Pattern RELEASE_CLEAN_PATTERN = Pattern.compile("(?i)\\b(" + RELEASE_TERMS + ")($|\\s)");
+    
+    // Metadata in brackets/parens (Non-greedy, respects boundaries)
+    // Matches: [720p], (1080p x265), [ReleaseGroup 720p]
+    // Does NOT match: (US), [Special] unless they contain a technical term
+    private static final Pattern METADATA_BRACKETS_PATTERN = Pattern.compile("(?i)(\\[[^\\]]*?(" + RELEASE_TERMS + ")[^\\]]*?\\]|\\([^\\)]*?(" + RELEASE_TERMS + ")[^\\)]*?\\))");
+    
+    private static final Pattern LEADING_BRACKETS_PATTERN = Pattern.compile("(?i)^[\\[\\(].*?[\\]\\)]\\s*");
+    private static final Pattern TRAILING_BRACKETS_PATTERN = Pattern.compile("(?i)\\s*[\\[\\(].*?[\\]\\)]$");
+    private static final Pattern LEADING_SEQUENCE_PATTERN = Pattern.compile("^\\d+[\\s\\.\\-_]+");
+    private static final Pattern YEAR_PAREN_PATTERN = Pattern.compile("\\((19|20)\\d{2}\\)");
+    private static final Pattern YEAR_STANDALONE_PATTERN = Pattern.compile("\\b(19|20)\\d{2}\\b");
+    
+    // Splitters
+    private static final Pattern SEASON_SPLIT_PATTERN = Pattern.compile("(?i)\\s+season\\s*\\d+|\\s+S\\d{2,}|\\.s\\d{2,}(?=\\.|\\s|$)|\\s+series\\s*\\d+");
+    private static final Pattern COMPLETE_SPLIT_PATTERN = Pattern.compile("(?i)\\s+complete|\\.complete");
+    private static final Pattern SPECIALS_SPLIT_PATTERN = Pattern.compile("(?i)\\s+specials?|\\.specials?");
+    
+    // Indicators removal
+    private static final Pattern SEASON_EPISODE_REMOVE_PATTERN = Pattern.compile("(?i)\\b(season|series|episode|e|part|temporada|tome|volume|vol)[s]?\\s*[\\d\\-]+");
+    private static final Pattern STANDALONE_SXX_PATTERN = Pattern.compile("(?i)\\bS\\d{1,2}\\b");
+    
+    // Cleanup
+    private static final Pattern CLEANUP_CHARS_PATTERN = Pattern.compile("[._\\-\\[\\]\\(\\)]+");
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    
+    // Filename-like check
+    private static final Pattern FILE_EXTENSION_PATTERN = Pattern.compile("(?i)\\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg)$");
+
+    // Quality indicators that suggest movies
+    private static final List<String> MOVIE_QUALITY_INDICATORS = Arrays.asList(
+        "bluray", "bdrip", "dvdrip", "web-dl", "webrip", "hdcam", "ts", "tc", "yts", "yify", "imax"
+    );
+    
+    // TV show indicators in filenames
+    private static final List<String> TV_SHOW_INDICATORS = Arrays.asList(
+        "season", "episode", "ep", "series", "show", "complete", "hdtv"
+    );
 
     public static class NamingResult {
         public final String mediaType; // "movie" or "episode"
@@ -141,25 +178,31 @@ public class SmartNamingService {
         analysis.parentFolder = pathDepth > 1 ? path.getName(pathDepth - 2).toString() : "";
         analysis.grandParentFolder = pathDepth > 2 ? path.getName(pathDepth - 3).toString() : "";
 
+        // Get actual path segments with original case
+        String[] pathSegments = relativePath.replace('\\', '/').split("/");
+        String[] pathPartsLower = relativePath.toLowerCase().replace('\\', '/').split("/");
+
         // Scan all path segments for explicit "Movies" or "TV Shows" indicators
         // This takes high precedence as users often organize libraries this way
         String fullPathLower = relativePath.toLowerCase().replace('\\', '/');
-        String[] pathParts = fullPathLower.split("/");
 
-        for (int i = 0; i < pathParts.length; i++) {
-            String segment = pathParts[i];
+        for (int i = 0; i < pathPartsLower.length; i++) {
+            String segment = pathPartsLower[i];
+            String originalSegment = i < pathSegments.length ? pathSegments[i] : "";
 
             // Check for explicit "Movies" or "TV Shows" in folder names
             if (segment.equals("movies") || segment.equals("movie") || segment.equals("films") || segment.equals("film") || 
                 segment.startsWith("movie ") || segment.endsWith(" movies") || segment.contains(" movie ")) {
                 analysis.directoryTypeHint = "movie";
                 analysis.libraryRootIndex = i;
+                analysis.libraryRootFolder = originalSegment;
             }
             if (segment.equals("tv shows") || segment.equals("tv") || segment.equals("shows") || segment.equals("tvshow") || 
                 segment.equals("tvseries") || segment.equals("series") || segment.startsWith("tv ") || 
                 segment.contains("tv show") || segment.contains("tv serie")) {
                 analysis.directoryTypeHint = "episode";
                 analysis.libraryRootIndex = i;
+                analysis.libraryRootFolder = originalSegment;
             }
         }
 
@@ -171,13 +214,34 @@ public class SmartNamingService {
             }
         }
 
-        // Check for season folder patterns - expanded to include Libro, Book, etc.
-        String seasonRegex = "(?i)(season|s|libro|book|vol|volume|part|chapter|temporada|arc)[s]?[-_.]?\\d{1,3}";
-        analysis.hasSeasonFolder = analysis.parentFolder.matches(seasonRegex + "(.*)") || 
-                                    analysis.parentFolder.matches("(?i)s\\d{1,3}");
+        // NEW: Identify explicit show folder and season folder from path structure
+        if (analysis.libraryRootIndex != -1 && pathSegments.length > analysis.libraryRootIndex + 1) {
+            // Show folder is the segment after "TV Shows"
+            int showIdx = analysis.libraryRootIndex + 1;
+            if (showIdx < pathSegments.length - 1) { // -1 to exclude filename
+                analysis.showFolderIndex = showIdx;
+                analysis.showFolder = pathSegments[showIdx];
+                
+                // Check if next segment is a season folder
+                int seasonIdx = showIdx + 1;
+                if (seasonIdx < pathSegments.length - 1) {
+                    String potentialSeason = pathSegments[seasonIdx];
+                    if (isSeasonFolderName(potentialSeason)) {
+                        analysis.seasonFolderIndex = seasonIdx;
+                        analysis.seasonFolder = potentialSeason;
+                    }
+                }
+            }
+        }
+
+        // Check for season folder patterns
+        analysis.hasSeasonFolder = isSeasonFolderName(analysis.parentFolder) || 
+                                    SEASON_EMBEDDED_PATTERN.matcher(analysis.parentFolder).matches() ||
+                                    SEASON_WORD_PATTERN.matcher(analysis.parentFolder).matches() ||
+                                    analysis.seasonFolder != null; // explicit season folder
 
         // Check for TV show indicators in path
-        for (String indicator : Arrays.asList("season", "series", "episode", "tvshow", "libro", "temporada")) {
+        for (String indicator : Arrays.asList("season", "series", "episode", "tvshow", "libro", "temporada", "complete", "specials")) {
             if (fullPathLower.contains(indicator)) {
                 analysis.hasTvIndicator = true;
                 break;
@@ -185,7 +249,7 @@ public class SmartNamingService {
         }
 
         // Check for movie folder patterns
-        analysis.hasMovieFolderPattern = analysis.parentFolder.matches("(?i).*\\(\\d{4}\\).*") ||
+        analysis.hasMovieFolderPattern = YEAR_PAREN_PATTERN.matcher(analysis.parentFolder).find() ||
                                           analysis.parentFolder.toLowerCase().contains("movie") ||
                                           analysis.parentFolder.toLowerCase().contains("film");
 
@@ -299,11 +363,25 @@ public class SmartNamingService {
         }
 
         // Check path structure for episode indicators
-        if (pathAnalysis.hasSeasonFolder) {
+        if (pathAnalysis.hasSeasonFolder || pathAnalysis.seasonFolder != null) {
             detection.hasSeasonFolder = true;
-            detection.season = extractSeasonFromFolder(pathAnalysis.parentFolder);
-            detection.detectionMethod = "PathStructure";
-            detection.confidence = 0.6;
+            // Use explicit season folder from path structure if available
+            if (pathAnalysis.seasonFolder != null) {
+                detection.season = extractSeasonFromFolder(pathAnalysis.seasonFolder);
+                detection.detectionMethod = "PathStructure";
+            } else {
+                detection.season = extractSeasonFromFolder(pathAnalysis.parentFolder);
+                detection.detectionMethod = "PathStructure";
+            }
+            detection.confidence = 0.7; // Higher confidence with explicit season folder
+        }
+
+        // NEW: If no season detected but we have explicit show folder (direct episodes under show folder)
+        // Default to season 1
+        if (detection.season == null && pathAnalysis.showFolder != null && !pathAnalysis.hasSeasonFolder) {
+            detection.season = 1; // Default to season 1 for direct episodes
+            detection.detectionMethod = "PathStructureDefault";
+            detection.confidence = 0.5;
         }
 
         return detection;
@@ -403,7 +481,19 @@ public class SmartNamingService {
     private String extractShowName(String rawShowName, String filename, PathAnalysis pathAnalysis, 
                                   EpisodeDetection episodeDetection, String relativePath) {
         
-        // 0. Use hint from episode detection (filename prefix) if high confidence
+        // 0. NEW: Use explicit showFolder from path structure (BEST priority)
+        // This is set when we have: TV Shows/ShowName/... or TV Shows/ShowName/Season X/...
+        if (pathAnalysis.showFolder != null && !pathAnalysis.showFolder.isEmpty()) {
+            // CRITICAL: Ensure the show folder itself isn't a season folder
+            if (!isSeasonFolderName(pathAnalysis.showFolder)) {
+                String showFromPath = cleanShowName(pathAnalysis.showFolder);
+                if (!showFromPath.equals("Unknown Show") && showFromPath.length() > 1) {
+                    return showFromPath;
+                }
+            }
+        }
+        
+        // 0b. Use hint from episode detection (filename prefix) if high confidence
         if (episodeDetection.showNameHint != null && !episodeDetection.showNameHint.equals("Unknown Show")) {
             return episodeDetection.showNameHint;
         }
@@ -419,15 +509,29 @@ public class SmartNamingService {
                 // CRITICAL FIX: If the next folder is a season folder (e.g. "TV Shows/Season 1/"),
                 // then "Season 1" is NOT the show name.
                 if (isSeasonFolderName(folderName)) {
+                    // Check if grandparent folder exists and is a valid show name
+                    int grandParentIndex = showFolderIndex + 1;
+                    if (grandParentIndex < path.getNameCount() - 1) {
+                        String grandParentName = path.getName(grandParentIndex).toString();
+                        if (!isSeasonFolderName(grandParentName)) {
+                            String gpShowName = cleanShowName(grandParentName);
+                            if (!gpShowName.equals("Unknown Show")) {
+                                return gpShowName;
+                            }
+                        }
+                    }
                     // Try to get show name from the filename or raw data
                     if (rawShowName != null && !rawShowName.trim().isEmpty()) {
-                        return cleanShowName(rawShowName);
+                        String cleaned = cleanShowName(rawShowName);
+                        if (!cleaned.equals("Unknown Show")) {
+                            return cleaned;
+                        }
                     }
                     // Or from the part of the filename before SxxExx
                     Matcher m = EPISODE_SXXEXX_PREFIX.matcher(filename);
                     if (m.find()) {
                         String name = cleanShowName(m.group(1));
-                        if (!name.equals("Unknown Show") && name.length() > 2) return name;
+                        if (!name.equals("Unknown Show") && name.length() > 1) return name;
                     }
                 } else {
                     String folderShowName = cleanShowName(folderName);
@@ -443,17 +547,31 @@ public class SmartNamingService {
             String parentLower = pathAnalysis.parentFolder.toLowerCase();
             boolean parentIsMetadata = isSeasonFolderName(parentLower) || 
                                      parentLower.contains("complete") || 
-                                     parentLower.matches(".*[sS]\\d+.*") ||
+                                     SEASON_EMBEDDED_PATTERN.matcher(parentLower).matches() ||
                                      parentLower.contains("720p") || 
                                      parentLower.contains("1080p") ||
                                      parentLower.contains("galaxytv");
                                      
             if (parentIsMetadata || pathAnalysis.hasSeasonFolder) {
+                // First try grandparent folder
                 String folderShowName = cleanShowName(pathAnalysis.grandParentFolder);
                 if (!folderShowName.equals("Unknown Show") && 
                     !folderShowName.equalsIgnoreCase("tv shows") && 
                     !folderShowName.equalsIgnoreCase("shows")) {
                     return folderShowName;
+                }
+                
+                // If grandparent didn't work, try cleaning parent folder
+                // This handles cases like "Archer (2009) Season 9 S09" where show+season are combined
+                if (!pathAnalysis.parentFolder.isEmpty()) {
+                    String cleanedParent = cleanShowName(pathAnalysis.parentFolder);
+                    if (!cleanedParent.equals("Unknown Show") && 
+                        !cleanedParent.equalsIgnoreCase("tv shows") && 
+                        !cleanedParent.equalsIgnoreCase("shows") &&
+                        !cleanedParent.equalsIgnoreCase("movies") &&
+                        cleanedParent.length() > 1) {
+                        return cleanedParent;
+                    }
                 }
             }
         }
@@ -462,7 +580,7 @@ public class SmartNamingService {
         Matcher m = EPISODE_SXXEXX_PREFIX.matcher(filename);
         if (m.find()) {
             String nameFromFilename = cleanShowName(m.group(1));
-            if (!nameFromFilename.equals("Unknown Show") && nameFromFilename.length() > 2) {
+            if (!nameFromFilename.equals("Unknown Show") && nameFromFilename.length() > 1) {
                 return nameFromFilename;
             }
         }
@@ -481,7 +599,10 @@ public class SmartNamingService {
         
         // 5. Fall back to raw show name
         if (rawShowName != null && !rawShowName.trim().isEmpty()) {
-            return cleanShowName(rawShowName);
+            String cleaned = cleanShowName(rawShowName);
+            if (!cleaned.equals("Unknown Show")) {
+                return cleaned;
+            }
         }
         
         return "Unknown Show";
@@ -489,8 +610,32 @@ public class SmartNamingService {
 
     private boolean isSeasonFolderName(String name) {
         if (name == null || name.isEmpty()) return false;
-        String seasonRegex = "(?i)(season|s|libro|book|vol|volume|part|chapter|temporada|arc)[s]?[-_.]?\\d{1,3}";
-        return name.matches(seasonRegex + "(.*)") || name.matches("(?i)s\\d{1,3}");
+        
+        // Match "S1", "S01", "S001" format (exact or embedded)
+        if (SEASON_NAME_PATTERN.matcher(name).matches()) return true;
+        if (SEASON_EMBEDDED_PATTERN.matcher(name).matches()) return true;  // Embedded like .S01.
+        
+        // Match patterns like "Season 1", "Season 01", "Temporada 2", "Libro 1", "Volume 3"
+        if (SEASON_WORD_PATTERN.matcher(name).matches()) return true;
+        
+        // Match standalone numbers that are likely seasons (e.g., folder named "1" or "01")
+        // But only if it looks like a reasonable season number (1-999)
+        if (name.matches("^\\d{1,3}$")) {
+            try {
+                int num = Integer.parseInt(name);
+                return num >= 1 && num <= 999;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        
+        // Match "1x01" style (anime/foreign series format)
+        if (name.matches("(?i)\\d+[xX]\\d+.*")) return true;
+        
+        // Match "Specials" folder
+        if (SPECIALS_PATTERN.matcher(name).matches()) return true;
+        
+        return false;
     }
 
     /**
@@ -577,7 +722,7 @@ public class SmartNamingService {
         }
         
         // Try to extract from filename
-        Matcher matcher = YEAR_PATTERN.matcher(filename);
+        Matcher matcher = YEAR_STANDALONE_PATTERN.matcher(filename);
         if (matcher.find()) {
             try {
                 return Integer.parseInt(matcher.group());
@@ -589,7 +734,7 @@ public class SmartNamingService {
         // Try to extract from folder names
         String[] parts = (pathAnalysis.parentFolder + " " + pathAnalysis.grandParentFolder).split(" ");
         for (String part : parts) {
-            matcher = YEAR_PATTERN.matcher(part);
+            matcher = YEAR_STANDALONE_PATTERN.matcher(part);
             if (matcher.find()) {
                 try {
                     return Integer.parseInt(matcher.group());
@@ -635,44 +780,81 @@ public class SmartNamingService {
     /**
      * Cleans show name by removing common patterns and indicators
      */
-    private static String cleanShowName(String name) {
+    public static String cleanShowName(String name) {
         if (name == null || name.trim().isEmpty()) {
             return "Unknown Show";
         }
         
         String cleaned = name;
 
-        // 1. Remove bracketed content (usually release groups) at the beginning or end
-        cleaned = cleaned.replaceAll("(?i)^[\\[\\(].*?[\\]\\)]\\s*", "");
-        cleaned = cleaned.replaceAll("(?i)\\s*[\\[\\(].*?[\\]\\)]$", "");
-
-        // 2. Remove anything that looks like metadata inside brackets/parentheses
-        cleaned = cleaned.replaceAll("(?i)[\\[\\(].*?(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|x264|x265|hevc|aac|ac3|dts).*?[\\]\\)]", " ");
+        // 0. First, split on "Season" or "S##" if present
+        Matcher seasonMatcher = SEASON_SPLIT_PATTERN.matcher(cleaned);
+        if (seasonMatcher.find()) {
+            String[] parts = SEASON_SPLIT_PATTERN.split(cleaned, 2);
+            if (parts.length > 0 && parts[0].trim().length() > 1) {
+                cleaned = parts[0];
+            }
+        }
         
-        // 3. Remove leading sequence numbers (e.g. "01. ", "1. ", "1 - ")
-        cleaned = cleaned.replaceAll("^\\d+[\\s\\.\\-_]+", "");
+        // Handle "The Complete Series" or "Complete"
+        Matcher completeMatcher = COMPLETE_SPLIT_PATTERN.matcher(cleaned);
+        if (completeMatcher.find()) {
+            String[] parts = COMPLETE_SPLIT_PATTERN.split(cleaned, 2);
+            if (parts.length > 0 && parts[0].trim().length() > 1) {
+                cleaned = parts[0];
+            }
+        }
+        
+        // Handle "Specials"
+        Matcher specialsMatcher = SPECIALS_SPLIT_PATTERN.matcher(cleaned);
+        if (specialsMatcher.find()) {
+            String[] parts = SPECIALS_SPLIT_PATTERN.split(cleaned, 2);
+            if (parts.length > 0 && parts[0].trim().length() > 1) {
+                cleaned = parts[0];
+            }
+        }
+        
+        // 1. Remove leading release groups in brackets
+        cleaned = LEADING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = TRAILING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
 
-        // 4. Remove year patterns in parentheses like (2024)
-        cleaned = cleaned.replaceAll("\\((19|20)\\d{2}\\)", "");
-        // Or standalone year
-        cleaned = cleaned.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        // 2. Remove metadata inside brackets/parentheses using non-greedy pattern
+        cleaned = METADATA_BRACKETS_PATTERN.matcher(cleaned).replaceAll(" ");
+        
+        // 3. Remove leading sequence numbers
+        cleaned = LEADING_SEQUENCE_PATTERN.matcher(cleaned).replaceAll("");
 
-        // 5. Remove quality and release indicators (Comprehensive list)
-        cleaned = cleaned.replaceAll(RELEASE_CLEAN_REGEX, " ");
+        // 4. Remove year patterns
+        cleaned = YEAR_PAREN_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = YEAR_STANDALONE_PATTERN.matcher(cleaned).replaceAll("");
+
+        // 5. Remove quality and release indicators
+        cleaned = RELEASE_CLEAN_PATTERN.matcher(cleaned).replaceAll(" ");
         
         // 6. Remove season/episode patterns
-        cleaned = cleaned.replaceAll("(?i)\\b(season|s|episode|e|part)\\s*[\\d\\-]+", " ");
+        cleaned = SEASON_EPISODE_REMOVE_PATTERN.matcher(cleaned).replaceAll(" ");
+        cleaned = STANDALONE_SXX_PATTERN.matcher(cleaned).replaceAll(" ");
         
         // 7. Remove special characters and clean up
-        cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
+        cleaned = CLEANUP_CHARS_PATTERN.matcher(cleaned).replaceAll(" ").trim();
         
         // 8. Remove extra spaces and capitalize properly
-        cleaned = cleaned.replaceAll("\\s+", " ");
+        cleaned = WHITESPACE_PATTERN.matcher(cleaned).replaceAll(" ");
         cleaned = toTitleCase(cleaned.trim());
         
         // If it was just metadata, it might be empty now
-        if (cleaned.isEmpty() || cleaned.equalsIgnoreCase("COMPLETE") || cleaned.equalsIgnoreCase("NF")) {
+        if (cleaned.isEmpty()) {
              return "Unknown Show";
+        }
+        
+        // NEW: Check if the result looks like a filename (extension)
+        if (FILE_EXTENSION_PATTERN.matcher(cleaned).find()) {
+            return "Unknown Show";
+        }
+        
+        // NEW: Check if the result is just a technical term that got missed or a single letter
+        if (cleaned.length() < 2 || cleaned.matches("(?i)^(mkv|mp4|avi|show|series|season)$")) {
+            return "Unknown Show";
         }
         
         return cleaned;
@@ -689,32 +871,29 @@ public class SmartNamingService {
         String cleaned = title;
 
         // 1. Remove leading release groups in brackets
-        cleaned = cleaned.replaceAll("(?i)^[\\[\\(].*?[\\]\\)]\\s*", "");
+        cleaned = LEADING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
 
         // 2. Remove metadata in brackets/parentheses
-        cleaned = cleaned.replaceAll("(?i)[\\[\\(].*?(720p|1080p|2160p|4k|bluray|bdrip|dvdrip|web-dl|webrip|hdtv|yts|yify|imax|x264|x265|hevc|aac|ac3|dts).*?[\\]\\)]", " ");
+        cleaned = METADATA_BRACKETS_PATTERN.matcher(cleaned).replaceAll(" ");
 
-        // 3. Remove sequence numbers
-        cleaned = cleaned.replaceAll("^\\d+[\\s\\.\\-_]+", "");
+        // 3. Remove leading sequence numbers
+        cleaned = LEADING_SEQUENCE_PATTERN.matcher(cleaned).replaceAll("");
 
         // 4. Remove year
-        cleaned = cleaned.replaceAll("\\((19|20)\\d{2}\\)", "");
-        cleaned = cleaned.replaceAll("\\b(19|20)\\d{2}\\b", "");
+        cleaned = YEAR_PAREN_PATTERN.matcher(cleaned).replaceAll("");
+        cleaned = YEAR_STANDALONE_PATTERN.matcher(cleaned).replaceAll("");
         
         // 5. Remove quality and release indicators
-        cleaned = cleaned.replaceAll(RELEASE_CLEAN_REGEX, " ");
-        
-        // 6. Remove common release info
-        cleaned = cleaned.replaceAll("(?i)\\b(proper|repack|extended|uncut|unrated|directors?.cut)\\b", " ");
+        cleaned = RELEASE_CLEAN_PATTERN.matcher(cleaned).replaceAll(" ");
         
         // 7. Clean up separators and special characters
-        cleaned = cleaned.replaceAll("[._\\-\\[\\]\\(\\)]+", " ").trim();
+        cleaned = CLEANUP_CHARS_PATTERN.matcher(cleaned).replaceAll(" ").trim();
         
         // 8. Remove extra spaces
-        cleaned = cleaned.replaceAll("\\s+", " ");
+        cleaned = WHITESPACE_PATTERN.matcher(cleaned).replaceAll(" ");
         
         String result = toTitleCase(cleaned.trim());
-        if (result.isEmpty() || result.equalsIgnoreCase("NF") || result.equalsIgnoreCase("COMPLETE")) {
+        if (result.isEmpty()) {
             return "Unknown Title";
         }
         return result;
@@ -787,6 +966,18 @@ public class SmartNamingService {
         return null;
     }
     
+    /**
+     * Normalizes show name for comparison/merge detection
+     * "Archer (2009)" -> "archer", "Archer2009" -> "archer"
+     */
+    private static String normalizeShowNameForComparison(String name) {
+        if (name == null || name.isEmpty()) return "";
+        
+        return name.toLowerCase()
+            .replaceAll("[^a-z0-9]", "")      // Remove all punctuation/spaces
+            .replaceAll("\\d{4}", "");       // Remove 4-digit years
+    }
+    
     // Helper classes for analysis results
     private static class PathAnalysis {
         public int pathDepth;
@@ -797,6 +988,13 @@ public class SmartNamingService {
         public boolean hasMovieFolderPattern;
         public String directoryTypeHint; // "movie" or "episode"
         public int libraryRootIndex = -1; // Index of "TV Shows" or "Movies" in path
+        
+        // NEW: Explicit path structure for TV shows
+        public String libraryRootFolder;   // "TV Shows" or "Movies"
+        public String showFolder;         // The show directory (e.g., "Archer")
+        public String seasonFolder;       // Season folder if exists (e.g., "Season 1")
+        public int showFolderIndex = -1;  // Index of show folder in path
+        public int seasonFolderIndex = -1; // Index of season folder in path
     }
     
     private static class TechnicalAnalysis {

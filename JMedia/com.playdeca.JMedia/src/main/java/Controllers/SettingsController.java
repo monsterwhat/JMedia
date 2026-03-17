@@ -6,8 +6,8 @@ import jakarta.annotation.PostConstruct;
 import Models.Settings;
 import Models.SettingsLog;
 import Models.Song;
-import Services.EnhancedFreeMetadataService;
 import Services.ImportService;
+import Services.MusicEnrichmentService;
 import Services.SettingsService;
 import Services.SongService;
 import jakarta.annotation.PreDestroy;
@@ -62,7 +62,7 @@ public class SettingsController implements Serializable {
     private ObjectMapper objectMapper;
 
     @Inject
-    private EnhancedFreeMetadataService enhancedFreeMetadataService;
+    private MusicEnrichmentService musicEnrichmentService;
 
     private final List<ScanResult> failedSongs = Collections.synchronizedList(new ArrayList<>());
     
@@ -676,7 +676,9 @@ public class SettingsController implements Serializable {
             }
 
             Song persistedSong = songService.persistSongInNewTx(song);
-            // Only return the song if it was newly created in this run
+            
+            musicEnrichmentService.enrichSong(persistedSong);
+            
             return isNewSong ? persistedSong : null;
 
         } catch (org.jaudiotagger.audio.exceptions.InvalidAudioFrameException e) {
@@ -771,9 +773,6 @@ public class SettingsController implements Serializable {
         }
     }
 
-    // -------------------------------
-    // BPM Detection using FFmpeg
-    // -------------------------------
     private int getBpmWithFFprobe(File file) {
         // Try to extract BPM using ffprobe - this only works if BPM is in the metadata tags
         // Command: ffprobe -v error -show_entries format=bpm -of default=noprint_wrappers=1:nokey=1 "input.mp3"
@@ -903,93 +902,8 @@ public class SettingsController implements Serializable {
 
         addLog(String.format("[org.jau.tag.id3] File scan completed. %d songs processed.", updatedCount));
         
-        // Phase 2: Sequential metadata enrichment (slow, runs after scan)
-        Settings settings = settingsService.getOrCreateSettings();
-        if (settings.getEnableMetadataEnrichment()) {
-            addLog("[org.jau.tag.id3] Starting sequential metadata enrichment...");
-            enrichMissingMetadataSequentially(allSongs);
-        }
-        
         addLog(String.format("[org.jau.tag.id3] Metadata reload completed.", updatedCount));
         musicSocket.broadcastLibraryUpdateToAllProfiles();
-    }
-
-    // -------------------------------
-    // Sequential enrichment for songs with missing metadata (genre from APIs, BPM from FFmpeg)
-    // -------------------------------
-    private void enrichMissingMetadataSequentially(List<Song> allSongs) {
-        Settings settings = settingsService.getOrCreateSettings();
-        int genreEnrichedCount = 0;
-        int bpmExtractedCount = 0;
-        int skippedCount = 0;
-        
-        // Phase 1: Genre enrichment from APIs
-        if (settings.getEnableMetadataEnrichment()) {
-            addLog("[org.jau.tag.id3] Phase 1: Enriching missing genres from external APIs...");
-            for (Song song : allSongs) {
-                boolean needsGenreEnrichment = (song.getGenre() == null || song.getGenre().isBlank());
-                
-                if (!needsGenreEnrichment) {
-                    skippedCount++;
-                    continue;
-                }
-                
-                if (song.getArtist() == null || song.getArtist().isBlank()
-                        || song.getTitle() == null || song.getTitle().isBlank()) {
-                    skippedCount++;
-                    continue;
-                }
-                
-                try {
-                    EnhancedFreeMetadataService.EnhancedMetadataResult result = 
-                        enhancedFreeMetadataService.enrichMetadata(song.getArtist(), song.getTitle());
-                    
-                    if (result.isEnriched() && result.hasGenres()) {
-                        song.setGenre(result.getGenres().get(0));
-                        songService.persistSongInNewTx(song);
-                        genreEnrichedCount++;
-                        addLog("[Enrichment] Added genre '" + result.getGenres().get(0) + "' to: " + song.getTitle());
-                    }
-                } catch (org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException e) {
-                    addLog("[Enrichment] API rate limited - stopping genre enrichment");
-                    break;
-                } catch (Exception e) {
-                    addLog("[Enrichment] WARNING: Failed to enrich " + song.getTitle() + ": " + e.getMessage());
-                }
-            }
-        }
-        
-        // Phase 2: BPM extraction using FFmpeg
-        if (settings.getEnableBpmExtraction()) {
-            addLog("[org.jau.tag.id3] Phase 2: Extracting BPM using FFmpeg...");
-            int bpmProcessed = 0;
-            for (Song song : allSongs) {
-                // Only process songs that need BPM
-                if (song.getBpm() > 0) {
-                    continue;
-                }
-                
-                File songFile = new File(getMusicFolder(), song.getPath());
-                if (!(songFile.exists() && songFile.isFile())) {
-                    continue;
-                }
-                
-                int bpm = getBpmWithFFprobe(songFile);
-                if (bpm > 0) {
-                    song.setBpm(bpm);
-                    songService.persistSongInNewTx(song);
-                    bpmExtractedCount++;
-                    bpmProcessed++;
-                    if (bpmProcessed % 10 == 0) {
-                        addLog("[Enrichment] Extracted BPM for " + bpmProcessed + " songs...");
-                    }
-                }
-            }
-            addLog("[Enrichment] Extracted BPM for " + bpmExtractedCount + " songs");
-        }
-        
-        addLog(String.format("[org.jau.tag.id3] Enrichment completed. %d genres enriched, %d BPM extracted, %d skipped.", 
-            genreEnrichedCount, bpmExtractedCount, skippedCount));
     }
 
     // -------------------------------
@@ -1182,16 +1096,10 @@ public class SettingsController implements Serializable {
                     && song.getTitle() != null && !song.getTitle().isBlank()) {
                 
                 try {
-                    EnhancedFreeMetadataService.EnhancedMetadataResult result = 
-                        enhancedFreeMetadataService.enrichMetadata(song.getArtist(), song.getTitle());
-                    
-                    if (result.isEnriched() && result.hasGenres()) {
-                        song.setGenre(result.getGenres().get(0));
-                        localLogs.add("[Enrichment] Added genre: " + result.getGenres().get(0));
+                    musicEnrichmentService.enrichSong(song, true);
+                    if (song.getGenre() != null && !song.getGenre().isBlank()) {
+                        localLogs.add("[Enrichment] Added genre: " + song.getGenre());
                     }
-                } catch (org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException e) {
-                    // Circuit breaker open due to rate limiting - skip this song
-                    localLogs.add("[Enrichment] API rate limited - skipped for: " + song.getPath());
                 } catch (Exception e) {
                     localLogs.add("[Enrichment] WARNING: Failed to enrich " + song.getPath() + ": " + e.getMessage());
                 }

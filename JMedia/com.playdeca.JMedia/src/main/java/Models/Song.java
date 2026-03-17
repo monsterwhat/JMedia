@@ -28,7 +28,8 @@ public class Song extends PanacheEntity {
     private java.time.LocalDateTime dateAdded;
     private Long size;
     private Long lastModified;
- 
+    private String musicbrainzId;
+  
     @Override
     public boolean equals(Object o) {
         if (this == o) {

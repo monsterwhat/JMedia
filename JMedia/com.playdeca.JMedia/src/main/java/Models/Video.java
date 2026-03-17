@@ -135,6 +135,7 @@ public class Video extends PanacheEntity {
     public Long duration = 0L; // milliseconds
     public Long size = 0L; // bytes
     public Long fileSize = 0L; // Legacy DB column compatibility
+    public String mediaHash;
     public String quality; // "HD", "Full HD", "4K", "8K"
     public Long lastModified = 0L;
 

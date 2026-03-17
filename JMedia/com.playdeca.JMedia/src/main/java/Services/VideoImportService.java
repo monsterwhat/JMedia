@@ -4,10 +4,12 @@ import Models.MediaFile;
 import Models.Video;
 import Models.PendingMedia;
 import Models.VideoHistory;
+import Models.ScanState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -17,14 +19,13 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
 import java.time.Instant;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,12 +39,40 @@ public class VideoImportService {
         public final Map<String, Video> videoByPath = new HashMap<>();
         public final Map<Long, PendingMedia> pendingByMediaFileId = new HashMap<>();
         public final Map<String, Long> lastModifiedByPath = new HashMap<>();
+        public final Map<String, Video> videoByHash = new HashMap<>();
         public Instant lastScanTime;
     }
 
     public interface ScanProgressCallback {
         void onFileDiscovered(PendingMedia media, int index, int total);
         void onProgress(int discovered, int total, String status);
+    }
+
+    public static class ScanProgress {
+        public int total;
+        public int current;
+        public String status;
+        public boolean isRunning;
+
+        public ScanProgress(int total, int current, String status, boolean isRunning) {
+            this.total = total;
+            this.current = current;
+            this.status = status;
+            this.isRunning = isRunning;
+        }
+    }
+
+    private final AtomicInteger currentScanTotal = new AtomicInteger(0);
+    private final AtomicInteger currentScanProgress = new AtomicInteger(0);
+    private volatile boolean isScanRunning = false;
+
+    public ScanProgress getProgress() {
+        return new ScanProgress(
+            currentScanTotal.get(),
+            currentScanProgress.get(),
+            isScanRunning ? "RUNNING" : "IDLE",
+            isScanRunning
+        );
     }
 
     @Inject
@@ -58,8 +87,11 @@ public class VideoImportService {
     @Inject
     SettingsService settingsService;
 
-    private static final int THREADS = Math.max(4, Runtime.getRuntime().availableProcessors() - 1);
-    private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+    @Inject
+    MediaAnalysisService mediaAnalysisService;
+
+    @Inject
+    org.eclipse.microprofile.context.ManagedExecutor managedExecutor;
 
     public ScanContext loadScanContext() {
         ScanContext ctx = new ScanContext();
@@ -73,6 +105,9 @@ public class VideoImportService {
         List<Video> allVideos = Video.listAll();
         for (Video v : allVideos) {
             ctx.videoByPath.put(v.path, v);
+            if (v.mediaHash != null) {
+                ctx.videoByHash.put(v.mediaHash, v);
+            }
         }
         
         List<PendingMedia> allPending = PendingMedia.listAll();
@@ -86,19 +121,16 @@ public class VideoImportService {
         return ctx;
     }
 
-    @Transactional
     @ActivateRequestContext
     public List<PendingMedia> scan(Path directory, boolean metadataOnly) {
         return scan(directory, metadataOnly, null, false);
     }
 
-    @Transactional
     @ActivateRequestContext
     public List<PendingMedia> scan(Path directory, boolean metadataOnly, boolean forceFullScan) {
         return scan(directory, metadataOnly, null, forceFullScan);
     }
 
-    @Transactional
     @ActivateRequestContext
     public List<PendingMedia> scan(Path directory, boolean metadataOnly, ScanProgressCallback callback) {
         return scan(directory, metadataOnly, callback, false);
@@ -107,9 +139,31 @@ public class VideoImportService {
     @Transactional
     @ActivateRequestContext
     public List<PendingMedia> scan(Path directory, boolean metadataOnly, ScanProgressCallback callback, boolean forceFullScan) {
-        loggingService.addLog("Starting video scan of directory: " + directory + (forceFullScan ? " (full scan)" : " (incremental)"));
+        String scanType = forceFullScan ? "full" : "incremental";
+        
+        // Check for interrupted scan from previous session
+        ScanState previousScan = getInterruptedScan();
+        Set<String> processedPaths = new HashSet<>();
+        boolean isResuming = false;
+        
+        if (previousScan != null && !forceFullScan) {
+            loggingService.addLog("Found interrupted scan from previous session. Will resume from where it left off.");
+            completeScanState(previousScan, "interrupted", "App restarted mid-scan");
+            
+            // Load processed paths from previous scan to skip already-processed files
+            if (previousScan.processedPaths != null) {
+                processedPaths.addAll(previousScan.processedPaths);
+                loggingService.addLog("Resuming: will skip " + processedPaths.size() + " already-processed files");
+                isResuming = true;
+            }
+        }
+        
+        loggingService.addLog("Starting video scan of directory: " + directory + " (" + scanType + ")");
         mediaPreProcessor.clearCache();
         List<PendingMedia> discoveredMedia = new ArrayList<>();
+        
+        // Create scan state to track progress
+        ScanState scanState = null;
         try {
             ScanContext ctx = loadScanContext();
             loggingService.addLog("Loaded " + ctx.mediaFileByPath.size() + " existing media records, " 
@@ -118,9 +172,13 @@ public class VideoImportService {
             String libPathStr = settingsService.getOrCreateSettings().getVideoLibraryPath();
             Path rootPath = libPathStr != null ? Paths.get(libPathStr) : directory;
             
-            ExecutorCompletionService<PendingMedia> completion = new ExecutorCompletionService<>(executor);
+            isScanRunning = true;
+            currentScanProgress.set(0);
+            
+            ExecutorCompletionService<PendingMedia> completion = new ExecutorCompletionService<>(managedExecutor);
             AtomicInteger submittedTasks = new AtomicInteger();
             AtomicInteger skippedFiles = new AtomicInteger();
+            AtomicInteger processedCount = new AtomicInteger();
             
             loggingService.addLog("Scanning filesystem...");
             LOGGER.info("DEBUG: Starting filesystem walk on: {}", directory);
@@ -130,7 +188,31 @@ public class VideoImportService {
                         .toList();
                 LOGGER.info("DEBUG: Found {} video files in filesystem", videoFiles.size());
                 loggingService.addLog("Found " + videoFiles.size() + " video files in filesystem");
-                for (Path path : videoFiles) {
+                
+                // Update total
+                currentScanTotal.set(videoFiles.size());
+                
+                // Create scan state - total is all files, we'll track actual progress
+                scanState = startScanState(directory.toString(), scanType, videoFiles.size(), 10);
+                
+                // Initialize with already-processed paths if resuming
+                if (isResuming && !processedPaths.isEmpty()) {
+                    scanState.processedPaths.addAll(processedPaths);
+                    scanState.persist();
+                    currentScanProgress.set(processedPaths.size());
+                }
+                
+                // Filter out already-processed files if resuming
+                List<Path> filesToProcess = videoFiles;
+                if (isResuming && !processedPaths.isEmpty()) {
+                    final Set<String> finalProcessedPaths = processedPaths;
+                    filesToProcess = videoFiles.stream()
+                        .filter(p -> !finalProcessedPaths.contains(p.toString()))
+                        .toList();
+                    loggingService.addLog("Resuming: " + filesToProcess.size() + " new files to process (skipped " + processedPaths.size() + " already-processed)");
+                }
+                
+                for (Path path : filesToProcess) {
                     submittedTasks.incrementAndGet();
                     completion.submit(() -> processVideoFile(path, rootPath, metadataOnly, ctx, forceFullScan, skippedFiles));
                 }
@@ -143,30 +225,61 @@ public class VideoImportService {
             }
             loggingService.addLog("Found " + totalFiles + " video files. Starting discovery phase...");
             
-            for (int i = 0; i < totalFiles; i++) {
-                try {
-                    Future<PendingMedia> future = completion.take();
-                    PendingMedia result = future.get();
-                    if (result != null) {
-                        discoveredMedia.add(result);
-                        if (callback != null) {
-                            callback.onFileDiscovered(result, i + 1, totalFiles);
+            try {
+                for (int i = 0; i < totalFiles; i++) {
+                    try {
+                        Future<PendingMedia> future = completion.take();
+                        PendingMedia result = future.get();
+                        
+                        currentScanProgress.incrementAndGet();
+                        
+                        if (result != null) {
+                            discoveredMedia.add(result);
+                            
+                            // Track processed paths
+                            int processed = processedCount.incrementAndGet();
+                            if (scanState != null) {
+                                // Get path from result
+                                String processedPath = result.mediaFile != null ? result.mediaFile.path : null;
+                                if (processed % 10 == 0) {
+                                    updateScanState(scanState, processed, processedPath);
+                                }
+                            }
+                            
+                            if (callback != null) {
+                                callback.onFileDiscovered(result, i + 1, totalFiles);
+                            }
                         }
-                    }
-                    if ((i + 1) % 50 == 0) {
-                        String status = "Discovered " + (i + 1) + " / " + totalFiles + " files...";
-                        loggingService.addLog(status);
-                        if (callback != null) {
-                            callback.onProgress(discoveredMedia.size(), totalFiles, status);
+                        
+                        if ((i + 1) % 50 == 0) {
+                            String status = "Discovered " + (i + 1) + " / " + totalFiles + " files...";
+                            loggingService.addLog(status);
+                            if (callback != null) {
+                                callback.onProgress(discoveredMedia.size(), totalFiles, status);
+                            }
                         }
+                    } catch (Exception e) {
+                        LOGGER.error("Error during parallel discovery: " + e.getMessage(), e);
                     }
-                } catch (Exception e) {
-                    LOGGER.error("Error during parallel discovery: " + e.getMessage());
+                }
+            } finally {
+                isScanRunning = false;
+                if (scanState != null) {
+                    scanState.status = "COMPLETED";
+                    scanState.endTime = LocalDateTime.now();
+                    scanState.processedFiles = processedCount.get();
+                    scanState.persist();
                 }
             }
             loggingService.addLog("Discovery phase completed. Found " + discoveredMedia.size() + " new or updated items.");
+            
+            // Mark scan as completed
+            LOGGER.info("DEBUG: Returning {} discovered items from scan", discoveredMedia.size());
         } catch (IOException e) {
             loggingService.addLog("Error scanning directory: " + directory, e);
+            if (scanState != null) {
+                completeScanState(scanState, "failed", e.getMessage());
+            }
         }
         return discoveredMedia;
     }
@@ -228,6 +341,7 @@ public class VideoImportService {
         } catch (Exception ignored) {}
         Video.deleteAll();
         MediaFile.deleteAll();
+        ScanState.deleteAll();
         loggingService.addLog("Video database reset completed");
     }
 
@@ -238,28 +352,23 @@ public class VideoImportService {
                fileName.endsWith(".webm") || fileName.endsWith(".m4v") || fileName.endsWith(".srt");
     }
 
-    @Transactional
+    @Transactional(value = TxType.REQUIRES_NEW)
     @ActivateRequestContext
     protected PendingMedia processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx) {
         return processVideoFile(filePath, rootPath, metadataOnly, ctx, false, null);
     }
 
-    @Transactional
+    @Transactional(value = TxType.REQUIRES_NEW)
     @ActivateRequestContext
     protected PendingMedia processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx, boolean forceFullScan, AtomicInteger skippedFiles) {
         String filePathStr = filePath.toString();
         String filename = filePath.getFileName().toString();
         
         MediaFile existingFile = ctx.mediaFileByPath.get(filePathStr);
-        if (existingFile == null) {
-            LOGGER.info("DEBUG: New file (not in DB): {}", filePathStr);
-        } else {
-            LOGGER.info("DEBUG: Existing file in DB: {}, hasVideo: {}, metadataOnly: {}", 
-                filePathStr, ctx.videoByPath.containsKey(filePathStr), metadataOnly);
-        }
         
         try {
             if (existingFile != null) {
+                // ... (existing logic for unchanged files)
                 boolean fileChanged = true;
                 if (!forceFullScan) {
                     Long dbLastModified = ctx.lastModifiedByPath.get(filePathStr);
@@ -305,37 +414,109 @@ public class VideoImportService {
                 }
                 return pending;
             }
+
+            // FILE IS NEW TO THIS PATH
             if (!metadataOnly) {
+                if (filename.toLowerCase().endsWith(".srt")) return null;
+
+                // 1. Generate fingerprint for the new file
+                String currentHash = mediaAnalysisService.generateFingerprint(filePathStr);
+                
+                // 2. Check if we already have this file at a DIFFERENT path (Move detection)
+                if (currentHash != null && ctx.videoByHash.containsKey(currentHash)) {
+                    Video movedVideo = ctx.videoByHash.get(currentHash);
+                    LOGGER.info("Detected MOVED video: {} -> {}", movedVideo.path, filePathStr);
+                    
+                    // Update the video entity with the new path
+                    movedVideo.path = filePathStr;
+                    movedVideo.filename = filename;
+                    movedVideo.lastModified = Files.getLastModifiedTime(filePath).toMillis();
+                    movedVideo.persist();
+                    
+                    // Update MediaFile if it exists
+                    MediaFile mf = MediaFile.find("mediaHash", currentHash).firstResult();
+                    if (mf != null) {
+                        mf.path = filePathStr;
+                        mf.lastModified = movedVideo.lastModified;
+                        mf.persist();
+                    }
+                    
+                    if (skippedFiles != null) {
+                        skippedFiles.incrementAndGet();
+                    }
+                    return null; // Skip further processing as it's already in DB
+                }
+
+                // 3. If not a move, create new record
                 MediaFile mediaFile = new MediaFile();
                 mediaFile.path = filePathStr;
-                mediaFile.type = filename.toLowerCase().endsWith(".srt") ? "subtitle" : "video";
+                mediaFile.type = "video";
                 mediaFile.lastModified = Files.getLastModifiedTime(filePath).toMillis();
                 mediaFile.size = Files.size(filePath);
+                mediaFile.mediaHash = currentHash;
+                
+                // Technical analysis (Plex-style: analyze during scan)
+                mediaAnalysisService.analyze(mediaFile);
+                
                 mediaFile.persist();
                 
                 ctx.mediaFileByPath.put(filePathStr, mediaFile);
                 ctx.lastModifiedByPath.put(filePathStr, mediaFile.lastModified);
                 
-                if ("video".equals(mediaFile.type)) {
-                    return mediaPreProcessor.createPendingMedia(mediaFile, filePath, rootPath);
-                }
+                PendingMedia pm = mediaPreProcessor.createPendingMedia(mediaFile, filePath, rootPath);
+                return pm;
             }
         } catch (Exception e) {
-            LOGGER.error("Error processing file {}: {}", filename, e.getMessage());
+            LOGGER.error("Error processing file {}: {}", filename, e.getMessage(), e);
         }
         return null;
     }
 
-    @PreDestroy
-    public void shutdownExecutor() {
-        try {
-            executor.shutdown();
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException ignored) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
+    @Transactional
+    public ScanState startScanState(String libraryPath, String scanType, int totalFiles, int batchSize) {
+        ScanState state = new ScanState();
+        state.libraryPath = libraryPath;
+        state.scanType = scanType;
+        state.status = "running";
+        state.startTime = LocalDateTime.now();
+        state.totalFiles = totalFiles;
+        state.processedFiles = 0;
+        state.batchSize = batchSize;
+        state.processedPaths = new ArrayList<>();
+        state.persist();
+        return state;
+    }
+    
+    @Transactional(TxType.REQUIRES_NEW)
+    public void updateScanState(ScanState state, int processedFiles, String processedPath) {
+        if (state == null) return;
+        state.processedFiles = processedFiles;
+        if (processedPath != null && !processedPath.isEmpty()) {
+            state.processedPaths.add(processedPath);
         }
+        state.flush();
+    }
+    
+    @Transactional(TxType.REQUIRES_NEW)
+    public void completeScanState(ScanState state, String status, String errorMessage) {
+        if (state == null) return;
+        state.status = status;
+        state.endTime = LocalDateTime.now();
+        state.errorMessage = errorMessage;
+        state.persist();
+    }
+    
+    public ScanState getLastScanState() {
+        return ScanState.findLatest();
+    }
+    
+    public ScanState getInterruptedScan() {
+        return ScanState.find("status", "running").firstResult();
+    }
+    
+    public boolean isPathProcessed(String path) {
+        ScanState state = getInterruptedScan();
+        if (state == null || state.processedPaths == null) return false;
+        return state.processedPaths.contains(path);
     }
 }
