@@ -7,7 +7,6 @@ import Services.ProfileService;
 import Services.SessionService;
 import Services.UserService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -82,7 +81,6 @@ public class UserManagementAPI {
     }
     
     @POST
-    @Transactional
     public Response createUser(UserRequest request, @Context HttpHeaders headers) {
         if (!isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN)
@@ -164,6 +162,76 @@ public class UserManagementAPI {
                     .entity(ApiResponse.error(e.getMessage()))
                     .build();
         }
+    }
+    
+    @GET
+    @Path("/sessions")
+    public Response listAllSessions(@Context HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Admin access required"))
+                    .build();
+        }
+        
+        List<Session> sessions = sessionService.getAllActiveSessions();
+        List<Map<String, Object>> sessionList = new ArrayList<>();
+        for (Session s : sessions) {
+            sessionList.add(s.toInfoMap());
+        }
+        
+        return Response.ok()
+                .entity(ApiResponse.success(sessionList))
+                .build();
+    }
+    
+    @GET
+    @Path("/sessions/{userId}")
+    public Response listSessionsByUser(@PathParam("userId") String userId, @Context HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Admin access required"))
+                    .build();
+        }
+        
+        List<Session> sessions = sessionService.getSessionsByUserId(userId);
+        List<Map<String, Object>> sessionList = new ArrayList<>();
+        for (Session s : sessions) {
+            sessionList.add(s.toInfoMap());
+        }
+        
+        return Response.ok()
+                .entity(ApiResponse.success(sessionList))
+                .build();
+    }
+    
+    @DELETE
+    @Path("/sessions/{sessionId}")
+    public Response revokeSession(@PathParam("sessionId") String sessionId, @Context HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Admin access required"))
+                    .build();
+        }
+        
+        String currentSessionId = getSessionId(headers);
+        if (currentSessionId != null && currentSessionId.equals(sessionId)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Cannot revoke your own session"))
+                    .build();
+        }
+        
+        Session session = Session.findBySessionId(sessionId);
+        if (session == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(ApiResponse.error("Session not found"))
+                    .build();
+        }
+        
+        sessionService.revokeSession(sessionId);
+        
+        return Response.ok()
+                .entity(ApiResponse.success(Map.of("message", "Session revoked")))
+                .build();
     }
     
     public static class UserRequest {

@@ -20,26 +20,41 @@ function applyMarqueeEffectToHistory(element) {
 }
 
 // -------------------------
-// Pagination variables
+// Pagination and search variables
 // -------------------------
 let currentHistoryPage = 1;
+let historySearchQuery = '';
 const historyLimit = 50;
 let totalHistorySize = Infinity;
 let isFetchingHistory = false;
 
+// Get search query from the input field
+function getHistorySearchQuery() {
+    const input = document.getElementById('historySearchInput');
+    return input ? input.value.trim() : '';
+}
+
+// Update search query variable
+function updateHistorySearch(query) {
+    historySearchQuery = query || '';
+}
+
 // -------------------------
 // Load a page of the history
 // -------------------------
-function loadHistoryPage(page = 1, profileIdParam) {
+function loadHistoryPage(page = 1, profileIdParam, searchParam) {
     if (isFetchingHistory) {
         return;
     }
     isFetchingHistory = true;
     currentHistoryPage = page; // Update current page
     const currentProfileId = profileIdParam || globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const search = searchParam !== undefined ? searchParam : getHistorySearchQuery();
+    historySearchQuery = search;
 
-    fetch(`/api/music/ui/history-fragment/${currentProfileId}?page=${currentHistoryPage}&limit=${historyLimit}`, {
-        headers: {'Accept': 'application/json'} // Request JSON
+    const searchParamEncoded = encodeURIComponent(search);
+    fetch(`/api/music/ui/history-fragment/${currentProfileId}?page=${currentHistoryPage}&limit=${historyLimit}&search=${searchParamEncoded}`, {
+        headers: {'Accept': 'application/json'}
     })
             .then(response => {
                 if (!response.ok) {
@@ -97,12 +112,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expose a global function to refresh the history
     window.refreshHistory = () => {
-        loadHistoryPage(currentHistoryPage); // Maintain current page
+        loadHistoryPage(currentHistoryPage, undefined, historySearchQuery);
     };
 
     // Expose a function to refresh history from the beginning (for manual refresh)
     window.refreshHistoryFromStart = () => {
-        loadHistoryPage(1); // Reset page to load from the beginning
+        loadHistoryPage(1, undefined, historySearchQuery);
     };
 });
 

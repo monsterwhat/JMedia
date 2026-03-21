@@ -97,6 +97,7 @@ public class VideoHistoryService {
         }
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<VideoHistory> getHistory(int page, int pageSize) {
         if (isMainProfileActive()) {
             return em.createQuery("SELECT vh FROM VideoHistory vh ORDER BY vh.playedAt DESC", VideoHistory.class)
@@ -114,6 +115,7 @@ public class VideoHistoryService {
         }
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Long> getRecentlyPlayedVideoIds(int count) {
         if (isMainProfileActive()) {
             return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh ORDER BY vh.playedAt DESC", Long.class)
@@ -131,6 +133,7 @@ public class VideoHistoryService {
 
     // ==================== TRENDING ALGORITHM METHODS ====================
     
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Long> getTrendingVideoIds(int daysBack, int count) {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(daysBack);
         
@@ -160,6 +163,7 @@ public class VideoHistoryService {
         }
     }
     
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Map<Long, Integer> getPlayCountsForVideos(List<Long> videoIds, int daysBack) {
         if (videoIds == null || videoIds.isEmpty()) {
             return Map.of();

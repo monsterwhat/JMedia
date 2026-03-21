@@ -113,6 +113,7 @@ public class SongService {
         return em.find(Song.class, id);
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Song find(Long id) {
         return em.find(Song.class, id);
     }

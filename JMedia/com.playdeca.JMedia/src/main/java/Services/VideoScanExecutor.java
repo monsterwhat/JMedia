@@ -10,9 +10,11 @@ import java.util.concurrent.TimeUnit;
 public class VideoScanExecutor {
 
     private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+    private static final int SCAN_THREAD_PRIORITY = Thread.NORM_PRIORITY - 1;
     private final ExecutorService executor = Executors.newFixedThreadPool(THREADS, r -> {
         Thread t = new Thread(r, "VideoScanExecutor");
         t.setDaemon(true);
+        t.setPriority(SCAN_THREAD_PRIORITY);
         return t;
     });
 

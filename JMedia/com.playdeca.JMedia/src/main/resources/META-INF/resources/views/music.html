@@ -1,5 +1,44 @@
 <main class="standard-content">
     <div class="music-main-wrapper" id="musicContentArea">
+        <!-- Music Library Search -->
+        <div id="mobileMusicSearchContainer" class="field has-addons mb-3">
+            <div class="control is-expanded">
+                <input class="input is-small is-rounded" type="text" placeholder="Search songs..."
+                       id="musicSearchInput">
+            </div>
+            <div class="control">
+                <button class="button is-small is-info is-rounded" id="musicSearchClearBtn">
+                    Clear
+                </button>
+            </div>
+        </div>
+
+        <!-- Queue Search -->
+        <div id="mobileQueueSearchContainer" class="field has-addons mb-3 is-hidden">
+            <div class="control is-expanded">
+                <input class="input is-small is-rounded" type="text" placeholder="Search queue..."
+                       id="queueSearchInput">
+            </div>
+            <div class="control">
+                <button class="button is-small is-info is-rounded" id="queueSearchClearBtn">
+                    Clear
+                </button>
+            </div>
+        </div>
+
+        <!-- History Search -->
+        <div id="mobileHistorySearchContainer" class="field has-addons mb-3 is-hidden">
+            <div class="control is-expanded">
+                <input class="input is-small is-rounded" type="text" placeholder="Search history..."
+                       id="historySearchInput">
+            </div>
+            <div class="control">
+                <button class="button is-small is-info is-rounded" id="historySearchClearBtn">
+                    Clear
+                </button>
+            </div>
+        </div>
+
         <div id="mobileSongList" class="mobile-song-list"></div>
         <div id="mobileQueueContent" class="is-hidden"></div>
         <div id="mobileHistoryContent" class="is-hidden"></div>

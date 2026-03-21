@@ -7,12 +7,9 @@ import Services.ThumbnailService;
 import Services.TranscodingService;
 import Services.VideoImportService;
 import Services.VideoService;
-import Services.MediaPreProcessor;
 import Services.VideoScanExecutor;
 import Services.SubtitleDiscoveryQueueProcessor;
-import Controllers.NamingController;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
@@ -60,16 +57,6 @@ public class VideoAPI {
     @Inject
     ManagedExecutor executor;
 
-    private static final ThreadFactory scanThreadFactory = r -> {
-        Thread thread = new Thread(r);
-        thread.setName("VideoScanThread-" + System.currentTimeMillis());
-        thread.setDaemon(true);
-        return thread;
-    };
-
-    @Inject
-    Services.UnifiedVideoEntityCreationService unifiedVideoEntityCreationService;
-
     @Inject
     ThumbnailService thumbnailService;
 
@@ -78,12 +65,6 @@ public class VideoAPI {
 
     @Inject
     Services.VideoStateService videoStateService;
-
-    @Inject
-    NamingController namingController;
-    
-    @Inject
-    MediaPreProcessor mediaPreProcessor;
 
     @Inject
     Services.VideoMetadataService videoMetadataService;
@@ -444,68 +425,17 @@ public class VideoAPI {
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting per-video library scan: {}", videoLibraryPath);
                     
-                    // Track processed IDs to avoid double processing
-                    java.util.Set<Long> processedIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+                    List<Models.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath));
                     
-                    // Create a batch processing callback
-                    VideoImportService.ScanProgressCallback batchCallback = new VideoImportService.ScanProgressCallback() {
-                        private final java.util.List<Long> batchBuffer = new java.util.ArrayList<>();
-                        
-                        @Override
-                        public void onFileDiscovered(Models.PendingMedia media, int index, int total) {
-                            if (media == null) return;
-                            
-                            synchronized (batchBuffer) {
-                                batchBuffer.add(media.id);
-                                if (batchBuffer.size() >= 10) {
-                                    processBatch(new java.util.ArrayList<>(batchBuffer));
-                                    batchBuffer.clear();
-                                }
-                            }
-                        }
-                        
-                        @Override
-                        public void onProgress(int discovered, int total, String status) {
-                            // Optional: Log progress
-                        }
-                        
-                        private void processBatch(java.util.List<Long> ids) {
-                            if (ids.isEmpty()) return;
-                            try {
-                                LOG.info("Processing batch of {} items during scan...", ids.size());
-                                mediaPreProcessor.processPendingMediaBatch(ids, true);
-                                unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(ids, true);
-                                processedIds.addAll(ids);
-                            } catch (Exception e) {
-                                LOG.error("Error processing batch during scan: " + e.getMessage());
-                            }
-                        }
-                    };
-
-                    List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), false, batchCallback);
+                    LOG.info("Scan and create completed. Created {} videos.", videos.size());
                     
-                    LOG.info("Scan phase complete. Found {} items. Finalizing remaining items...", discovered.size());
-
-                    List<Long> remainingIds = discovered.stream()
-                        .map(p -> p.id)
-                        .filter(id -> !processedIds.contains(id))
-                        .collect(Collectors.toList());
-
-                    if (!remainingIds.isEmpty()) {
-                        LOG.info("Processing remaining {} items...", remainingIds.size());
-                        mediaPreProcessor.processPendingMediaBatch(remainingIds, true);
-                        unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(remainingIds, true);
-                    }
-                    
-                    LOG.info("Full video library scan and processing completed");
-                    
-                    // Queue metadata enrichment for background processing (runs before thumbnails)
+                    // Queue metadata enrichment for background processing
                     executor.submit(() -> videoMetadataService.queueAllVideosForEnrichment());
                     
-                    // Queue thumbnails for background processing after scan completes
+                    // Queue thumbnails for background processing
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
                     
-                    // Discover subtitle tracks for all videos (post-scan to avoid 50 concurrent FFprobe)
+                    // Discover subtitle tracks
                     executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
                 }
             } catch (Exception e) {
@@ -517,7 +447,7 @@ public class VideoAPI {
             }
         });
 
-        return Response.ok(ApiResponse.success("Video library scan started. Items will be processed in batch.")).build();
+        return Response.ok(ApiResponse.success("Video library scan started.")).build();
     }
 
     @POST
@@ -536,20 +466,11 @@ public class VideoAPI {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting video metadata reload: {}", videoLibraryPath);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(Paths.get(videoLibraryPath), true, true);
-                    
-                    List<Long> pendingIds = discovered.stream()
-                        .map(p -> p.id)
-                        .collect(Collectors.toList());
-                    
-                    List<Models.PendingMedia> processed = mediaPreProcessor.processPendingMediaBatch(pendingIds, true);
-                    
-                    List<Models.Video> videos = unifiedVideoEntityCreationService.createVideosFromPendingMediaBatch(pendingIds, true);
+                    List<Models.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), true);
 
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
                     executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
-                    LOG.info("Video metadata reload completed");
-
+                    LOG.info("Video metadata reload completed. Updated {} videos.", videos.size());
                 }
             } catch (Exception e) {
                 LOG.error("Error during metadata reload: " + e.getMessage(), e);
@@ -559,7 +480,7 @@ public class VideoAPI {
                 }
             }
         });
-        return Response.ok(ApiResponse.success("Video metadata reload started. Items will be updated in batch.")).build();
+        return Response.ok(ApiResponse.success("Video metadata reload started.")).build();
     }
 
     @POST
@@ -622,7 +543,7 @@ public class VideoAPI {
                 LOG.error("Error fetching thumbnail for video ID: " + videoId, e);
             }
         });
-        return Response.ok(ApiResponse.success("Thumbnail fetch started for video ID: " + videoId)).build();
+        return Response.ok(ApiResponse.success("Thumbnail fetch started.")).build();
     }
 
     @POST
@@ -642,41 +563,7 @@ public class VideoAPI {
                 if (requestContext.isActive()) requestContext.deactivate();
             }
         });
-        return Response.ok(ApiResponse.success("Thumbnail regeneration started for all videos")).build();
-    }
-
-    @POST
-    @Path("/create-entities")
-    public Response createVideoEntities(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
-            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
-        }
-        executor.submit(() -> {
-            ManagedContext requestContext = Arc.container().requestContext();
-            if (!requestContext.isActive()) requestContext.activate();
-            try {
-                unifiedVideoEntityCreationService.importExistingVideos();
-                LOG.info("Video import process completed");
-            } catch (Exception e) {
-                LOG.error("Error during video import", e);
-            } finally {
-                if (requestContext.isActive()) requestContext.deactivate();
-            }
-        });
-        return Response.ok(ApiResponse.success("Video entity creation started")).build();
-    }
-
-    @GET
-    @Path("/entity-stats")
-    public Response getEntityCreationStats() {
-        try {
-            String stats = "Entity creation service is running";
-            return Response.ok(ApiResponse.success(stats)).build();
-        } catch (Exception e) {
-            LOG.error("Error getting entity creation stats", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get entity stats: " + e.getMessage())).build();
-        }
+        return Response.ok(ApiResponse.success("Thumbnail regeneration started.")).build();
     }
 
     @GET
@@ -695,7 +582,7 @@ public class VideoAPI {
         } catch (Exception e) {
             LOG.error("Error getting thumbnail processing status", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Failed to get thumbnail status: " + e.getMessage())).build();
+                    .entity(ApiResponse.error("Failed to get thumbnail status")).build();
         }
     }
 
@@ -711,7 +598,6 @@ public class VideoAPI {
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
             }
-            LOG.info("DEBUG: Reloading metadata for video ID: {}, title: {}", videoId, video.title);
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
@@ -720,32 +606,20 @@ public class VideoAPI {
                     java.nio.file.Path vPath = Paths.get(video.path);
                     java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
                     
-                    LOG.info("DEBUG: Scanning file: {}", videoPath);
-                    Models.PendingMedia pending = videoImportService.scanSingleFile(videoPath);
-                    if (pending != null) {
-                        LOG.info("DEBUG: Found pending media ID: {}", pending.id);
-                        namingController.processPendingMedia(pending.id);
-                        Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                        if (persisted != null) {
-                            LOG.info("DEBUG: Persisted video updated. Triggering enrichment for: {}", persisted.title);
-                            videoMetadataService.fetchAndEnrichMetadata(persisted);
-                        } else {
-                            LOG.error("DEBUG: Failed to create/update video entity from pending media.");
-                        }
-                        LOG.info("Metadata reloaded for video: {}", video.title);
-                    } else {
-                        LOG.warn("DEBUG: videoImportService.scanSingleFile returned null for path: {}", videoPath);
+                    Models.Video result = videoImportService.scanSingleFile(videoPath);
+                    if (result != null) {
+                        videoMetadataService.fetchAndEnrichMetadata(result);
                     }
                 } catch (Exception e) {
-                    LOG.error("DEBUG: ERROR in background reload for video {}: {}", videoId, e.getMessage(), e);
+                    LOG.error("Error in background reload for video {}", videoId, e);
                 } finally {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }
             });
-            return Response.ok(ApiResponse.success("Metadata reload started for video " + video.title)).build();
+            return Response.ok(ApiResponse.success("Metadata reload started.")).build();
         } catch (Exception e) {
             LOG.error("Error reloading metadata for video {}", videoId, e);
-            return Response.serverError().entity(ApiResponse.error("Internal server error: " + e.getMessage())).build();
+            return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
         }
     }
 
@@ -772,73 +646,35 @@ public class VideoAPI {
                 ? seriesFolderPath 
                 : Paths.get(videoLibraryPath, seriesFolderPath.toString());
             
-            LOG.info("Scanning folder for series '{}': {}", seriesTitle, fullSeriesFolder);
-            LOG.info("Reloading metadata for series: {}, found {} existing episodes", seriesTitle, existingEpisodes.size());
-            
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    LOG.info("EXECUTOR STARTED for series: {}. Loading existing paths...", seriesTitle);
-                    Set<String> existingPaths = existingEpisodes.stream()
-                        .map(e -> e.path)
-                        .collect(Collectors.toSet());
-                    LOG.info("Loaded {} existing paths. Starting scan...", existingPaths.size());
-                    
-                    LOG.info("Starting folder scan for series: {}", seriesTitle);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeriesFolder, false, true);
-                    LOG.info("Scan complete. Discovered {} files for series: {}", discovered.size(), seriesTitle);
-                    
+                    List<Models.Video> discovered = videoImportService.scan(fullSeriesFolder, false, true);
                     Set<String> discoveredPaths = discovered.stream()
-                        .map(pm -> pm.originalPath)
+                        .map(v -> v.path)
                         .collect(Collectors.toSet());
                     
-                    int deletedCount = 0;
-                    LOG.info("Checking {} existing episodes for missing files...", existingEpisodes.size());
                     for (Models.Video episode : existingEpisodes) {
                         if (!discoveredPaths.contains(episode.path)) {
-                            LOG.info("Deleting missing episode: {}", episode.path);
                             episode.delete();
-                            deletedCount++;
                         }
                     }
-                    LOG.info("Deleted {} missing episodes from series {}. Now processing {} discovered files...", deletedCount, seriesTitle, discovered.size());
                     
-                    int processed = 0;
-                    int newCount = 0;
-                    int updatedCount = 0;
-                    int total = discovered.size();
-                    for (Models.PendingMedia pending : discovered) {
-                        processed++;
-                        LOG.info("Processing episode {}/{}: {}", processed, total, pending.originalFilename);
+                    for (Models.Video video : discovered) {
                         try {
-                            boolean isNew = !existingPaths.contains(pending.originalPath);
-                            namingController.processPendingMedia(pending.id);
-                            Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                            if (persisted != null) {
-                                videoMetadataService.fetchAndEnrichMetadata(persisted);
-                                if (isNew) {
-                                    newCount++;
-                                    LOG.info("[{}/{}] NEW episode: {} S{}E{}", processed, total, pending.originalFilename, pending.getFinalSeason(), pending.getFinalEpisode());
-                                } else {
-                                    updatedCount++;
-                                }
-                            }
-                            LOG.info("Sleeping 500ms...");
-                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-                            LOG.info("Wake up, continuing...");
+                            videoMetadataService.fetchAndEnrichMetadata(video);
                         } catch (Exception e) {
-                            LOG.error("Error processing episode {} in series {}: {}", pending.originalFilename, seriesTitle, e.getMessage(), e);
+                            LOG.error("Error enriching metadata for {}: {}", video.filename, e.getMessage());
                         }
                     }
-                    LOG.info("Metadata reload COMPLETED for series: {}. New: {}, Updated: {}, Deleted: {}", seriesTitle, newCount, updatedCount, deletedCount);
                 } finally {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }
             });
-            return Response.ok(ApiResponse.success("Metadata reload started for series " + seriesTitle)).build();
+            return Response.ok(ApiResponse.success("Metadata reload started for series.")).build();
         } catch (Exception e) {
-            LOG.error("Error reloading series metadata: " + seriesTitle, e);
+            LOG.error("Error reloading series metadata", e);
             return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
         }
     }
@@ -867,68 +703,33 @@ public class VideoAPI {
                 ? seasonFolderPath 
                 : Paths.get(videoLibraryPath, seasonFolderPath.toString());
             
-            LOG.info("Scanning folder for season '{}' S{}: {}", seriesTitle, seasonNumber, fullSeasonFolder);
-            LOG.info("Reloading metadata for {} Season {}, found {} existing episodes", seriesTitle, seasonNumber, existingEpisodes.size());
-            
             executor.submit(() -> {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    Set<String> existingPaths = existingEpisodes.stream()
-                        .map(e -> e.path)
-                        .collect(Collectors.toSet());
-                    
-                    LOG.info("Starting folder scan for season: {} S{}", seriesTitle, seasonNumber);
-                    List<Models.PendingMedia> discovered = videoImportService.scan(fullSeasonFolder, false, true);
-                    LOG.info("Scan complete. Discovered {} files for season: {} S{}", discovered.size(), seriesTitle, seasonNumber);
-                    
+                    List<Models.Video> discovered = videoImportService.scan(fullSeasonFolder, false, true);
                     Set<String> discoveredPaths = discovered.stream()
-                        .map(pm -> pm.originalPath)
+                        .map(v -> v.path)
                         .collect(Collectors.toSet());
                     
-                    int deletedCount = 0;
                     for (Models.Video episode : existingEpisodes) {
                         if (!discoveredPaths.contains(episode.path)) {
-                            LOG.info("Deleting missing episode: {}", episode.path);
                             episode.delete();
-                            deletedCount++;
                         }
                     }
-                    LOG.info("Deleted {} missing episodes from season {} S{}", deletedCount, seriesTitle, seasonNumber);
                     
-                    int processed = 0;
-                    int newCount = 0;
-                    int updatedCount = 0;
-                    int total = discovered.size();
-                    for (Models.PendingMedia pending : discovered) {
-                        processed++;
+                    for (Models.Video video : discovered) {
                         try {
-                            boolean isNew = !existingPaths.contains(pending.originalPath);
-                            namingController.processPendingMedia(pending.id);
-                            Models.Video persisted = unifiedVideoEntityCreationService.createVideoFromPendingMedia(pending.id);
-                            if (persisted != null) {
-                                videoMetadataService.fetchAndEnrichMetadata(persisted);
-                                if (isNew) {
-                                    newCount++;
-                                    LOG.info("[{}/{}] NEW episode: {} S{}E{}", processed, total, pending.originalFilename, pending.getFinalSeason(), pending.getFinalEpisode());
-                                } else {
-                                    updatedCount++;
-                                }
-                            }
-                            if (processed % 10 == 0 || processed == total) {
-                                LOG.info("Progress: {}/{} episodes processed (new: {}, updated: {})", processed, total, newCount, updatedCount);
-                            }
-                            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                            videoMetadataService.fetchAndEnrichMetadata(video);
                         } catch (Exception e) {
-                            LOG.error("Error processing episode {} in season {} S{}: {}", pending.originalFilename, seriesTitle, seasonNumber, e.getMessage());
+                            LOG.error("Error enriching metadata for {}: {}", video.filename, e.getMessage());
                         }
                     }
-                    LOG.info("Metadata reload COMPLETED for season: {} S{}. New: {}, Updated: {}, Deleted: {}", seriesTitle, seasonNumber, newCount, updatedCount, deletedCount);
                 } finally {
                     if (requestContext.isActive()) requestContext.deactivate();
                 }
             });
-            return Response.ok(ApiResponse.success("Metadata reload started for season " + seasonNumber)).build();
+            return Response.ok(ApiResponse.success("Metadata reload started for season.")).build();
         } catch (Exception e) {
             LOG.error("Error reloading season metadata", e);
             return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
@@ -954,7 +755,6 @@ public class VideoAPI {
                 String fullPath = vPath.isAbsolute() ? vPath.toString() : java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
                 thumbnailService.deleteExistingThumbnail(videoId.toString(), video.type);
                 thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
-                LOG.info("Thumbnail manually extracted for video: {}", video.title);
             } catch (Exception e) {
                 LOG.error("Error extracting thumbnail for video {}", videoId, e);
             } finally {
@@ -1031,7 +831,7 @@ public class VideoAPI {
             return Response.ok(ApiResponse.success(genres)).build();
         } catch (Exception e) {
             LOG.error("Error getting genres", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get genres: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get genres")).build();
         }
     }
 
@@ -1053,8 +853,8 @@ public class VideoAPI {
             PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) videos, page, limit, totalItems, totalPages);
             return Response.ok(ApiResponse.success(response)).build();
         } catch (Exception e) {
-            LOG.error("Error getting videos by genre: " + genreSlug, e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get videos by genre: " + e.getMessage())).build();
+            LOG.error("Error getting videos by genre: {}", genreSlug, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get videos by genre")).build();
         }
     }
 
@@ -1068,7 +868,7 @@ public class VideoAPI {
             @QueryParam("userId") Long userId) {
         try {
             if (genreSlugs == null || genreSlugs.isEmpty()) {
-                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("At least one genre must be specified")).build();
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("At least one genre required")).build();
             }
             List<Models.Video> videos = videoService.findByMultipleGenres(genreSlugs, page, limit);
             if (userId != null) {
@@ -1080,7 +880,7 @@ public class VideoAPI {
             return Response.ok(ApiResponse.success(response)).build();
         } catch (Exception e) {
             LOG.error("Error getting videos by multiple genres", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get videos by genres: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get videos by genres")).build();
         }
     }
 
@@ -1093,7 +893,7 @@ public class VideoAPI {
             @QueryParam("limit") @DefaultValue("10") int limit) {
         try {
             if (userId == null) {
-                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("userId is required for recommendations")).build();
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("userId required")).build();
             }
             List<Models.Video> recommendations = videoService.findRecommendedByGenre(genreSlug, userId);
             if (recommendations.size() > limit) {
@@ -1101,8 +901,8 @@ public class VideoAPI {
             }
             return Response.ok(ApiResponse.success(recommendations)).build();
         } catch (Exception e) {
-            LOG.error("Error getting genre recommendations for: " + genreSlug, e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get recommendations: " + e.getMessage())).build();
+            LOG.error("Error getting genre recommendations for: {}", genreSlug, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get recommendations")).build();
         }
     }
 
@@ -1117,7 +917,7 @@ public class VideoAPI {
             return Response.ok(ApiResponse.success(carousels)).build();
         } catch (Exception e) {
             LOG.error("Error getting genre carousels", e);
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get genre carousels: " + e.getMessage())).build();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to get genre carousels")).build();
         }
     }
 
@@ -1128,27 +928,22 @@ public class VideoAPI {
     @Path("/progress/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
-    @Transactional
     public Response reportProgress(@PathParam("videoId") Long videoId, @QueryParam("time") double timeSeconds) {
         try {
             Models.Video video = Models.Video.findById(videoId);
             if (video != null) {
-                // Probe duration if missing to ensure progress calculation works
                 if (video.duration == null || video.duration <= 0) {
                     videoService.probeVideoDuration(video);
                 }
 
-                // Update absolute resume time in milliseconds
                 video.resumeTime = (long) (timeSeconds * 1000);
                 video.lastWatched = java.time.LocalDateTime.now();
                 video.dateModified = java.time.LocalDateTime.now();
                 
-                // Calculate and update progress ratio
                 double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
                 double progressRatio = (durationSeconds > 0) ? Math.min(1.0, timeSeconds / durationSeconds) : 0;
                 
                 video.watchProgress = progressRatio;
-                // Mark as watched if over 95% complete
                 if (progressRatio >= 0.95) {
                     video.watched = true;
                     video.watchProgress = 1.0;
@@ -1158,7 +953,6 @@ public class VideoAPI {
                 
                 video.persist();
 
-                // Sync with global VideoState for "Continue Watching" features
                 try {
                     Models.VideoState state = videoStateService.getOrCreateState();
                     if (state != null) {
@@ -1171,7 +965,7 @@ public class VideoAPI {
                         videoStateService.saveState(state);
                     }
                 } catch (Exception e) {
-                    LOG.warn("Could not sync VideoState during progress report for video {}: {}", videoId, e.getMessage());
+                    LOG.warn("Could not sync VideoState for video {}: {}", videoId, e.getMessage());
                 }
             }
             return Response.ok(ApiResponse.success(null)).build();
@@ -1188,7 +982,7 @@ public class VideoAPI {
         File file = storyboardService.getStoryboardImage(videoId);
         if (file == null || !file.exists()) {
             if (storyboardService.isGenerating(videoId)) {
-                return Response.status(Response.Status.ACCEPTED).entity("Storyboard is being generated").build();
+                return Response.status(Response.Status.ACCEPTED).entity("Storyboard generating").build();
             }
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -1205,7 +999,7 @@ public class VideoAPI {
         File file = storyboardService.getStoryboardImage(videoId);
         if (file == null || !file.exists()) {
             if (storyboardService.isGenerating(videoId)) {
-                return Response.status(Response.Status.ACCEPTED).entity("Storyboard is being generated").build();
+                return Response.status(Response.Status.ACCEPTED).entity("Storyboard generating").build();
             }
             return Response.status(Response.Status.NOT_FOUND).build();
         }

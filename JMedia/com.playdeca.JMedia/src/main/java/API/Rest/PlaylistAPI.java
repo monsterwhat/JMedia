@@ -11,7 +11,6 @@ import Services.PlaylistService;
 import Services.ProfileService;
 import Services.SongService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -20,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Arrays;
 
-@Transactional
 @Path("/api/music/playlists")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
@@ -104,7 +102,6 @@ public class PlaylistAPI {
     @DELETE
     @Path("/{id}")
     @Consumes(MediaType.WILDCARD)
-    @Transactional
     public Response deletePlaylist(@PathParam("id") Long id) {
         try {
             Playlist playlist = playlistService.find(id);

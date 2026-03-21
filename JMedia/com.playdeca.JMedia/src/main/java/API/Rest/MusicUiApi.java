@@ -596,9 +596,10 @@ public class MusicUiApi {
     public QueueFragmentResponse getQueueFragment( // Reverted return type
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId);
+        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
         List<Song> queuePage = paginatedQueue.songs();
         int totalQueueSize = paginatedQueue.totalSize();
 
@@ -624,6 +625,7 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("search", search)
                 .render();
 
         String mobileHtml = mobileQueueFragment
@@ -636,6 +638,7 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("search", search)
                 .render();
 
         return new QueueFragmentResponse(html, mobileHtml, totalQueueSize); // Reverted to return DTO
@@ -647,9 +650,10 @@ public class MusicUiApi {
     public String getMobileQueueFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId);
+        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
         List<Song> queuePage = paginatedQueue.songs();
         int totalQueueSize = paginatedQueue.totalSize();
 
@@ -674,6 +678,7 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("search", search)
                 .render();
     }
 
@@ -795,12 +800,13 @@ public class MusicUiApi {
     public HistoryFragmentResponse getHistoryFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId);
+        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId, search);
 
         // Get total count for pagination
-        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
+        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId, search);
 
         // Create a list of HistoryWithIndex objects
         List<HistoryWithIndex> historyWithIndex = new ArrayList<>();
@@ -823,6 +829,7 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("search", search)
                 .render();
 
         return new HistoryFragmentResponse(html, (int) totalHistorySize);
@@ -834,12 +841,13 @@ public class MusicUiApi {
     public String getMobileHistoryFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit) {
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
-        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId);
+        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId, search);
 
         // Get total count for pagination
-        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId);
+        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId, search);
 
         // Create a list of HistoryWithIndex objects
         List<HistoryWithIndex> historyWithIndex = new ArrayList<>();
@@ -862,6 +870,7 @@ public class MusicUiApi {
                 .data("currentPage", currentPage)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
+                .data("search", search)
                 .render();
     }
 

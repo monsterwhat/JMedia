@@ -110,15 +110,22 @@ class App {
             if (viewName === 'video' && window.initVideoView) window.initVideoView();
             if (viewName === 'import' && window.initImportView) window.initImportView();
             if (viewName === 'music' && window.loadMobilePlaylists) {
-                 window.loadMobilePlaylists();
-                 const urlParams = new URLSearchParams(window.location.search);
-                 const tab = urlParams.get('tab');
-                 if (tab && window.switchToTab) {
-                     window.switchToTab(tab);
-                 } else {
-                     window.loadMobilePlaylistSongs(0);
-                 }
-            }
+                  window.loadMobilePlaylists();
+                  console.log('[APP] Initializing EventBindings for music view');
+                  if (window.initEventBindings) {
+                      window.initEventBindings();
+                      console.log('[APP] EventBindings initialized');
+                  } else {
+                      console.log('[APP] initEventBindings not found');
+                  }
+                  const urlParams = new URLSearchParams(window.location.search);
+                  const tab = urlParams.get('tab');
+                  if (tab && window.switchToTab) {
+                      window.switchToTab(tab);
+                  } else {
+                      window.loadMobilePlaylistSongs(0);
+                  }
+              }
             if (viewName === 'settings' && typeof window.initSettingsView === 'function') window.initSettingsView();
             if (viewName === 'settings' && typeof window.initVideoSettingsView === 'function') window.initVideoSettingsView();
 

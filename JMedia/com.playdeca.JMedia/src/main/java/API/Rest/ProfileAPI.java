@@ -7,7 +7,6 @@ import Models.User;
 import Services.ProfileService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -71,16 +70,25 @@ public class ProfileAPI {
 
     @GET
     @Path("/{id}")
-    public Response getProfile(@PathParam("id") Long id) {
+    public Response getProfile(@PathParam("id") Long id, @Context HttpHeaders headers) {
+        User currentUser = getCurrentUser(headers);
+        if (currentUser == null) {
+            return Response.status(Response.Status.UNAUTHORIZED).entity("Authentication required.").build();
+        }
+        
         Profile profile = Profile.findById(id);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }
+        
+        if (profile.userId != null && !profile.userId.equals(currentUser.id)) {
+            return Response.status(Response.Status.FORBIDDEN).entity("Profile does not belong to current user.").build();
+        }
+        
         return Response.ok(profile).build();
     }
 
     @POST
-    @Transactional
     public Response createProfile(ProfileRequest request, @Context HttpHeaders headers) {
         User currentUser = getCurrentUser(headers);
         if (currentUser == null) {
@@ -100,7 +108,6 @@ public class ProfileAPI {
 
     @POST
     @Path("/switch/{id}")
-    @Transactional
     public Response switchProfile(@PathParam("id") Long id, @Context HttpHeaders headers) {
         User currentUser = getCurrentUser(headers);
         if (currentUser == null) {
@@ -122,7 +129,6 @@ public class ProfileAPI {
 
     @PUT
     @Path("/{id}")
-    @Transactional
     public Response updateProfile(@PathParam("id") Long id, Profile updatedProfile, @Context HttpHeaders headers) {
         User currentUser = getCurrentUser(headers);
         if (currentUser == null) {
@@ -143,7 +149,7 @@ public class ProfileAPI {
         }
         
         if (updatedProfile.name != null && !updatedProfile.name.trim().isEmpty()) {
-            Profile existing = Profile.findByName(updatedProfile.name.trim());
+            Profile existing = Profile.findByNameAndUser(updatedProfile.name.trim(), currentUser.id);
             if (existing != null && !existing.id.equals(id)) {
                 return Response.status(Response.Status.CONFLICT).entity("Profile with name already exists.").build();
             }
@@ -156,7 +162,6 @@ public class ProfileAPI {
 
     @DELETE
     @Path("/{id}")
-    @Transactional
     public Response deleteProfile(@PathParam("id") Long id, @Context HttpHeaders headers) {
         User currentUser = getCurrentUser(headers);
         if (currentUser == null) {
@@ -204,7 +209,6 @@ public class ProfileAPI {
 
     @POST
     @Path("/hidden-playlists/{playlistId}")
-    @Transactional
     public Response hidePlaylist(@PathParam("playlistId") Long playlistId, @Context HttpHeaders headers) {
         User currentUser = getCurrentUser(headers);
         if (currentUser == null) {
@@ -229,7 +233,6 @@ public class ProfileAPI {
 
     @DELETE
     @Path("/hidden-playlists/{playlistId}")
-    @Transactional
     public Response unhidePlaylist(@PathParam("playlistId") Long playlistId, @Context HttpHeaders headers) {
         User currentUser = getCurrentUser(headers);
         if (currentUser == null) {

@@ -5,6 +5,7 @@ package Services.Thumbnail;
  */
 public class ThumbnailProcessingStatus {
     
+    public int initialTotalJobs;
     public int totalJobs;
     public int processedJobs;
     public int successfulApi;
@@ -17,6 +18,7 @@ public class ThumbnailProcessingStatus {
     public long estimatedTimeRemaining;
     
     public ThumbnailProcessingStatus() {
+        this.initialTotalJobs = 0;
         this.totalJobs = 0;
         this.processedJobs = 0;
         this.successfulApi = 0;
@@ -30,6 +32,7 @@ public class ThumbnailProcessingStatus {
     }
     
     public void reset() {
+        this.initialTotalJobs = 0;
         this.totalJobs = 0;
         this.processedJobs = 0;
         this.successfulApi = 0;
@@ -40,6 +43,7 @@ public class ThumbnailProcessingStatus {
     }
     
     public void startProcessing(int totalJobs) {
+        this.initialTotalJobs = totalJobs;
         this.totalJobs = totalJobs;
         this.processedJobs = 0;
         this.successfulApi = 0;
@@ -74,16 +78,18 @@ public class ThumbnailProcessingStatus {
     }
     
     public double getProgressPercentage() {
-        if (totalJobs == 0) return 0.0;
-        return (double) processedJobs / totalJobs * 100.0;
+        if (initialTotalJobs == 0) return 0.0;
+        return (double) processedJobs / initialTotalJobs * 100.0;
     }
     
     public String getProgressText() {
         if (!isProcessing) {
             return "No active processing";
         }
+        int displayCurrent = Math.min(processedJobs, initialTotalJobs);
+        int displayTotal = initialTotalJobs > 0 ? initialTotalJobs : totalJobs;
         return String.format("Processing %d/%d (%.1f%%) - API: %d, Local: %d, Failed: %d", 
-                           processedJobs, totalJobs, getProgressPercentage(), 
+                           displayCurrent, displayTotal, getProgressPercentage(), 
                            successfulApi, successfulLocal, failed);
     }
     

@@ -89,6 +89,7 @@ public class VideoMetadataService {
     /**
      * Queue all videos for metadata enrichment
      */
+    @jakarta.enterprise.context.control.ActivateRequestContext
     public void queueAllVideosForEnrichment() {
         try {
             List<Video> allVideos = Video.listAll();

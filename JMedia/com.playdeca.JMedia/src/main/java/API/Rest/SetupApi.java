@@ -4,7 +4,6 @@ import API.ApiResponse;
 import Controllers.SetupController;
 import Models.DTOs.ImportInstallationStatus;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -38,7 +37,6 @@ public class SetupApi {
     // -----------------------------
     @GET
     @Path("/status")
-    @Transactional
     public Response getSetupStatus() {
         boolean isFirstTime = setupController.isFirstTimeSetup();
         Map<String, Object> response = new HashMap<>();
@@ -51,7 +49,6 @@ public class SetupApi {
     // -----------------------------
     @POST
     @Path("/validate-paths")
-    @Transactional
     public Response validatePaths(Map<String, String> paths, @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
         if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).build();
@@ -77,7 +74,6 @@ public class SetupApi {
     // -----------------------------
     @POST
     @Path("/complete")
-    @Transactional
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response completeSetup(
             @FormParam("musicLibraryPath") String musicLibraryPath,
@@ -143,7 +139,6 @@ public class SetupApi {
     // -----------------------------
     @POST
     @Path("/reset")
-    @Transactional
     public Response resetSetup(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
         if (!checkAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).build();

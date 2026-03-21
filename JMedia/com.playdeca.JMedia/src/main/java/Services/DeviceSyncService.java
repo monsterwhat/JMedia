@@ -1,8 +1,12 @@
 package Services;
 
+import Models.DeviceSyncSession;
 import Models.DTOs.DeviceSyncQrCodeDTO;
+import Models.PendingDeviceSync;
+import Models.Profile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -10,7 +14,9 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.time.LocalDateTime;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.UUID;
 import javax.imageio.ImageIO;
 import com.google.zxing.BarcodeFormat;
@@ -34,12 +40,22 @@ public class DeviceSyncService {
     /**
      * Generate a new QR code for device sync
      */
-    public DeviceSyncQrCodeDTO generateQrCodeData() {
+    public DeviceSyncQrCodeDTO generateQrCodeData(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile not found");
+        }
+        
         String serverAddress = getLocalIpAddress();
         String securityKey = generateSecurityKey();
         
+        PendingDeviceSync pendingSync = new PendingDeviceSync();
+        pendingSync.securityKey = securityKey;
+        pendingSync.profile = profile;
+        pendingSync.persist();
+        
         DeviceSyncQrCodeDTO qrData = new DeviceSyncQrCodeDTO(serverAddress, DEFAULT_PORT, securityKey);
-        LOGGER.info("Generated QR code for device sync with address: " + serverAddress + " and key: " + securityKey);
+        LOGGER.info("Generated QR code for profile " + profileId + " with security key: " + securityKey);
         
         return qrData;
     }
@@ -161,5 +177,156 @@ public class DeviceSyncService {
      */
     public boolean isValidSecurityKey(String key) {
         return key != null && key.length() == 16 && key.matches("[a-fA-F0-9]+");
+    }
+
+    @Transactional
+    public DeviceSyncSession completeDeviceConnection(String securityKey, String deviceName, String deviceType, 
+                                                     String ipAddress, String userAgent) {
+        if (!isValidSecurityKey(securityKey)) {
+            throw new IllegalArgumentException("Invalid security key");
+        }
+
+        DeviceSyncSession existingSession = DeviceSyncSession.find("securityKey = ?1 AND isActive = true AND expiresAt > ?2", 
+                                                                    securityKey, LocalDateTime.now()).firstResult();
+
+        if (existingSession != null) {
+            existingSession.updateLastAccessed(ipAddress);
+            if (deviceName != null) {
+                existingSession.setDeviceName(deviceName);
+            }
+            if (deviceType != null) {
+                existingSession.setDeviceType(deviceType);
+            }
+            if (userAgent != null) {
+                existingSession.setUserAgent(userAgent);
+            }
+            existingSession.persist();
+            LOGGER.info("Updated existing device session: " + existingSession.id);
+            return existingSession;
+        }
+
+        PendingDeviceSync pendingSync = PendingDeviceSync.findValidBySecurityKey(securityKey);
+        if (pendingSync == null) {
+            throw new IllegalStateException("No pending device sync found for this security key");
+        }
+        
+        Profile targetProfile = pendingSync.profile;
+        pendingSync.delete();
+
+        DeviceSyncSession session = new DeviceSyncSession(
+            deviceName != null ? deviceName : "Unknown Device",
+            deviceType != null ? deviceType : "unknown",
+            ipAddress,
+            userAgent != null ? userAgent : "Unknown",
+            securityKey,
+            targetProfile
+        );
+
+        session.persist();
+        LOGGER.info("Created new device session " + session.id + " for device: " + deviceName + " with profile: " + targetProfile.id);
+        return session;
+    }
+
+    @Transactional
+    public List<DeviceSyncSession> getActiveSessions(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile not found");
+        }
+        return DeviceSyncSession.list("profile = ?1 AND isActive = true AND expiresAt > ?2", 
+                                    profile, LocalDateTime.now());
+    }
+
+    @Transactional
+    public boolean revokeSession(Long profileId, Long sessionId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile not found");
+        }
+
+        DeviceSyncSession session = DeviceSyncSession.findById(sessionId);
+        if (session == null) {
+            throw new IllegalArgumentException("Session not found");
+        }
+
+        if (!session.getProfile().id.equals(profileId)) {
+            throw new IllegalArgumentException("Session does not belong to this profile");
+        }
+
+        session.deactivate();
+        session.persist();
+        LOGGER.info("Revoked device session: " + sessionId);
+        return true;
+    }
+
+    @Transactional
+    public int cleanupExpiredSessions(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile not found");
+        }
+
+        int updatedCount = DeviceSyncSession.update(
+            "isActive = false WHERE profile = ?1 AND expiresAt <= ?2 AND isActive = true",
+            profile, LocalDateTime.now()
+        );
+
+        LOGGER.info("Cleaned up " + updatedCount + " expired sessions for profile " + profileId);
+        return updatedCount;
+    }
+
+    @Transactional
+    public boolean updateSessionAccess(Long sessionId, String ipAddress) {
+        DeviceSyncSession session = DeviceSyncSession.findById(sessionId);
+        if (session == null || !session.isActive() || session.isExpired()) {
+            return false;
+        }
+
+        session.updateLastAccessed(ipAddress);
+        session.persist();
+        return true;
+    }
+
+    @Transactional
+    public DeviceSyncSession getSessionBySecurityKey(String securityKey) {
+        if (!isValidSecurityKey(securityKey)) {
+            return null;
+        }
+        return DeviceSyncSession.find("securityKey = ?1 AND isActive = true AND expiresAt > ?2", 
+                                   securityKey, LocalDateTime.now()).firstResult();
+    }
+
+    @Transactional
+    public DeviceSyncStats getDeviceSyncStats(Long profileId) {
+        Profile profile = profileService.findById(profileId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile not found");
+        }
+
+        long activeCount = DeviceSyncSession.count("profile = ?1 AND isActive = true AND expiresAt > ?2", 
+                                                   profile, LocalDateTime.now());
+        
+        long expiredCount = DeviceSyncSession.count("profile = ?1 AND (isActive = false OR expiresAt <= ?2)", 
+                                                    profile, LocalDateTime.now());
+
+        return new DeviceSyncStats(activeCount, expiredCount);
+    }
+
+    public static class DeviceSyncStats {
+        private final long activeSessions;
+        private final long expiredSessions;
+
+        public DeviceSyncStats(long activeSessions, long expiredSessions) {
+            this.activeSessions = activeSessions;
+            this.expiredSessions = expiredSessions;
+        }
+
+        public long getActiveSessions() {
+            return activeSessions;
+        }
+
+        public long getExpiredSessions() {
+            return expiredSessions;
+        }
     }
 }

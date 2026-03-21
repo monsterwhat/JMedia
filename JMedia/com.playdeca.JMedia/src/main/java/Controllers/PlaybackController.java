@@ -88,7 +88,6 @@ public class PlaybackController {
         LOGGER.info("Playback timer started for profile: " + profileId);
     }
 
-    @Transactional // Ensure database operations run in a transaction
     protected void processPlaybackTick(Long profileId) {
         try {
             PlaybackState st = getState(profileId);
@@ -496,14 +495,12 @@ public class PlaybackController {
         advanceSong(false, false, profileId);
     }
 
-    @Transactional
     public synchronized void handleSongEnded(Long profileId) {
         currentSettings.addLog("Song ended naturally.");
         System.out.println("Song Ended");
         advanceSong(true, true, profileId); // Automatic advance due to song end
     }
 
-    @Transactional
     public synchronized void pausePlayback(Long profileId) {
         PlaybackState state = getState(profileId);
         // Remove the isPlaying() check to ensure we always force a stop/pause state
@@ -513,7 +510,6 @@ public class PlaybackController {
         currentSettings.addLog("Playback paused (force).");
     }
 
-    @Transactional
     public synchronized void resumePlayback(Long profileId) {
         PlaybackState state = getState(profileId);
         if (state.isPlaying()) return;
@@ -530,7 +526,6 @@ public class PlaybackController {
         currentSettings.addLog("Playback resumed (direct).");
     }
 
-    @Transactional
     public synchronized void togglePlay(Long profileId) {
         currentSettings.addLog("Playback toggled.");
         System.out.println("Toggle");
@@ -556,7 +551,6 @@ public class PlaybackController {
     /**
      * Cycles through shuffle modes: OFF, SHUFFLE, SMART_SHUFFLE
      */
-    @Transactional
     public synchronized void toggleShuffle(Long profileId) {
         PlaybackState state = getState(profileId);
         PlaybackState.ShuffleMode currentMode = state.getShuffleMode();
@@ -589,7 +583,6 @@ public class PlaybackController {
     /**
      * Cycles through repeat modes: OFF, ONE, ALL.
      */
-    @Transactional
     public synchronized void toggleRepeat(Long profileId) {
         PlaybackState state = getState(profileId);
         playbackQueueController.toggleRepeat(state, profileId);
@@ -600,7 +593,6 @@ public class PlaybackController {
     /**
      * Sets the playback volume (0.0 - 1.0) and persists state
      */
-    @Transactional
     public synchronized void changeVolume(float level, Long profileId) {
         // Normalize volume to [0.0, 1.0]
         if (level < 0f || Float.isNaN(level)) {
@@ -616,7 +608,6 @@ public class PlaybackController {
     /**
      * Sets the playback position in seconds and persists state
      */
-    @Transactional
     public synchronized void setSeconds(double seconds, Long profileId) {
         System.out.println("[PlaybackController] setSeconds called with: " + seconds + " for profile: " + profileId);
         PlaybackState st = getState(profileId);
@@ -628,7 +619,6 @@ public class PlaybackController {
     /**
      * Sets the crossfade duration in seconds
      */
-    @Transactional
     public synchronized void setCrossfadeDuration(int seconds, Long profileId) {
         PlaybackState st = getState(profileId);
         st.setCrossfadeDuration(Math.max(0, Math.min(10, seconds)));
@@ -832,24 +822,49 @@ public class PlaybackController {
     }
 
     public PaginatedQueue getQueuePage(int page, int limit, Long profileId) {
+        return getQueuePage(page, limit, profileId, "");
+    }
+
+    public PaginatedQueue getQueuePage(int page, int limit, Long profileId, String search) {
         PlaybackState st = getState(profileId);
         List<Long> cueIds = st.getCue();
         if (cueIds == null || cueIds.isEmpty()) {
             return new PaginatedQueue(new ArrayList<>(), 0);
         }
 
-        int totalSize = cueIds.size();
+        // If no search, use original pagination logic
+        if (search == null || search.isBlank()) {
+            int totalSize = cueIds.size();
+            int fromIndex = (page - 1) * limit;
+            int toIndex = Math.min(fromIndex + limit, totalSize);
+
+            if (fromIndex >= totalSize) {
+                return new PaginatedQueue(new ArrayList<>(), totalSize);
+            }
+
+            List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
+            List<Song> songs = songService.findByIds(pageOfIds);
+            return new PaginatedQueue(songs, totalSize);
+        }
+
+        // With search: get all songs, filter, then paginate
+        List<Song> allSongs = songService.findByIds(cueIds);
+        String searchLower = search.toLowerCase();
+        
+        List<Song> filtered = allSongs.stream()
+                .filter(s -> (s.getTitle() != null && s.getTitle().toLowerCase().contains(searchLower)) ||
+                             (s.getArtist() != null && s.getArtist().toLowerCase().contains(searchLower)))
+                .collect(Collectors.toList());
+
+        int totalSize = filtered.size();
         int fromIndex = (page - 1) * limit;
         int toIndex = Math.min(fromIndex + limit, totalSize);
 
-        if (fromIndex >= totalSize) {
+        if (fromIndex >= totalSize || filtered.isEmpty()) {
             return new PaginatedQueue(new ArrayList<>(), totalSize);
         }
 
-        List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
-        List<Song> songs = songService.findByIds(pageOfIds);
-
-        return new PaginatedQueue(songs, totalSize);
+        return new PaginatedQueue(filtered.subList(fromIndex, toIndex), totalSize);
     }
 
     public synchronized void skipToQueueIndex(int index, Long profileId) {

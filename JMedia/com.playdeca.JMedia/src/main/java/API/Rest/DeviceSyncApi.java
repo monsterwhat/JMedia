@@ -38,7 +38,6 @@ public class DeviceSyncApi {
      */
     @POST
     @Path("/{profileId}/generate-qr")
-    @Transactional
     public Response generateQrCode(@PathParam("profileId") Long profileId) {
         try {
             Profile profile = profileService.findById(profileId);
@@ -74,7 +73,6 @@ public class DeviceSyncApi {
      */
     @GET
     @Path("/{profileId}/sessions")
-    @Transactional
     public Response getActiveSessions(@PathParam("profileId") Long profileId) {
         try {
             Profile profile = profileService.findById(profileId);
@@ -101,7 +99,6 @@ public class DeviceSyncApi {
      */
     @DELETE
     @Path("/{profileId}/sessions/{sessionId}")
-    @Transactional
     public Response revokeSession(@PathParam("profileId") Long profileId, 
                                @PathParam("sessionId") Long sessionId) {
         try {
@@ -143,7 +140,6 @@ public class DeviceSyncApi {
      */
     @POST
     @Path("/{profileId}/cleanup-expired")
-    @Transactional
     public Response cleanupExpiredSessions(@PathParam("profileId") Long profileId) {
         try {
             Profile profile = profileService.findById(profileId);
@@ -198,7 +194,6 @@ public class DeviceSyncApi {
      */
     @POST
     @Path("/connect")
-    @Transactional
     public Response connectDevice(@QueryParam("key") String securityKey,
                                 @HeaderParam("User-Agent") String userAgent,
                                 @HeaderParam("X-Forwarded-For") String forwardedFor,

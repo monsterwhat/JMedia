@@ -1275,9 +1275,8 @@ public class SettingsController implements Serializable {
 
     public synchronized void clearLogs() {
         Settings settings = settingsService.getOrCreateSettings();
-        settings.getLogs().clear();
+        settingsService.clearLogs(settings);
         addLog("Logs cleared.");
-        settingsService.save(settings);
     }
 
     private String getDefaultMusicFolder() {
@@ -1317,44 +1316,35 @@ public class SettingsController implements Serializable {
         addLog("Music library reset to default: " + musicLibraryPath);
     }
 
-    public synchronized List<String> getLogs() {
-        return settingsService.getOrCreateSettings().getLogs().stream()
-                .map(SettingsLog::getMessage)
-                .collect(Collectors.toList());
+    public List<String> getLogs() {
+        return settingsService.getRecentLogMessages(1000);
     }
 
     public synchronized void addLogs(List<String> messages) {
         if (messages == null || messages.isEmpty()) {
             return;
         }
-        Settings settings = settingsService.getOrCreateSettings();
         for (String message : messages) {
-            SettingsLog log = new SettingsLog();
-            log.setMessage(message);
-            settings.getLogs().add(log);
-            logSocket.broadcast(log.getMessage());
+            settingsService.addLog(null, message);
+            logSocket.broadcast(message);
         }
-        settingsService.save(settings);
     }
 
     public synchronized void addLog(String message, Throwable t) {
-        Settings settings = settingsService.getOrCreateSettings();
-        SettingsLog log = new SettingsLog();
+        String logMessage = message;
         if (t != null) {
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
             t.printStackTrace(pw);
-            log.setMessage(message + "\n" + sw.toString());
-        } else {
-            log.setMessage(message);
+            logMessage += "\n" + sw.toString();
         }
-        settings.getLogs().add(log);
-        settingsService.save(settings);
-        logSocket.broadcast(log.getMessage());
+        settingsService.addLog(null, logMessage);
+        logSocket.broadcast(logMessage);
     }
 
     public synchronized void addLog(String message) {
-        addLog(message, null);
+        settingsService.addLog(null, message);
+        logSocket.broadcast(message);
     }
 
     public String getMusicLibraryPath() {

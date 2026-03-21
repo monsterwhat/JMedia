@@ -78,7 +78,7 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
         }
 
         // 4. Handle unauthenticated requests
-        LOG.info("Unauthenticated request from {} - sessionId: {}, redirecting to login", clientIp, sessionId);
+        LOG.info("Unauthenticated request from {} - path: '{}', sessionId: {}, redirecting to login", clientIp, path, sessionId);
 
         // For API endpoints, return 401
         if (path.startsWith("/api/")) {

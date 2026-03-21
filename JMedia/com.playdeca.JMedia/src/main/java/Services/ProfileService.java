@@ -10,7 +10,7 @@ public class ProfileService {
 
     @Transactional
     public Profile createProfile(String name, Long userId) {
-        if (Profile.findByName(name) != null) {
+        if (Profile.findByNameAndUser(name, userId) != null) {
             throw new IllegalArgumentException("Profile with name " + name + " already exists.");
         }
         Profile profile = new Profile();
@@ -21,23 +21,12 @@ public class ProfileService {
         return profile;
     }
 
-    @Transactional
-    public Profile createProfile(String name) {
-        return createProfile(name, null);
-    }
-
-    public Profile findByName(String name) {
-        return Profile.findByName(name);
-    }
-
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Profile findById(Long id) {
         return Profile.findById(id);
     }
 
-    public Profile getMainProfile() {
-        return Profile.findMainProfile();
-    }
-
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Profile> findByUserId(Long userId) {
         return Profile.list("userId", userId);
     }

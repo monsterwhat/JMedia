@@ -64,12 +64,16 @@ if ('mediaSession' in navigator) {
     window.setupMediaSessionHandlers = (apiPost, setPlaybackTime, audio) => {
         navigator.mediaSession.setActionHandler('play', () => {
             console.log("[mediaSession.js] Media Session: 'play' action.");
-            apiPost('toggle');
+            window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
+                detail: { action: 'playPause', profileId: window.globalActiveProfileId }
+            }));
         });
 
         navigator.mediaSession.setActionHandler('pause', () => {
             console.log("[mediaSession.js] Media Session: 'pause' action.");
-            apiPost('toggle');
+            window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
+                detail: { action: 'playPause', profileId: window.globalActiveProfileId }
+            }));
         });
 
         navigator.mediaSession.setActionHandler('previoustrack', () => {

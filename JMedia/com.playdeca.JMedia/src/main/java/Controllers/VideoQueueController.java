@@ -38,7 +38,7 @@ public class VideoQueueController {
         state.setCurrentTime(0);
 
         if (state.getCurrentVideoId() != null) {
-            Video currentVideo = Models.Video.findById(state.getCurrentVideoId());
+            Video currentVideo = videoService.find(state.getCurrentVideoId());
             if (currentVideo != null) {
                 state.setVideoTitle(currentVideo.title);
                 state.setSeriesTitle(currentVideo.seriesTitle);

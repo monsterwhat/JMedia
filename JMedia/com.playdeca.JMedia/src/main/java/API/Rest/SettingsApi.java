@@ -7,7 +7,6 @@ import Models.DTOs.ImportInstallationStatus;
 import Services.PlaybackHistoryService;
 import Services.SongService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -356,7 +355,6 @@ public class SettingsApi {
     // -----------------------------
     @GET
     @Path("/{profileId}")
-    @Transactional
     public Response getSettings(@PathParam("profileId") Long profileId) {
         Settings settings = settingsController.getOrCreateSettings();
         return Response.ok(ApiResponse.success(settings)).build();
@@ -367,7 +365,6 @@ public class SettingsApi {
     // -----------------------------
     @GET
     @Path("/{profileId}/bpm-tolerance")
-    @Transactional
     public Response getBpmTolerance(@PathParam("profileId") Long profileId) {
         Settings settings = settingsController.getOrCreateSettings();
         Map<String, Object> bpmSettings = new HashMap<>();
@@ -378,7 +375,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/bpm-tolerance")
-    @Transactional
     public Response setBpmTolerance(@PathParam("profileId") Long profileId, Map<String, Object> bpmSettings, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Settings settings = settingsController.getOrCreateSettings();
@@ -403,7 +399,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/import-sources")
-    @Transactional
     public Response updateImportSources(@PathParam("profileId") Long profileId, 
                                  ImportSettingsDTO sourcesDTO, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
@@ -481,7 +476,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/update-yt-dlp")
-    @Transactional
     public Response updateYtDlp(@PathParam("profileId") Long profileId, 
                                  @QueryParam("channel") String channel, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
@@ -518,7 +512,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/toggle-run-as-service")
-    @Transactional
     @Consumes(MediaType.WILDCARD)
     public Response toggleRunAsService(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
@@ -549,7 +542,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/resetLibrary")
-    @Transactional
     public Response resetLibrary(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.resetMusicLibrary();
@@ -569,7 +561,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/clearLogs")
-    @Transactional
     public Response clearLogs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.clearLogs();
@@ -579,7 +570,6 @@ public class SettingsApi {
     @POST
     @Consumes(MediaType.WILDCARD)
     @Path("/clearPlaybackHistory/{profileId}")
-    @Transactional
     public Response clearPlaybackHistory(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         playbackHistoryService.clearHistory(profileId);
@@ -588,7 +578,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/clearSongs")
-    @Transactional
     public Response clearSongs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
@@ -648,7 +637,6 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/upload-cookies")
     @Consumes(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
@@ -679,7 +667,6 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/rescan-song/{id}")
-    @Transactional
     public Response rescanSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
@@ -693,7 +680,6 @@ public class SettingsApi {
 
     @DELETE
     @Path("/{profileId}/songs/{id}")
-    @Transactional
     public Response deleteSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
@@ -707,7 +693,6 @@ public class SettingsApi {
 
     @DELETE
     @Path("/{profileId}/cookies")
-    @Transactional
     public Response deleteCookies(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {

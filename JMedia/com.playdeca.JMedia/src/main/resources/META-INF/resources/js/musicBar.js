@@ -215,9 +215,30 @@ function bindAudioTimeUpdate() {
 }
 
 function bindControls() {
-    const playBtn = document.getElementById('playPauseBtn');
-    if (playBtn) {
-        playBtn.onclick = () => apiPost('toggle');
+    // Play/Pause button handler
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    if (playPauseBtn) {
+        playPauseBtn.onclick = () => {
+            // Optimistic UI update
+            musicState.playing = !musicState.playing;
+            updateMusicBar();
+            
+            // Immediate audio control for better UX
+            if (audio) {
+                if (musicState.playing) {
+                    audio.play().catch(err => {
+                        console.log("Play prevented or failed:", err);
+                        musicState.playing = false;
+                        updateMusicBar();
+                    });
+                } else {
+                    audio.pause();
+                }
+            }
+            
+            // Server sync
+            apiPost('toggle');
+        };
     }
 
     const prevBtn = document.getElementById('prevBtn');
@@ -259,11 +280,8 @@ function bindControls() {
     const vs = document.getElementById('musicVolumeProgressBar');
     if (vs) {
         vs.onmousedown = vs.ontouchstart = () => { draggingVolume = true; };
-            vs.onmouseup = vs.ontouchend = () => {
+        vs.onmouseup = vs.ontouchend = () => {
             draggingVolume = false;
-            const val = vs.value;
-            const vol = Math.pow(val / 100.0, 2); // Squared curve
-            apiPost('volume', vol);
         };
         vs.oninput = () => {
             const val = vs.value;
@@ -295,7 +313,7 @@ function apiPost(type, value = null, silent = false) {
         url = `/api/music/playback/select/${profileId}/${value}`;
         successMessage = "Song selected";
     } else if (type === 'toggle') {
-        successMessage = musicState.playing ? "Paused" : "Playing";
+        successMessage = musicState.playing ? "Playing" : "Paused";
     } else if (type === 'pause') {
         successMessage = "Paused";
     } else if (type === 'play') {
@@ -403,11 +421,6 @@ function connectWS() {
             if (state.duration && state.duration > 0) {
                 musicState.duration = state.duration;
             }
-            
-            if (!draggingVolume) {
-                musicState.volume = state.volume;
-                if (audio) audio.volume = state.volume;
-            }
 
             // Sync current time if not dragging and either significantly drifted or paused
             if (!draggingSeconds) {
@@ -435,31 +448,25 @@ function connectWS() {
                                 musicState.currentSongData = data.data;
                                 musicState.hasLyrics = data.data.lyrics != null;
                                 updateCoverImage();
+                                
+                                // Update media session with artwork
+                                let artworkUrl = null;
+                                if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
+                                    artworkUrl = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
+                                }
+                                
+                                if (window.updateMediaSessionMetadata) {
+                                    window.updateMediaSessionMetadata(
+                                        state.songName,
+                                        state.artistName,
+                                        artworkUrl
+                                    );
+                                }
                             }
                         })
                         .catch(err => console.error('[MusicBar] Failed to fetch song data:', err));
                 }
                 
-                // Update cover immediately with existing data or fallback
-                updateCoverImage();
-                
-                // Get artwork URL - prefer stored base64, fallback to API
-                let artworkUrl = null;
-                if (state.currentSongId) {
-                    if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
-                        artworkUrl = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
-                    } else {
-                        artworkUrl = `/api/music/cover/${state.currentSongId}`;
-                    }
-                }
-                
-                if (window.updateMediaSessionMetadata) {
-                    window.updateMediaSessionMetadata(
-                        state.songName,
-                        state.artistName,
-                        artworkUrl
-                    );
-                }
                 updateAudioSource(state.currentSongId, state.playing);
             } else {
                 if (state.playing && audio.paused) {

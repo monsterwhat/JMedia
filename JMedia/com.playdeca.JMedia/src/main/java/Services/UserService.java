@@ -9,10 +9,12 @@ import java.util.List;
 @ApplicationScoped
 public class UserService {
     
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<User> listAll() {
         return User.listAll();
     }
     
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public User findById(Long id) {
         return User.findById(id);
     }

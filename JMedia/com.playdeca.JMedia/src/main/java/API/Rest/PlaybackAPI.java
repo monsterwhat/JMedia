@@ -5,15 +5,15 @@ import Models.PlaybackState;
 import Models.Profile;
 import Controllers.PlaybackController;
 import Services.SettingsService;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
-@Transactional
+@Blocking
 @Path("/api/music/playback")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)

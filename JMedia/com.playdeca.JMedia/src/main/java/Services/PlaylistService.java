@@ -69,6 +69,7 @@ public class PlaylistService {
         }
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Playlist find(Long id) {
         Playlist playlist = em.find(Playlist.class, id);
         Profile activeProfile = settingsService.getActiveProfile();
@@ -78,6 +79,7 @@ public class PlaylistService {
         return playlist;
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Playlist findByIdRegardlessOfHidden(Long id) {
         return em.find(Playlist.class, id);
     }

@@ -49,11 +49,11 @@ public class VideoController {
         }
 
         if (memoryState.getCue().isEmpty()) {
-            List<Video> allVideos = getVideos();
-            if (!allVideos.isEmpty()) {
-                memoryState.setCue(allVideos.stream().map(v -> v.id).collect(Collectors.toList()));
+            List<Long> videoIds = videoService.findAllVideoIds();
+            if (!videoIds.isEmpty()) {
+                memoryState.setCue(videoIds);
                 memoryState.setCueIndex(0);
-                memoryState.setCurrentVideoId(allVideos.get(0).id);
+                memoryState.setCurrentVideoId(videoIds.get(0));
             }
         }
 
@@ -111,7 +111,7 @@ public class VideoController {
 
     public synchronized void updateState(VideoState newState, boolean shouldBroadcast) {
         if (newState.getCurrentVideoId() != null) {
-            Video currentVideo = Models.Video.findById(newState.getCurrentVideoId());
+            Video currentVideo = videoService.find(newState.getCurrentVideoId());
             if (currentVideo != null) {
                 newState.setVideoTitle(currentVideo.title);
                 newState.setSeriesTitle(currentVideo.seriesTitle);

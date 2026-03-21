@@ -175,11 +175,13 @@ public class VideoManagementApi {
         }
 
         LOG.info("Forcing rescan for series '{}' in {} directories", seriesTitle, parentDirs.size());
+        int totalCreated = 0;
         for (java.nio.file.Path dir : parentDirs) {
-            videoImportService.scan(dir, false, true);
+            List<Models.Video> videos = videoImportService.scanAndCreate(dir, true);
+            totalCreated += videos.size();
         }
 
-        return Response.ok("Rescan started for series directories").build();
+        return Response.ok("Rescan completed. Created/updated " + totalCreated + " videos.").build();
     }
 
     @GET

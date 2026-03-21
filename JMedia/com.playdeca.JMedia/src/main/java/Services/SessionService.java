@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 import Models.Session;
@@ -91,6 +92,26 @@ public class SessionService {
         long deleted = Session.delete("lastActivity < ?1 and active = true", cutoff);
         if (deleted > 0) {
             LOG.info("Cleaned up {} expired sessions", deleted);
+        }
+    }
+    
+    @Transactional
+    public List<Session> getAllActiveSessions() {
+        return Session.list("active", true);
+    }
+    
+    @Transactional
+    public List<Session> getSessionsByUserId(String userId) {
+        return Session.list("userId = ?1 and active = true", userId);
+    }
+    
+    @Transactional
+    public void revokeSession(String sessionId) {
+        Session session = Session.findBySessionId(sessionId);
+        if (session != null) {
+            LOG.info("Admin revoked session {} for user {}", sessionId, session.username);
+            session.active = false;
+            session.persist();
         }
     }
 }

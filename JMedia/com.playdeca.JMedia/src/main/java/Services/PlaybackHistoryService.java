@@ -79,18 +79,37 @@ public class PlaybackHistoryService {
                 .executeUpdate();
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<PlaybackHistory> getHistory(int page, int pageSize, Long profileId) {
+        return getHistory(page, pageSize, profileId, "");
+    }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public List<PlaybackHistory> getHistory(int page, int pageSize, Long profileId, String search) {
         Profile profile = profileService.findById(profileId);
         if (profile == null) {
             return List.of();
         }
-        return em.createQuery("SELECT ph FROM PlaybackHistory ph WHERE ph.profile = :profile ORDER BY ph.playedAt DESC", PlaybackHistory.class)
-                .setParameter("profile", profile)
-                .setFirstResult((page - 1) * pageSize)
+        
+        String query = "SELECT ph FROM PlaybackHistory ph WHERE ph.profile = :profile";
+        if (search != null && !search.isBlank()) {
+            query += " AND (LOWER(ph.song.title) LIKE LOWER(:search) OR LOWER(ph.song.artist) LIKE LOWER(:search))";
+        }
+        query += " ORDER BY ph.playedAt DESC";
+        
+        var q = em.createQuery(query, PlaybackHistory.class)
+                .setParameter("profile", profile);
+        
+        if (search != null && !search.isBlank()) {
+            q.setParameter("search", "%" + search + "%");
+        }
+        
+        return q.setFirstResult((page - 1) * pageSize)
                 .setMaxResults(pageSize)
                 .getResultList();
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Long> getRecentlyPlayedSongIds(int count, Long profileId) {
         Profile profile = profileService.findById(profileId);
         if (profile == null) {
@@ -102,14 +121,31 @@ public class PlaybackHistoryService {
                 .getResultList();
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public long getHistoryCount(Long profileId) {
+        return getHistoryCount(profileId, "");
+    }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public long getHistoryCount(Long profileId, String search) {
         Profile profile = profileService.findById(profileId);
         if (profile == null) {
             return 0;
         }
-        return em.createQuery("SELECT COUNT(ph) FROM PlaybackHistory ph WHERE ph.profile = :profile", Long.class)
-                .setParameter("profile", profile)
-                .getSingleResult();
+        
+        String query = "SELECT COUNT(ph) FROM PlaybackHistory ph WHERE ph.profile = :profile";
+        if (search != null && !search.isBlank()) {
+            query += " AND (LOWER(ph.song.title) LIKE LOWER(:search) OR LOWER(ph.song.artist) LIKE LOWER(:search))";
+        }
+        
+        var q = em.createQuery(query, Long.class)
+                .setParameter("profile", profile);
+        
+        if (search != null && !search.isBlank()) {
+            q.setParameter("search", "%" + search + "%");
+        }
+        
+        return q.getSingleResult();
     }
 
     /**

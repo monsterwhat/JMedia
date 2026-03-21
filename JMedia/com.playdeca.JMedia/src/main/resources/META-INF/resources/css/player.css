@@ -456,6 +456,51 @@ video::cue {
     display: flex !important;
 }
 
+.speed-menu {
+    position: absolute !important;
+    bottom: 70px !important;
+    right: 20px !important;
+    background: rgba(20, 20, 20, 0.98) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
+    display: none !important;
+    flex-direction: column !important;
+    padding: 0 !important;
+    z-index: 2147483647 !important;
+    width: 220px !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+}
+
+.speed-menu.active {
+    display: flex !important;
+}
+
+.speed-option {
+    padding: 10px 15px !important;
+    color: #fff !important;
+    cursor: pointer !important;
+    font-size: 0.9rem !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    transition: background 0.2s !important;
+}
+
+.speed-option:hover {
+    background: rgba(255,255,255,0.1) !important;
+}
+
+.speed-option.active {
+    color: var(--player-primary) !important;
+    font-weight: bold !important;
+    background: rgba(72, 199, 116, 0.1) !important;
+}
+
+.speed-option.active::before {
+    content: "•" !important;
+    font-size: 1.5rem !important;
+}
+
 .menu-header {
     padding: 12px 15px !important;
     font-size: 0.8rem !important;

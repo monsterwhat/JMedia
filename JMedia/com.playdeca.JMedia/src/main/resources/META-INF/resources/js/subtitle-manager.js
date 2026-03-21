@@ -2,6 +2,8 @@ class SubtitleManager {
     constructor() {
         this.currentVideoId = null;
         this.currentVideoTitle = '';
+        this.baseBottomOffset = 60; // Default subtitle bottom offset
+        this.currentStyle = null; // Will store current subtitle style
         
         // Auto-apply saved styles on initialization
         this.applySavedStyle();
@@ -138,24 +140,13 @@ class SubtitleManager {
         // We use margin-bottom on the container to push subtitles up.
         // SimplePlayer sets --sub-lift to 80px when controls are visible.
         const baseBottom = parseInt(style.bottom);
+        this.baseBottomOffset = baseBottom;
+        this.currentStyle = style;
 
-        styleEl.textContent = `
-            video::-webkit-media-text-track-container {
-                position: absolute !important;
-                bottom: 0 !important;
-                left: 0 !important;
-                width: 100% !important;
-                height: 100% !important;
-                display: flex !important;
-                flex-direction: column !important;
-                justify-content: flex-end !important;
-                margin-bottom: calc(${baseBottom}px + var(--sub-lift, 0px)) !important;
-                transition: margin-bottom 0.3s ease-in-out !important;
-                pointer-events: none !important;
-                overflow: visible !important;
-                z-index: 2147483647 !important;
-            }
-            
+        // Check if we're in Firefox
+        const isFirefox = /Firefox/i.test(navigator.userAgent);
+
+        let css = `
             video::cue, ::cue {
                 background-color: rgba(0, 0, 0, ${style.bgOpacity}) !important;
                 color: ${style.color} !important;
@@ -167,6 +158,340 @@ class SubtitleManager {
                 white-space: pre-wrap !important;
             }
         `;
+
+        if (!isFirefox) {
+            // WebKit/Chrome/Safari/Edge
+            css += `
+                video::-webkit-media-text-track-container {
+                    position: absolute !important;
+                    bottom: 0 !important;
+                    left: 0 !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    justify-content: flex-end !important;
+                    margin-bottom: calc(${baseBottom}px + var(--sub-lift, 0px)) !important;
+                    transition: margin-bottom 0.3s ease-in-out !important;
+                    pointer-events: none !important;
+                    overflow: visible !important;
+                    z-index: 2147483647 !important;
+                }
+            `;
+        } else {
+            // Firefox - CSS variable based positioning
+            console.log('[SubtitleManager] Firefox detected - using CSS variable positioning');
+            
+            // Add CSS for Firefox overlay (positioning done via JavaScript)
+            css += `
+                .firefox-subtitle-overlay {
+                    position: absolute;
+                    bottom: 0;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: auto;
+                    max-width: 100%;
+                    box-sizing: border-box;
+                    text-align: center;
+                    pointer-events: none;
+                    z-index: 2147483647;
+                    transition: bottom 0.3s ease-in-out;
+                    color: ${style.color} !important;
+                    font-family: ${style.font} !important;
+                    font-size: ${style.size}px !important;
+                    line-height: ${style.lineHeight} !important;
+                    background-color: rgba(0, 0, 0, ${style.bgOpacity}) !important;
+                    padding: 8px 16px;
+                    border-radius: 8px;
+                    display: none;
+                }
+                
+                .firefox-subtitle-overlay.active {
+                    display: block;
+                }
+                
+                /* Hide native subtitles in Firefox using Firefox-specific CSS hack */
+                @-moz-document url-prefix() {
+                    video::cue {
+                        opacity: 0 !important;
+                        visibility: hidden !important;
+                        color: transparent !important;
+                        background-color: transparent !important;
+                        font-size: 0 !important;
+                        line-height: 0 !important;
+                    }
+                }
+            `;
+            
+
+        }
+
+        styleEl.textContent = css;
+        console.log('[SubtitleManager] CSS injected, length:', css.length);
+        if (isFirefox) {
+            console.log('[SubtitleManager] Firefox CSS includes @-moz-document rule:', css.includes('@-moz-document'));
+        }
+        // For Firefox, overlay creation is delayed until player is ready
+        if (isFirefox) {
+            console.log('[SubtitleManager] Firefox overlay creation delayed until player initializes');
+            // Apply styles to overlay if it already exists
+            if (this.overlayElement) {
+                this.applyOverlayStyles();
+            }
+        }
+    }
+
+    setupFirefoxSubtitlePositioning(baseBottom) {
+        console.log('[SubtitleManager] Setting up Firefox subtitle positioning, baseBottom:', baseBottom);
+        
+        // Check if overlay already exists
+        let overlay = document.getElementById('firefox-subtitle-overlay');
+        console.log('[SubtitleManager] Existing overlay found:', !!overlay);
+        
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'firefox-subtitle-overlay';
+            overlay.className = 'firefox-subtitle-overlay';
+            console.log('[SubtitleManager] Created new overlay element');
+            
+            // Find the video container to append overlay to
+            // Priority: #customPlayer > currentPlayerInstance.container > .player-container > video parent > body
+            const selectors = [
+                '#customPlayer',
+                window.currentPlayerInstance?.container,
+                '.player-container',
+                'video'
+            ];
+            
+            let videoContainer = null;
+            let usedSelector = 'none';
+            
+            for (const selector of selectors) {
+                if (!selector) continue;
+                
+                if (selector instanceof HTMLElement) {
+                    videoContainer = selector;
+                    usedSelector = 'currentPlayerInstance.container';
+                    console.log('[SubtitleManager] Using container from currentPlayerInstance');
+                    break;
+                } else if (typeof selector === 'string') {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        videoContainer = element;
+                        usedSelector = selector;
+                        console.log(`[SubtitleManager] Found container with selector: ${selector}`);
+                        break;
+                    }
+                }
+            }
+            
+            if (videoContainer) {
+                videoContainer.style.position = 'relative';
+                videoContainer.appendChild(overlay);
+                console.log(`[SubtitleManager] Appended overlay to container using ${usedSelector}`);
+            } else {
+                // Fallback: append to body and position relative to viewport
+                document.body.appendChild(overlay);
+                overlay.style.position = 'fixed';
+                overlay.style.bottom = `${baseBottom}px`;
+                console.log('[SubtitleManager] No container found, appended to body');
+            }
+        }
+        
+        // Store reference for later
+        this.overlayElement = overlay;
+        
+        // Set up subtitle text extraction from native cues
+        this.setupFirefoxSubtitleTextExtraction(overlay);
+        // Apply current subtitle styles to overlay
+        this.applyOverlayStyles();
+        // Initial update
+        this.updateFirefoxOverlayWithActiveCue();
+    }
+
+    ensureFirefoxOverlay() {
+        // Ensure Firefox overlay exists, create if needed
+        const isFirefox = /Firefox/i.test(navigator.userAgent);
+        if (!isFirefox) return;
+        
+        // Try to create overlay now
+        this.createFirefoxOverlayIfNeeded();
+        
+        // If no container found, schedule retries
+        if (!this.overlayElement || !document.body.contains(this.overlayElement)) {
+            console.log('[SubtitleManager] Overlay not created yet, scheduling retries...');
+            this.retryOverlayCreation(5, 500); // 5 retries, 500ms apart
+        }
+    }
+
+    createFirefoxOverlayIfNeeded() {
+        if (!this.overlayElement || !document.body.contains(this.overlayElement)) {
+            const baseBottom = this.baseBottomOffset || 60;
+            this.setupFirefoxSubtitlePositioning(baseBottom);
+        }
+    }
+
+    retryOverlayCreation(maxRetries, delay) {
+        let attempts = 0;
+        const tryCreate = () => {
+            attempts++;
+            console.log(`[SubtitleManager] Retry attempt ${attempts}/${maxRetries}`);
+            this.createFirefoxOverlayIfNeeded();
+            
+            if ((!this.overlayElement || !document.body.contains(this.overlayElement)) && attempts < maxRetries) {
+                setTimeout(tryCreate, delay);
+            } else if (attempts >= maxRetries) {
+                console.log('[SubtitleManager] Max retries reached, overlay creation failed');
+            }
+        };
+        tryCreate();
+    }
+
+    setupFirefoxSubtitleTextExtraction(overlay) {
+        // This method intercepts native subtitle cues
+        // and displays them in our custom overlay
+        console.log('[SubtitleManager] Firefox subtitle text extraction set up');
+        
+        const video = document.querySelector('video');
+        console.log('[SubtitleManager] Video element found:', video ? 'yes' : 'no', 'src:', video?.src || 'none');
+        if (!video || !video.textTracks) {
+            console.log('[SubtitleManager] No video or textTracks found');
+            return;
+        }
+        // Add Firefox-specific class to video element for CSS targeting
+        video.classList.add('firefox-subtitle-fallback');
+
+        // Hide native subtitles in Firefox - we'll use our custom overlay instead
+        console.log('[SubtitleManager] Total tracks found:', video.textTracks.length);
+        const trackKinds = [];
+        for (let i = 0; i < video.textTracks.length; i++) {
+            const track = video.textTracks[i];
+            trackKinds.push(track.kind);
+            console.log(`[SubtitleManager] Track ${i}: kind=${track.kind}, mode=${track.mode}, label=${track.label || 'none'}`);
+            if (track.kind === 'subtitles' || track.kind === 'captions') {
+                console.log(`[SubtitleManager] Found subtitle/caption track ${i}, will rely on CSS hiding`);
+            }
+        }
+        console.log('[SubtitleManager] All track kinds:', trackKinds.join(', '));
+        
+        // Verify no tracks are still showing
+        let stillShowing = false;
+        for (let i = 0; i < video.textTracks.length; i++) {
+            if (video.textTracks[i].mode === 'showing') {
+                stillShowing = true;
+                console.log(`[SubtitleManager] WARNING: Track ${i} is still showing!`);
+            }
+        }
+        if (!stillShowing) {
+            console.log('[SubtitleManager] All tracks are hidden or disabled.');
+        }
+
+        // Helper function to update overlay with active cue
+        const updateOverlayWithActiveCue = () => {
+            let activeCue = null;
+            for (let i = 0; i < video.textTracks.length; i++) {
+                const track = video.textTracks[i];
+                if (track.mode === 'showing' && track.activeCues && track.activeCues.length > 0) {
+                    activeCue = track.activeCues[0];
+                    break;
+                }
+            }
+            
+            if (activeCue) {
+                overlay.textContent = activeCue.text;
+                overlay.classList.add('active');
+                console.log('[SubtitleManager] Active cue found:', activeCue.text);
+            } else {
+                overlay.classList.remove('active');
+                console.log('[SubtitleManager] No active cue');
+            }
+        };
+
+        // Initial check
+        updateOverlayWithActiveCue();
+
+        // Listen for changes to textTracks collection (e.g., tracks added/removed/mode changed)
+        video.textTracks.addEventListener('change', () => {
+            console.log('[SubtitleManager] textTracks change event');
+            // Re-attach cuechange listeners for showing tracks
+            for (let i = 0; i < video.textTracks.length; i++) {
+                const track = video.textTracks[i];
+                if (track.mode === 'showing') {
+                    // Remove existing listener to avoid duplicates
+                    track.removeEventListener('cuechange', updateOverlayWithActiveCue);
+                    track.addEventListener('cuechange', updateOverlayWithActiveCue);
+                }
+            }
+            updateOverlayWithActiveCue();
+        });
+
+        // Also listen for new tracks being added
+        video.textTracks.addEventListener('addtrack', (evt) => {
+            const track = evt.track;
+            if (track && (track.kind === 'subtitles' || track.kind === 'captions')) {
+                console.log(`[SubtitleManager] New track added: kind=${track.kind}, mode=${track.mode}`);
+                console.log(`[SubtitleManager] Relying on CSS to hide native subtitles`);
+            }
+        });
+
+        // Attach cuechange listeners to initially showing tracks
+        for (let i = 0; i < video.textTracks.length; i++) {
+            const track = video.textTracks[i];
+            if (track.mode === 'showing') {
+                track.addEventListener('cuechange', updateOverlayWithActiveCue);
+            }
+        }
+    }
+
+    updateFirefoxOverlayWithActiveCue() {
+        // Manually update overlay with active cue (call when subtitles are first loaded)
+        const video = document.querySelector('video');
+        if (!video || !video.textTracks) return;
+        
+        let activeCue = null;
+        for (let i = 0; i < video.textTracks.length; i++) {
+            const track = video.textTracks[i];
+            if (track.mode === 'showing' && track.activeCues && track.activeCues.length > 0) {
+                activeCue = track.activeCues[0];
+                break;
+            }
+        }
+        
+        const overlay = document.getElementById('firefox-subtitle-overlay');
+        if (overlay) {
+            if (activeCue) {
+                overlay.textContent = activeCue.text;
+                overlay.classList.add('active');
+                console.log('[SubtitleManager] Manual update - active cue found:', activeCue.text);
+            } else {
+                overlay.classList.remove('active');
+                console.log('[SubtitleManager] Manual update - no active cue');
+            }
+        }
+    }
+
+    applyOverlayStyles() {
+        // Apply current subtitle styles to the overlay
+        if (!this.currentStyle) return;
+        const overlay = document.getElementById('firefox-subtitle-overlay');
+        if (!overlay) return;
+        
+        overlay.style.color = this.currentStyle.color;
+        overlay.style.fontFamily = this.currentStyle.font;
+        overlay.style.fontSize = `${this.currentStyle.size}px`;
+        overlay.style.lineHeight = this.currentStyle.lineHeight;
+        overlay.style.backgroundColor = `rgba(0, 0, 0, ${this.currentStyle.bgOpacity})`;
+    }
+
+    setSubtitleLift(liftHeight) {
+        console.log('[SubtitleManager] setSubtitleLift called with liftHeight:', liftHeight, 'baseBottomOffset:', this.baseBottomOffset);
+        const overlay = document.getElementById('firefox-subtitle-overlay');
+        if (overlay) {
+            overlay.style.bottom = `${this.baseBottomOffset + liftHeight}px`;
+            console.log('[SubtitleManager] Updated overlay bottom to:', overlay.style.bottom);
+        } else {
+            console.log('[SubtitleManager] No overlay found to update');
+        }
     }
 
     saveStyle() {

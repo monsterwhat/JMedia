@@ -51,7 +51,11 @@ public class ThumbnailQueueProcessor {
     private static final int DEFAULT_API_DELAY_MS = 1000;
     private static final int DEFAULT_MAX_RETRIES = 3;
     private static final int DEFAULT_PROCESSING_THREADS = 2;
-    private static final int OFFLINE_CHECK_INTERVAL_MS = 30000; // 30 seconds
+    
+    // Online status cache
+    private static final long ONLINE_CHECK_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+    private volatile boolean cachedOnlineStatus = true;
+    private long lastOnlineCheckTime = 0;
     
     /**
      * Helper method to log to settings (UI) similar to file processing
@@ -87,9 +91,6 @@ public class ThumbnailQueueProcessor {
             for (int i = 0; i < processingThreads; i++) {
                 executorService.submit(this::processJobs);
             }
-            
-            // Start offline checker thread
-            executorService.submit(this::offlineChecker);
             
             LOGGER.info("Thumbnail queue processor started with {} threads", processingThreads);
         }
@@ -161,33 +162,28 @@ public class ThumbnailQueueProcessor {
      * Update processing status
      */
     private void updateStatus() {
-        status.totalJobs = highPriorityQueue.size() + lowPriorityQueue.size();
+        int currentQueueSize = highPriorityQueue.size() + lowPriorityQueue.size();
+        status.totalJobs = currentQueueSize;
+        if (status.initialTotalJobs == 0 && currentQueueSize > 0) {
+            status.initialTotalJobs = currentQueueSize;
+        }
     }
     
     /**
-     * Check if online status has changed
+     * Lazy online check - only checks network when cache expires
      */
-    private void offlineChecker() {
-        boolean wasOnline = status.isOnline;
-        
-        while (isRunning.get()) {
-            try {
-                Thread.sleep(OFFLINE_CHECK_INTERVAL_MS);
-                boolean isOnline = checkOnlineStatus();
-                
-                if (wasOnline != isOnline) {
-                    status.isOnline = isOnline;
-                    String statusMsg = isOnline ? "Online" : "Offline";
-                    LOGGER.info("Connection status changed to: {}", statusMsg);
-                    logToSettings("Network status changed to: " + statusMsg);
-                }
-                
-                wasOnline = isOnline;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+    private boolean isOnline() {
+        long now = System.currentTimeMillis();
+        if (now - lastOnlineCheckTime > ONLINE_CHECK_CACHE_MS) {
+            boolean online = checkOnlineStatus();
+            cachedOnlineStatus = online;
+            lastOnlineCheckTime = now;
+            
+            String statusMsg = online ? "Online" : "Offline";
+            LOGGER.info("Connection status: {}", statusMsg);
+            logToSettings("Network status: " + statusMsg);
         }
+        return cachedOnlineStatus;
     }
     
     /**
@@ -280,8 +276,8 @@ public class ThumbnailQueueProcessor {
             logToSettings(String.format("Starting thumbnail generation for: %s (%s)", mediaTitle, job.mediaType));
             logToSettings("Analyzing video file for thumbnail extraction...");
             
-            // Check online status first
-            if (!status.isOnline) {
+            // Check online status first (lazy check with caching)
+            if (!isOnline()) {
                 LOGGER.info("Offline detected, using local extraction for job: {}", job);
                 logToSettings("Offline mode: Using local thumbnail extraction");
                 processOfflineJob(job);

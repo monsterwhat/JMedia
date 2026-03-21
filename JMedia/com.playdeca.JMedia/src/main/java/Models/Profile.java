@@ -73,15 +73,11 @@ public class Profile extends PanacheEntity {
         return getHiddenPlaylistIds().contains(playlistId);
     }
 
-    public static Profile findMainProfile() {
-        return find("isMainProfile", true).firstResult();
-    }
-    
     public static Profile findMainProfileByUser(Long userId) {
         return find("userId = ?1 and isMainProfile = true", userId).firstResult();
     }
-
-    public static Profile findByName(String name) {
-        return find("name", name).firstResult();
+    
+    public static Profile findByNameAndUser(String name, Long userId) {
+        return find("name = ?1 and userId = ?2", name, userId).firstResult();
     }
 }

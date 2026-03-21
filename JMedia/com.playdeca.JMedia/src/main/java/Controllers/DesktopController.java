@@ -65,13 +65,11 @@ public class DesktopController {
     @PostConstruct
     public void checkForUpdatesOnStartup() {
         try {
-            // Run update check asynchronously to avoid blocking startup
             scheduler.submit(() -> {
                 try {
-                    Thread.sleep(5000); // Wait 5 seconds after startup
                     updateService.checkForUpdatesAsync();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    LOG.error("Error checking for updates", e);
                 }
             });
         } catch (Exception e) {
@@ -193,14 +191,6 @@ public class DesktopController {
         int count = activeClients.decrementAndGet();
         if (count < 0) {
             activeClients.set(0);
-        }
-
-        if (!settings.getOrCreateSettings().getRunAsService()) { // Only shut down if not running as a service
-            scheduler.schedule(() -> {
-                if (activeClients.get() <= 0 && hasHadClient) {
-                    Quarkus.asyncExit(); // graceful shutdown
-                }
-            }, 5, TimeUnit.SECONDS);
         }
     }
 

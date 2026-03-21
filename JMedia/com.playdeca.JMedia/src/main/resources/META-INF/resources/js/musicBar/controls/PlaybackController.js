@@ -83,13 +83,11 @@
             window.dispatchEvent(new CustomEvent('requestUIUpdate', { detail: { source: 'playbackController' } }));
             
             // Immediate local audio control for instant user feedback
-            const audioPlaying = window.AudioEngine.isPlaying();
-            
-            if (previousPlayingState && !audioPlaying) {
+            if (previousPlayingState) {
                 // User clicked pause - pause audio immediately
                 window.AudioEngine.pause();
                 this.pauseStartTime = Date.now();
-            } else if (!previousPlayingState && audioPlaying) {
+            } else {
                 // User clicked play - play audio immediately
                 window.AudioEngine.play().catch(console.error);
             }

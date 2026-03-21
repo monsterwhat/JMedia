@@ -262,6 +262,37 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Session Management Tab -->
+                <div id="session-management" class="tab-pane">
+                    <div class="glass-box p-6">
+                        <div class="level">
+                            <div class="level-left"><h6 class="title is-6">Active Sessions</h6></div>
+                            <div class="level-right"><button id="refreshSessionsBtn" class="button is-info is-small"><i class="pi pi-refresh mr-1"></i> Refresh</button></div>
+                        </div>
+                        <div class="mb-4">
+                            <p class="help-text">View and manage all active user sessions. Revoking a session will log the user out immediately.</p>
+                        </div>
+                        <div id="sessionsLoading" style="display: none;" class="has-text-centered p-4">
+                            <i class="pi pi-spin pi-spinner mr-2"></i> Loading sessions...
+                        </div>
+                        <div id="sessionsError" style="display: none;" class="notification is-danger is-light"></div>
+                        <table class="table is-fullwidth is-hoverable">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>IP Address</th>
+                                    <th>Created</th>
+                                    <th>Last Activity</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionsTableBody">
+                                <!-- Populated by sessionManagement.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

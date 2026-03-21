@@ -41,14 +41,6 @@ public class MediaFile extends PanacheEntity {
         return (width >= 1920 && height >= 1080) || bitrate >= 5000000;
     }
     
-    public boolean isTypicalMovieDuration() {
-        return durationSeconds >= 40 * 60 && durationSeconds <= 300 * 60; // 40-300 minutes
-    }
-    
-    public boolean isTypicalEpisodeDuration() {
-        return durationSeconds >= 5 * 60 && durationSeconds <= 120 * 60; // 5-120 minutes
-    }
-    
     public String getQualityIndicator() {
         if (width >= 3840) return "4K";
         if (width >= 2560) return "2K";
@@ -74,5 +66,15 @@ public class MediaFile extends PanacheEntity {
             }
         }
         return (width * 9) / (height * 16.0f) >= 0.9; // Allow some tolerance
+    }
+
+    // Typical movies: 60-300 minutes (1-5 hours)
+    public boolean isTypicalMovieDuration() {
+        return durationSeconds >= 3600 && durationSeconds <= 18000;
+    }
+
+    // Typical TV episodes: 15-90 minutes
+    public boolean isTypicalEpisodeDuration() {
+        return durationSeconds >= 900 && durationSeconds <= 5400;
     }
 }

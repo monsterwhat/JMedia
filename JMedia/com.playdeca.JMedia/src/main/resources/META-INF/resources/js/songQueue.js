@@ -97,27 +97,42 @@ function updateQueueCurrentSong(songId) {
 window.updateQueueCurrentSong = updateQueueCurrentSong;
 
 // -------------------------
-// Pagination variables
+// Pagination and search variables
 // -------------------------
 let currentPage = 1;
+let queueSearchQuery = '';
 const queueLimit = 50;
 let totalQueueSize = Infinity;
 let isFetchingQueue = false;
 let hasInitialLoad = false;
 
+// Get search query from the input field
+function getQueueSearchQuery() {
+    const input = document.getElementById('queueSearchInput');
+    return input ? input.value.trim() : '';
+}
+
+// Update search query variable
+function updateQueueSearch(query) {
+    queueSearchQuery = query || '';
+}
+
 // -------------------------
 // Load a page of the queue
 // -------------------------
-function loadQueuePage(page = 1, profileIdParam) { // Added profileIdParam
+function loadQueuePage(page = 1, profileIdParam, searchParam) {
     if (isFetchingQueue) {
         return;
     }
     isFetchingQueue = true;
     currentPage = page; // Update current page
     const currentProfileId = profileIdParam || globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const search = searchParam !== undefined ? searchParam : getQueueSearchQuery();
+    queueSearchQuery = search;
 
-    fetch(`/api/music/ui/queue-fragment/${currentProfileId}?page=${currentPage}&limit=${queueLimit}`, {
-        headers: {'Accept': 'application/json'} // Request JSON
+    const searchParamEncoded = encodeURIComponent(search);
+    fetch(`/api/music/ui/queue-fragment/${currentProfileId}?page=${currentPage}&limit=${queueLimit}&search=${searchParamEncoded}`, {
+        headers: {'Accept': 'application/json'}
     })
             .then(response => {
                 if (!response.ok) {
@@ -223,10 +238,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!hasInitialLoad) {
             hasInitialLoad = true;
             try {
-                loadQueuePage(1); // Reset page to load from the beginning
+                loadQueuePage(1, undefined, queueSearchQuery);
             } catch (error) {
                 console.error('[songQueue] Failed to refresh queue:', error);
-                hasInitialLoad = false; // Reset flag on error
+                hasInitialLoad = false;
             }
         }
     };
@@ -238,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('queueChanged', (event) => {
         // Always fetch queue data immediately (HTTP fallback)
         try {
-            loadQueuePage(1);
+            loadQueuePage(1, undefined, queueSearchQuery);
         } catch (error) {
             console.error('[songQueue] Failed to load queue on change event:', error);
         }

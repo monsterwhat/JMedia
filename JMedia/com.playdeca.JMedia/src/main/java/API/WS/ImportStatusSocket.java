@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.websocket.*;
@@ -36,6 +37,13 @@ public class ImportStatusSocket {
     @PostConstruct
     void init() {
         executor = vertx.createSharedWorkerExecutor("import-worker", 10);
+    }
+    
+    @PreDestroy
+    void cleanup() {
+        if (executor != null) {
+            executor.close();
+        }
     }
   
     @OnOpen

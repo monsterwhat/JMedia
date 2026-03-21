@@ -133,7 +133,7 @@
 /* Positioning Container */
 .video-js .vjs-text-track-display {
   position: absolute;
-  var(--subtitle-position): var(--subtitle-position-offset);
+  bottom: var(--subtitle-position-offset);
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;

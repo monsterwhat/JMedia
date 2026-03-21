@@ -27,10 +27,6 @@ public class Settings extends PanacheEntity {
     private Integer downloadThreads = 4;
     private Integer searchThreads = 4;
      
-    @OneToMany(cascade = CascadeType.ALL, fetch=FetchType.EAGER, orphanRemoval = true)
-    @JoinColumn(name = "settings_id")
-    private List<SettingsLog> logs = new ArrayList<>();
-    
     private String currentVersion = "0.9.0";
     private String lastUpdateCheck;
     private Boolean autoUpdateEnabled = true;

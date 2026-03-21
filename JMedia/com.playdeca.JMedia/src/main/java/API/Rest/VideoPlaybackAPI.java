@@ -4,7 +4,6 @@ import Controllers.VideoController;
 import Services.VideoStateService;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
@@ -189,7 +188,6 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/progress")
     @Blocking
-    @Transactional
     public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing) {
         try {
             var state = videoStateService.getOrCreateState();

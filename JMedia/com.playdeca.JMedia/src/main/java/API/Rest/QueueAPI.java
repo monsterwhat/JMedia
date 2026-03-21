@@ -7,7 +7,6 @@ import Models.Profile;
 import Models.Song; 
 import Services.SettingsService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -16,7 +15,6 @@ import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.ArrayList;
 
-@Transactional
 @Path("/api/music") // This path will be combined with method paths
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)

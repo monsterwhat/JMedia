@@ -9,9 +9,12 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.ext.Provider;
 import Models.Session;
 import Services.SettingsService;
+import org.jboss.logging.Logger;
 
 @Provider
 public class UserContextFilter implements ContainerRequestFilter, ContainerResponseFilter {
+
+    private static final Logger LOG = Logger.getLogger(UserContextFilter.class);
 
     @Context
     HttpHeaders headers;
@@ -36,12 +39,12 @@ public class UserContextFilter implements ContainerRequestFilter, ContainerRespo
                         Long userId = Long.parseLong(session.userId);
                         SettingsService.setCurrentUserId(userId);
                     } catch (NumberFormatException e) {
-                        // Invalid userId in session, ignore
+                        LOG.warnv("Invalid userId in session: {0}", session.userId);
                     }
                 }
             }
         } catch (Exception e) {
-            // Ignore errors in filter
+            LOG.warnv("Error setting current user in UserContextFilter: {0}", e.getMessage());
         }
     }
 

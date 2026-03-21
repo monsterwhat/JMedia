@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.imageio.ImageIO;
+import jakarta.annotation.PreDestroy;
 
 @ApplicationScoped
 public class ThumbnailService {
@@ -507,6 +508,20 @@ public class ThumbnailService {
             }
         } catch (IOException e) {
             LOGGER.error("Error deleting thumbnail: " + e.getMessage());
+        }
+    }
+    
+    @PreDestroy
+    public void shutdownExecutor() {
+        LOGGER.info("Shutting down ThumbnailService executor");
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }

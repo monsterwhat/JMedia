@@ -98,6 +98,12 @@ public class UpdateService {
         */
     }
     
+    @Inject
+    VideoImportService videoImportService;
+    
+    @ConfigProperty(name = "app.scan.interval", defaultValue = "5m")
+    String scanInterval;
+    
     private List<GitHubRelease> fetchReleases() {
         try {
             String url = String.format("%s/repos/%s/%s/releases", githubApiUrl, githubOwner, githubRepo);

@@ -236,6 +236,18 @@ window.initSettingsView = async function() {
     setupClick("savePlaybackSettingsBtn", window.savePlaybackSettings);
     setupClick("saveUiSettingsBtn", window.saveUiSettings);
     setupClick("createProfileBtn", window.createProfile);
+    
+    const refreshSessionsBtn = document.getElementById('refreshSessionsBtn');
+    if (refreshSessionsBtn) {
+        refreshSessionsBtn.onclick = () => {
+            console.log('[Settings] Refresh sessions clicked');
+            if (window.loadSessions) {
+                window.loadSessions();
+            } else {
+                console.error('[Settings] window.loadSessions not found!');
+            }
+        };
+    }
 
     ['choco', 'python', 'ffmpeg', 'spotdl', 'whisper'].forEach(c => {
         const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
@@ -258,8 +270,36 @@ window.initSettingsView = async function() {
             const targetEl = document.getElementById(target);
             if (targetEl) targetEl.classList.add('is-active');
             
+            console.log('[Settings] Tab clicked:', target);
+            
             if (target === 'import-installation') window.loadInstallationStatus();
             if (target === 'user-management' && window.loadUsers) window.loadUsers();
+            if (target === 'session-management') {
+                console.log('[Settings] Session management tab, checking loadSessions:', typeof window.loadSessions);
+                
+                // Debug: Check what's in the DOM
+                const sessionPane = document.getElementById('session-management');
+                const tabContent = document.getElementById('tabContent');
+                console.log('[Settings] session-management pane:', sessionPane);
+                console.log('[Settings] tabContent:', tabContent);
+                if (tabContent) {
+                    console.log('[Settings] tabContent children:', tabContent.children.length);
+                    Array.from(tabContent.children).forEach((child, i) => {
+                        console.log(`[Settings] tabContent child ${i}:`, child.id || child.className);
+                    });
+                }
+                
+                if (window.loadSessions) {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            console.log('[Settings] Calling loadSessions after DOM ready');
+                            window.loadSessions();
+                        });
+                    });
+                } else {
+                    console.error('[Settings] window.loadSessions is not defined!');
+                }
+            }
             if (target === 'logs') window.setupLogWebSocket();
         };
     });

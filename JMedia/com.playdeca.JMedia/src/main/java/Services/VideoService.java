@@ -47,6 +47,12 @@ public class VideoService {
         return Video.listAll();
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public List<Long> findAllVideoIds() {
+        return em.createQuery("SELECT v.id FROM Video v ORDER BY v.id", Long.class)
+                .getResultList();
+    }
+
     @Transactional
     public Video find(Long id) {
         Video video = Video.findById(id);

@@ -16,6 +16,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import jakarta.annotation.PreDestroy;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class SettingsService {
@@ -34,6 +35,9 @@ public class SettingsService {
     private final List<String> logBuffer = new ArrayList<>();
     private long lastFlushTime = System.currentTimeMillis();
     private ScheduledExecutorService scheduler;
+    
+    // Cache the settings ID to avoid repeated findAll queries
+    private Long cachedSettingsId = null;
 
     @PostConstruct
     public void init() {
@@ -46,6 +50,7 @@ public class SettingsService {
     public void save(Settings settings) {
         if (settings.id == null || em.find(Settings.class, settings.id) == null) {
             em.persist(settings);
+            cachedSettingsId = settings.id;
         } else {
             em.merge(settings);
         }
@@ -56,6 +61,9 @@ public class SettingsService {
         if (settings != null) {
             Settings managed = em.contains(settings) ? settings : em.merge(settings);
             em.remove(managed);
+            if (managed.id.equals(cachedSettingsId)) {
+                cachedSettingsId = null;
+            }
         }
     }
 
@@ -72,73 +80,75 @@ public class SettingsService {
 
     // ---------------- LOGS ----------------
     public void addLog(Settings settings, String message) {
-        if (settings == null || message == null || message.isBlank()) {
+        if (message == null || message.isBlank()) {
             return;
         }
 
         synchronized (logBuffer) {
             logBuffer.add(message);
             long now = System.currentTimeMillis();
+            // Flush if buffer is full or enough time has passed
             if (logBuffer.size() >= LOG_FLUSH_THRESHOLD || (now - lastFlushTime) >= LOG_FLUSH_INTERVAL_MS) {
-                flushLogs(settings);
+                flushLogs(settings != null ? settings.id : cachedSettingsId);
                 lastFlushTime = now;
             }
         }
     }
 
     @Transactional
-    public void flushLogs(Settings settings) {
+    public void flushLogs(Long settingsId) {
         synchronized (logBuffer) {
-            if (logBuffer.isEmpty() || settings == null) {
+            if (logBuffer.isEmpty()) {
                 return;
             }
 
-            List<SettingsLog> logs = settings.getLogs();
-            if (logs == null) {
-                logs = new ArrayList<>();
-                settings.setLogs(logs);
+            // If we don't have a settingsId yet, try to find one
+            if (settingsId == null) {
+                Settings settings = getSettingsOrNull();
+                if (settings != null) {
+                    settingsId = settings.id;
+                }
+            }
+
+            if (settingsId == null) {
+                return;
             }
 
             for (String msg : logBuffer) {
                 SettingsLog log = new SettingsLog();
                 log.setMessage(msg);
-                logs.add(log);
+                log.settingsId = settingsId;
+                em.persist(log);
             }
 
-            em.merge(settings); // persist the updated logs
             logBuffer.clear();
         }
     }
 
     @Transactional
     public void clearLogs(Settings settings) {
-        if (settings != null) {
-            List<SettingsLog> logs = settings.getLogs();
-            if (logs != null) {
-                for (SettingsLog log : logs) {
-                    em.remove(em.contains(log) ? log : em.merge(log));
-                }
-                logs.clear();
-            }
-            em.merge(settings);
+        Long settingsId = settings != null ? settings.id : cachedSettingsId;
+        if (settingsId != null) {
+            em.createQuery("DELETE FROM SettingsLog l WHERE l.settingsId = :sid")
+              .setParameter("sid", settingsId)
+              .executeUpdate();
         }
     }
 
     @Transactional
     public void clearOldLogs() {
         try {
-            Settings settings = getSettingsOrNull();
-            if (settings != null) {
-                List<SettingsLog> logs = settings.getLogs();
-                if (logs != null && !logs.isEmpty()) {
-                    int logCount = logs.size();
-                    for (SettingsLog log : logs) {
-                        em.remove(em.contains(log) ? log : em.merge(log));
-                    }
-                    logs.clear();
-                    em.merge(settings);
-                    LOGGER.info("Cleared " + logCount + " old log entries");
-                }
+            Long settingsId = cachedSettingsId;
+            if (settingsId == null) {
+                Settings s = getSettingsOrNull();
+                if (s != null) settingsId = s.id;
+            }
+            
+            if (settingsId != null) {
+                int deleted = em.createQuery("DELETE FROM SettingsLog l WHERE l.settingsId = :sid")
+                  .setParameter("sid", settingsId)
+                  .executeUpdate();
+                LOGGER.info("Cleared " + deleted + " old log entries");
             }
         } catch (Exception e) {
             LOGGER.warning("Failed to clear old logs: " + e.getMessage());
@@ -148,30 +158,42 @@ public class SettingsService {
     @Transactional
     public void setLibraryPath(Settings settings, String path) {
         if (settings != null) {
-            settings.setLibraryPath(path);
-            em.merge(settings);
+            Settings managed = em.find(Settings.class, settings.id);
+            if (managed != null) {
+                managed.setLibraryPath(path);
+                em.merge(managed);
+            }
         }
     }
 
     // Non-transactional: safe to call anywhere
     @Transactional
     public Settings getSettingsOrNull() {
-        List<Settings> all = findAll(); // just read, no transaction required
+        if (cachedSettingsId != null) {
+            Settings settings = em.find(Settings.class, cachedSettingsId);
+            if (settings != null) {
+                return initializeDefaultFields(settings);
+            }
+        }
+
+        List<Settings> all = findAll();
         if (all.isEmpty()) {
-            return null; // indicate that nothing exists
+            return null;
         }
 
         Settings settings = all.get(0);
+        cachedSettingsId = settings.id;
 
+        return initializeDefaultFields(settings);
+    }
+
+    private Settings initializeDefaultFields(Settings settings) {
         // initialize default fields if missing (no DB write yet)
         if (settings.getLibraryPath() == null || settings.getLibraryPath().isBlank()) {
             settings.setLibraryPath(System.getProperty("user.home") + File.separator + "Music");
         }
         if (settings.getVideoLibraryPath() == null || settings.getVideoLibraryPath().isBlank()) {
             settings.setVideoLibraryPath(System.getProperty("user.home") + File.separator + "Videos");
-        }
-        if (settings.getLogs() == null) {
-            settings.setLogs(new ArrayList<>());
         }
 
         return settings;
@@ -183,7 +205,6 @@ public class SettingsService {
         Settings settings = new Settings();
         settings.setLibraryPath(System.getProperty("user.home") + File.separator + "Music");
         settings.setVideoLibraryPath(System.getProperty("user.home") + File.separator + "Videos");
-        settings.setLogs(new ArrayList<>());
         save(settings); // persist in DB
         return settings;
     }
@@ -201,16 +222,39 @@ public class SettingsService {
     // ------------------- GET ALL LOGS -------------------
     @Transactional
     public List<SettingsLog> getAllLogs() {
-        return em.createQuery("SELECT l FROM SettingsLog l ORDER BY l.id ASC", SettingsLog.class)
+        return em.createQuery("SELECT l FROM SettingsLog l ORDER BY l.timestamp ASC, l.id ASC", SettingsLog.class)
                 .getResultList();
     }
 
     @Transactional
     public List<SettingsLog> getLogs(Settings settings) {
-        if (settings != null) {
-            // ensure managed state
-            Settings managed = em.contains(settings) ? settings : em.merge(settings);
-            return managed.getLogs();
+        Long settingsId = settings != null ? settings.id : cachedSettingsId;
+        if (settingsId != null) {
+            return em.createQuery("SELECT l FROM SettingsLog l WHERE l.settingsId = :sid ORDER BY l.timestamp ASC, l.id ASC", SettingsLog.class)
+                    .setParameter("sid", settingsId)
+                    .getResultList();
+        }
+        return List.of();
+    }
+    
+    @Transactional
+    public List<String> getRecentLogMessages(int limit) {
+        Long settingsId = cachedSettingsId;
+        if (settingsId == null) {
+            Settings s = getSettingsOrNull();
+            if (s != null) settingsId = s.id;
+        }
+        
+        if (settingsId != null) {
+            return em.createQuery("SELECT l.message FROM SettingsLog l WHERE l.settingsId = :sid ORDER BY l.timestamp DESC, l.id DESC", String.class)
+                    .setParameter("sid", settingsId)
+                    .setMaxResults(limit)
+                    .getResultList()
+                    .stream()
+                    .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
+                        java.util.Collections.reverse(list);
+                        return list;
+                    }));
         }
         return List.of();
     }
@@ -230,22 +274,10 @@ public class SettingsService {
     @Transactional
     public Profile getActiveProfile() {
         Long userId = CURRENT_USER_ID.get();
-        if (userId != null) {
-            return getActiveProfile(userId);
+        if (userId == null) {
+            return null;
         }
-        
-        Settings settings = getOrCreateSettings();
-        Long activeProfileId = settings.getActiveProfileId();
-        if (activeProfileId == null) {
-            Profile mainProfile = Profile.findMainProfile();
-            if (mainProfile != null) {
-                settings.setActiveProfileId(mainProfile.id);
-                em.merge(settings);
-                return mainProfile;
-            }
-            return null; // Should not happen if ProfileService onStart works
-        }
-        return em.find(Profile.class, activeProfileId);
+        return getActiveProfile(userId);
     }
 
     @Transactional

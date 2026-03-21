@@ -27,6 +27,8 @@ class SimplePlayer {
         };
 
         this.streamStartOffset = 0;
+        this.currentSpeed = 1.0;
+        this.controlBarHeight = 80; // Default, will be measured dynamically
         this.lastSelectedTrackId = localStorage.getItem('jmedia_last_track_' + this.videoId) || null;
         this.storyboard = {
             metadata: null,
@@ -178,6 +180,11 @@ class SimplePlayer {
 
         this.buildUI();
         this.attachEvents();
+        this.measureControlBarHeight(); // Measure initial control bar height
+        this.setPlaybackSpeed(this.currentSpeed);
+        
+        // Update control bar height on resize
+        window.addEventListener('resize', () => this.measureControlBarHeight());
         
         // Add a small delay before loading storyboard to avoid network rush
         setTimeout(() => this.loadStoryboard(), 1000);
@@ -206,6 +213,11 @@ class SimplePlayer {
 
         // Load subtitles AFTER setting streamStartOffset for proper sync
         this.loadSubtitles();
+
+        // Ensure Firefox subtitle overlay exists
+        if (window.subtitleManager?.ensureFirefoxOverlay) {
+            window.subtitleManager.ensureFirefoxOverlay();
+        }
 
         this.showControls();
 
@@ -330,6 +342,8 @@ class SimplePlayer {
                         <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="${this.state.volume}">
                     </div>
 
+                    <button class="control-btn" id="videoSpeedBtn" title="Playback Speed"><i class="pi pi-speedometer"></i> <span id="speedValue">1.0x</span></button>
+
                     <button class="control-btn" id="videoSubtitleBtn"><i class="pi pi-comments"></i></button>
                     <button class="control-btn" id="videoFullscreenBtn"><i class="pi pi-expand"></i></button>
                 </div>
@@ -364,6 +378,21 @@ class SimplePlayer {
                     <div class="subtitle-option action-opt" id="sub-download"><i class="pi pi-search"></i> Search (Web)</div>
                 </div>
             </div>
+            <div class="speed-menu" id="speedMenu">
+                <div class="menu-header">Playback Speed</div>
+                <div class="speed-list" id="speedList">
+                    <div class="speed-option" data-speed="0.2">0.2x</div>
+                    <div class="speed-option" data-speed="0.5">0.5x</div>
+                    <div class="speed-option active" data-speed="1.0">1.0x</div>
+                    <div class="speed-option" data-speed="1.5">1.5x</div>
+                    <div class="speed-option" data-speed="2.0">2.0x</div>
+                    <div class="speed-option" data-speed="3.0">3.0x</div>
+                </div>
+                <div class="menu-divider"></div>
+                <div class="speed-actions">
+                    <div class="speed-option action-opt" data-speed="1.0" id="speed-reset"><i class="pi pi-refresh mr-1"></i> Reset</div>
+                </div>
+            </div>
         `;
 
         this.container.insertAdjacentHTML('beforeend', uiHTML);
@@ -385,6 +414,10 @@ class SimplePlayer {
         this.subtitleMenu = this.container.querySelector('#subtitleMenu');
         this.subtitleList = this.container.querySelector('#subtitleList');
         this.fullscreenBtn = this.container.querySelector('#videoFullscreenBtn');
+        this.speedBtn = this.container.querySelector('#videoSpeedBtn');
+        console.log('[SimplePlayer] Speed button found:', this.speedBtn);
+        this.speedMenu = this.container.querySelector('#speedMenu');
+        this.speedValue = this.container.querySelector('#speedValue');
         this.buffering = this.container.querySelector('.buffering-overlay');
         this.backBtn = this.container.querySelector('#videoBackBtn');
         this.titleLink = this.container.querySelector('#videoTitleLink');
@@ -579,7 +612,7 @@ class SimplePlayer {
         this.bigPlay.onclick = (e) => { e.stopPropagation(); toggle(); };
         
         this.container.onclick = (e) => {
-            if (e.target.closest('.controls-container') || e.target.closest('.subtitle-menu') || e.target.closest('.modal')) return;
+            if (e.target.closest('.controls-container') || e.target.closest('.subtitle-menu') || e.target.closest('.speed-menu') || e.target.closest('.modal')) return;
             toggle();
         };
 
@@ -732,7 +765,30 @@ class SimplePlayer {
         this.subtitleBtn.onclick = (e) => {
             e.stopPropagation();
             this.subtitleMenu.classList.toggle('active');
+            this.speedMenu.classList.remove('active');
         };
+
+        this.speedBtn.onclick = (e) => {
+            e.stopPropagation();
+            console.log('[SimplePlayer] Speed button clicked');
+            this.speedMenu.classList.toggle('active');
+            console.log('[SimplePlayer] Speed menu active:', this.speedMenu.classList.contains('active'));
+            this.subtitleMenu.classList.remove('active');
+        };
+        this.speedBtn.onmouseover = (e) => {
+            console.log('[SimplePlayer] Speed button mouseover');
+        };
+
+        // Speed option click handlers
+        this.container.querySelectorAll('.speed-option').forEach(option => {
+            option.onclick = (e) => {
+                e.stopPropagation();
+                console.log('[SimplePlayer] Speed option clicked:', option.dataset.speed);
+                const speed = parseFloat(option.dataset.speed);
+                this.setPlaybackSpeed(speed);
+                this.speedMenu.classList.remove('active');
+            };
+        });
 
         this.fullscreenBtn.onclick = (e) => {
             e.stopPropagation();
@@ -933,7 +989,12 @@ class SimplePlayer {
 
     showControls() {
         this.container.classList.remove('controls-hidden');
-        document.documentElement.style.setProperty('--sub-lift', '80px');
+        const liftHeight = this.measureControlBarHeight();
+        document.documentElement.style.setProperty('--sub-lift', `${liftHeight}px`);
+        // Update Firefox subtitle overlay if available
+        if (window.subtitleManager?.setSubtitleLift) {
+            window.subtitleManager.setSubtitleLift(liftHeight);
+        }
         clearTimeout(this.userActiveTimeout);
         
         // Always set a timeout if we are NOT paused
@@ -947,6 +1008,10 @@ class SimplePlayer {
     hideControls() {
         this.container.classList.add('controls-hidden');
         document.documentElement.style.setProperty('--sub-lift', '0px');
+        // Update Firefox subtitle overlay if available
+        if (window.subtitleManager?.setSubtitleLift) {
+            window.subtitleManager.setSubtitleLift(0);
+        }
         this.subtitleMenu.classList.remove('active');
         if (this.previewContainer) {
             this.previewContainer.style.display = 'none';
@@ -1034,6 +1099,31 @@ class SimplePlayer {
         }
 
         if (trackId === 'off' || !trackId) {
+            // Extra clearing for Firefox - try to force cues to disappear
+            if (navigator.userAgent.includes('Firefox')) {
+                console.log('[SimplePlayer] Firefox detected, attempting to clear frozen subtitles');
+                // Try setting to hidden first, then disabled
+                if (this.video.textTracks) {
+                    for (let i = 0; i < this.video.textTracks.length; i++) {
+                        const track = this.video.textTracks[i];
+                        if (track.mode === 'disabled') {
+                            track.mode = 'hidden';
+                            setTimeout(() => {
+                                track.mode = 'disabled';
+                            }, 10);
+                        }
+                    }
+                }
+                // Also try removing all track elements again
+                const moreTracks = this.video.querySelectorAll('track');
+                moreTracks.forEach(t => t.remove());
+                // Force a refresh by slightly changing playback rate
+                const originalRate = this.video.playbackRate;
+                this.video.playbackRate = 1.0001;
+                setTimeout(() => {
+                    this.video.playbackRate = originalRate;
+                }, 50);
+            }
             this.lastSelectedTrackId = 'off';
             localStorage.setItem('jmedia_last_track_' + this.videoId, 'off');
             return;
@@ -1122,11 +1212,41 @@ class SimplePlayer {
         }
     }
 
+    setPlaybackSpeed(speed) {
+        console.log('[SimplePlayer] Setting playback speed to:', speed);
+        if (speed <= 0) speed = 1.0;
+        this.video.playbackRate = speed;
+        this.currentSpeed = speed;
+        this.speedValue.innerText = speed.toFixed(1) + 'x';
+        // Update active state in speed menu
+        this.container.querySelectorAll('.speed-option').forEach(option => {
+            const optSpeed = parseFloat(option.dataset.speed);
+            if (Math.abs(optSpeed - speed) < 0.01) {
+                option.classList.add('active');
+            } else {
+                option.classList.remove('active');
+            }
+        });
+    }
+
     applySubtitleStyle() {
         console.log('[SimplePlayer] Applying subtitle style updates');
         // Re-apply current sub-lift to ensure the padding is updated
         const isHidden = this.container.classList.contains('controls-hidden');
-        document.documentElement.style.setProperty('--sub-lift', isHidden ? '0px' : '80px');
+        const liftHeight = isHidden ? 0 : this.measureControlBarHeight();
+        document.documentElement.style.setProperty('--sub-lift', `${liftHeight}px`);
+    }
+
+    measureControlBarHeight() {
+        // Measure the actual height of the controls container
+        const controlsContainer = this.container.querySelector('.controls-container');
+        if (controlsContainer) {
+            const height = controlsContainer.offsetHeight;
+            // Add some padding (10px) for safety
+            this.controlBarHeight = height + 10;
+        }
+        // Fallback to 80px if we can't measure
+        return this.controlBarHeight;
     }
 
     triggerSubtitleAction(action, element) {
