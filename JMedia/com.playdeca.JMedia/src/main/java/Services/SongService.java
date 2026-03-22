@@ -316,6 +316,7 @@ public class SongService {
                 .getResultList();
     }
 
+    @Transactional
     public Song findRandomSongByGenre(String genre, Long excludeSongId, List<Long> songPoolIds) {
 
         if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
@@ -335,6 +336,7 @@ public class SongService {
         return find(randomId); // This fetches the single, full Song object
     }
 
+    @Transactional
     public Song findRandomSongByGenreAndBpm(String genre, int currentBpm, int bpmTolerance, Long excludeSongId, List<Long> songPoolIds) {
         if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
             return null;

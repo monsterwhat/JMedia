@@ -11,14 +11,27 @@
          */
         init: function() {
             this.bindVolumeSlider();
+            this.initializeSliderFromState();
             window.Helpers.log('VolumeController initialized');
+        },
+        
+        /**
+         * Initialize slider position from current state
+         */
+        initializeSliderFromState: function() {
+            if (window.StateManager) {
+                const state = window.StateManager.getState();
+                if (state && typeof state.volume === 'number') {
+                    this.updateSliderFromState(state.volume);
+                }
+            }
         },
         
         /**
          * Bind volume slider events
          */
         bindVolumeSlider: function() {
-            const slider = document.querySelector('input[name="level"]');
+            const slider = document.getElementById('musicVolumeProgressBar');
             if (!slider) {
                 window.Helpers.log('VolumeController: Volume slider not found');
                 return;
@@ -106,14 +119,14 @@
                 return;
             }
             
-            const slider = document.querySelector('input[name="level"]');
+            const slider = document.getElementById('musicVolumeProgressBar');
             if (slider) {
                 const sliderValue = window.Helpers.volume.calculateLinearSliderValue(volume);
                 slider.value = sliderValue;
                 
                 // Update progress bar visual
                 const progress = (sliderValue / 100) * 100;
-                slider.style.setProperty('--progress-value', `${progress}%`);
+                slider.style.setProperty('--slider-progress', `${progress}%`);
             }
         },
         

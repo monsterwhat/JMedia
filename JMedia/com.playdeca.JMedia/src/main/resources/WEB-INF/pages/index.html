@@ -34,8 +34,30 @@
         
         <!-- Legacy/Shared Scripts (Loaded globally) -->
         <script src="/js/toast.js" defer></script>
-        <script src="/js/musicBar.js" defer></script>
+        <!-- Modular Music Bar System (Migrated from legacy monolith) -->
+        <script src="/js/musicBar/utils/Helpers.js?v=2" defer></script>
+        <script src="/js/musicBar/utils/ActionTracker.js?v=2" defer></script>
+        <script src="/js/musicBar/core/DeviceManager.js?v=2" defer></script>
+        <script src="/js/musicBar/core/SynchronizationManager.js?v=2" defer></script>
+        <script src="/js/musicBar/core/StateManager.js?v=2" defer></script>
+        <script src="/js/musicBar/data/StatePersistence.js?v=2" defer></script>
+        <script src="/js/musicBar/data/SongContextCache.js?v=2" defer></script>
+        <script src="/js/musicBar/data/QueueManager.js?v=2" defer></script>
+        <script src="/js/musicBar/core/AudioEngine.js?v=2" defer></script>
+        <script src="/js/musicBar/core/WebSocketManager.js?v=2" defer></script>
+        <script src="/js/musicBar/controls/PlaybackController.js?v=2" defer></script>
+        <script src="/js/musicBar/controls/TimeController.js?v=2" defer></script>
+        <script src="/js/musicBar/controls/VolumeController.js?v=2" defer></script>
+        <script src="/js/musicBar/ui/UIUpdater.js?v=2" defer></script>
+        <script src="/js/musicBar/ui/EventBindings.js?v=2" defer></script>
+        <script src="/js/musicBar/ui/ImageManager.js?v=2" defer></script>
+        <script src="/js/musicBar/mobile/MobileBridge.js?v=2" defer></script>
+        <script src="/js/musicBar/responsive/ResponsivePlayer.js?v=2" defer></script>
+        <script src="/js/musicBar/adapters/DesktopAdapter.js?v=2" defer></script>
+        <script src="/js/musicBar/adapters/MobileAdapter.js?v=2" defer></script>
         <script src="/js/mediaSession.js" defer></script>
+        <script src="/js/musicBar-new.js?v=2" defer></script>
+        
         <script src="/js/profileManager.js" defer></script>
         <script src="/js/songQueue.js" defer></script>
         
@@ -48,7 +70,7 @@
         <script src="/js/navbar.js" defer></script>
         <script src="/js/users.js" defer></script>
         <script src="/js/sessionManagement.js" defer></script>
-        <script src="/js/deviceSync.js" defer></script>
+
 
     </head>
     <body class="music-page">
@@ -164,9 +186,7 @@
                         <a href="javascript:void(0)" class="nav-item admin-only" data-tab="import-installation">
                             <i class="pi pi-download"></i> <span>Import</span>
                         </a>
-                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="device-sync">
-                            <i class="pi pi-mobile"></i> <span>Device Sync</span>
-                        </a>
+
                         <a href="javascript:void(0)" class="nav-item" data-tab="playlist-creator">
                             <i class="pi pi-plus-circle"></i> <span>Playlists</span>
                         </a>
@@ -191,26 +211,6 @@
                     </div>
                 </nav>
             </aside>
-
-            <!-- Mobile Bottom Navigation (Visible only on mobile) -->
-            <nav class="mobile-bottom-nav">
-                <a href="javascript:void(0)" class="mobile-nav-item" onclick="window.app.navigate('/')">
-                    <i class="pi pi-play-circle"></i>
-                    <span>Music</span>
-                </a>
-                <a href="javascript:void(0)" class="mobile-nav-item" onclick="window.app.navigate('/video')">
-                    <i class="pi pi-video"></i>
-                    <span>Video</span>
-                </a>
-                <a href="javascript:void(0)" class="mobile-nav-item" onclick="window.app.navigate('/import')">
-                    <i class="pi pi-download"></i>
-                    <span>Import</span>
-                </a>
-                <a href="javascript:void(0)" class="mobile-nav-item" onclick="window.app.navigate('/settings')">
-                    <i class="pi pi-cog"></i>
-                    <span>Settings</span>
-                </a>
-            </nav>
 
             <!-- Main Content Area (Shell) -->
             <div class="standard-main">

@@ -7,14 +7,6 @@
                 <!-- Library Management Tab -->
                 <div id="library-management" class="tab-pane is-active">
                     <div class="glass-box p-6">
-                        <div class="field switch-field mb-6 admin-only">
-                            <label class="switch">
-                                <input id="runAsServiceToggle" type="checkbox" name="runAsServiceToggle">
-                                <span class="check"></span>
-                                <span class="control-label">Run as Service</span>
-                            </label>
-                        </div>
-
                         <div class="mb-6 admin-only" id="librariesSection">
                             <h6 class="title is-6 mb-4">Libraries</h6>
                             <div class="field">
@@ -26,15 +18,7 @@
                                 </div>
                             </div>
                             
-                            <div class="field mt-5">
-                                <label class="switch">
-                                    <input id="enableVideoLibraryToggle" type="checkbox">
-                                    <span class="check"></span>
-                                    <span class="control-label">Enable Video Library (BETA)</span>
-                                </label>
-                            </div>
-                            
-                            <div id="videoLibraryOptions" class="is-hidden mt-4">
+                            <div id="videoLibraryOptions" class="mt-4">
                                 <div class="field">
                                     <label class="label">Video Library Folder</label>
                                     <div class="field has-addons">
@@ -57,51 +41,42 @@
                             </div>
                         </div>
 
-                        <hr style="background-color: rgba(255,255,255,0.1);">
+                        <hr>
                         <div class="buttons">
                             <button id="clearPlaybackHistory" class="button is-danger is-small is-outlined">Clear History</button>
                             <button id="clearSongs" class="button is-danger is-small is-outlined">Clear Music DB</button>
                             <button id="resetVideoDb" class="button is-danger is-small is-outlined admin-only">Reset Video DB</button>
                         </div>
                         
-                        <hr style="background-color: rgba(255,255,255,0.1);">
-                        <h6 class="title is-6 mb-3">UI Preferences</h6>
-                        <div class="field">
-                            <label class="label">Sidebar Position (Video Page)</label>
-                            <div class="control">
-                                <div class="select is-small">
-                                    <select id="sidebarPositionSelect">
-                                        <option value="left">Left Side</option>
-                                        <option value="right" selected>Right Side</option>
-                                    </select>
+                        <hr>
+                        <div class="columns">
+                            <div class="column is-6">
+                                <h6 class="title is-6 mb-3">UI Preferences</h6>
+                                <div class="field">
+                                    <label class="label">Sidebar Position (Video Page)</label>
+                                    <div class="control">
+                                        <div class="select is-small">
+                                            <select id="sidebarPositionSelect">
+                                                <option value="left">Left Side</option>
+                                                <option value="right" selected>Right Side</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
+                                <button id="saveUiSettingsBtn" class="button is-success is-small" onclick="window.saveUiSettings()">Save UI Settings</button>
+                            </div>
+                            <div class="column is-6">
+                                <h6 class="title is-6 mb-3">Playback Settings</h6>
+                                <div class="field">
+                                    <label class="label">Crossfade (seconds)</label>
+                                    <div class="control is-flex is-align-items-center">
+                                        <input type="range" id="crossfadeDuration" min="0" max="10" value="0" step="1" oninput="document.getElementById('crossfadeValue').textContent = this.value" class="mr-3">
+                                        <span id="crossfadeValue" class="tag">0</span>
+                                    </div>
+                                </div>
+                                <button id="savePlaybackSettingsBtn" class="button is-success is-small">Save Playback Settings</button>
                             </div>
                         </div>
-                        <button id="saveUiSettingsBtn" class="button is-success is-small" onclick="window.saveUiSettings()">Save UI Settings</button>
-
-                        <hr style="background-color: rgba(255,255,255,0.1);">
-                        <h6 class="title is-6 mb-3">HTTPS & Security</h6>
-                        <div id="httpsStatusContainer" class="mb-4">
-                            <p class="help-text">Enable native HTTPS encryption for secure connections. A self-signed certificate will be generated for your server.</p>
-                            <div class="notification is-warning is-light is-size-7 p-3 mt-2">
-                                <strong>Note:</strong> Self-signed certificates will cause a browser warning. You will need to click "Advanced" and "Proceed" when first connecting via HTTPS.
-                            </div>
-                        </div>
-                        <div class="field">
-                            <label class="label">Current Status: <span id="httpsStatusBadge" class="tag is-danger">Disabled</span></label>
-                        </div>
-                        <button id="generateHttpsBtn" class="button is-warning is-small">Generate Certificate & Enable HTTPS</button>
-
-                        <hr style="background-color: rgba(255,255,255,0.1);">
-                        <h6 class="title is-6 mb-3">Playback Settings</h6>
-                        <div class="field">
-                            <label class="label">Crossfade (seconds)</label>
-                            <div class="control is-flex is-align-items-center">
-                                <input type="range" id="crossfadeDuration" min="0" max="10" value="0" step="1" oninput="document.getElementById('crossfadeValue').textContent = this.value" class="mr-3">
-                                <span id="crossfadeValue" class="tag is-dark">0</span>
-                            </div>
-                        </div>
-                        <button id="savePlaybackSettingsBtn" class="button is-success is-small">Save Playback Settings</button>
                     </div>
                 </div>
 
@@ -154,7 +129,7 @@
                             <p id="whisperStatus" class="help">Checking status...</p>
                         </div>
                         
-                        <hr style="background-color: rgba(255,255,255,0.1);">
+                        <hr>
                         <h6 class="title is-6 mb-4">Advanced Import Settings</h6>
                         <div class="field">
                             <label class="label">Output Format</label>
@@ -181,33 +156,7 @@
                     </div>
                 </div>
 
-                <!-- Device Sync Tab -->
-                <div id="device-sync" class="tab-pane">
-                    <div class="glass-box p-6">
-                        <h6 class="title is-6 mb-4">Device Sync</h6>
-                        
-                        <div class="field mb-4">
-                            <label class="label">Sync Options</label>
-                            <label class="checkbox-label mb-2">
-                                <input type="checkbox" id="syncMusicToggle" checked> Music
-                            </label>
-                            <label class="checkbox-label mb-2">
-                                <input type="checkbox" id="syncVideosToggle"> Videos
-                            </label>
-                            <label class="checkbox-label mb-2">
-                                <input type="checkbox" id="syncPlaylistsToggle" checked> Playlists
-                            </label>
-                        </div>
 
-                        <div id="qrCodeContainer" class="has-text-centered mb-4"></div>
-                        <button id="generateQrCodeBtn" class="button is-primary is-small">Generate QR Code</button>
-                        
-                        <hr style="background-color: rgba(255,255,255,0.1);">
-                        <h6 class="title is-6">Connected Devices</h6>
-                        <div id="deviceSessionsList"></div>
-                        <button id="refreshSessionsBtn" class="button is-info is-small mt-3">Refresh</button>
-                    </div>
-                </div>
 
                 <!-- Playlist Creator Tab -->
                 <div id="playlist-creator" class="tab-pane">

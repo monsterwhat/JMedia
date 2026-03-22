@@ -839,9 +839,6 @@
          */
         applyMobileOptimizations: function() {
             // Compact layout, optimized gestures
-            if (this.elements.playerInfo) {
-                this.elements.playerInfo.style.flexDirection = 'row';
-            }
         },
         
         /**
@@ -849,9 +846,6 @@
          */
         applyDesktopSpecificOptimizations: function() {
             // More spacious layout, hover effects
-            if (this.elements.playerInfo) {
-                this.elements.playerInfo.style.flexDirection = 'column';
-            }
         },
         
         /**
@@ -944,6 +938,7 @@
                     }
                     if (this.elements.coverFallback) {
                         this.elements.coverFallback.style.display = 'block';
+                    }
                 }
             }
         },
@@ -1027,7 +1022,7 @@
                 ...this.state,
                 deviceType: window.DeviceManager?.getDeviceType() || 'unknown',
                 screenCategory: window.DeviceManager?.getScreenCategory() || 'unknown'
-            };
+                };
         },
         
         /**

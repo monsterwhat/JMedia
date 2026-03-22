@@ -1,21 +1,21 @@
 <div class="series-episodes-container">
     <div class="is-flex is-justify-content-between is-align-items-center mb-5">
         <div>
-            <button class="button is-dark is-small mb-2" hx-get="/api/video/manage?type=episode" hx-target="#spa-content">
+            <button class="button is-small mb-2" hx-get="/api/video/manage?type=episode" hx-target="#spa-content">
                 <i class="pi pi-arrow-left mr-2"></i> Back to Shows
             </button>
-            <h1 class="title is-4 has-text-white">{seriesTitle}</h1>
-            <p class="subtitle is-6 has-text-grey-light">{episodes.size()} Episodes</p>
+            <h1 class="title is-4">{seriesTitle}</h1>
+            <p class="subtitle is-6 has-text-grey">{episodes.size()} Episodes</p>
         </div>
         
         <div class="actions">
-            <button class="button is-dark is-small mr-2" 
+            <button class="button is-small mr-2" 
                     hx-post="/api/video/manage/series/rescan" 
                     hx-vals='\{"seriesTitle": "{seriesTitle}"\}'
                     hx-on::after-request="if(event.detail.successful) window.Toast.success('Rescan of series folder started!');">
                 <i class="pi pi-refresh mr-2"></i> Rescan Series
             </button>
-            <button class="button is-dark is-small mr-2" onclick="openSeriesSettingsModal()">
+            <button class="button is-small mr-2" onclick="openSeriesSettingsModal()">
                 <i class="pi pi-cog mr-2"></i> Series Settings
             </button>
             <button class="button is-info is-small" onclick="openSeriesRenameModal()">
@@ -69,21 +69,21 @@
             <p class="modal-card-title">Series Settings: {seriesTitle}</p>
             <button class="delete" aria-label="close" onclick="closeSeriesSettingsModal()"></button>
         </header>
-        <section class="modal-card-body" style="background: #1a1a1a; color: white;">
+        <section class="modal-card-body">
             <form id="seriesSettingsForm" hx-post="/api/video/manage/series/update" hx-swap="none">
                 <input type="hidden" name="seriesTitle" value="{seriesTitle}">
 
                 <div class="field">
-                    <label class="label has-text-grey-light">Series Poster Path/URL</label>
+                    <label class="label">Series Poster Path/URL</label>
                     <div class="control">
-                        <input class="input is-dark" type="text" name="posterPath" value="{posterPath ?: ''}" placeholder="/path/to/poster.jpg">
+                        <input class="input" type="text" name="posterPath" value="{posterPath ?: ''}" placeholder="/path/to/poster.jpg">
                     </div>
                 </div>
 
                 <div class="field">
-                    <label class="label has-text-grey-light">Series Backdrop Path/URL</label>
+                    <label class="label">Series Backdrop Path/URL</label>
                     <div class="control">
-                        <input class="input is-dark" type="text" name="backdropPath" value="{backdropPath ?: ''}" placeholder="/path/to/backdrop.jpg">
+                        <input class="input" type="text" name="backdropPath" value="{backdropPath ?: ''}" placeholder="/path/to/backdrop.jpg">
                     </div>
                 </div>
 
@@ -93,7 +93,7 @@
 
                 <div class="field is-grouped is-justify-content-flex-end mt-5">
                     <div class="control">
-                        <button type="button" class="button is-dark" onclick="closeSeriesSettingsModal()">Cancel</button>
+                        <button type="button" class="button" onclick="closeSeriesSettingsModal()">Cancel</button>
                     </div>
                     <div class="control">
                         <button type="submit" class="button is-primary">Apply to All Episodes</button>
@@ -111,18 +111,18 @@
             <p class="modal-card-title">Rename Series</p>
             <button class="delete" aria-label="close" onclick="closeSeriesRenameModal()"></button>
         </header>
-        <section class="modal-card-body" style="background: #1a1a1a; color: white;">
+        <section class="modal-card-body">
             <form id="seriesRenameForm" hx-post="/api/video/manage/rename-series" hx-swap="none">
                 <input type="hidden" name="oldTitle" value="{seriesTitle}">
                 <div class="field">
-                    <label class="label has-text-grey-light">New Series Title</label>
+                    <label class="label">New Series Title</label>
                     <div class="control">
-                        <input class="input is-dark" type="text" name="newTitle" value="{seriesTitle}" required>
+                        <input class="input" type="text" name="newTitle" value="{seriesTitle}" required>
                     </div>
                 </div>
                 <div class="field is-grouped is-justify-content-flex-end mt-5">
                     <div class="control">
-                        <button type="button" class="button is-dark" onclick="closeSeriesRenameModal()">Cancel</button>
+                        <button type="button" class="button" onclick="closeSeriesRenameModal()">Cancel</button>
                     </div>
                     <div class="control">
                         <button type="submit" class="button is-primary">Save Changes</button>
@@ -140,11 +140,11 @@
             <p class="modal-card-title">Mass Rename Episodes: {seriesTitle}</p>
             <button class="delete" aria-label="close" onclick="closeEpisodeMassRenameModal()"></button>
         </header>
-        <section class="modal-card-body" style="background: #1a1a1a; color: white;">
+        <section class="modal-card-body">
             <div class="columns">
                 <div class="column is-4">
                     <div class="field">
-                        <label class="label has-text-grey-light">Source for Renaming</label>
+                        <label class="label">Source for Renaming</label>
                         <div class="control">
                             <label class="radio">
                                 <input type="radio" name="renameSource" value="title" checked onchange="previewRenames()">
@@ -157,23 +157,23 @@
                         </div>
                     </div>
                     <div class="field">
-                        <label class="label has-text-grey-light">Search / Regex Pattern</label>
+                        <label class="label">Search / Regex Pattern</label>
                         <div class="control">
-                            <input class="input is-dark" type="text" id="renameRegex" placeholder="e.g. S\d+E\d+\s*-\s*" oninput="previewRenames()">
+                            <input class="input" type="text" id="renameRegex" placeholder="e.g. S\d+E\d+\s*-\s*" oninput="previewRenames()">
                         </div>
                         <p class="help">Leave empty to use full source as base.</p>
                     </div>
                     <div class="field">
-                        <label class="label has-text-grey-light">Replacement Text</label>
+                        <label class="label">Replacement Text</label>
                         <div class="control">
-                            <input class="input is-dark" type="text" id="renameReplacement" placeholder="e.g. New Title" oninput="previewRenames()">
+                            <input class="input" type="text" id="renameReplacement" placeholder="e.g. New Title" oninput="previewRenames()">
                         </div>
                         <p class="help">Can use $1, $2 for regex groups.</p>
                     </div>
                     <div class="field mt-5">
-                        <label class="label has-text-grey-light">Common Presets</label>
+                        <label class="label">Common Presets</label>
                         <div class="control">
-                            <div class="select is-fullwidth is-dark">
+                            <div class="select is-fullwidth">
                                 <select id="renamePreset" onchange="applyRenamePreset(this.value)">
                                     <option value="">Custom Pattern...</option>
                                     <option value="quick_s0e0">quick.name.s0e0</option>
@@ -188,19 +188,19 @@
                 </div>
                 <div class="column is-8">
                     <div class="is-flex is-justify-content-between is-align-items-center mb-2">
-                        <label class="label has-text-grey-light mb-0">Episodes Preview</label>
+                        <label class="label mb-0">Episodes Preview</label>
                         <div class="buttons are-small">
-                            <button class="button is-dark" onclick="toggleAllEpisodes(true)">Select All</button>
-                            <button class="button is-dark" onclick="toggleAllEpisodes(false)">Select None</button>
+                            <button class="button" onclick="toggleAllEpisodes(true)">Select All</button>
+                            <button class="button" onclick="toggleAllEpisodes(false)">Select None</button>
                         </div>
                     </div>
-                    <div class="table-container" style="max-height: 450px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px;">
-                        <table class="table is-fullwidth is-narrow is-hoverable is-dark" style="background: transparent;">
+                    <div class="table-container" style="max-height: 450px; overflow-y: auto; border-radius: 8px;">
+                        <table class="table is-fullwidth is-narrow is-hoverable">
                             <thead>
                                 <tr>
-                                    <th style="width: 40px; background: rgba(0,0,0,0.3);"></th>
-                                    <th style="background: rgba(0,0,0,0.3);">Original</th>
-                                    <th style="background: rgba(0,0,0,0.3);">New Name (Preview)</th>
+                                    <th style="width: 40px;"></th>
+                                    <th>Original</th>
+                                    <th>New Name (Preview)</th>
                                 </tr>
                             </thead>
                             <tbody id="renamePreviewBody">
@@ -213,7 +213,7 @@
             
             <div class="field is-grouped is-justify-content-flex-end mt-5">
                 <div class="control">
-                    <button type="button" class="button is-dark" onclick="closeEpisodeMassRenameModal()">Cancel</button>
+                    <button type="button" class="button" onclick="closeEpisodeMassRenameModal()">Cancel</button>
                 </div>
                 <div class="control">
                     <button type="button" class="button is-primary" id="applyMassRenameBtn" onclick="applyMassRenames()">Apply Selected Renames</button>
@@ -232,7 +232,7 @@
             <p class="modal-card-title">Edit Metadata</p>
             <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
         </header>
-        <section class="modal-card-body" id="editModalBody" style="background: #1a1a1a; color: white;">
+        <section class="modal-card-body" id="editModalBody">
             <div class="is-flex is-justify-content-center p-6">
                 <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
             </div>

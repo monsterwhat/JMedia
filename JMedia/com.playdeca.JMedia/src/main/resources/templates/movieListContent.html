@@ -7,7 +7,7 @@
     <div class="library-actions is-flex is-align-items-center">
         <div class="sort-selector mr-4">
             <span class="mr-2 has-text-grey-light is-size-7 is-uppercase has-text-weight-bold">Sort By:</span>
-            <div class="select is-small is-rounded is-dark">
+            <div class="select is-small is-rounded">
                 <select name="sort" 
                         onchange="const dir = this.options[this.selectedIndex].dataset.dir; window.switchSection('movies', \{page: 1, limit: {limit}, sortBy: this.value, sortDirection: dir\});">
                     <option value="dateAdded" data-dir="desc" {#if sortBy == 'dateAdded' && sortDirection == 'desc'}selected{/if}>Recently Added</option>

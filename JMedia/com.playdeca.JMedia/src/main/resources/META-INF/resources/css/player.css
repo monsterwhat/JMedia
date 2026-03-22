@@ -9,7 +9,7 @@
     position: relative !important;
     width: 100% !important;
     height: 85vh !important;
-    background: #000 !important;
+    background: var(--player-bg) !important;
     border-radius: 12px !important;
     overflow: hidden !important;
     display: block !important;

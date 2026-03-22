@@ -108,6 +108,24 @@
                 if (e.detail.property === 'volume') {
                     this.setVolume(e.detail.newValue, 'stateManager');
                 }
+                
+                // Load audio source when currentSongId changes
+                if (e.detail.property === 'currentSongId' && e.detail.newValue && window.StateManager) {
+                    const state = window.StateManager.getState();
+                    const newSongId = String(e.detail.newValue);
+                    const oldSongId = e.detail.oldValue ? String(e.detail.oldValue) : null;
+                    
+                    if (newSongId !== oldSongId) {
+                        window.Helpers.log('AudioEngine: currentSongId changed, loading audio source', newSongId);
+                        const currentSong = {
+                            id: newSongId,
+                            title: state.songName,
+                            artist: state.artist,
+                            duration: state.duration
+                        };
+                        this.setSource(currentSong, null, null, state.playing, state.currentTime || 0);
+                    }
+                }
             });
             
             // Listen for audio control requests
@@ -289,10 +307,11 @@
                     }));
                 }
                 
-                // Validate and set current time
-                const currentState = window.StateManager?.getState();
-                if (currentState && currentState.currentTime >= 0 && currentState.currentTime <= this.audio.duration) {
-                    this.audio.currentTime = currentState.currentTime;
+                // Validate and set current time - use backendTime directly for reliability
+                const seekTime = backendTime > 0 ? backendTime : (window.StateManager?.getProperty('currentTime') || 0);
+                if (seekTime >= 0 && seekTime <= this.audio.duration) {
+                    window.Helpers.log('AudioEngine: Restoring playback position to', seekTime);
+                    this.audio.currentTime = seekTime;
                 }
                 
                 // Clear flags after successful metadata load
@@ -340,7 +359,15 @@
          */
         play: function() {
             if (this.audio) {
+                // If already playing, just return
+                if (!this.audio.paused) return Promise.resolve();
+                
+                // If loading, wait for it
                 return this.audio.play().catch(error => {
+                    // Ignore abort errors (user navigation or fast toggling)
+                    if (error.name === 'AbortError') {
+                        return;
+                    }
                     console.error('[AudioEngine] Play failed:', error);
                     throw error;
                 });

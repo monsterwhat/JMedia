@@ -111,25 +111,6 @@
          * Optimize for desktop layouts
          */
         optimizeForDesktopLayout: function() {
-            // Use larger screen space efficiently
-            const mainContent = document.querySelector('.mobile-main');
-            if (mainContent) {
-                mainContent.style.maxWidth = '1200px';
-                mainContent.style.margin = '0 auto';
-            }
-            
-            // Optimize player for desktop
-            const player = document.querySelector('.mobile-player');
-            if (player) {
-                player.style.position = 'fixed';
-                player.style.bottom = '0';
-                player.style.left = '50%';
-                player.style.transform = 'translateX(-50%)';
-                player.style.maxWidth = '800px';
-                player.style.width = '100%';
-                player.style.margin = '0';
-            }
-            
             // Adjust modal sizes for desktop
             this.adjustModalSizes();
             
@@ -291,31 +272,6 @@
          * Add desktop player features
          */
         addDesktopPlayerFeatures: function(player) {
-            // Add mini/maximize toggle
-            const minimizeBtn = document.createElement('button');
-            minimizeBtn.className = 'desktop-player-minimize';
-            minimizeBtn.innerHTML = '<i class="pi pi-window-minimize"></i>';
-            minimizeBtn.title = 'Minimize Player';
-            minimizeBtn.style.cssText = `
-                position: absolute;
-                top: 5px;
-                right: 5px;
-                background: transparent;
-                border: none;
-                color: var(--mobile-text);
-                cursor: pointer;
-                width: 30px;
-                height: 30px;
-                border-radius: 5px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            `;
-            
-            minimizeBtn.addEventListener('click', () => this.togglePlayerSize());
-            player.appendChild(minimizeBtn);
-            this.minimizeBtn = minimizeBtn;
-            
             // Add seek preview on hover
             const progressBar = document.getElementById('musicProgressBar');
             if (progressBar) {
@@ -584,11 +540,13 @@
                             this.switchToTab('playlists');
                             break;
                         case 'r':
-                            e.preventDefault();
-                            // Toggle repeat mode
-                            window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
-                                detail: { action: 'repeat' }
-                            }));
+                            if (!e.shiftKey) {
+                                // Only trigger repeat if shift is NOT pressed
+                                // But wait, standard Ctrl+R is reload. We shouldn't hijack it at all.
+                                // Let's change this to something else or check if it's just 'R'
+                                // For now, let's allow Ctrl+R to pass through if it's a reload attempt
+                                break; 
+                            }
                             break;
                         case 's':
                             e.preventDefault();
@@ -600,21 +558,10 @@
                     }
                 }
                 
-                // Function keys
-                if (e.key.startsWith('F') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-                    switch (e.key) {
-                        case 'F5':
-                            e.preventDefault();
-                            // Refresh content
-                            window.dispatchEvent(new CustomEvent('requestRefresh', {
-                                detail: { source: 'desktopAdapter' }
-                            }));
-                            break;
-                        case '11':
-                            // Toggle fullscreen
-                            this.toggleFullscreen();
-                            break;
-                    }
+                // Function keys - Don't hijack browser refresh
+                if (e.key === 'F11' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+                    // Toggle fullscreen
+                    this.toggleFullscreen();
                 }
             });
         },
@@ -761,31 +708,6 @@
             const preview = document.getElementById('seekPreview');
             if (preview) {
                 preview.remove();
-            }
-        },
-        
-        /**
-         * Toggle player size
-         */
-        togglePlayerSize: function() {
-            const player = document.querySelector('.mobile-player');
-            if (!player) return;
-            
-            if (this.state.fullscreenActive) {
-                // Exit fullscreen
-                document.exitFullscreen?.() || document.webkitExitFullscreen?.();
-            } else {
-                // Minimize player
-                player.classList.toggle('minimized');
-                
-                const isMinimized = player.classList.contains('minimized');
-                if (this.minimizeBtn) {
-                    this.minimizeBtn.innerHTML = isMinimized ? 
-                        '<i class="pi pi-window-maximize"></i>' : 
-                        '<i class="pi pi-window-minimize"></i>';
-                    this.minimizeBtn.title = isMinimized ? 
-                        'Maximize Player' : 'Minimize Player';
-                }
             }
         },
         

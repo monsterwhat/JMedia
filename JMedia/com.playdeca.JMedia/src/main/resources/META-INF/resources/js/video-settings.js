@@ -106,25 +106,4 @@ window.initVideoSettingsView = function() {
             }
         };
     }
-
-    const toggle = document.getElementById("enableVideoLibraryToggle");
-    const options = document.getElementById("videoLibraryOptions");
-    
-    if (toggle && options) {
-        const applyState = (enabled) => {
-            if (enabled) options.classList.remove('is-hidden');
-            else options.classList.add('is-hidden');
-        };
-
-        const isEnabled = localStorage.getItem('videoLibraryEnabled') === 'true';
-        toggle.checked = isEnabled;
-        applyState(isEnabled);
-
-        toggle.addEventListener('change', function() {
-            applyState(this.checked);
-            localStorage.setItem('videoLibraryEnabled', this.checked);
-            if (this.checked) Toast.success("Video library enabled");
-            else Toast.info("Video library disabled");
-        });
-    }
 };

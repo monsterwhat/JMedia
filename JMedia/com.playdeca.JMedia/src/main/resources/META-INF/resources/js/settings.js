@@ -309,8 +309,6 @@ window.initSettingsView = async function() {
     window.loadUiSettings();
     window.refreshSettingsUI();
     window.setupLogWebSocket();
-    window.checkHttpsStatus();
-    window.setupHttpsButton();
 };
 
 window.saveImportSettings = async function () {
@@ -454,8 +452,6 @@ window.refreshSettingsUI = async function () {
         setVal("outputFormat", d.outputFormat);
         setVal("downloadThreads", d.downloadThreads);
         setVal("searchThreads", d.searchThreads);
-        const svc = document.getElementById("runAsServiceToggle");
-        if (svc) svc.checked = d.runAsService;
     }
 };
 
@@ -531,51 +527,5 @@ window.confirmFolderSelection = function() {
         if (input) input.value = window.currentBrowserPath;
         if(window.showToast) window.showToast(`${window.currentBrowserTarget} folder selected`, 'success');
         window.closeFolderBrowser();
-    }
-};
-
-window.checkHttpsStatus = async function() {
-    try {
-        const res = await fetch('/api/settings/https/status');
-        const json = await res.json();
-        const badge = document.getElementById('httpsStatusBadge');
-        const generateBtn = document.getElementById('generateHttpsBtn');
-        
-        if (badge) {
-            if (json.data) {
-                badge.className = 'tag is-success';
-                badge.innerText = 'Enabled (Restart Required if just generated)';
-                if (generateBtn) generateBtn.style.display = 'none'; 
-            } else {
-                badge.className = 'tag is-danger';
-                badge.innerText = 'Disabled';
-                if (generateBtn) generateBtn.style.display = 'inline-flex';
-            }
-        }
-    } catch (e) {}
-};
-
-window.setupHttpsButton = function() {
-    const generateBtn = document.getElementById('generateHttpsBtn');
-    if (generateBtn) {
-        generateBtn.onclick = async () => {
-            if (!confirm('This will generate a self-signed certificate and update your configuration. You will need to manually restart the app afterward. Continue?')) return;
-            
-            generateBtn.classList.add('is-loading');
-            try {
-                const res = await fetch('/api/settings/https/generate', { method: 'POST' });
-                if (res.ok) {
-                    alert('Certificate generated successfully!\n\n1. Please close the console/app.\n2. Start JMedia again.\n3. Access via https://localhost:8443\n\n(Standard HTTP on 8080 will still work)');
-                    window.checkHttpsStatus();
-                } else {
-                    const json = await res.json();
-                    if(window.showToast) window.showToast(json.error || 'Failed to generate certificate', 'error');
-                }
-            } catch (e) {
-                if(window.showToast) window.showToast('Connection error during certificate generation', 'error');
-            } finally {
-                generateBtn.classList.remove('is-loading');
-            }
-        };
     }
 };

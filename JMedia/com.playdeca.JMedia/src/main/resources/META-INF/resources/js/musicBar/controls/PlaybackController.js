@@ -88,8 +88,29 @@
                 window.AudioEngine.pause();
                 this.pauseStartTime = Date.now();
             } else {
-                // User clicked play - play audio immediately
-                window.AudioEngine.play().catch(console.error);
+                // User clicked play - load source if missing, then play
+                const audioEl = window.AudioEngine.getAudioElement();
+                if (!audioEl || !audioEl.src) {
+                    // No audio source set - load from current state
+                    const state = window.StateManager.getState();
+                    if (state.currentSongId) {
+                        window.Helpers.log('PlaybackController: No audio source, loading from state');
+                        const currentSong = {
+                            id: state.currentSongId,
+                            title: state.songName,
+                            artist: state.artist,
+                            duration: state.duration
+                        };
+                        window.AudioEngine.setSource(currentSong, null, null, true, 0);
+                    } else {
+                        window.Helpers.log('PlaybackController: No current song to play');
+                        if (window.showToast) {
+                            window.showToast('No song selected', 'error');
+                        }
+                    }
+                } else {
+                    window.AudioEngine.play().catch(console.error);
+                }
             }
             
             // Send to backend for synchronization
@@ -97,6 +118,9 @@
                 .then(response => {
                     if (!response.ok) {
                         throw new Error('Toggle request failed');
+                    }
+                    if (window.showToast) {
+                        window.showToast(!previousPlayingState ? 'Playing' : 'Paused', 'success', 2000);
                     }
                 })
                 .catch(error => {
@@ -173,8 +197,12 @@
             
             window.StateManager.updateState({ shuffleMode: newMode }, 'playbackController');
             
-            // Send to backend
-            this.apiCall('shuffleMode', profileId, { mode: newMode })
+            if (window.showToast) {
+                window.showToast('Shuffle: ' + newMode, 'success', 2000);
+            }
+            
+            // Send to backend (using standard toggle endpoint as it cycles on the server)
+            this.apiCall('shuffle', profileId)
                 .catch(error => {
                     window.Helpers.log('PlaybackController: Failed to update shuffle mode:', error);
                 });
@@ -204,8 +232,12 @@
             
             window.StateManager.updateState({ repeatMode: newMode }, 'playbackController');
             
-            // Send to backend
-            this.apiCall('repeatMode', profileId, { mode: newMode })
+            if (window.showToast) {
+                window.showToast('Repeat: ' + newMode, 'success', 2000);
+            }
+            
+            // Send to backend (using standard toggle endpoint as it cycles on the server)
+            this.apiCall('repeat', profileId)
                 .catch(error => {
                     window.Helpers.log('PlaybackController: Failed to update repeat mode:', error);
                 });

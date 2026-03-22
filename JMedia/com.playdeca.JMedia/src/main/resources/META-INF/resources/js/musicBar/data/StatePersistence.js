@@ -17,7 +17,61 @@
          */
         init: function() {
             this.setupEventListeners();
+            
+            // Save state with currentTime before page unload (pagehide is more reliable than beforeunload)
+            window.addEventListener('pagehide', () => {
+                this.saveStateBeforeUnload();
+            });
+            
+            // Also save on visibility change (when tab becomes hidden)
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    this.saveStateBeforeUnload();
+                }
+            });
+            
             window.Helpers.log('StatePersistence initialized');
+        },
+        
+        /**
+         * Save state before page unload - gets currentTime directly from audio element
+         */
+        saveStateBeforeUnload: function() {
+            if (!window.localStorage || !window.StateManager) return;
+            
+            try {
+                const currentState = window.StateManager.getState();
+                
+                const stateToSave = {
+                    currentSongId: currentState.currentSongId,
+                    songName: currentState.songName,
+                    artist: currentState.artist,
+                    playing: currentState.playing,
+                    duration: currentState.duration,
+                    volume: currentState.volume,
+                    shuffleMode: currentState.shuffleMode,
+                    repeatMode: currentState.repeatMode,
+                    timestamp: Date.now(),
+                    deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
+                    savedOffline: false
+                };
+                
+                // Get currentTime directly from audio element for accuracy
+                const audioEl = window.AudioEngine ? window.AudioEngine.getAudioElement() : null;
+                if (audioEl && !isNaN(audioEl.currentTime) && audioEl.currentTime > 0) {
+                    stateToSave.currentTime = audioEl.currentTime;
+                } else {
+                    stateToSave.currentTime = currentState.currentTime || 0;
+                }
+                
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(stateToSave));
+                window.Helpers.log('StatePersistence saved state before unload:', {
+                    currentSongId: stateToSave.currentSongId,
+                    currentTime: stateToSave.currentTime
+                });
+            } catch (e) {
+                window.Helpers.log('StatePersistence: Error saving state before unload:', e);
+            }
         },
         
         /**

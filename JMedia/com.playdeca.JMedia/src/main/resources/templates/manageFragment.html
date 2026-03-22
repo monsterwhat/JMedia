@@ -6,20 +6,19 @@
         </div>
         <div class="field is-grouped is-flex-wrap-wrap">
             <div class="control has-icons-left">
-                <input class="input is-dark" type="text" name="search" placeholder="Search title, file..." 
+                <input class="input" type="text" name="search" placeholder="Search title, file..." 
                        value="{search ?: ''}"
                        hx-get="/api/video/manage" 
                        hx-trigger="keyup changed delay:500ms" 
                        hx-target="#spa-content"
-                       style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white; width: 250px;">
+                       style="width: 250px;">
                 <span class="icon is-left">
                     <i class="pi pi-search"></i>
                 </span>
             </div>
             <div class="control">
-                <div class="select is-dark">
-                    <select name="type" hx-get="/api/video/manage" hx-target="#spa-content" hx-include="[name='search']"
-                            style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;">
+                <div class="select">
+                    <select name="type" hx-get="/api/video/manage" hx-target="#spa-content" hx-include="[name='search']">
                         <option value="all" {#if type == 'all' || !type}selected{/if}>All Types</option>
                         <option value="movie" {#if type == 'movie'}selected{/if}>Movies</option>
                         <option value="episode" {#if type == 'episode'}selected{/if}>TV Shows</option>
@@ -116,7 +115,7 @@
             <p class="modal-card-title">Edit Metadata</p>
             <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
         </header>
-        <section class="modal-card-body" id="editModalBody" style="background: #1a1a1a; color: white;">
+        <section class="modal-card-body" id="editModalBody">
             <div class="is-flex is-justify-content-center p-6">
                 <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
             </div>

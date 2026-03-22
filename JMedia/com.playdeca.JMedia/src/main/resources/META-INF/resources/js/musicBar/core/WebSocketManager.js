@@ -260,28 +260,6 @@
                 }
             }
             
-        // Debounce state updates to prevent infinite loops
-        const now = Date.now();
-        if (window.WebSocketManager.lastStateUpdate && now - window.WebSocketManager.lastStateUpdate < 500) {
-            console.log('🚫 WebSocket: Skipping update due to debounce - time since last:', now - window.WebSocketManager.lastStateUpdate);
-            return; // Skip updates that come too quickly
-        }
-        window.WebSocketManager.lastStateUpdate = now;
-        console.log('🚀 WebSocket: Processing state update after debounce');
-            
-            console.log('🎵 WebSocket: Received FULL state update:', state);
-            console.log('🎵 WebSocket: Key properties:', {
-                currentSongId: state.currentSongId,
-                songName: state.songName,
-                artist: state.artist,
-                artistName: state.artistName, // Alternative field name
-                playing: state.playing,
-                currentTime: state.currentTime,
-                duration: state.duration,
-                shuffleMode: state.shuffleMode,
-                repeatMode: state.repeatMode
-            });
-            
             // Update all state properties (excluding currentTime - let audio element be the visual source)
             window.dispatchEvent(new CustomEvent('requestStateUpdate', {
                 detail: {

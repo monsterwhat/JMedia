@@ -16,7 +16,6 @@
 {#else}
     {#for s in songs}
     <div class="mobile-song-item" data-song-id="{s.id}" 
-         onclick="if(window.apiPost) apiPost('select', '{s.id}');"
          data-playlist-id="{playlistId}"
          style="cursor: pointer;">
         <!-- Smaller artwork -->

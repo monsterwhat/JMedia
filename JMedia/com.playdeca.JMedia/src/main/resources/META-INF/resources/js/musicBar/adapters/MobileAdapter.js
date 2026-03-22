@@ -227,34 +227,7 @@
          * Setup safe area handling for notched devices
          */
         setupSafeAreaHandling: function() {
-            const safeArea = this.state.safeAreaInsets;
-            
-            // Apply safe area insets to relevant elements
-            const elements = [
-                '.mobile-header',
-                '.mobile-player',
-                '.mobile-side-panel',
-                '.modal-card'
-            ];
-            
-            elements.forEach(selector => {
-                const element = document.querySelector(selector);
-                if (element) {
-                    // Apply padding for safe areas
-                    if (safeArea.top > 0) {
-                        element.style.paddingTop = `calc(${element.style.paddingTop || '0px'} + ${safeArea.top}px)`;
-                    }
-                    if (safeArea.bottom > 0) {
-                        element.style.paddingBottom = `calc(${element.style.paddingBottom || '0px'} + ${safeArea.bottom}px)`;
-                    }
-                    if (safeArea.left > 0) {
-                        element.style.paddingLeft = `calc(${element.style.paddingLeft || '0px'} + ${safeArea.left}px)`;
-                    }
-                    if (safeArea.right > 0) {
-                        element.style.paddingRight = `calc(${element.style.paddingRight || '0px'} + ${safeArea.right}px)`;
-                    }
-                }
-            });
+            // Safe area handled by CSS variables in jmedia-unified.css
         },
         
         /**
@@ -277,12 +250,35 @@
         setupPullToRefresh: function() {
             let startY = 0;
             let isPulling = false;
+            let pullDirectionConfirmed = false;
             const pullThreshold = this.settings.pullToRefreshThreshold;
+            const directionThreshold = 10;
+            
+            const getScrollableContainer = () => {
+                const songList = document.getElementById('mobileSongList');
+                if (!songList) return null;
+                // Walk up to find the nearest scrollable ancestor
+                let el = songList;
+                while (el && el !== document.body) {
+                    const style = getComputedStyle(el);
+                    const overflowY = style.overflowY;
+                    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+                        return el;
+                    }
+                    el = el.parentElement;
+                }
+                return null;
+            };
             
             document.addEventListener('touchstart', (e) => {
-                if (window.scrollY === 0) {
+                const container = getScrollableContainer();
+                const scrollTop = container ? container.scrollTop : 0;
+                if (scrollTop <= 0) {
                     startY = e.touches[0].clientY;
                     isPulling = true;
+                    pullDirectionConfirmed = false;
+                } else {
+                    isPulling = false;
                 }
             });
             
@@ -292,7 +288,19 @@
                 const currentY = e.touches[0].clientY;
                 const deltaY = currentY - startY;
                 
-                if (deltaY > 0 && window.scrollY === 0) {
+                // Confirm direction on first significant movement
+                if (!pullDirectionConfirmed && Math.abs(deltaY) > directionThreshold) {
+                    if (deltaY < 0) {
+                        // Finger moved up - normal scroll, cancel pull-to-refresh
+                        isPulling = false;
+                        return;
+                    }
+                    pullDirectionConfirmed = true;
+                }
+                
+                const container = getScrollableContainer();
+                const scrollTop = container ? container.scrollTop : 0;
+                if (pullDirectionConfirmed && deltaY > 0 && scrollTop <= 0) {
                     e.preventDefault();
                     
                     // Visual feedback
@@ -304,9 +312,15 @@
             });
             
             document.addEventListener('touchend', (e) => {
-                if (!isPulling) return;
+                if (!isPulling || !pullDirectionConfirmed) {
+                    isPulling = false;
+                    return;
+                }
                 
                 isPulling = false;
+                
+                const container = getScrollableContainer();
+                const scrollTop = container ? container.scrollTop : 0;
                 
                 const currentY = e.changedTouches[0].clientY;
                 const deltaY = currentY - startY;
@@ -317,8 +331,8 @@
                     songList.style.transform = '';
                 }
                 
-                // Trigger refresh if threshold exceeded
-                if (deltaY > pullThreshold) {
+                // Only trigger refresh if we're still at the top and threshold exceeded
+                if (scrollTop <= 0 && deltaY > pullThreshold) {
                     this.triggerRefresh();
                 }
             });
@@ -513,19 +527,40 @@
         },
         
         /**
-         * Trigger refresh
+         * Trigger refresh - reloads the current view
          */
         triggerRefresh: function() {
             window.Helpers.log('MobileAdapter: Triggering refresh');
             
-            // Emit refresh event
-            window.dispatchEvent(new CustomEvent('requestRefresh', {
-                detail: { source: 'mobileAdapter' }
-            }));
-            
             // Visual feedback
             if (window.showToast) {
                 window.showToast('Refreshing...', 'info', 2000);
+            }
+            
+            const songList = document.getElementById('mobileSongList');
+            const queueContent = document.getElementById('mobileQueueContent');
+            const historyContent = document.getElementById('mobileHistoryContent');
+            
+            // Detect which view is active and reload it
+            if (queueContent && !queueContent.classList.contains('is-hidden')) {
+                if (typeof switchToTab === 'function') {
+                    switchToTab('queue');
+                }
+            } else if (historyContent && !historyContent.classList.contains('is-hidden')) {
+                if (typeof switchToTab === 'function') {
+                    switchToTab('history');
+                }
+            } else if (songList && !songList.classList.contains('is-hidden')) {
+                // Music library - find which playlist is active
+                const activePlaylist = document.querySelector('.nav-sub-item.active');
+                let playlistId = 0;
+                if (activePlaylist && activePlaylist.id) {
+                    const match = activePlaylist.id.match(/nav-playlist-(\d+)/);
+                    if (match) playlistId = parseInt(match[1]);
+                }
+                if (typeof loadMobilePlaylistSongs === 'function') {
+                    loadMobilePlaylistSongs(playlistId);
+                }
             }
         },
         

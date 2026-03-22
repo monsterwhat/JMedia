@@ -259,7 +259,7 @@
                 this.lastStateSave = now;
                 
                 window.dispatchEvent(new CustomEvent('requestStateSave', {
-                    detail: { includeCurrentTime: false }
+                    detail: { includeCurrentTime: true }
                 }));
                 
                 window.Helpers.log('StateManager triggered periodic state save');

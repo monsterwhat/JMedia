@@ -27,9 +27,9 @@
             }
 
             .glass-box {
-                background: rgba(255, 255, 255, 0.03) !important;
+                background: var(--glass-bg) !important;
                 backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                border: 1px solid var(--glass-border) !important;
                 border-radius: 24px !important;
                 box-shadow: 0 20px 50px rgba(0,0,0,0.5);
                 padding: 3rem !important;
@@ -37,7 +37,7 @@
 
             .progress-bar {
                 height: 6px;
-                background: rgba(255,255,255,0.1);
+                background: var(--glass-border);
                 border-radius: 3px;
                 margin-bottom: 2rem;
                 overflow: hidden;
@@ -45,7 +45,7 @@
 
             .progress-fill {
                 height: 100%;
-                background: #48c774;
+                background: var(--standard-accent);
                 transition: width 0.4s ease;
                 box-shadow: 0 0 15px rgba(72, 199, 116, 0.5);
             }
@@ -61,24 +61,24 @@
                 width: 12px;
                 height: 12px;
                 border-radius: 50%;
-                background: rgba(255,255,255,0.1);
+                background: var(--glass-border);
                 transition: 0.3s;
             }
 
             .step-dot.active {
-                background: #48c774;
+                background: var(--standard-accent);
                 transform: scale(1.3);
-                box-shadow: 0 0 10px #48c774;
+                box-shadow: 0 0 10px var(--standard-accent);
             }
 
             .feature-card {
-                background: rgba(255,255,255,0.05) !important;
-                border: 1px solid rgba(255,255,255,0.1);
+                background: var(--glass-bg) !important;
+                border: 1px solid var(--glass-border);
                 transition: 0.3s;
             }
 
             .feature-card:hover {
-                background: rgba(255,255,255,0.08) !important;
+                background: var(--glass-bg) !important;
                 transform: translateY(-5px);
             }
 
@@ -99,8 +99,8 @@
             <!-- Header -->
             <div class="has-text-centered mb-6">
                 <img src="/logo.png" alt="JMedia" style="width: 80px; margin-bottom: 1rem;">
-                <h1 class="title is-2 has-text-white">JMedia Setup</h1>
-                <p class="subtitle is-5 has-text-grey-light">Let's get your personal library ready</p>
+                <h1 class="title is-2">JMedia Setup</h1>
+                <p class="subtitle is-5 has-text-grey">Let's get your personal library ready</p>
             </div>
 
             <!-- Progress -->
@@ -119,8 +119,8 @@
                 <!-- Step 1: Welcome -->
                 <div class="step-content" x-show="$store.setup.currentStep === 1" x-transition>
                     <div class="glass-box">
-                        <h2 class="title is-3 has-text-white mb-5">Welcome!</h2>
-                        <div class="content has-text-grey-light">
+                        <h2 class="title is-3 mb-5">Welcome!</h2>
+                        <div class="content has-text-grey">
                             <p class="is-size-5">JMedia is your unified console for local music and video management.</p>
                             
                             <div class="columns is-multiline mt-6">
@@ -129,7 +129,7 @@
                                         <div class="is-flex is-align-items-center">
                                             <i class="pi pi-music has-text-success mr-4" style="font-size: 1.5rem;"></i>
                                             <div>
-                                                <p class="has-text-white has-text-weight-bold">Music Library</p>
+                                                <p class="has-text-weight-bold">Music Library</p>
                                                 <p class="is-size-7">Organize and play your collection</p>
                                             </div>
                                         </div>
@@ -140,7 +140,7 @@
                                         <div class="is-flex is-align-items-center">
                                             <i class="pi pi-video has-text-info mr-4" style="font-size: 1.5rem;"></i>
                                             <div>
-                                                <p class="has-text-white has-text-weight-bold">Video Engine</p>
+                                                <p class="has-text-weight-bold">Video Engine</p>
                                                 <p class="is-size-7">Manage TV shows and Movies</p>
                                             </div>
                                         </div>
@@ -148,7 +148,7 @@
                                 </div>
                             </div>
 
-                            <div class="notification is-success is-light mt-6 p-4" style="background: rgba(72, 199, 116, 0.1); border: 1px solid rgba(72, 199, 116, 0.2);">
+                            <div class="notification is-success is-light mt-6 p-4">
                                 <div class="is-flex">
                                     <i class="pi pi-shield mr-3 mt-1"></i>
                                     <p class="is-size-7"><strong>Privacy Centric:</strong> All metadata and files stay strictly on your computer. No accounts or clouds required.</p>
@@ -167,14 +167,14 @@
                 <!-- Step 2: Library Configuration -->
                 <div class="step-content" x-show="$store.setup.currentStep === 2" x-transition x-cloak>
                     <div class="glass-box">
-                        <h2 class="title is-3 has-text-white mb-5">Libraries</h2>
-                        <p class="has-text-grey-light mb-6">Select the folders where your media is stored.</p>
+                        <h2 class="title is-3 mb-5">Libraries</h2>
+                        <p class="has-text-grey mb-6">Select the folders where your media is stored.</p>
 
                         <div class="field mb-6">
-                            <label class="label has-text-white">Music Collection</label>
+                            <label class="label">Music Collection</label>
                             <div class="field has-addons">
                                 <div class="control is-expanded">
-                                    <input type="text" class="input is-dark" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.1); color: white;" 
+                                    <input type="text" class="input" 
                                            placeholder="Select music folder..." x-model="$store.setup.musicLibraryPath" readonly>
                                 </div>
                                 <div class="control">
@@ -186,10 +186,10 @@
                         </div>
 
                         <div class="field mb-6">
-                            <label class="label has-text-white">Video Collection (Optional)</label>
+                            <label class="label">Video Collection (Optional)</label>
                             <div class="field has-addons">
                                 <div class="control is-expanded">
-                                    <input type="text" class="input is-dark" style="background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.1); color: white;"
+                                    <input type="text" class="input" 
                                            placeholder="Select video folder..." x-model="$store.setup.videoLibraryPath" readonly>
                                 </div>
                                 <div class="control">
@@ -200,15 +200,8 @@
                             </div>
                         </div>
 
-                        <div class="field mt-6">
-                            <label class="checkbox has-text-white">
-                                <input type="checkbox" x-model="$store.setup.runAsService">
-                                <span class="ml-2">Run as Service (Keep active when browser closes)</span>
-                            </label>
-                        </div>
-
                         <div class="is-flex is-justify-content-space-between mt-6">
-                            <button class="button is-ghost has-text-white" @click="$store.setup.previousStep()">
+                            <button class="button is-ghost" @click="$store.setup.previousStep()">
                                 <i class="pi pi-arrow-left mr-2"></i> Back
                             </button>
                             <button class="button is-success is-rounded px-6" @click="$store.setup.validateAndNext()">
@@ -221,15 +214,15 @@
                 <!-- Step 3: Features -->
                 <div class="step-content" x-show="$store.setup.currentStep === 3" x-transition x-cloak>
                     <div class="glass-box">
-                        <h2 class="title is-3 has-text-white mb-5">Features</h2>
-                        <p class="has-text-grey-light mb-6">Install optional components for advanced features like Spotify importing and AI transcriptions.</p>
+                        <h2 class="title is-3 mb-5">Features</h2>
+                        <p class="has-text-grey mb-6">Install optional components for advanced features like Spotify importing and AI transcriptions.</p>
 
                         <div class="space-y-4">
                             <template x-for="c in ['choco', 'python', 'ffmpeg', 'spotdl', 'whisper']">
-                                <div class="p-4 mb-3" style="background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div class="p-4 mb-3" style="border-radius: 12px; border: 1px solid var(--glass-border);">
                                     <div class="level is-mobile">
                                         <div class="level-left">
-                                            <span class="has-text-white has-text-weight-bold" x-text="c.charAt(0).toUpperCase() + c.slice(1)"></span>
+                                            <span class="has-text-weight-bold" x-text="c.charAt(0).toUpperCase() + c.slice(1)"></span>
                                         </div>
                                         <div class="level-right">
                                             <button class="button is-small is-rounded is-success" 
@@ -243,7 +236,7 @@
                         </div>
 
                         <div class="is-flex is-justify-content-space-between mt-6">
-                            <button class="button is-ghost has-text-white" @click="$store.setup.previousStep()">
+                            <button class="button is-ghost" @click="$store.setup.previousStep()">
                                 <i class="pi pi-arrow-left mr-2"></i> Back
                             </button>
                             <button class="button is-success is-rounded px-6" @click="$store.setup.nextStep()">
@@ -257,13 +250,13 @@
                 <div class="step-content" x-show="$store.setup.currentStep === 4" x-transition x-cloak>
                     <div class="glass-box has-text-centered">
                         <i class="pi pi-check-circle has-text-success mb-5" style="font-size: 5rem;"></i>
-                        <h2 class="title is-3 has-text-white mb-4">Ready to Launch!</h2>
-                        <p class="has-text-grey-light mb-6">Your personal media station is configured and ready.</p>
+                        <h2 class="title is-3 mb-4">Ready to Launch!</h2>
+                        <p class="has-text-grey mb-6">Your personal media station is configured and ready.</p>
 
-                        <div class="has-text-left p-5 mb-6" style="background: rgba(0,0,0,0.2); border-radius: 16px;">
-                            <p class="is-size-7 has-text-grey-light mb-2"><strong>Music:</strong> <span x-text="$store.setup.musicLibraryPath"></span></p>
-                            <p class="is-size-7 has-text-grey-light mb-2" x-show="$store.setup.videoLibraryPath"><strong>Video:</strong> <span x-text="$store.setup.videoLibraryPath"></span></p>
-                            <p class="is-size-7 has-text-grey-light"><strong>Mode:</strong> <span x-text="$store.setup.runAsService ? 'Service' : 'Standard'"></span></p>
+                        <div class="has-text-left p-5 mb-6" style="border-radius: 16px;">
+                            <p class="is-size-7 has-text-grey mb-2"><strong>Music:</strong> <span x-text="$store.setup.musicLibraryPath"></span></p>
+                            <p class="is-size-7 has-text-grey mb-2" x-show="$store.setup.videoLibraryPath"><strong>Video:</strong> <span x-text="$store.setup.videoLibraryPath"></span></p>
+                            <p class="is-size-7 has-text-grey"><strong>Mode:</strong> Service</p>
                         </div>
 
                         <button class="button is-success is-large is-fullwidth is-rounded" @click="$store.setup.completeSetup()">
@@ -277,24 +270,24 @@
             <div id="folderBrowserModal" class="modal" x-cloak>
                 <div class="modal-background" @click="$store.setup.closeFolderBrowser()"></div>
                 <div class="modal-card glass-box p-0" style="width: 90%; max-width: 700px; padding: 0 !important;">
-                    <header class="modal-card-head" style="background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.1);">
-                        <p class="modal-card-title has-text-white">Select Folder</p>
+                    <header class="modal-card-head">
+                        <p class="modal-card-title">Select Folder</p>
                         <button class="delete" aria-label="close" @click="$store.setup.closeFolderBrowser()"></button>
                     </header>
-                    <section class="modal-card-body" style="background: transparent;">
+                    <section class="modal-card-body">
                         <div class="mb-4 is-flex is-align-items-center">
-                            <button class="button is-small is-dark mr-2" @click="$store.setup.navigateUpFolder()">
+                            <button class="button is-small mr-2" @click="$store.setup.navigateUpFolder()">
                                 <i class="pi pi-arrow-up"></i>
                             </button>
-                            <input type="text" id="currentFolderPathDisplay" class="input is-small is-static has-text-success" readonly style="background: transparent; font-weight: bold;">
+                            <input type="text" id="currentFolderPathDisplay" class="input is-small is-static has-text-success" readonly style="font-weight: bold;">
                         </div>
-                        <div id="folderBrowserList" style="max-height: 350px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 12px;">
+                        <div id="folderBrowserList" style="max-height: 350px; overflow-y: auto; border-radius: 12px;">
                             <!-- Dynamic folders -->
                         </div>
                     </section>
-                    <footer class="modal-card-foot" style="background: rgba(0,0,0,0.4); border-top: 1px solid rgba(255,255,255,0.1); justify-content: flex-end;">
+                    <footer class="modal-card-foot">
                         <button class="button is-success" @click="$store.setup.confirmFolderSelection()">Confirm Selection</button>
-                        <button class="button is-dark" @click="$store.setup.closeFolderBrowser()">Cancel</button>
+                        <button class="button" @click="$store.setup.closeFolderBrowser()">Cancel</button>
                     </footer>
                 </div>
             </div>
@@ -304,7 +297,7 @@
                 <div class="modal-background"></div>
                 <div class="has-text-centered" style="z-index: 2000; position: relative;">
                     <i class="pi pi-spin pi-spinner has-text-success mb-4" style="font-size: 4rem;"></i>
-                    <p class="has-text-white is-size-5" x-text="$store.setup.loadingMessage"></p>
+                    <p class="is-size-5" x-text="$store.setup.loadingMessage"></p>
                 </div>
             </div>
         </div>

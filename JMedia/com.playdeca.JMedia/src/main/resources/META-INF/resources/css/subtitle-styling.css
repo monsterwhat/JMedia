@@ -365,9 +365,9 @@
 
 .subtitle-style-preset {
   padding: 8px 16px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  border: 2px solid var(--glass-border, rgba(255, 255, 255, 0.1));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
   color: var(--subtitle-text-color);
   font-size: 0.9em;
   cursor: pointer;
@@ -375,7 +375,7 @@
 }
 
 .subtitle-style-preset:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--glass-bg, rgba(255, 255, 255, 0.1));
   transform: translateY(-2px);
 }
 

@@ -190,25 +190,3 @@
         height: calc(100vh - 140px); /* Adjust for desktop layout */
     }
 }
-
-/* Dark theme adjustments for desktop */
-[data-theme="dark"] .desktop-table-view .card {
-    background: var(--mobile-surface);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="dark"] .desktop-table-view .table {
-    color: var(--mobile-text);
-}
-
-[data-theme="dark"] .desktop-table-view .table.is-striped tbody tr:not(.is-selected):nth-child(odd) {
-    background-color: rgba(255, 255, 255, 0.05);
-}
-
-[data-theme="dark"] .desktop-table-view .table.is-striped tbody tr:not(.is-selected):nth-child(even) {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-[data-theme="dark"] .desktop-table-view .table.is-hoverable tbody tr:not(.is-selected):hover {
-    background-color: rgba(255, 255, 255, 0.1);
-}
