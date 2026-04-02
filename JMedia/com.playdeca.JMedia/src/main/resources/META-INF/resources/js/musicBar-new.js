@@ -322,9 +322,6 @@
                 const songData = window.musicState?.currentSongData;
                 if (songData && songData.artworkBase64) {
                     artworkUrl = `data:image/jpeg;base64,${songData.artworkBase64}`;
-                } else if (state.currentSongId) {
-                    // Fallback to API endpoint for cover art
-                    artworkUrl = `/api/music/cover/${state.currentSongId}`;
                 }
                 window.updateMediaSessionMetadata(state.songName, state.artistName, artworkUrl);
             }

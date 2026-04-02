@@ -135,6 +135,10 @@ public class VideoController {
     }
 
     public synchronized void selectVideo(Long id) {
+        selectVideo(id, null);
+    }
+
+    public synchronized void selectVideo(Long id, Double startTime) {
         VideoState st = getState();
         Video current = getCurrentVideo();
 
@@ -153,9 +157,19 @@ public class VideoController {
                 
                 // Record history when a new video is selected
                 videoHistoryService.addFromVideoId(id);
+
+                // Use provided startTime or the video's saved resume time
+                if (startTime != null) {
+                    st.setCurrentTime(startTime);
+                } else if (newVideo.resumeTime != null && newVideo.resumeTime > 0) {
+                    st.setCurrentTime(newVideo.resumeTime / 1000.0);
+                } else {
+                    st.setCurrentTime(0);
+                }
+            } else {
+                st.setCurrentTime(0);
             }
             st.setPlaying(true);
-            st.setCurrentTime(0);
             videoQueueController.videoSelected(id);
             addVideoToCueIfNotPresent(st, id);
             if (st.getCue() != null) {

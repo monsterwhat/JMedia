@@ -1,0 +1,76 @@
+<div class="song-detail-view">
+    <div class="song-detail-header">
+        <button class="song-detail-back-btn" onclick="window.showMobileSongList()">
+            <i class="pi pi-arrow-left"></i> Back
+        </button>
+        <button class="song-detail-fetch-btn" onclick="window.fetchSongMetadata({song.id})" title="Fetch metadata">
+            <i class="pi pi-refresh"></i> Fetch Metadata
+        </button>
+    </div>
+
+    <div class="song-detail-hero">
+        <div class="song-detail-artwork">
+            <img src="{artworkUrl.apply(song.artworkBase64)}" alt="Artwork">
+        </div>
+        <div class="song-detail-primary">
+            <h1 class="song-detail-title">{song.title ?: "Unknown Title"}</h1>
+            <p class="song-detail-artist clickable" onclick="window.showArtistPage('{song.artist}')">{song.artist ?: "Unknown Artist"}</p>
+            <p class="song-detail-album">{song.album ?: "Unknown Album"}</p>
+        </div>
+    </div>
+
+    <div class="song-detail-metadata">
+        <div class="song-detail-meta-item">
+            <span class="song-detail-meta-label">Track</span>
+            <span class="song-detail-meta-value">{#if song.trackNumber > 0}{song.trackNumber}{#else}--{/if}</span>
+        </div>
+        <div class="song-detail-meta-item">
+            <span class="song-detail-meta-label">Disc</span>
+            <span class="song-detail-meta-value">{#if song.discNumber > 0}{song.discNumber}{#else}--{/if}</span>
+        </div>
+        <div class="song-detail-meta-item">
+            <span class="song-detail-meta-label">Duration</span>
+            <span class="song-detail-meta-value">{formatDuration.apply(song.durationSeconds)}</span>
+        </div>
+        <div class="song-detail-meta-item">
+            <span class="song-detail-meta-label">BPM</span>
+            <span class="song-detail-meta-value">{#if song.bpm > 0}{song.bpm}{#else}--{/if}</span>
+        </div>
+        <div class="song-detail-meta-item">
+            <span class="song-detail-meta-label">Genre</span>
+            <span class="song-detail-meta-value">{#if song.genre}{song.genre}{#else}--{/if}</span>
+        </div>
+        <div class="song-detail-meta-item">
+            <span class="song-detail-meta-label">Released</span>
+            <span class="song-detail-meta-value">{#if song.releaseDate}{song.releaseDate}{#else if song.date}{song.date}{#else}--{/if}</span>
+        </div>
+    </div>
+
+    {#if albumArtist}
+    <div class="song-detail-section">
+        <div class="song-detail-label">Album Artist</div>
+        <div class="song-detail-value clickable" onclick="window.showArtistPage('{albumArtist}')">{albumArtist}</div>
+    </div>
+    {/if}
+
+    {#if similarSongs && similarSongs.size > 0}
+    <div class="song-detail-similar">
+        <h3 class="song-detail-similar-title">
+            <i class="pi pi-music"></i> Similar Songs
+        </h3>
+        <div class="song-detail-similar-list">
+            {#for s in similarSongs}
+            <div class="song-detail-similar-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
+                <div class="song-detail-similar-artwork">
+                    <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy" alt="Artwork">
+                </div>
+                <div class="song-detail-similar-info">
+                    <div class="song-detail-similar-song-title">{s.title ?: "Unknown"}</div>
+                    <div class="song-detail-similar-artist">{s.artist ?: "Unknown"}</div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+</div>

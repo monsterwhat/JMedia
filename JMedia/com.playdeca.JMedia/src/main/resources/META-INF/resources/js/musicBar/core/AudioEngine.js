@@ -15,6 +15,10 @@
         // Event listeners storage
         eventListeners: {},
         
+        // Autoplay policy tracking
+        autoplayBlocked: false,
+        autoplayAttempted: false,
+        
         /**
          * Initialize audio engine
          */
@@ -179,8 +183,30 @@
                 return false;
             }
             
-            if (!window.globalActiveProfileId) {
-                window.Helpers.log('AudioEngine: No active profile ID');
+            // Block playback until profile is initialized
+            if (!window.globalActiveProfileId || window.profileInitialized === undefined || window.profileInitialized === false) {
+                window.Helpers.log('AudioEngine: Profile not ready, queuing playback');
+                
+                // Show loading state in UI
+                window.dispatchEvent(new CustomEvent('requestStateUpdate', {
+                    detail: {
+                        changes: { 
+                            songName: 'Loading profile...',
+                            artist: 'Please wait'
+                        },
+                        source: 'audioEngine'
+                    }
+                }));
+                
+                // Queue playback for when profile is ready
+                const self = this;
+                const onceHandler = () => {
+                    document.body.removeEventListener('profileReady', onceHandler);
+                    setTimeout(() => {
+                        self.setSource(currentSong, prevSong, nextSong, play, backendTime);
+                    }, 100);
+                };
+                document.body.addEventListener('profileReady', onceHandler, { once: true });
                 return false;
             }
             
@@ -239,6 +265,11 @@
             
             const sameSong = String(window.StateManager?.getProperty('currentSongId')) === String(currentSong.id);
             const newAudioSrc = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
+            
+            // Reset autoplay state when changing songs
+            if (this.audio.src !== newAudioSrc) {
+                this.autoplayAttempted = false;
+            }
             
             console.log('🎵 AudioEngine: Setting source to:', newAudioSrc);
             console.log('🎵 AudioEngine: Song data:', {
@@ -325,15 +356,33 @@
                 
                 // Handle playback when audio is ready to play
                 if (play) {
-                    console.log('🎵 AudioEngine: Attempting to play audio...');
-                    this.audio.play().then(() => {
-                        console.log('🎵 AudioEngine: Audio play successful');
-                    }).catch(error => {
-                        console.error('[AudioEngine] Audio play failed:', error);
-                    });
+                    // Don't repeatedly attempt if autoplay was already blocked
+                    if (this.autoplayBlocked) {
+                        console.log('🎵 AudioEngine: Autoplay blocked, waiting for user interaction');
+                        return;
+                    }
+                    
+                    // Only attempt play once per source change
+                    if (!this.autoplayAttempted) {
+                        this.autoplayAttempted = true;
+                        console.log('🎵 AudioEngine: Attempting to play audio...');
+                        this.audio.play().then(() => {
+                            console.log('🎵 AudioEngine: Audio play successful');
+                            this.autoplayBlocked = false;
+                        }).catch(error => {
+                            if (error.name === 'NotAllowedError') {
+                                console.warn('🎵 AudioEngine: Autoplay blocked by browser policy');
+                                this.autoplayBlocked = true;
+                                this.autoplayAttempted = false;
+                            } else if (error.name !== 'AbortError') {
+                                console.error('[AudioEngine] Audio play failed:', error);
+                            }
+                        });
+                    }
                 } else {
                     console.log('🎵 AudioEngine: Pausing audio...');
                     this.audio.pause();
+                    this.autoplayAttempted = false;
                 }
             };
             
@@ -362,6 +411,10 @@
                 // If already playing, just return
                 if (!this.audio.paused) return Promise.resolve();
                 
+                // Reset autoplay blocked flag when user explicitly triggers play
+                this.autoplayBlocked = false;
+                this.autoplayAttempted = false;
+                
                 // If loading, wait for it
                 return this.audio.play().catch(error => {
                     // Ignore abort errors (user navigation or fast toggling)
@@ -373,6 +426,14 @@
                 });
             }
             return Promise.reject(new Error('Audio element not available'));
+        },
+        
+        /**
+         * Reset autoplay blocked state (call after user interaction)
+         */
+        resetAutoplayState: function() {
+            this.autoplayBlocked = false;
+            this.autoplayAttempted = false;
         },
         
         /**

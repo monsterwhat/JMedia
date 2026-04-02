@@ -172,8 +172,8 @@ function switchProfile(profileId) {
         }
         fetch('/api/profiles', {
             method: 'POST',
-            headers: { 'Content-Type': 'text/plain' }, // Changed content type
-            body: name // Send as plain text
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
         })
         .then(response => {
             if (response.ok) {
@@ -266,17 +266,29 @@ function switchProfile(profileId) {
         window.globalActiveProfileId = storedProfileId;
     }
 
+    // Flag to track if profile has been initialized (for blocking playback until ready)
+    window.profileInitialized = false;
+
+    // Listen for profile ready event and set flag
+    document.body.addEventListener('profileReady', (e) => {
+        window.profileInitialized = true;
+    });
+
     // Optimized initialization - fetch profiles and current profile in parallel
     Promise.all([
         fetchProfiles(),
         fetchCurrentProfile()
     ]).then(() => {
-        console.log('[ProfileManager] Profile initialization complete');
+        window.profileInitialized = true;
         // Emit event to notify other scripts that profile is ready
         document.body.dispatchEvent(new CustomEvent('profileReady', { 
             detail: { profileId: window.globalActiveProfileId } 
         }));
     }).catch(error => {
         console.error('[ProfileManager] Profile initialization failed:', error);
+        window.profileInitialized = true; // Allow playback to proceed even on failure
+        document.body.dispatchEvent(new CustomEvent('profileReady', { 
+            detail: { profileId: window.globalActiveProfileId } 
+        }));
     });
 });

@@ -107,12 +107,11 @@ public class FFmpegDiscoveryService {
         }
 
         List<String> priorityEncoders = List.of(
-            "h264_nvenc",
-            "hevc_nvenc",
-            "h264_qsv",
-            "hevc_qsv",
-            "h264_vaapi",
-            "hevc_vaapi"
+            "h264_nvenc", "hevc_nvenc",
+            "h264_amf", "hevc_amf",
+            "h264_qsv", "hevc_qsv",
+            "h264_vaapi", "hevc_vaapi",
+            "h264_v4l2m2m", "h264_omx"
         );
 
         try {
@@ -151,7 +150,8 @@ public class FFmpegDiscoveryService {
                     java.util.Scanner s = new java.util.Scanner(p.getInputStream());
                     while (s.hasNextLine()) {
                         String line = s.nextLine();
-                        if (line.contains("nvenc") || line.contains("qsv") || line.contains("vaapi") || line.contains("cuvid")) {
+                        if (line.contains("nvenc") || line.contains("qsv") || line.contains("vaapi") || 
+                            line.contains("cuvid") || line.contains("v4l2m2m") || line.contains("amf")) {
                             String[] parts = line.trim().split("\\s+");
                             if (parts.length >= 2) supportedDecoders.add(parts[1]);
                         }
@@ -160,17 +160,31 @@ public class FFmpegDiscoveryService {
             }
         }
         
-        boolean isH264 = "h264".equalsIgnoreCase(codec) || "avc".equalsIgnoreCase(codec);
-        boolean isHEVC = "hevc".equalsIgnoreCase(codec) || "h265".equalsIgnoreCase(codec);
+        if (codec == null) return null;
+        String lowerCodec = codec.toLowerCase();
+        boolean isH264 = lowerCodec.contains("h264") || lowerCodec.contains("avc");
+        boolean isHEVC = lowerCodec.contains("hevc") || lowerCodec.contains("h265");
+        boolean isVP9 = lowerCodec.contains("vp9");
+        boolean isAV1 = lowerCodec.contains("av1");
         
         if (isH264) {
             if (supportedDecoders.contains("h264_cuvid")) return "h264_cuvid";
             if (supportedDecoders.contains("h264_qsv")) return "h264_qsv";
             if (supportedDecoders.contains("h264_vaapi")) return "h264_vaapi";
+            if (supportedDecoders.contains("h264_v4l2m2m")) return "h264_v4l2m2m";
         } else if (isHEVC) {
             if (supportedDecoders.contains("hevc_cuvid")) return "hevc_cuvid";
             if (supportedDecoders.contains("hevc_qsv")) return "hevc_qsv";
             if (supportedDecoders.contains("hevc_vaapi")) return "hevc_vaapi";
+            if (supportedDecoders.contains("hevc_v4l2m2m")) return "hevc_v4l2m2m";
+        } else if (isVP9) {
+            if (supportedDecoders.contains("vp9_cuvid")) return "vp9_cuvid";
+            if (supportedDecoders.contains("vp9_qsv")) return "vp9_qsv";
+            if (supportedDecoders.contains("vp9_vaapi")) return "vp9_vaapi";
+        } else if (isAV1) {
+            if (supportedDecoders.contains("av1_cuvid")) return "av1_cuvid";
+            if (supportedDecoders.contains("av1_qsv")) return "av1_qsv";
+            if (supportedDecoders.contains("av1_vaapi")) return "av1_vaapi";
         }
         return null;
     }

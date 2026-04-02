@@ -5,11 +5,29 @@
     </div>
 
     <div class="library-actions is-flex is-align-items-center">
+        <div class="field has-addons mr-5 mb-0" style="width: 300px;">
+            <div class="control is-expanded has-icons-left">
+                <input class="input is-small is-rounded is-dark" type="text" placeholder="Search shows..." 
+                       id="videoSearchInput" value="{search ?: ''}" 
+                       oninput="window.handleVideoSearch('shows', this.value)">
+                <span class="icon is-small is-left">
+                    <i class="pi pi-search"></i>
+                </span>
+            </div>
+            {#if search}
+            <div class="control">
+                <button class="button is-small is-info is-rounded" onclick="window.clearVideoSearch('shows')">
+                    Clear
+                </button>
+            </div>
+            {/if}
+        </div>
+
         <div class="sort-selector mr-4">
             <span class="mr-2 has-text-grey-light is-size-7 is-uppercase has-text-weight-bold">Sort By:</span>
             <div class="select is-small is-rounded">
                 <select name="sort" 
-                        onchange="const dir = this.options[this.selectedIndex].dataset.dir; window.switchSection('shows', \{page: 1, limit: {limit}, sortBy: this.value, sortDirection: dir\});">
+                        onchange="const dir = this.options[this.selectedIndex].dataset.dir; window.switchSection('shows', \{page: 1, limit: {limit}, sortBy: this.value, sortDirection: dir, search: '{search ?: ''}'\});">
                     <option value="seriesTitle" data-dir="asc" {#if sortBy == 'seriesTitle' && sortDirection == 'asc'}selected{/if}>Alphabetical (A-Z)</option>
                     <option value="seriesTitle" data-dir="desc" {#if sortBy == 'seriesTitle' && sortDirection == 'desc'}selected{/if}>Alphabetical (Z-A)</option>
                     <option value="dateAdded" data-dir="desc" {#if sortBy == 'dateAdded' && sortDirection == 'desc'}selected{/if}>Recently Added</option>
@@ -24,9 +42,15 @@
 <div id="seriesList">
     {#if series.empty}
         <div class="carousel-empty-state">
-            <i class="pi pi-desktop"></i>
-            <h3>No shows found</h3>
-            <p>Try scanning your library or check if your episodes have series titles.</p>
+            {#if search}
+                <i class="pi pi-search"></i>
+                <h3>No shows found for "{search}"</h3>
+                <p>Try a different search term</p>
+            {#else}
+                <i class="pi pi-desktop"></i>
+                <h3>No shows found</h3>
+                <p>Try scanning your library or check if your episodes have series titles.</p>
+            {/if}
         </div>
     {#else}
         <div class="standard-grid">
@@ -57,7 +81,7 @@
             <div class="is-flex is-align-items-center is-justify-content-center">
                 <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
                    href="javascript:void(0)"
-                   onclick="window.switchSection('shows', \{page: {currentPage - 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}'\})"
+                   onclick="window.switchSection('shows', \{page: {currentPage - 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}', search: '{search ?: ''}'\})"
                    {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     <i class="pi pi-chevron-left"></i> Previous
                 </a>
@@ -68,7 +92,7 @@
 
                 <a class="pagination-btn {#if currentPage == totalPages}is-disabled{/if}"
                    href="javascript:void(0)"
-                   onclick="window.switchSection('shows', \{page: {currentPage + 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}'\})"
+                   onclick="window.switchSection('shows', \{page: {currentPage + 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}', search: '{search ?: ''}'\})"
                    {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     Next <i class="pi pi-chevron-right"></i>
                 </a>

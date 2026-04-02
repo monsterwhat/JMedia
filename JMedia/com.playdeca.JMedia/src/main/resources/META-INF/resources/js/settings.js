@@ -170,6 +170,13 @@ window.setupLogWebSocket = function () {
 
     if (window.logWebSocket && window.logWebSocket.readyState <= 1) return;
 
+    // Track retry attempts to prevent infinite spam
+    if (!window.logWebSocketRetries) window.logWebSocketRetries = 0;
+    if (window.logWebSocketRetries >= 3) {
+        console.warn("[Logs] WebSocket connection failed after 3 attempts, disabling retries");
+        return;
+    }
+
     const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
     const socket = new WebSocket(`${protocol}${window.location.host}/api/logs/ws/${profileId}`);
@@ -191,8 +198,19 @@ window.setupLogWebSocket = function () {
         } catch (e) {}
     };
 
-    socket.onopen = () => console.log("[Logs] WebSocket connected");
-    socket.onclose = () => setTimeout(window.setupLogWebSocket, 5000);
+    socket.onopen = () => {
+        console.log("[Logs] WebSocket connected");
+        window.logWebSocketRetries = 0;
+    };
+    socket.onerror = () => {
+        window.logWebSocketRetries++;
+        console.warn(`[Logs] WebSocket error (attempt ${window.logWebSocketRetries}/3)`);
+    };
+    socket.onclose = () => {
+        if (window.logWebSocketRetries < 3) {
+            setTimeout(window.setupLogWebSocket, 5000);
+        }
+    };
     window.logWebSocket = socket;
 };
 

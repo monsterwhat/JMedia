@@ -9,11 +9,15 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Path("/api/setup")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class SetupApi {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SetupApi.class);
 
     @Inject
     private Controllers.SetupController setupController;
@@ -118,13 +122,15 @@ public class SetupApi {
         }
         try {
             // Start installation in background thread
-            new Thread(() -> {
+            Thread installThread = new Thread(() -> {
                 try {
                     setupController.getImportService().installRequirements(1L); // Use default profile
                 } catch (Exception e) {
-                    // Log error if needed
+                    LOGGER.error("Installation failed: {}", e.getMessage());
                 }
-            }).start();
+            });
+            installThread.setDaemon(true);
+            installThread.start();
             
             return Response.ok(ApiResponse.success("Installation process started")).build();
         } catch (Exception e) {

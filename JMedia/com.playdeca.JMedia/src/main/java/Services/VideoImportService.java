@@ -9,6 +9,8 @@ import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -33,6 +35,9 @@ public class VideoImportService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(VideoImportService.class);
 
+    @PersistenceContext
+    private EntityManager em;
+
     @Inject
     SmartNamingService smartNamingService;
 
@@ -53,6 +58,12 @@ public class VideoImportService {
 
     @Inject
     VideoStateService videoStateService;
+
+    @Inject
+    ThumbnailService thumbnailService;
+
+    @Inject
+    VideoStoryboardService videoStoryboardService;
 
     public static class ScanContext {
         public final Map<String, MediaFile> mediaFileByPath = new HashMap<>();
@@ -328,9 +339,49 @@ public class VideoImportService {
         try {
             Models.SubtitleTrack.deleteAll();
         } catch (Exception ignored) {}
+        try {
+            em.createNativeQuery("DELETE FROM PendingMedia").executeUpdate();
+        } catch (Exception ignored) {}
         Video.deleteAll();
         MediaFile.deleteAll();
         ScanState.deleteAll();
+
+        try {
+            Path thumbnailDir = Paths.get("thumbnails");
+            if (Files.exists(thumbnailDir)) {
+                try (Stream<Path> files = Files.list(thumbnailDir)) {
+                    files.forEach(file -> {
+                        try {
+                            Files.deleteIfExists(file);
+                        } catch (IOException e) {
+                            loggingService.addLog("Warning: Could not delete thumbnail file: " + file.getFileName());
+                        }
+                    });
+                }
+            }
+        } catch (IOException e) {
+            loggingService.addLog("Warning: Could not clear thumbnail directory: " + e.getMessage());
+        }
+
+        try {
+            Path storyboardDir = Paths.get("storyboards");
+            if (Files.exists(storyboardDir)) {
+                try (Stream<Path> files = Files.list(storyboardDir)) {
+                    files.forEach(file -> {
+                        try {
+                            Files.deleteIfExists(file);
+                        } catch (IOException e) {
+                            loggingService.addLog("Warning: Could not delete storyboard file: " + file.getFileName());
+                        }
+                    });
+                }
+            }
+        } catch (IOException e) {
+            loggingService.addLog("Warning: Could not clear storyboard directory: " + e.getMessage());
+        }
+
+        thumbnailService.clearThumbnailCache();
+
         loggingService.addLog("Video database reset completed");
     }
 
@@ -392,23 +443,26 @@ public class VideoImportService {
                 String currentHash = mediaAnalysisService.generateFingerprint(filePathStr);
                 
                 if (currentHash != null && ctx.videoByHash.containsKey(currentHash)) {
-                    Video movedVideo = ctx.videoByHash.get(currentHash);
-                    movedVideo.path = filePathStr;
-                    movedVideo.filename = filename;
-                    movedVideo.lastModified = Files.getLastModifiedTime(filePath).toMillis();
-                    movedVideo.persist();
+                    Video originalVideo = ctx.videoByHash.get(currentHash);
+                    Video movedVideo = Video.findById(originalVideo.id);
+                    if (movedVideo != null) {
+                        movedVideo.path = filePathStr;
+                        movedVideo.filename = filename;
+                        movedVideo.lastModified = Files.getLastModifiedTime(filePath).toMillis();
+                        movedVideo.persist();
                     
-                    MediaFile mf = MediaFile.find("mediaHash", currentHash).firstResult();
-                    if (mf != null) {
-                        mf.path = filePathStr;
-                        mf.lastModified = movedVideo.lastModified;
-                        mf.persist();
+                        MediaFile mf = MediaFile.find("mediaHash", currentHash).firstResult();
+                        if (mf != null) {
+                            mf.path = filePathStr;
+                            mf.lastModified = movedVideo.lastModified;
+                            mf.persist();
+                        }
+                        
+                        if (skippedFiles != null) {
+                            skippedFiles.incrementAndGet();
+                        }
+                        return movedVideo;
                     }
-                    
-                    if (skippedFiles != null) {
-                        skippedFiles.incrementAndGet();
-                    }
-                    return movedVideo;
                 }
 
                 MediaFile mediaFile = new MediaFile();

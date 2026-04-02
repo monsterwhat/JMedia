@@ -48,9 +48,9 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/play/{videoId}")
     @Blocking
-    public Response playVideo(@PathParam("videoId") Long videoId) {
+    public Response playVideo(@PathParam("videoId") Long videoId, @QueryParam("startTime") Double startTime) {
         try {
-            videoController.selectVideo(videoId);
+            videoController.selectVideo(videoId, startTime);
             videoController.togglePlay(); // Ensure playing
             
             // Check if we need to enrich with IntroDB data on-demand

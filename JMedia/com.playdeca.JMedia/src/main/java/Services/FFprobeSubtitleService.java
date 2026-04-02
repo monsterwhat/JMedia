@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
+import Models.Settings;
+
 /**
  * Service for extracting subtitle information using FFprobe and extracting tracks with FFmpeg
  */
@@ -34,6 +36,9 @@ public class FFprobeSubtitleService {
 
     @Inject
     FFmpegDiscoveryService discoveryService;
+
+    @Inject
+    SettingsService settingsService;
     
     // Supported subtitle codecs
     private static final List<String> SUPPORTED_SUBTITLE_CODECS = List.of(
@@ -153,6 +158,10 @@ public class FFprobeSubtitleService {
             throw new IOException("FFmpeg not found");
         }
 
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        Path baseFilePath = Paths.get(track.video.path);
+        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.video.path);
+
         // Using -ss before -i for fast seeking even for subtitles
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
@@ -165,7 +174,7 @@ public class FFprobeSubtitleService {
         }
         
         command.addAll(List.of(
-            "-i", track.video.path,
+            "-i", filePath.toAbsolutePath().toString(),
             "-map", "0:" + track.trackIndex,
             "-f", "webvtt",
             "-"

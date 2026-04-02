@@ -301,25 +301,21 @@ public class VideoAPI {
 
         String filename = videoFile.getName().toLowerCase();
         boolean isMKV = filename.endsWith(".mkv");
-        boolean isIOS = transcodingService.isIOSClient(userAgent);
 
-        if (isMKV) {
-            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent);
+        // Ensure we have metadata to make an informed transcoding decision
+        if (video.videoCodec == null || video.audioCodec == null) {
+            videoService.probeVideoMetadata(video);
         }
 
-        if (isIOS) {
-            if (video.videoCodec == null || video.audioCodec == null) {
-                videoService.probeVideoMetadata(video);
-            }
-            if (transcodingService.isIOSTranscodeNeeded(video)) {
-                return streamRemuxedMKV(video, videoFile, startSeconds, userAgent);
-            }
+        // Transcode if it's an MKV OR if the codec is not natively web-friendly (non-H.264)
+        if (isMKV || transcodingService.isTranscodeNeededForWeb(video)) {
+            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader);
         }
 
         return streamDirectFile(videoFile, rangeHeader);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent) {
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader) {
         StreamingOutput streamingOutput = output -> {
             try {
                 transcodingService.streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output);
@@ -330,10 +326,19 @@ public class VideoAPI {
             }
         };
 
-        return Response.ok(streamingOutput)
+        Response.ResponseBuilder responseBuilder = Response.ok(streamingOutput)
                 .header("Content-Type", "video/mp4")
-                .header("Cache-Control", "no-cache")
-                .build();
+                .header("Accept-Ranges", "bytes")
+                .header("Cache-Control", "no-cache");
+
+        // If client sends a Range probe (common in iOS/Safari/Firefox), return 206 Partial Content.
+        // Safari requires this to confirm range support.
+        if (rangeHeader != null && rangeHeader.contains("bytes=0-1")) {
+            responseBuilder.status(Response.Status.PARTIAL_CONTENT);
+            responseBuilder.header("Content-Range", "bytes 0-1/*");
+        }
+        // For all other requests (even with Range: bytes=0-), return 200 OK to avoid confusing browsers with dummy ranges.
+        return responseBuilder.build();
     }
 
     private Response streamDirectFile(File videoFile, String rangeHeader) {
@@ -343,16 +348,26 @@ public class VideoAPI {
 
         if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
             try {
-                String[] parts = rangeHeader.replace("bytes=", "").split("-");
-                start = Long.parseLong(parts[0]);
-
-                if (parts.length > 1 && !parts[1].isEmpty()) {
-                    end = Long.parseLong(parts[1]);
-                } else {
+                String rangeValue = rangeHeader.substring(6).trim();
+                if (rangeValue.startsWith("-")) {
+                    // Suffix range: bytes=-500 (last 500 bytes)
+                    long suffix = Long.parseLong(rangeValue.substring(1));
+                    start = Math.max(0, fileLength - suffix);
                     end = fileLength - 1;
+                } else {
+                    String[] parts = rangeValue.split("-", -1);
+                    start = Long.parseLong(parts[0].trim());
+                    if (parts.length > 1 && !parts[1].trim().isEmpty()) {
+                        end = Long.parseLong(parts[1].trim());
+                    } else {
+                        end = fileLength - 1;
+                    }
                 }
 
-                if (end >= fileLength) {
+                // Validation
+                if (end >= fileLength) end = fileLength - 1;
+                if (start > end) {
+                    start = 0;
                     end = fileLength - 1;
                 }
             } catch (Exception e) {

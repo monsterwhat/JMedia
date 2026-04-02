@@ -13,6 +13,7 @@ import Services.UserInteractionService;
 import Services.WhisperService;
 import Services.SubtitleDownloadService;
 import Services.FFprobeSubtitleService;
+import Services.SettingsService;
 
 import java.io.IOException;
 import java.nio.file.Files; 
@@ -44,6 +45,18 @@ public class SubtitleAPI {
     
     @Inject
     private SubtitleDownloadService downloadService;
+
+    @Inject
+    private Services.VideoService videoService;
+
+    @Inject
+    private Services.SettingsService settingsService;
+     
+    @Inject
+    private FFprobeSubtitleService ffprobeSubtitleService;
+    
+    @Inject
+    private Services.EnhancedSubtitleMatcher subtitleMatcher;
     
     // ========== SUBTITLE ENDPOINTS ==========
     
@@ -181,13 +194,40 @@ public class SubtitleAPI {
                     .entity(Map.of("error", "Failed to add local subtitle: " + errorMsg)).build();
         }
     }
-    
+      
     @GET
     @Path("/{videoId}")
     public Response getSubtitleTracks(@PathParam("videoId") Long videoId,
                                        @HeaderParam("X-User-ID") Long userId) {
         try {
             List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
+            
+            // If no tracks found, attempt on-demand discovery for this specific video
+            if (tracks.isEmpty()) {
+                Video video = Video.findById(videoId);
+                if (video != null && video.path != null) {
+                    LOGGER.info("No subtitle tracks found for video {}, attempting on-demand discovery for embedded/external tracks...", videoId);
+                    java.nio.file.Path videoPath = java.nio.file.Paths.get(video.path);
+                    if (!videoPath.isAbsolute()) {
+                        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                        videoPath = java.nio.file.Paths.get(videoLibraryPath, video.path);
+                    }
+                    
+                    if (java.nio.file.Files.exists(videoPath)) {
+                        List<SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(videoPath, video);
+                        if (discovered != null && !discovered.isEmpty()) {
+                            // Ensure all tracks are properly initialized
+                            for (SubtitleTrack track : discovered) {
+                                track.video = video;
+                                
+                            }
+                            videoService.updateSubtitleTracks(videoId, discovered);
+                            tracks = userInteractionService.getSubtitleTracks(videoId);
+                            LOGGER.info("On-demand discovery found {} tracks for video {}", tracks.size(), videoId);
+                        }
+                    }
+                }
+            }
             
             // Apply intelligent preference sorting
             tracks = preferenceEngine.sortTracksByPreference(tracks, userId);
@@ -220,10 +260,7 @@ public class SubtitleAPI {
                     .build();
         }
     }
-    
-    @Inject
-    FFprobeSubtitleService ffprobeSubtitleService;
-
+     
     @GET
     @Path("/track/{trackId}")
     @Produces("text/vtt")

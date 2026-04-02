@@ -70,6 +70,10 @@ public class ThumbnailService {
     
     private final ConcurrentHashMap<String, ShowMetadata> showMetadataCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> episodeImageCache = new ConcurrentHashMap<>();
+
+    public void clearThumbnailCache() {
+        thumbnailCache.clear();
+    }
     
     @Transactional
     public String generateThumbnail(Long videoId, String videoPath) {

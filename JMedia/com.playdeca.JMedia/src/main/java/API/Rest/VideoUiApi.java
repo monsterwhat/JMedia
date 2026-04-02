@@ -37,6 +37,9 @@ public class VideoUiApi {
     VideoService videoService;
 
     @Inject
+    Services.TranscodingService transcodingService;
+
+    @Inject
     private VideoHistoryService videoHistoryService;
 
     @Inject
@@ -140,15 +143,17 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("sortBy") @DefaultValue("dateAdded") String sortBy,
-            @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection) {
+            @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
+            @QueryParam("search") String search) {
 
-        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection);
+        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
         return movieListContent
                 .data("movies", paginatedVideos.videos)
                 .data("currentPage", page)
                 .data("limit", limit)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
+                .data("search", search)
                 .data("totalItems", paginatedVideos.totalCount)
                 .data("totalPages", (int) Math.ceil((double) paginatedVideos.totalCount / limit))
                 .data("pageNumbers", getPaginationNumbers(page, (int) Math.ceil((double) paginatedVideos.totalCount / limit)))
@@ -163,13 +168,19 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("sortBy") @DefaultValue("seriesTitle") String sortBy,
-            @QueryParam("sortDirection") @DefaultValue("asc") String sortDirection) {
+            @QueryParam("sortDirection") @DefaultValue("asc") String sortDirection,
+            @QueryParam("search") String search) {
         
-        VideoService.PaginatedSeries paginatedSeries = videoService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection);
+        VideoService.PaginatedSeries paginatedSeries = videoService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection, search);
         
         if (paginatedSeries.titles.isEmpty()) {
-            return "<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>" +
-                   "<div class='carousel-empty-state'><i class='pi pi-desktop'></i><h3>No shows found</h3><p>Try scanning your library or check if your episodes have series titles.</p></div>";
+            String emptyState = "<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>";
+            if (search != null && !search.isEmpty()) {
+                emptyState += "<div class='carousel-empty-state'><i class='pi pi-search'></i><h3>No results for \"" + escapeHtml(search) + "\"</h3><p>Try a different search term.</p></div>";
+            } else {
+                emptyState += "<div class='carousel-empty-state'><i class='pi pi-desktop'></i><h3>No shows found</h3><p>Try scanning your library or check if your episodes have series titles.</p></div>";
+            }
+            return emptyState;
         }
 
         int totalItems = (int) paginatedSeries.totalCount;
@@ -205,6 +216,7 @@ public class VideoUiApi {
                 .data("limit", limit)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
+                .data("search", search)
                 .data("totalItems", totalItems)
                 .data("totalPages", totalPages)
                 .render();
@@ -308,22 +320,12 @@ public class VideoUiApi {
     @GET
     @Path("/history-fragment")
     @Blocking
-    public String getHistoryFragment() {
-        List<Models.VideoHistory> history = Models.VideoHistory.list("order by playedAt desc");
-        
-        java.util.Set<String> seenPaths = new java.util.HashSet<>();
-        List<Models.Video> videos = new ArrayList<>();
-        
-        for (Models.VideoHistory h : history) {
-            if (h.mediaFile != null && seenPaths.add(h.mediaFile.path)) {
-                Models.Video v = Models.Video.find("path", h.mediaFile.path).firstResult();
-                if (v != null) videos.add(v);
-            }
-            if (videos.size() >= 50) break;
-        }
+    public String getHistoryFragment(@QueryParam("search") String search) {
+        List<Models.Video> videos = videoService.findHistory(search, 50);
         
         return videoHistoryFragment
                 .data("videos", videos)
+                .data("search", search)
                 .data("threshold", 0.95)
                 .render();
     }
@@ -331,10 +333,11 @@ public class VideoUiApi {
     @GET
     @Path("/watchlist-fragment")
     @Blocking
-    public String getWatchlistFragment() {
-        List<Models.Video> watchlist = Models.Video.list("favorite", true);
+    public String getWatchlistFragment(@QueryParam("search") String search) {
+        List<Models.Video> watchlist = videoService.findWatchlist(search);
         return videoWatchlistFragment
                 .data("videos", watchlist)
+                .data("search", search)
                 .render();
     }
 
@@ -372,12 +375,22 @@ public class VideoUiApi {
             resumeTime = item.watchProgress * (item.getDurationSeconds());
         }
 
+        // If the video is nearly finished (over 95%), start from the beginning
+        double durationSeconds = item.getDurationSeconds();
+        if (durationSeconds > 0 && (resumeTime / durationSeconds) >= 0.95) {
+            resumeTime = 0;
+        }
+
         Models.Video nextEpisode = videoService.findNextEpisode(item);
         Models.Video prevEpisode = videoService.findPreviousEpisode(item);
+
+        boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
+        boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item);
 
         return playbackFragment
                 .data("item", item)
                 .data("resumeTime", resumeTime)
+                .data("needsTranscoding", needsTranscoding)
                 .data("nextEpisodeId", nextEpisode != null ? nextEpisode.id : null)
                 .data("prevEpisodeId", prevEpisode != null ? prevEpisode.id : null)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
