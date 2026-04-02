@@ -85,17 +85,27 @@ public class SettingsApi {
     }
 
     private boolean checkAdmin(HttpHeaders headers) {
+        Models.User user = getCurrentUser(headers);
+        return user != null && "admin".equals(user.getGroupName());
+    }
+
+    private Models.User getCurrentUser(HttpHeaders headers) {
         String sessionId = null;
         if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
             sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
         }
-        
-        if (sessionId == null) return false;
+        if (sessionId == null) return null;
         Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) return false;
-        
-        Models.User user = Models.User.find("username", session.username).firstResult();
-        return user != null && "admin".equals(user.getGroupName());
+        if (session == null || !session.active) return null;
+        return Models.User.find("username", session.username).firstResult();
+    }
+
+    private boolean checkProfileOwnerOrAdmin(HttpHeaders headers, Long profileId) {
+        Models.User user = getCurrentUser(headers);
+        if (user == null) return false;
+        if ("admin".equals(user.getGroupName())) return true;
+        Models.Profile profile = profileService.findById(profileId);
+        return profile != null && profile.userId != null && profile.userId.equals(user.id);
     }
 
     @Inject
@@ -136,7 +146,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/sidebar-position")
     public Response updateSidebarPosition(@PathParam("profileId") Long profileId, Map<String, String> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!checkProfileOwnerOrAdmin(headers, profileId)) return Response.status(Response.Status.FORBIDDEN).build();
         String position = data.get("position");
         if (position == null || (!position.equals("left") && !position.equals("right"))) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid position")).build();
@@ -148,7 +158,7 @@ public class SettingsApi {
     @GET
     @Path("/{profileId}/sidebar-position")
     public Response getSidebarPosition(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!checkProfileOwnerOrAdmin(headers, profileId)) return Response.status(Response.Status.FORBIDDEN).build();
         Models.Profile profile = profileService.findById(profileId);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Profile not found")).build();

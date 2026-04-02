@@ -217,6 +217,23 @@ public class SmartNamingService {
             }
         }
 
+        // Detect if we're in a flat structure (episodes directly in show folder) vs nested (season subfolders)
+        // Flat: TV Shows/Archer/episode.mp4 -> pathDepth=3, showFolderIndex=1, file at index 2
+        // Nested: TV Shows/Archer/Season 1/episode.mp4 -> pathDepth=4, showFolderIndex=1, seasonFolder at 2, file at 3
+        if (analysis.libraryRootIndex != -1 && pathSegments.length > analysis.libraryRootIndex + 1) {
+            int showIdx = analysis.libraryRootIndex + 1;
+            String showFolder = pathSegments[showIdx];
+            
+            // Check if show folder looks like a show name (not a season/quality folder)
+            boolean showFolderLooksLikeShow = !isSeasonFolderName(showFolder) && 
+                !showFolder.matches("(?i).*\\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v)$");
+            
+            if (showFolderLooksLikeShow && pathSegments.length == showIdx + 2) {
+                // Only 2 levels after library root: likely flat structure (e.g., TV Shows/Archer/video.mp4)
+                analysis.isFlatStructure = true;
+            }
+        }
+
         if (analysis.directoryTypeHint == null) {
             if (fullPathLower.contains("/tv shows/") || fullPathLower.contains("/tv-shows/") || 
                 fullPathLower.contains("/tv_shows/") || fullPathLower.contains("/tvseries/")) {
@@ -232,11 +249,15 @@ public class SmartNamingService {
                 analysis.showFolder = pathSegments[showIdx];
                 
                 int seasonIdx = showIdx + 1;
-                if (seasonIdx < pathSegments.length - 1) {
+                if (seasonIdx < pathSegments.length) {
                     String potentialSeason = pathSegments[seasonIdx];
-                    if (isSeasonFolderName(potentialSeason)) {
+                    boolean looksLikeFile = potentialSeason.matches("(?i).*\\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg)$");
+                    if (!looksLikeFile && isSeasonFolderName(potentialSeason)) {
                         analysis.seasonFolderIndex = seasonIdx;
                         analysis.seasonFolder = potentialSeason;
+                    } else if (looksLikeFile || seasonIdx >= pathSegments.length - 1) {
+                        analysis.seasonFolderIndex = -1;
+                        analysis.seasonFolder = null;
                     }
                 }
             }
@@ -376,6 +397,12 @@ public class SmartNamingService {
             detection.detectionMethod = "PathStructureDefault";
             detection.confidence = 0.5;
         }
+        
+        if (detection.season == null && pathAnalysis.isFlatStructure) {
+            detection.season = 1;
+            detection.detectionMethod = "FlatStructureDefault";
+            detection.confidence = 0.6;
+        }
 
         return detection;
     }
@@ -476,17 +503,19 @@ public class SmartNamingService {
             Path path = Paths.get(relativePath);
             int showFolderIndex = pathAnalysis.libraryRootIndex + 1;
             
-            if (showFolderIndex < path.getNameCount() - 1) {
+            if (showFolderIndex < path.getNameCount()) {
                 String folderName = path.getName(showFolderIndex).toString();
                 
                 if (isSeasonFolderName(folderName)) {
-                    int grandParentIndex = showFolderIndex + 1;
-                    if (grandParentIndex < path.getNameCount() - 1) {
-                        String grandParentName = path.getName(grandParentIndex).toString();
-                        if (!isSeasonFolderName(grandParentName)) {
-                            String gpShowName = cleanShowName(grandParentName);
-                            if (!gpShowName.equals("Unknown Show")) {
-                                return gpShowName;
+                    if (showFolderIndex + 1 < path.getNameCount()) {
+                        int grandParentIndex = showFolderIndex + 1;
+                        if (grandParentIndex < path.getNameCount() - 1) {
+                            String grandParentName = path.getName(grandParentIndex).toString();
+                            if (!isSeasonFolderName(grandParentName)) {
+                                String gpShowName = cleanShowName(grandParentName);
+                                if (!gpShowName.equals("Unknown Show")) {
+                                    return gpShowName;
+                                }
                             }
                         }
                     }
@@ -579,7 +608,9 @@ public class SmartNamingService {
         if (name.matches("^\\d{1,3}$")) {
             try {
                 int num = Integer.parseInt(name);
-                return num >= 1 && num <= 999;
+                if (num >= 1 && num <= 99) {
+                    return true;
+                }
             } catch (NumberFormatException e) {
                 return false;
             }
@@ -918,6 +949,7 @@ public class SmartNamingService {
         public String seasonFolder;
         public int showFolderIndex = -1;
         public int seasonFolderIndex = -1;
+        public boolean isFlatStructure;
     }
     
     private static class TechnicalAnalysis {

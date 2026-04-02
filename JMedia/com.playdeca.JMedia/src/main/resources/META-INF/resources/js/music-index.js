@@ -107,6 +107,10 @@ window.loadMobilePlaylistSongs = function(id) {
     hideAllSearchContainers();
     showSearchContainer('mobileMusicSearchContainer');
 
+    // Store state for back navigation and reset view
+    window.mobileSongListState.playlistId = id;
+    window.mobileSongListState.view = 'list';
+
     if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${window.globalActiveProfileId}/${id}`, { target: '#mobileSongList', swap: 'innerHTML' });
 };
 
@@ -287,3 +291,207 @@ window.addToPlaylist = function(playlistId, songId) {
             }
         });
 };
+
+// Store previous state for back navigation
+window.mobileSongListState = {
+    playlistId: 0,
+    search: '',
+    page: 1,
+    view: 'list', // 'list', 'detail', 'artist', 'album'
+    albumName: null
+};
+
+// Show song detail when clicking on cover image
+window.showSongDetail = function(songId) {
+    const songList = document.getElementById('mobileSongList');
+    if (!songList) return;
+
+    // Store current state for back button
+    window.mobileSongListState.search = document.getElementById('musicSearchInput')?.value || '';
+    window.mobileSongListState.view = 'detail';
+    
+    // Show loading
+    songList.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
+
+    // Fetch song detail
+    if (window.htmx) {
+        window.htmx.ajax('GET', `/api/music/ui/song-detail/${window.globalActiveProfileId}/${songId}`, {
+            target: '#mobileSongList',
+            swap: 'innerHTML'
+        });
+    }
+};
+
+// Go back to song list
+window.showMobileSongList = function() {
+    const playlistId = window.mobileSongListState.playlistId || 0;
+    const search = window.mobileSongListState.search || '';
+    
+    // Reset view state
+    window.mobileSongListState.view = 'list';
+    
+    if (window.htmx) {
+        let url = `/api/music/ui/mobile-tbody/${window.globalActiveProfileId}/${playlistId}`;
+        if (search) url += `?search=${encodeURIComponent(search)}`;
+        window.htmx.ajax('GET', url, { target: '#mobileSongList', swap: 'innerHTML' });
+    }
+};
+
+// Play a song from the detail view
+window.playSongFromDetail = function(songId) {
+    // Use existing play functionality - try to find it
+    if (window.PlaybackController && window.PlaybackController.playSong) {
+        window.PlaybackController.playSong(songId);
+    } else if (window.playSong) {
+        window.playSong(songId);
+    } else {
+        // Fallback: fetch directly using the correct API
+        fetch(`/api/music/playback/select/${window.globalActiveProfileId}/${songId}`, { method: 'POST' })
+            .then(res => {
+                if (res.ok && window.Toast) {
+                    window.Toast.success('Playing song');
+                }
+            });
+    }
+};
+
+// Fetch metadata for a song from the detail view
+window.fetchSongMetadata = function(songId) {
+    const btn = document.querySelector('.song-detail-fetch-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="pi pi-spin pi-spinner"></i> Fetching...';
+    }
+    
+    fetch(`/api/metadata/enrich/${songId}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (window.Toast) {
+                if (data.success || data.status === 'success') {
+                    window.Toast.success('Metadata updated');
+                } else {
+                    window.Toast.info(data.message || 'No metadata found');
+                }
+            }
+            // Refresh the detail view
+            window.showSongDetail(songId);
+        })
+        .catch(err => {
+            if (window.Toast) {
+                window.Toast.error('Failed to fetch metadata');
+            }
+        })
+        .finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="pi pi-refresh"></i> Fetch Metadata';
+            }
+        });
+};
+
+// Show artist page
+window.showArtistPage = function(artistName) {
+    const songList = document.getElementById('mobileSongList');
+    if (!songList || !artistName) return;
+
+    // Store state for back button
+    window.mobileSongListState.search = document.getElementById('musicSearchInput')?.value || '';
+    window.mobileSongListState.view = 'artist';
+    
+    // Show loading
+    songList.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
+
+    // Fetch artist page
+    if (window.htmx) {
+        const encodedArtist = encodeURIComponent(artistName);
+        window.htmx.ajax('GET', `/api/music/ui/album-artist/${window.globalActiveProfileId}/${encodedArtist}`, {
+            target: '#mobileSongList',
+            swap: 'innerHTML'
+        });
+    }
+};
+
+// Show album page
+window.showAlbumPage = function(albumName) {
+    const songList = document.getElementById('mobileSongList');
+    if (!songList || !albumName) return;
+
+    // Store state for back button
+    window.mobileSongListState.search = document.getElementById('musicSearchInput')?.value || '';
+    window.mobileSongListState.view = 'album';
+    window.mobileSongListState.albumName = albumName;
+    
+    // Show loading
+    songList.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
+
+    // Fetch album page
+    if (window.htmx) {
+        const encodedAlbum = encodeURIComponent(albumName);
+        window.htmx.ajax('GET', `/api/music/ui/album/${window.globalActiveProfileId}/${encodedAlbum}`, {
+            target: '#mobileSongList',
+            swap: 'innerHTML'
+        });
+    }
+};
+
+// Play entire album
+window.playAlbum = function(firstSongId) {
+    if (!firstSongId) return;
+    // Play first song - will trigger queue population
+    fetch(`/api/music/playback/select/${window.globalActiveProfileId}/${firstSongId}`, { method: 'POST' })
+        .then(res => {
+            if (res.ok && window.Toast) {
+                window.Toast.success('Playing album');
+            }
+        });
+};
+
+// Shuffle album
+window.shuffleAlbum = function(firstSongId) {
+    // For now, just play the first song - shuffle functionality would need backend support
+    window.playAlbum(firstSongId);
+};
+
+// Go back from album - return to artist page
+window.goBackFromAlbum = function() {
+    const artist = window.albumBackArtist;
+    if (artist) {
+        window.showArtistPage(artist);
+    } else {
+        window.showMobileSongList();
+    }
+};
+
+// Set up cover image click handler
+document.addEventListener('DOMContentLoaded', function() {
+    const coverContainer = document.getElementById('songCoverImageContainer');
+    if (coverContainer) {
+        coverContainer.style.cursor = 'pointer';
+        coverContainer.title = 'Click to view song details';
+        coverContainer.addEventListener('click', function(e) {
+            // Only trigger if there's a current song playing
+            const songTitleEl = document.getElementById('songTitle');
+            if (songTitleEl && songTitleEl.textContent && songTitleEl.textContent !== 'Loading...') {
+                // Get current song ID from StateManager
+                let currentSongId = null;
+                if (window.StateManager && typeof StateManager.getProperty === 'function') {
+                    currentSongId = window.StateManager.getProperty('currentSongId');
+                } else if (window.currentSongId) {
+                    currentSongId = window.currentSongId;
+                }
+                
+                if (currentSongId) {
+                    window.showSongDetail(currentSongId);
+                }
+            }
+        });
+    }
+    });
+    
+    // Get artist name from player and show artist page
+    window.showArtistFromPlayer = function() {
+        const artistEl = document.getElementById('songArtist');
+        if (artistEl && artistEl.textContent && artistEl.textContent !== 'Unknown Artist') {
+            window.showArtistPage(artistEl.textContent);
+        }
+    };

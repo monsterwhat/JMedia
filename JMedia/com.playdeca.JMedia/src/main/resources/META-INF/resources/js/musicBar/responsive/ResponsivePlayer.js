@@ -519,6 +519,14 @@
                 this.handleStateChange(e.detail.oldState, e.detail.newState);
             });
             
+            // Listen for audio metadata loaded (song changed in AudioEngine)
+            window.addEventListener('audioMetadataLoaded', (e) => {
+                const state = window.StateManager?.getState();
+                if (state && state.currentSongId) {
+                    this.fetchCurrentSongData(state.currentSongId);
+                }
+            });
+            
             // Listen for device capability changes
             window.addEventListener('deviceCapabilitiesDetected', (e) => {
                 this.adaptToDevice(e.detail);
@@ -547,6 +555,14 @@
                     this.state.playerVisible = parsedState.playerVisible !== false;
                 } catch (e) {
                     window.Helpers.log('ResponsivePlayer: Failed to load saved state:', e);
+                }
+            }
+            
+            // Fetch current song data if a song is already playing (no state change event fires on initial load)
+            if (window.StateManager) {
+                const currentState = window.StateManager.getState();
+                if (currentState && currentState.currentSongId) {
+                    this.fetchCurrentSongData(currentState.currentSongId);
                 }
             }
             
@@ -892,7 +908,9 @@
         handleStateChange: function(oldState, newState) {
             // React to relevant state changes
             if (oldState.currentSongId !== newState.currentSongId) {
-                // Song changed - update cover image
+                // Song changed - fetch full song data including artworkBase64
+                this.fetchCurrentSongData(newState.currentSongId);
+                // Update cover image
                 this.updateCoverImage(newState);
             }
             
@@ -900,6 +918,52 @@
                 // Playback state changed
                 this.updatePlaybackState(newState.playing);
             }
+        },
+
+        /**
+         * Fetch current song data including artworkBase64
+         */
+        fetchCurrentSongData: function(songId) {
+            if (!songId) {
+                window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData: No songId provided');
+                return;
+            }
+            
+            window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData called for songId:', songId);
+            
+            const profileId = window.globalActiveProfileId || '1';
+            fetch(`/api/music/playback/current/${profileId}`, { credentials: 'same-origin' })
+                .then(r => {
+                    window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData response status:', r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData response data:', data);
+                    if (data && data.data) {
+                        // Store full song data including artworkBase64 in musicState
+                        if (!window.musicState) {
+                            window.musicState = window.StateManager.getState();
+                        }
+                        window.musicState.currentSongData = data.data;
+                        window.Helpers.log('[ResponsivePlayer] Stored currentSongData, artworkBase64:', data.data.artworkBase64 ? 'present' : 'missing');
+                        // Update cover image with new data
+                        this.updateCoverImage(window.musicState);
+                        
+                        // Update media session metadata
+                        if (window.updateMediaSessionMetadata && data.data) {
+                            let artworkUrl = null;
+                            if (data.data.artworkBase64) {
+                                artworkUrl = `data:image/jpeg;base64,${data.data.artworkBase64}`;
+                            }
+                            window.updateMediaSessionMetadata(
+                                data.data.title,
+                                data.data.artist,
+                                artworkUrl
+                            );
+                        }
+                    }
+                })
+                .catch(err => console.error('[ResponsivePlayer] Failed to fetch song data:', err));
         },
         
         /**
@@ -920,25 +984,12 @@
                     this.elements.coverFallback.style.display = 'none';
                 }
             } else {
-                // Fallback: try to load via ImageManager or show fallback
-                if (window.ImageManager && window.ImageManager.loadCoverImage) {
-                    window.ImageManager.loadCoverImage(state.currentSongId);
+                // No artwork available - show fallback image
+                if (this.elements.coverImage) {
+                    this.elements.coverImage.style.display = 'none';
                 }
-                if (state.currentSongId) {
-                    if (this.elements.coverImage) {
-                        this.elements.coverImage.style.display = 'block';
-                        this.elements.coverImage.src = `/api/music/cover/${state.currentSongId}`;
-                    }
-                    if (this.elements.coverFallback) {
-                        this.elements.coverFallback.style.display = 'none';
-                    }
-                } else {
-                    if (this.elements.coverImage) {
-                        this.elements.coverImage.style.display = 'none';
-                    }
-                    if (this.elements.coverFallback) {
-                        this.elements.coverFallback.style.display = 'block';
-                    }
+                if (this.elements.coverFallback) {
+                    this.elements.coverFallback.style.display = 'block';
                 }
             }
         },

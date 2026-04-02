@@ -1,0 +1,64 @@
+<div class="album-page-view">
+    <div class="album-page-header">
+        <button class="song-detail-back-btn" onclick="window.goBackFromAlbum()">
+            <i class="pi pi-arrow-left"></i> Back
+        </button>
+    </div>
+
+    <div class="album-page-hero">
+        <div class="album-page-artwork">
+            <img src="{artworkUrl.apply(albumArtwork)}" alt="{albumName}">
+        </div>
+        <div class="album-page-info">
+            <h1 class="album-page-name">{albumName}</h1>
+            <p class="album-page-artist" onclick="window.showArtistPage(window.albumBackArtist)">{artistName}</p>
+            <p class="album-page-meta">{year} &middot; {songCount} songs &middot; {totalDuration}</p>
+        </div>
+    </div>
+
+    <div class="album-page-actions">
+        <button class="album-page-play-btn" onclick="window.playAlbum({firstSongId})">
+            <i class="pi pi-play"></i> Play All
+        </button>
+        <button class="album-page-shuffle-btn" onclick="window.shuffleAlbum({firstSongId})">
+            <i class="pi pi-random"></i> Shuffle
+        </button>
+    </div>
+
+    {#if songs && songs.size > 0}
+    <div class="album-page-songs">
+        {#for s in songs}
+        <div class="album-page-song-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
+            <div class="album-page-song-track">{#if s.trackNumber > 0}{s.trackNumber}{#else}--{/if}</div>
+            <div class="album-page-song-title">{s.title ?: "Unknown"}</div>
+            <div class="album-page-song-duration">{formatDuration.apply(s.durationSeconds)}</div>
+        </div>
+        {/for}
+    </div>
+    {/if}
+
+    {#if recommendedArtists && recommendedArtists.size > 0}
+    <div class="album-page-recommended">
+        <h2 class="album-page-section-title">
+            <i class="pi pi-users"></i> Artists You May Also Like
+        </h2>
+        <div class="album-page-recommended-list">
+            {#for artist in recommendedArtists}
+            <div class="album-page-recommended-item" onclick="window.showArtistPage('{artist.name}')">
+                <div class="album-page-recommended-artwork">
+                    <img src="{artworkUrl.apply(artist.artwork)}" loading="lazy" alt="{artist.name}">
+                </div>
+                <div class="album-page-recommended-info">
+                    <div class="album-page-recommended-name">{artist.name}</div>
+                    <div class="album-page-recommended-count">{artist.songCount} songs</div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+</div>
+
+<script>
+    window.albumBackArtist = "{artistName}";
+</script>

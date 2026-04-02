@@ -75,14 +75,32 @@ public class StreamAPI {
 
             long len = file.length(), start = 0, end = len - 1;
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                String[] parts = rangeHeader.replace("bytes=", "").split("-");
                 try {
-                    start = Long.parseLong(parts[0]);
-                    if (parts.length > 1 && !parts[1].isEmpty()) {
-                        end = Long.parseLong(parts[1]);
+                    String rangeValue = rangeHeader.substring(6).trim();
+                    if (rangeValue.startsWith("-")) {
+                        // Suffix range: bytes=-500 (last 500 bytes)
+                        long suffix = Long.parseLong(rangeValue.substring(1));
+                        start = Math.max(0, len - suffix);
+                        end = len - 1;
+                    } else {
+                        String[] parts = rangeValue.split("-", -1);
+                        start = Long.parseLong(parts[0].trim());
+                        if (parts.length > 1 && !parts[1].trim().isEmpty()) {
+                            end = Long.parseLong(parts[1].trim());
+                        } else {
+                            end = len - 1;
+                        }
                     }
-                } catch (NumberFormatException e) {
+                    
+                    if (end >= len) end = len - 1;
+                    if (start > end) {
+                        start = 0;
+                        end = len - 1;
+                    }
+                } catch (Exception e) {
                     LOGGER.warning("Invalid Range header: " + rangeHeader);
+                    start = 0;
+                    end = len - 1;
                 }
             }
 
@@ -121,12 +139,16 @@ public class StreamAPI {
             };
 
             LOGGER.info("Streaming response prepared: bytes=" + start + "-" + end + "/" + len);
-            return Response.status(rangeHeader != null ? 206 : 200)
+            Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? 206 : 200)
                     .header("Accept-Ranges", "bytes")
-                    .header("Content-Range", "bytes " + start + "-" + end + "/" + len)
                     .header("Cache-Control", "public,max-age=3600")
-                    .entity(stream)
-                    .build();
+                    .entity(stream);
+            
+            if (rangeHeader != null) {
+                responseBuilder.header("Content-Range", "bytes " + start + "-" + end + "/" + len);
+            }
+            
+            return responseBuilder.build();
 
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Error streaming music file", e);

@@ -14,6 +14,7 @@
      data-start-time="{resumeTime}"
      data-next-id="{nextEpisodeId}"
      data-prev-id="{prevEpisodeId}"
+     data-needs-transcode="{needsTranscoding}"
      data-intro-start="{item.introStart ?: 0}"
      data-intro-end="{item.introEnd ?: 0}"
      data-outro-start="{item.outroStart ?: 0}"
@@ -23,7 +24,6 @@
     
     <div class="video-wrapper">
         <video id="videoElement" crossorigin="anonymous" playsinline autoplay>
-            <source src="/api/video/stream/{item.id}" type="video/mp4">
         </video>
     </div>
 </div>

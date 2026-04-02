@@ -210,16 +210,11 @@ window.revokeSession = async function(sessionId) {
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[Sessions] DOM ready, setting up refresh button');
-    
     const refreshBtn = document.getElementById('refreshSessionsBtn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
-            console.log('[Sessions] Refresh button clicked');
             window.loadSessions();
         });
-    } else {
-        console.warn('[Sessions] Refresh button not found');
     }
 });
 

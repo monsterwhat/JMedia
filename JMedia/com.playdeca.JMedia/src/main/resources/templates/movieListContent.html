@@ -5,11 +5,29 @@
     </div>
 
     <div class="library-actions is-flex is-align-items-center">
+        <div class="field has-addons mr-5 mb-0" style="width: 300px;">
+            <div class="control is-expanded has-icons-left">
+                <input class="input is-small is-rounded is-dark" type="text" placeholder="Search movies..." 
+                       id="videoSearchInput" value="{search ?: ''}" 
+                       oninput="window.handleVideoSearch('movies', this.value)">
+                <span class="icon is-small is-left">
+                    <i class="pi pi-search"></i>
+                </span>
+            </div>
+            {#if search}
+            <div class="control">
+                <button class="button is-small is-info is-rounded" onclick="window.clearVideoSearch('movies')">
+                    Clear
+                </button>
+            </div>
+            {/if}
+        </div>
+
         <div class="sort-selector mr-4">
             <span class="mr-2 has-text-grey-light is-size-7 is-uppercase has-text-weight-bold">Sort By:</span>
             <div class="select is-small is-rounded">
                 <select name="sort" 
-                        onchange="const dir = this.options[this.selectedIndex].dataset.dir; window.switchSection('movies', \{page: 1, limit: {limit}, sortBy: this.value, sortDirection: dir\});">
+                        onchange="const dir = this.options[this.selectedIndex].dataset.dir; window.switchSection('movies', \{page: 1, limit: {limit}, sortBy: this.value, sortDirection: dir, search: '{search ?: ''}'\});">
                     <option value="dateAdded" data-dir="desc" {#if sortBy == 'dateAdded' && sortDirection == 'desc'}selected{/if}>Recently Added</option>
                     <option value="dateAdded" data-dir="asc" {#if sortBy == 'dateAdded' && sortDirection == 'asc'}selected{/if}>Oldest Added</option>
                     <option value="lastWatched" data-dir="desc" {#if sortBy == 'lastWatched'}selected{/if}>Recently Played</option>
@@ -24,9 +42,15 @@
 <div id="movieList">
     {#if movies.empty}
         <div class="carousel-empty-state">
-            <i class="pi pi-video"></i>
-            <h3>No movies found</h3>
-            <p>Try scanning your library</p>
+            {#if search}
+                <i class="pi pi-search"></i>
+                <h3>No movies found for "{search}"</h3>
+                <p>Try a different search term</p>
+            {#else}
+                <i class="pi pi-video"></i>
+                <h3>No movies found</h3>
+                <p>Try scanning your library</p>
+            {/if}
         </div>
     {#else}
         <div class="standard-grid">
@@ -53,7 +77,7 @@
             <div class="is-flex is-align-items-center is-justify-content-center">
                 <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
                    href="javascript:void(0)"
-                   onclick="window.switchSection('movies', \{page: {currentPage - 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}'\})"
+                   onclick="window.switchSection('movies', \{page: {currentPage - 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}', search: '{search ?: ''}'\})"
                    {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     <i class="pi pi-chevron-left"></i> Previous
                 </a>
@@ -64,7 +88,7 @@
 
                 <a class="pagination-btn {#if currentPage == totalPages}is-disabled{/if}"
                    href="javascript:void(0)"
-                   onclick="window.switchSection('movies', \{page: {currentPage + 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}'\})"
+                   onclick="window.switchSection('movies', \{page: {currentPage + 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}', search: '{search ?: ''}'\})"
                    {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
                     Next <i class="pi pi-chevron-right"></i>
                 </a>

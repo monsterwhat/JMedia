@@ -18,6 +18,14 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.core.Response;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -86,6 +94,18 @@ public class MusicUiApi {
 
     @Inject
     Template mobileQueueFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("songDetailFragment.html")
+    Template songDetailFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("albumArtistFragment.html")
+    Template albumArtistFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("albumFragment.html")
+    Template albumFragment;
 
     @Inject
     Template mobileHistoryFragment;
@@ -386,7 +406,7 @@ public class MusicUiApi {
             @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
@@ -462,7 +482,7 @@ public class MusicUiApi {
             @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
@@ -524,7 +544,7 @@ public class MusicUiApi {
             @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("24") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
@@ -596,7 +616,7 @@ public class MusicUiApi {
     public QueueFragmentResponse getQueueFragment( // Reverted return type
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
         PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
@@ -650,7 +670,7 @@ public class MusicUiApi {
     public String getMobileQueueFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
         PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
@@ -751,7 +771,7 @@ public class MusicUiApi {
     public String getSongsFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
@@ -800,7 +820,7 @@ public class MusicUiApi {
     public HistoryFragmentResponse getHistoryFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
         List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId, search);
@@ -841,7 +861,7 @@ public class MusicUiApi {
     public String getMobileHistoryFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("50") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
 
         List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId, search);
@@ -889,9 +909,9 @@ public class MusicUiApi {
         // Get playlists for this specific profile (user's playlists + global playlists)
         List<Playlist> playlists = playlistService.findAllForProfile(profile);
         System.err.println("DEBUG: Found " + playlists.size() + " playlists for profile " + profileId);
-        for (Playlist p : playlists) {
-            System.err.println("DEBUG: Playlist ID=" + p.id + ", Name=" + p.getName() + ", Global=" + p.getIsGlobal() + ", Profile=" + (p.getProfile() != null ? p.getProfile().id : null));
-        }
+        // for (Playlist p : playlists) {
+        //     System.err.println("DEBUG: Playlist ID=" + p.id + ", Name=" + p.getName() + ", Global=" + p.getIsGlobal() + ", Profile=" + (p.getProfile() != null ? p.getProfile().id : null));
+        // }
         return playlists;
     }
 
@@ -901,5 +921,432 @@ public class MusicUiApi {
     public Response getDistinctGenres() {
         List<String> genres = songService.getDistinctGenres();
         return Response.ok(genres).build();
+    }
+
+    @GET
+    @Path("/song-detail/{profileId}/{songId}")
+    @Blocking
+    public String getSongDetail(
+            @PathParam("profileId") Long profileId,
+            @PathParam("songId") Long songId) {
+        
+        Song song = Song.findById(songId);
+        if (song == null) {
+            return "<div class='p-6 has-text-centered'><p>Song not found</p></div>";
+        }
+
+        List<Song> similarSongs = new ArrayList<>();
+        String genre = song.getGenre();
+        
+        if (genre != null && !genre.isBlank()) {
+            String[] genreTokens = genre.toLowerCase().split("\\s+");
+            int bpm = song.getBpm();
+            int bpmTolerance = 10;
+            
+            List<Song> allSongs = Song.list("id != ?1", songId);
+            similarSongs = allSongs.stream()
+                .filter(s -> s.getGenre() != null && !s.getGenre().isEmpty())
+                .filter(s -> {
+                    String targetGenre = s.getGenre().toLowerCase();
+                    for (String token : genreTokens) {
+                        if (targetGenre.contains(token)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                })
+                .filter(s -> {
+                    if (bpm == 0) return true;
+                    int songBpm = s.getBpm();
+                    return songBpm > 0 && Math.abs(songBpm - bpm) <= bpmTolerance;
+                })
+                .limit(7)
+                .toList();
+        }
+
+        return songDetailFragment
+                .data("song", song)
+                .data("albumArtist", song.getAlbumArtist())
+                .data("similarSongs", similarSongs)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .render();
+    }
+
+    public record AlbumInfo(String name, String artwork, String year) {}
+    
+    public record RecommendedArtist(String name, String artwork, int songCount) {}
+    
+    // Builder for RecommendedArtist since we need to modify songCount during processing
+    private static class RecommendedArtistBuilder {
+        private String name;
+        private String artwork;
+        private int songCount;
+        
+        public RecommendedArtistBuilder(String name, String artwork, int songCount) {
+            this.name = name;
+            this.artwork = artwork;
+            this.songCount = songCount;
+        }
+        
+        public RecommendedArtistBuilder songCount(int songCount) {
+            this.songCount = songCount;
+            return this;
+        }
+        
+        public RecommendedArtist build() {
+            return new RecommendedArtist(name, artwork, songCount);
+        }
+    }
+
+    @GET
+    @Path("/album-artist/{profileId}/{artistName}")
+    @Blocking
+    public String getAlbumArtistPage(
+            @PathParam("profileId") Long profileId,
+            @PathParam("artistName") String artistName) {
+        
+        if (artistName == null || artistName.isBlank()) {
+            return "<div class='p-6 has-text-centered'><p>Artist not found</p></div>";
+        }
+
+        String normalizedArtist = artistName.trim();
+        String searchPattern = "%" + normalizedArtist.toLowerCase() + "%";
+
+        // Find songs where artist OR albumArtist matches (case-insensitive)
+        List<Song> allSongs = Song.list(
+            "LOWER(artist) LIKE ?1 OR LOWER(albumArtist) LIKE ?1", 
+            searchPattern
+        );
+
+        if (allSongs.isEmpty()) {
+            return "<div class='p-6 has-text-centered'><p>No songs found for artist: " + artistName + "</p></div>";
+        }
+
+        // Get unique albums with their artwork (first song's artwork for each album)
+        List<AlbumInfo> albums = allSongs.stream()
+            .filter(s -> s.getAlbum() != null && !s.getAlbum().isBlank())
+            .collect(java.util.stream.Collectors.groupingBy(
+                s -> s.getAlbum(),
+                java.util.stream.Collectors.minBy((s1, s2) -> {
+                    int t1 = s1.getTrackNumber();
+                    int t2 = s2.getTrackNumber();
+                    return Integer.compare(t1, t2);
+                })
+            ))
+            .entrySet().stream()
+            .map(entry -> {
+                Song firstSong = entry.getValue().orElse(null);
+                return new AlbumInfo(
+                    entry.getKey(),
+                    firstSong != null ? firstSong.getArtworkBase64() : null,
+                    firstSong != null ? firstSong.getReleaseDate() : null
+                );
+            })
+            .sorted((a, b) -> (a.year() != null ? a.year() : "").compareTo(b.year() != null ? b.year() : ""))
+            .toList();
+
+        // Get artist artwork from first song
+        String artistArtwork = allSongs.stream()
+            .filter(s -> s.getArtworkBase64() != null && !s.getArtworkBase64().isBlank())
+            .findFirst()
+            .map(Song::getArtworkBase64)
+            .orElse(null);
+
+        // Get recommended artists (artists with similar genres)
+        List<RecommendedArtist> recommendedArtists = new ArrayList<>();
+        if (!allSongs.isEmpty()) {
+            // Get unique genres from the artist's songs
+            Set<String> artistGenres = allSongs.stream()
+                .filter(s -> s.getGenre() != null && !s.getGenre().isBlank())
+                .map(Song::getGenre)
+                .collect(Collectors.toSet());
+            
+            if (!artistGenres.isEmpty()) {
+                // Find other artists with similar genres
+                List<Song> otherSongs = Song.list("id NOT IN (:songIds)", 
+                    new HashMap<String, Object>() {{
+                        put("songIds", allSongs.stream().map(s -> s.id).toList());
+                    }});
+                
+                Map<String, RecommendedArtistBuilder> artistScores = new HashMap<>();
+                
+                for (Song song : otherSongs) {
+                     if (song.getGenre() != null && !song.getGenre().isBlank()) {
+                         String songGenre = song.getGenre().toLowerCase();
+                         boolean matches = artistGenres.stream()
+                             .anyMatch(genre -> songGenre.contains(genre.toLowerCase()) || 
+                                          genre.toLowerCase().contains(songGenre));
+                     
+                         if (matches) {
+                             String artistFromSong = song.getArtist();
+                             if (artistFromSong != null && !artistFromSong.isBlank()) {
+                                 artistScores.computeIfAbsent(artistFromSong, name -> 
+                                     new RecommendedArtistBuilder(
+                                         name,
+                                         song.getArtworkBase64(),
+                                         0
+                                     )
+                                 );
+                                 RecommendedArtistBuilder builder = artistScores.get(artistFromSong);
+                                 builder.songCount(builder.songCount + 1);
+                             }
+                         }
+                     }
+                 }
+                
+                // Sort by song count and take top 7
+                recommendedArtists = artistScores.values().stream()
+                    .map(builder -> builder.build())
+                    .sorted((a, b) -> Integer.compare(b.songCount(), a.songCount()))
+                    .limit(7)
+                    .toList();
+            }
+        }
+
+        return albumArtistFragment
+                .data("artistName", normalizedArtist)
+                .data("artistArtwork", artistArtwork)
+                .data("songs", allSongs)
+                .data("albums", albums)
+                .data("songCount", allSongs.size())
+                .data("albumCount", albums.size())
+                .data("recommendedArtists", recommendedArtists)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .render();
+    }
+
+    @GET
+    @Path("/album/{profileId}/{albumName}")
+    @Blocking
+    public String getAlbumPage(
+            @PathParam("profileId") Long profileId,
+            @PathParam("albumName") String albumName) {
+        
+        if (albumName == null || albumName.isBlank()) {
+            return "<div class='p-6 has-text-centered'><p>Album not found</p></div>";
+        }
+
+        String normalizedAlbum = albumName.trim();
+        String searchPattern = "%" + normalizedAlbum.toLowerCase() + "%";
+
+        // Find songs where album matches (case-insensitive)
+        List<Song> allSongs = Song.list(
+            "LOWER(album) LIKE ?1", 
+            searchPattern
+        );
+
+        if (allSongs.isEmpty()) {
+            return "<div class='p-6 has-text-centered'><p>No songs found for album: " + albumName + "</p></div>";
+        }
+
+        // Sort by track number
+        allSongs = allSongs.stream()
+            .sorted((s1, s2) -> {
+                int t1 = s1.getTrackNumber();
+                int t2 = s2.getTrackNumber();
+                if (t1 == 0 && t2 == 0) return 0;
+                if (t1 == 0) return 1;
+                if (t2 == 0) return -1;
+                return Integer.compare(t1, t2);
+            })
+            .toList();
+
+        // Get artist name from first song
+        String artistName = allSongs.stream()
+            .filter(s -> s.getArtist() != null && !s.getArtist().isBlank())
+            .findFirst()
+            .map(Song::getArtist)
+            .orElse("Unknown Artist");
+
+        // Get album artwork from first song
+        String albumArtwork = allSongs.stream()
+            .filter(s -> s.getArtworkBase64() != null && !s.getArtworkBase64().isBlank())
+            .findFirst()
+            .map(Song::getArtworkBase64)
+            .orElse(null);
+
+        // Get year from first song
+        String year = allSongs.stream()
+            .filter(s -> s.getReleaseDate() != null && !s.getReleaseDate().isBlank())
+            .findFirst()
+            .map(Song::getReleaseDate)
+            .orElse("");
+
+        // Calculate total duration
+        int totalSeconds = allSongs.stream()
+            .mapToInt(Song::getDurationSeconds)
+            .sum();
+        String totalDuration = this.formatDuration(totalSeconds);
+
+        // Get first song ID for play button
+        Long firstSongId = allSongs.isEmpty() ? null : allSongs.get(0).id;
+        // Get recommended artists (artists from other albums by same artist, or similar genres)
+        // Get recommended artists (simple approach: just get some other artists)
+        List<RecommendedArtist> recommendedArtists = new ArrayList<>();
+        if (!allSongs.isEmpty()) {
+            // Get the primary artist for this album
+            // Get the primary artist for this album/artist
+            String primaryArtist = artistName;
+            
+            // Find other albums by the same artist (simplified - just get some other songs by same artist)
+            List<Song> otherArtistSongs = Song.list(
+                "LOWER(artist) = ?1 AND LOWER(album) <> ?2",
+                primaryArtist.toLowerCase(),
+                normalizedAlbum.toLowerCase()
+            );
+            // Get some other artists (simple approach)
+            List<Song> otherSongs = Song.list(
+                "LOWER(artist) <> ?1", 
+                primaryArtist.toLowerCase()
+            );
+            
+            // If we don't have enough from same artist, get some similar genre artists
+            if (otherArtistSongs.size() < 3) {
+                // Get genres from this album
+                Set<String> albumGenres = allSongs.stream()
+                    .filter(s -> s.getGenre() != null && !s.getGenre().isBlank())
+                    .map(s -> s.getGenre().toLowerCase())
+                    .collect(Collectors.toSet());
+                if (!albumGenres.isEmpty()) {
+                    // Find songs with similar genres but different artists
+                    List<Song> similarGenreSongs = Song.<Song>list(
+                        "LOWER(artist) <> ?1",
+                        primaryArtist.toLowerCase()
+                    ).stream()
+                    .filter(s -> s.getGenre() != null && !s.getGenre().isBlank())
+                    .filter(song -> {
+                        String songGenre = song.getGenre().toLowerCase();
+                        return albumGenres.stream()
+                            .anyMatch(genre -> songGenre.contains(genre) || 
+                                         genre.contains(songGenre));
+                    })
+                    .limit(20)
+                    .toList();
+                    
+                    // Add these to our recommendation pool
+                    otherArtistSongs.addAll(similarGenreSongs);
+                }
+            }
+            
+            // Build artist data from other songs
+            Map<String, int[]> artistData = new HashMap<>(); // [songCount, hasArtwork]
+            
+            for (Song song : otherSongs) {
+                String artist = song.getArtist();
+                String artwork = song.getArtworkBase64();
+                
+                if (artist != null && !artist.isBlank() && !artist.equalsIgnoreCase(primaryArtist)) {
+                    if (!artistData.containsKey(artist)) {
+                        artistData.put(artist, new int[]{0, 0}); // [songCount, hasArtwork]
+                    }
+                    int[] data = artistData.get(artist);
+                    data[0]++; // increment songCount
+                    // Mark if we have artwork for this artist
+                    if (data[1] == 0 && artwork != null && !artwork.isBlank()) {
+                        data[1] = 1; // mark that we have artwork
+                    }
+                }
+            }
+            
+            // Build recommended artists from the collected songs
+            if (!otherArtistSongs.isEmpty()) {
+                Map<String, int[]> artistData2 = new HashMap<>(); // [songCount, hasArtwork]
+                
+                for (Song song : otherArtistSongs) {
+                    String artist = song.getArtist();
+                    String artwork = song.getArtworkBase64();
+                    
+                    if (artist != null && !artist.isBlank() && !artist.equalsIgnoreCase(primaryArtist)) {
+                        if (!artistData2.containsKey(artist)) {
+                            artistData2.put(artist, new int[]{0, 0}); // [songCount, hasArtwork]
+                        }
+                        int[] data = artistData2.get(artist);
+                        data[0]++; // increment songCount
+                        // Mark if we have artwork for this artist
+                        if (data[1] == 0 && artwork != null && !artwork.isBlank()) {
+                            data[1] = 1; // mark that we have artwork
+                        }
+                    }
+                }
+                
+                // Convert to RecommendedArtist objects and sort by song count
+                List<RecommendedArtist> tempArtists = new ArrayList<>();
+                for (Map.Entry<String, int[]> entry : artistData2.entrySet()) {
+                    String artistNameEntry = entry.getKey();
+                    int[] data = entry.getValue();
+                    // Find artwork for this artist
+                    String artwork = null;
+                    if (data[1] == 1) {
+                        for (Song song : otherArtistSongs) {
+                            if (song.getArtist() != null && song.getArtist().equalsIgnoreCase(artistNameEntry)) {
+                                artwork = song.getArtworkBase64();
+                                break;
+                            }
+                        }
+                    }
+                    tempArtists.add(new RecommendedArtist(artistNameEntry, artwork, data[0]));
+                }
+                
+                // Sort by song count descending and take top 7
+                recommendedArtists = tempArtists.stream()
+                    .sorted((a, b) -> Integer.compare(b.songCount(), a.songCount()))
+                    .limit(7)
+                    .collect(Collectors.toList());
+            } else {
+                // Convert to RecommendedArtist objects and sort by song count
+                List<RecommendedArtist> tempArtists = new ArrayList<>();
+                for (Map.Entry<String, int[]> entry : artistData.entrySet()) {
+                    String artistNameEntry = entry.getKey();
+                    int[] data = entry.getValue();
+                    // Find artwork for this artist
+                    String artwork = null;
+                    if (data[1] == 1) {
+                        for (Song song : otherSongs) {
+                            if (song.getArtist() != null && song.getArtist().equalsIgnoreCase(artistNameEntry)) {
+                                artwork = song.getArtworkBase64();
+                                break;
+                            }
+                        }
+                    }
+                    tempArtists.add(new RecommendedArtist(artistNameEntry, artwork, data[0]));
+                }
+                
+                // Sort by song count descending and take top 7
+                recommendedArtists = tempArtists.stream()
+                    .sorted((a, b) -> Integer.compare(b.songCount(), a.songCount()))
+                    .limit(7)
+                    .collect(Collectors.toList());
+            }
+        }
+
+        return albumFragment
+                .data("albumName", normalizedAlbum)
+                .data("artistName", artistName)
+                .data("albumArtwork", albumArtwork)
+                .data("year", year)
+                .data("songs", allSongs)
+                .data("songCount", allSongs.size())
+                .data("totalDuration", totalDuration)
+                .data("firstSongId", firstSongId)
+                .data("recommendedArtists", recommendedArtists)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .render();
+    }
+
+    /**
+     * Helper method to extract artist ID from a song
+     * Since we don't have a direct artist entity, we'll use a hash of the artist name
+     * as a pseudo-ID for recommendation purposes
+     */
+    private Long getArtistIdFromSong(Song song) {
+        if (song == null || song.getArtist() == null) {
+            return null;
+        }
+        // Simple hash-based ID generation for demonstration
+        // In a real implementation, you'd have a proper Artist entity
+        return (long) Math.abs(song.getArtist().hashCode());
     }
 }

@@ -54,8 +54,6 @@
             this.locks[lockKey] = true;
             const operationId = `${operationType}_${++this.sequences[operationType]}`;
             
-            console.log(`[SyncManager] Starting ${operationType} operation ${operationId} for ${profileId}`);
-            
             try {
                 const result = callback(operationId);
                 return result;
@@ -65,7 +63,6 @@
             } finally {
                 // Always release lock
                 delete this.locks[lockKey];
-                console.log(`[SyncManager] Completed ${operationType} operation ${operationId}`);
             }
         },
         
@@ -76,9 +73,6 @@
          */
         setActiveAudioOperation: function(newOperationId) {
             const previousOperation = this.activeAudioOperation;
-            if (previousOperation) {
-                console.log(`[SyncManager] Canceling previous audio operation ${previousOperation} for ${newOperationId}`);
-            }
             this.activeAudioOperation = newOperationId;
             return previousOperation;
         },
@@ -90,9 +84,6 @@
         clearActiveAudioOperation: function(expectedOperationId) {
             if (this.activeAudioOperation === expectedOperationId) {
                 this.activeAudioOperation = null;
-                console.log(`[SyncManager] Cleared active audio operation ${expectedOperationId}`);
-            } else {
-                console.log(`[SyncManager] Ignoring clear request for ${expectedOperationId}, active is ${this.activeAudioOperation}`);
             }
         },
         
@@ -206,9 +197,6 @@
         setFlag: function(flagName, value) {
             if (this.flags.hasOwnProperty(flagName)) {
                 this.flags[flagName] = value;
-                console.log(`[SyncManager] Set flag ${flagName} to ${value}`);
-            } else {
-                console.warn(`[SyncManager] Unknown flag: ${flagName}`);
             }
         },
         

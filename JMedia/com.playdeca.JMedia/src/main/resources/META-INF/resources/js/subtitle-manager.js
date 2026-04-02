@@ -180,7 +180,6 @@ class SubtitleManager {
             `;
         } else {
             // Firefox - CSS variable based positioning
-            console.log('[SubtitleManager] Firefox detected - using CSS variable positioning');
             
             // Add CSS for Firefox overlay (positioning done via JavaScript)
             css += `
@@ -227,13 +226,7 @@ class SubtitleManager {
         }
 
         styleEl.textContent = css;
-        console.log('[SubtitleManager] CSS injected, length:', css.length);
         if (isFirefox) {
-            console.log('[SubtitleManager] Firefox CSS includes @-moz-document rule:', css.includes('@-moz-document'));
-        }
-        // For Firefox, overlay creation is delayed until player is ready
-        if (isFirefox) {
-            console.log('[SubtitleManager] Firefox overlay creation delayed until player initializes');
             // Apply styles to overlay if it already exists
             if (this.overlayElement) {
                 this.applyOverlayStyles();
@@ -484,11 +477,9 @@ class SubtitleManager {
     }
 
     setSubtitleLift(liftHeight) {
-        console.log('[SubtitleManager] setSubtitleLift called with liftHeight:', liftHeight, 'baseBottomOffset:', this.baseBottomOffset);
         const overlay = document.getElementById('firefox-subtitle-overlay');
         if (overlay) {
             overlay.style.bottom = `${this.baseBottomOffset + liftHeight}px`;
-            console.log('[SubtitleManager] Updated overlay bottom to:', overlay.style.bottom);
         } else {
             console.log('[SubtitleManager] No overlay found to update');
         }

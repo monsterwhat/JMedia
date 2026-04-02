@@ -1,13 +1,39 @@
-<div class="library-header">
-    <h1 class="library-title">History</h1>
-    <p class="nav-label">Recently Watched</p>
+<div class="library-header is-flex is-justify-content-between is-align-items-center">
+    <div>
+        <h1 class="library-title">History</h1>
+        <p class="nav-label">Recently Watched</p>
+    </div>
+
+    <div class="field has-addons mb-0" style="width: 300px;">
+        <div class="control is-expanded has-icons-left">
+            <input class="input is-small is-rounded is-dark" type="text" placeholder="Search history..." 
+                   id="videoSearchInput" value="{search ?: ''}" 
+                   oninput="window.handleVideoSearch('history', this.value)">
+            <span class="icon is-small is-left">
+                <i class="pi pi-search"></i>
+            </span>
+        </div>
+        {#if search}
+        <div class="control">
+            <button class="button is-small is-info is-rounded" onclick="window.clearVideoSearch('history')">
+                Clear
+            </button>
+        </div>
+        {/if}
+    </div>
 </div>
 
 {#if videos.empty}
     <div class="carousel-empty-state">
-        <i class="pi pi-history"></i>
-        <h3>No history yet</h3>
-        <p>Your watch history will appear here.</p>
+        {#if search}
+            <i class="pi pi-search"></i>
+            <h3>No results for "{search}"</h3>
+            <p>Try a different search term</p>
+        {#else}
+            <i class="pi pi-history"></i>
+            <h3>No history yet</h3>
+            <p>Your watch history will appear here.</p>
+        {/if}
     </div>
 {#else}
     <div class="standard-grid">

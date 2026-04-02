@@ -155,7 +155,15 @@ class VideoSPA {
     async playVideo(videoId) {
         this.showLoading();
         try {
-            await fetch('/api/video/playback/play/' + videoId, { method: 'POST' });
+            // Fetch video details first to get the resume time
+            const res = await fetch(`/api/video/${videoId}`);
+            const json = await res.json();
+            let startTime = 0;
+            if (json.success && json.data && json.data.resumeTime) {
+                startTime = json.data.resumeTime / 1000;
+            }
+
+            await fetch(`/api/video/playback/play/${videoId}?startTime=${startTime}`, { method: 'POST' });
             await this.switchSection('playback', {videoId: videoId});
         } catch (error) {
             this.handleError(error);
@@ -214,6 +222,11 @@ class VideoSPA {
     updateContent(html) {
         const contentDiv = document.getElementById('spa-content');
         if (contentDiv) {
+            // Destroy existing player instance if it exists to clean up event listeners and intervals
+            if (window.currentPlayerInstance && typeof window.currentPlayerInstance.destroy === 'function') {
+                window.currentPlayerInstance.destroy();
+            }
+
             // Preservation of global modals that might have been moved into the content (e.g. by SimplePlayer for fullscreen)
             ['subtitleManagementModal', 'editVideoModal'].forEach(id => {
                 const modal = document.getElementById(id);
@@ -360,6 +373,22 @@ class VideoSPA {
 }
 
 window.videoSPA = new VideoSPA();
+
+window.videoSearchTimeout = null;
+window.handleVideoSearch = function(section, query) {
+    clearTimeout(window.videoSearchTimeout);
+    window.videoSearchTimeout = setTimeout(() => {
+        const params = { ...window.videoSPA.currentParams, page: 1, search: query };
+        window.videoSPA.switchSection(section, params);
+    }, 500);
+};
+
+window.clearVideoSearch = function(section) {
+    const input = document.getElementById('videoSearchInput');
+    if (input) input.value = '';
+    const params = { ...window.videoSPA.currentParams, page: 1, search: '' };
+    window.videoSPA.switchSection(section, params);
+};
 
 window.selectItem = (item, action) => window.videoSPA.selectItem(item, action);
 window.switchSection = (section, params) => window.videoSPA.switchSection(section, params);

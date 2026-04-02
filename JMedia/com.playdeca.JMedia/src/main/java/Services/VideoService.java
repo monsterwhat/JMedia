@@ -750,29 +750,60 @@ public class VideoService {
     // ========== PAGINATION METHODS ==========
     
     @Transactional
-    public PaginatedVideos findPaginatedByMediaType(String mediaType, int page, int limit, String sortBy, String sortDirection) {
+    public PaginatedVideos findPaginatedByMediaType(String mediaType, int page, int limit, String sortBy, String sortDirection, String search) {
         Sort.Direction direction = "desc".equalsIgnoreCase(sortDirection) ? Sort.Direction.Descending : Sort.Direction.Ascending;
         String sortField = sortBy != null ? sortBy : "dateAdded";
         
-        List<Video> videos = Video.<Video>list("type = ?1",
-                Sort.by(sortField, direction), mediaType)
-                .stream()
-                .skip((long) (page - 1) * limit)
-                .limit(limit)
-                .collect(Collectors.toList());
-        
-        // Get total count
-        long totalCount = Video.count("type = ?1", mediaType);
-        
-        return new PaginatedVideos(videos, totalCount);
+        if (search == null || search.trim().isEmpty()) {
+            List<Video> videos = Video.<Video>find("type = ?1 AND isActive = true",
+                    Sort.by(sortField, direction), mediaType)
+                    .page(Page.of(page - 1, limit))
+                    .list();
+            
+            long totalCount = Video.count("type = ?1 AND isActive = true", mediaType);
+            return new PaginatedVideos(videos, totalCount);
+        } else {
+            String s = "%" + search.toLowerCase() + "%";
+            String hql = "FROM Video v WHERE v.type = :type AND v.isActive = true AND (" +
+                         "LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR " +
+                         "LOWER(v.description) LIKE :s OR LOWER(v.overview) LIKE :s OR LOWER(v.filename) LIKE :s OR " +
+                         "EXISTS (SELECT 1 FROM v.cast c WHERE LOWER(c) LIKE :s) OR " +
+                         "EXISTS (SELECT 1 FROM v.directors d WHERE LOWER(d) LIKE :s) OR " +
+                         "EXISTS (SELECT 1 FROM v.writers w WHERE LOWER(w) LIKE :s))";
+            
+            List<Video> videos = em.createQuery("SELECT v " + hql + " ORDER BY v." + sortField + " " + (sortDirection.equalsIgnoreCase("desc") ? "DESC" : "ASC"), Video.class)
+                    .setParameter("type", mediaType)
+                    .setParameter("s", s)
+                    .setFirstResult((page - 1) * limit)
+                    .setMaxResults(limit)
+                    .getResultList();
+            
+            long totalCount = em.createQuery("SELECT COUNT(v) " + hql, Long.class)
+                    .setParameter("type", mediaType)
+                    .setParameter("s", s)
+                    .getSingleResult();
+            
+            return new PaginatedVideos(videos, totalCount);
+        }
     }
 
     @Transactional
-    public PaginatedSeries findPaginatedSeriesTitles(int page, int limit, String sortBy, String sortDirection) {
-        // Fetch only necessary fields to reduce memory pressure
-        List<Object[]> episodesData = em.createQuery(
-            "SELECT v.seriesTitle, v.dateAdded, v.lastWatched FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL", 
-            Object[].class).getResultList();
+    public PaginatedSeries findPaginatedSeriesTitles(int page, int limit, String sortBy, String sortDirection, String search) {
+        String baseHql = "SELECT v.seriesTitle, v.dateAdded, v.lastWatched FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL AND v.isActive = true";
+        TypedQuery<Object[]> query;
+        
+        if (search != null && !search.trim().isEmpty()) {
+            String s = "%" + search.toLowerCase() + "%";
+            String searchHql = " AND (LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s OR " +
+                               "EXISTS (SELECT 1 FROM v.cast c WHERE LOWER(c) LIKE :s) OR " +
+                               "EXISTS (SELECT 1 FROM v.directors d WHERE LOWER(d) LIKE :s) OR " +
+                               "EXISTS (SELECT 1 FROM v.writers w WHERE LOWER(w) LIKE :s))";
+            query = em.createQuery(baseHql + searchHql, Object[].class).setParameter("s", s);
+        } else {
+            query = em.createQuery(baseHql, Object[].class);
+        }
+
+        List<Object[]> episodesData = query.getResultList();
 
         // Group by normalized seriesTitle using SmartNamingService
         Map<String, SeriesSortData> seriesMap = new LinkedHashMap<>();
@@ -830,6 +861,49 @@ public class VideoService {
                 .collect(Collectors.toList());
 
         return new PaginatedSeries(pagedTitles, totalCount);
+    }
+
+    @Transactional
+    public List<Video> findHistory(String search, int limit) {
+        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true";
+        if (search != null && !search.trim().isEmpty()) {
+            hql += " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
+        }
+        hql += " ORDER BY h.playedAt DESC";
+        
+        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        if (search != null && !search.trim().isEmpty()) {
+            query.setParameter("s", "%" + search.toLowerCase() + "%");
+        }
+        
+        List<Models.VideoHistory> history = query.getResultList();
+        
+        java.util.Set<String> seenPaths = new java.util.HashSet<>();
+        List<Models.Video> videos = new ArrayList<>();
+        
+        for (Models.VideoHistory h : history) {
+            if (h.mediaFile != null && seenPaths.add(h.mediaFile.path)) {
+                Models.Video v = Video.find("path", h.mediaFile.path).firstResult();
+                if (v != null) videos.add(v);
+            }
+            if (videos.size() >= limit) break;
+        }
+        return videos;
+    }
+
+    @Transactional
+    public List<Video> findWatchlist(String search) {
+        if (search == null || search.trim().isEmpty()) {
+            return Video.list("favorite = true AND isActive = true");
+        } else {
+            String s = "%" + search.toLowerCase() + "%";
+            String hql = "FROM Video v WHERE v.favorite = true AND v.isActive = true AND (" +
+                         "LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR " +
+                         "LOWER(v.description) LIKE :s OR LOWER(v.overview) LIKE :s OR LOWER(v.filename) LIKE :s)";
+            return em.createQuery("SELECT v " + hql + " ORDER BY v.favoritedAt DESC", Video.class)
+                    .setParameter("s", s)
+                    .getResultList();
+        }
     }
 
     private static class SeriesSortData {

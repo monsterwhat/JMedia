@@ -1,0 +1,73 @@
+<div class="artist-page-view">
+    <div class="artist-page-header">
+        <button class="song-detail-back-btn" onclick="window.showMobileSongList()">
+            <i class="pi pi-arrow-left"></i> Back
+        </button>
+    </div>
+
+    <div class="artist-page-hero">
+        <div class="artist-page-artwork">
+            <img src="{artworkUrl.apply(artistArtwork)}" alt="{artistName}">
+        </div>
+        <div class="artist-page-info">
+            <h1 class="artist-page-name">{artistName}</h1>
+            <p class="artist-page-stats">{songCount} songs &middot; {albumCount} albums</p>
+        </div>
+    </div>
+
+    {#if albums && albums.size > 0}
+    <div class="artist-page-albums">
+        <h2 class="artist-page-section-title">Albums</h2>
+        <div class="artist-page-album-list">
+            {#for album in albums}
+            <div class="artist-page-album-item" onclick="window.showAlbumPage('{album.name}')">
+                <div class="artist-page-album-artwork">
+                    <img src="{artworkUrl.apply(album.artwork)}" loading="lazy" alt="{album.name}">
+                </div>
+                <div class="artist-page-album-info">
+                    <div class="artist-page-album-name">{album.name}</div>
+                    <div class="artist-page-album-year">{album.year ?: ""}</div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+
+    {#if songs && songs.size > 0}
+    <div class="artist-page-songs">
+        <h2 class="artist-page-section-title">Songs</h2>
+        <div class="artist-page-song-list">
+            {#for s in songs}
+            <div class="artist-page-song-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
+                <div class="artist-page-song-track">{#if s.trackNumber > 0}{s.trackNumber}{#else}--{/if}</div>
+                <div class="artist-page-song-title">{s.title ?: "Unknown"}</div>
+                <div class="artist-page-song-album">{s.album ?: ""}</div>
+                <div class="artist-page-song-duration">{formatDuration.apply(s.durationSeconds)}</div>
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+
+    {#if recommendedArtists && recommendedArtists.size > 0}
+    <div class="artist-page-recommended">
+        <h2 class="artist-page-section-title">
+            <i class="pi pi-users"></i> Artists You May Also Like
+        </h2>
+        <div class="artist-page-recommended-list">
+            {#for artist in recommendedArtists}
+            <div class="artist-page-recommended-item" onclick="window.showArtistPage('{artist.name}')">
+                <div class="artist-page-recommended-artwork">
+                    <img src="{artworkUrl.apply(artist.artwork)}" loading="lazy" alt="{artist.name}">
+                </div>
+                <div class="artist-page-recommended-info">
+                    <div class="artist-page-recommended-name">{artist.name}</div>
+                    <div class="artist-page-recommended-count">{artist.songCount} songs</div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+</div>

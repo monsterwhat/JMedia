@@ -113,9 +113,7 @@ if ('mediaSession' in navigator) {
         // navigator.mediaSession.setActionHandler('enterpictureinpicture', () => { /* ... */ });
         // navigator.mediaSession.setActionHandler('leavepictureinpicture', () => { /* ... */ });
 
-        console.log("[mediaSession.js] Media Session action handlers set up.");
     };
 
 } else {
-    console.warn("[mediaSession.js] Media Session API is not supported in this browser.");
 }
