@@ -913,13 +913,17 @@
                 // Update cover image
                 this.updateCoverImage(newState);
             }
-            
+
+            // ALSO update if currentSongData changed (even if ID is same, data might have arrived)
+            if (oldState.currentSongData !== newState.currentSongData) {
+                this.updateCoverImage(newState);
+            }
+
             if (oldState.playing !== newState.playing) {
                 // Playback state changed
                 this.updatePlaybackState(newState.playing);
             }
         },
-
         /**
          * Fetch current song data including artworkBase64
          */
@@ -940,14 +944,14 @@
                 .then(data => {
                     window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData response data:', data);
                     if (data && data.data) {
-                        // Store full song data including artworkBase64 in musicState
-                        if (!window.musicState) {
-                            window.musicState = window.StateManager.getState();
+                        // Store full song data including artworkBase64 in StateManager
+                        if (window.StateManager) {
+                            window.StateManager.updateState({ currentSongId: songId, currentSongData: data.data }, 'ResponsivePlayer');
                         }
-                        window.musicState.currentSongData = data.data;
+                        
                         window.Helpers.log('[ResponsivePlayer] Stored currentSongData, artworkBase64:', data.data.artworkBase64 ? 'present' : 'missing');
                         // Update cover image with new data
-                        this.updateCoverImage(window.musicState);
+                        this.updateCoverImage(window.StateManager.getState());
                         
                         // Update media session metadata
                         if (window.updateMediaSessionMetadata && data.data) {
@@ -971,29 +975,29 @@
          */
         updateCoverImage: function(state) {
             if (!this.elements.coverImage || !this.elements.coverFallback) return;
-            
-            // Get artwork from musicState (which stores full song data with artworkBase64)
-            const musicStateData = window.musicState?.currentSongData;
-            const hasArtwork = musicStateData && musicStateData.artworkBase64;
-            
+
+            // Use passed state (currentSongData) which is now in StateManager
+            const currentSongData = state?.currentSongData;
+            const hasArtwork = currentSongData && currentSongData.artworkBase64;
+
             if (hasArtwork) {
                 // Use stored base64 artwork
-                this.elements.coverImage.src = `data:image/jpeg;base64,${musicStateData.artworkBase64}`;
+                this.elements.coverImage.src = `data:image/jpeg;base64,${currentSongData.artworkBase64}`;
                 this.elements.coverImage.style.display = 'block';
                 if (this.elements.coverFallback) {
                     this.elements.coverFallback.style.display = 'none';
                 }
             } else {
-                // No artwork available - show fallback image
+                // No artwork available - show logo/fallback
                 if (this.elements.coverImage) {
-                    this.elements.coverImage.style.display = 'none';
+                    this.elements.coverImage.src = '/logo.png';
+                    this.elements.coverImage.style.display = 'block';
                 }
                 if (this.elements.coverFallback) {
-                    this.elements.coverFallback.style.display = 'block';
+                    this.elements.coverFallback.style.display = 'none';
                 }
             }
-        },
-        
+        },        
         /**
          * Update playback state display
          */

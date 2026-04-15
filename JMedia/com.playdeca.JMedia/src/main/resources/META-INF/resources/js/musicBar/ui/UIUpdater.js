@@ -115,6 +115,15 @@
                     repeatIcon.className = 'pi pi-refresh';
                 }
             }
+            // DJ Mode - turns green when active, white when off
+            const djModeIcon = document.getElementById('djModeIcon');
+            if (djModeIcon) {
+                if (state.djModeActive) {
+                    djModeIcon.className = 'pi pi-headphones has-text-success';
+                } else {
+                    djModeIcon.className = 'pi pi-headphones';
+                }
+            }
         },
         
         /**

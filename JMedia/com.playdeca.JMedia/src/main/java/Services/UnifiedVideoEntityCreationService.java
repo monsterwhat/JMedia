@@ -36,14 +36,21 @@ public class UnifiedVideoEntityCreationService {
         // Apply discovered metadata
         video.filename = extractFilenameFromPath(mediaFile.path);
         video.type = result.mediaType;
-        video.title = result.title;
-        video.seriesTitle = result.showName;
+        
+        // Only overwrite title/seriesTitle if NOT manually edited
+        if (!video.titleManuallyEdited) {
+            video.title = result.title;
+        }
+        if (!video.seriesTitleManuallyEdited) {
+            video.seriesTitle = result.showName;
+        }
+        
         video.seasonNumber = result.season;
         video.episodeNumber = result.episode;
         video.releaseYear = result.year;
         
-        // Fallback for episode title
-        if ("episode".equalsIgnoreCase(video.type) && video.title == null) {
+        // Fallback for episode title (only if not manually edited)
+        if ("episode".equalsIgnoreCase(video.type) && video.title == null && !video.titleManuallyEdited) {
             video.title = (video.seriesTitle != null ? video.seriesTitle : "Unknown") + " - S" + (video.seasonNumber != null ? video.seasonNumber : 1) + "E" + (video.episodeNumber != null ? video.episodeNumber : 0);
         }
         

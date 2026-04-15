@@ -271,4 +271,36 @@ public class VideoManagementApi {
             return Response.serverError().entity("Failed to rename episodes").build();
         }
     }
+    
+    @POST
+    @Path("/unlock-title/{id}")
+    @Blocking
+    public Response unlockTitle(@PathParam("id") Long id,
+            @QueryParam("unlockSeriesTitle") boolean unlockSeriesTitle,
+            @QueryParam("unlockTitle") boolean unlockTitle) {
+        try {
+            videoService.clearManualOverrideFlags(id, unlockSeriesTitle, unlockTitle);
+            return Response.ok("Override flags cleared successfully").build();
+        } catch (Exception e) {
+            LOG.error("Error clearing override flags", e);
+            return Response.serverError().entity("Failed to clear override flags").build();
+        }
+    }
+    
+    @POST
+    @Path("/unlock-series")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response unlockSeries(
+            @FormParam("seriesTitle") String seriesTitle,
+            @QueryParam("unlockSeriesTitle") boolean unlockSeriesTitle,
+            @QueryParam("unlockTitle") boolean unlockTitle) {
+        try {
+            videoService.clearSeriesManualOverrideFlags(seriesTitle, unlockSeriesTitle, unlockTitle);
+            return Response.ok("Override flags cleared for series").build();
+        } catch (Exception e) {
+            LOG.error("Error clearing series override flags", e);
+            return Response.serverError().entity("Failed to clear override flags").build();
+        }
+    }
 }

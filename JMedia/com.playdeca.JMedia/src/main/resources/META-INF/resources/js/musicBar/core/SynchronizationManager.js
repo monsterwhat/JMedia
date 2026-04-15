@@ -27,6 +27,7 @@
             isProcessingMessage: false,
             isProcessingDOMOperations: false,
             isUpdatingAudioSource: false,
+            isCrossfading: false,
             draggingSeconds: false,
             draggingVolume: false
         },

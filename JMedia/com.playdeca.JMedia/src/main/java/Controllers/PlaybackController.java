@@ -7,6 +7,9 @@ import Models.Playlist;
 import Models.Profile;
 import Models.Settings;
 import Models.Song;
+import Services.AudioAnalysisService;
+import Services.DjTransitionService;
+import Services.DjTransitionService.DjTransition;
 import Services.PlaybackHistoryService;
 import Services.PlaylistService;
 import Services.ProfileService;
@@ -48,6 +51,10 @@ public class PlaybackController {
     MusicSocket ws;
     @Inject
     ProfileService profileService;
+    @Inject
+    AudioAnalysisService audioAnalysisService;
+    @Inject
+    DjTransitionService djTransitionService;
 
     private ScheduledExecutorService scheduler;
     private final Map<Long, ScheduledFuture<?>> playbackTasks = new ConcurrentHashMap<>();
@@ -88,26 +95,39 @@ public class PlaybackController {
         LOGGER.info("Playback timer started for profile: " + profileId);
     }
 
-    protected void processPlaybackTick(Long profileId) {
+    protected synchronized void processPlaybackTick(Long profileId) {
         try {
             PlaybackState st = getState(profileId);
             if (st.isPlaying() && st.getCurrentSongId() != null) {
                 double newTime = st.getCurrentTime() + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
                 
-                int crossfadeDuration = st.getCrossfadeDuration();
+                int crossfadeDuration = st.getCrossfadeDuration() != null ? st.getCrossfadeDuration() : 0;
                 double crossfadeThreshold = st.getDuration() - crossfadeDuration;
                 
-                // Check if we've reached the crossfade point (or end of song if no crossfade)
-                if (crossfadeDuration > 0 && newTime >= crossfadeThreshold && st.getDuration() > 0) {
-                    // Crossfade point reached - trigger next song early
-                    // The client will handle the actual audio fade overlap
+                // REMOVED: DJ Mode auto-activation on Smart Shuffle
+                // DJ Mode is now SEPARATED from Smart Shuffle - it stays in whatever state the user set
+                // Users can toggle DJ Mode independently, even when Smart Shuffle is off
+                
+                // Check if we've reached the transition point
+                // DJ Mode: wait until djExitTime + crossfadeDuration to give frontend time to crossfade
+                if (Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjExitTime() != null && st.getDuration() > 0) {
+                    double djAdvanceTime = st.getDjExitTime() + crossfadeDuration;
+                    if (newTime >= djAdvanceTime) {
+                        System.out.println("[DJ] === Crossfade complete, advancing song (exit=" + st.getDjExitTime() + "s + " + crossfadeDuration + "s crossfade) ===");
+                        handleSongEnded(profileId);
+                    } else {
+                        st.setCurrentTime(newTime);
+                        broadcastStateIfNecessary(st, profileId);
+                    }
+                } else if (crossfadeDuration > 0 && newTime >= crossfadeThreshold && st.getDuration() > 0) {
+                    // Regular crossfade point reached
                     handleSongEnded(profileId);
                 } else if (newTime >= st.getDuration() && st.getDuration() > 0) {
-                    // Song ended naturally with no crossfade, advance to next
+                    // Song ended naturally with no crossfade
                     handleSongEnded(profileId);
                 } else {
                     st.setCurrentTime(newTime);
-                    broadcastStateIfNecessary(st, profileId); // Use throttled broadcast
+                    broadcastStateIfNecessary(st, profileId);
                 }
             }
         } catch (Exception e) {
@@ -124,6 +144,102 @@ public class PlaybackController {
             updateState(profileId, state, true); // Broadcast state
             lastBroadcastTime.put(profileId, now);
         }
+    }
+    
+    /**
+     * Activate DJ Mode transition using persisted SongAnalysis data.
+     * SongAnalysis is already persisted per-song, so transitions calculate instantly from that data.
+     */
+    private void activateDjModeTransition(PlaybackState st, Settings settings, Long profileId) {
+        int djCrossfade = settings.getDjModeCrossfadeSeconds() != null ? settings.getDjModeCrossfadeSeconds() : 8;
+        st.setCrossfadeDuration(djCrossfade);
+        
+        Long currentSongId = st.getCurrentSongId();
+        List<Long> cue = st.getCue();
+        int cueIndex = st.getCueIndex();
+        
+        if (cue == null || cueIndex < 0 || cueIndex >= cue.size() - 1) {
+            System.out.println("[DJ] No next song in queue - disabling transition for this song");
+            st.setDjTransitionPlanned(false); // Mark as attempted/failed so we don't spam
+            updateState(profileId, st, true);
+            return;
+        }
+        
+        Long nextSongId = cue.get(cueIndex + 1);
+        Song currentSong = songService.find(currentSongId);
+        Song nextSong = songService.find(nextSongId);
+        
+        if (currentSong != null && nextSong != null) {
+            DjTransition transition = djTransitionService.calculateTransition(currentSong, nextSong, djCrossfade);
+            if (transition != null) {
+                st.setDjNextSongId(nextSongId);
+                st.setDjEntryTime(transition.getEntryTime());
+                st.setDjExitTime(transition.getExitTime());
+                st.setDjTransitionPlanned(true);
+                st.setDjTransitionConfidence(transition.getConfidence());
+                st.setDjTransitionReason(transition.getReason());
+                
+                System.out.println("=== DJ MODE: Transition planned ===");
+                System.out.println("  Exit: " + transition.getExitTime() + "s, Entry: " + transition.getEntryTime() + "s");
+                System.out.println("  Confidence: " + transition.getConfidence() + ", Reason: " + transition.getReason());
+                
+                updateState(profileId, st, true);
+                return;
+            }
+        }
+        
+        System.out.println("[DJ] No transition available - disabling for this song");
+        st.setDjTransitionPlanned(false); // Mark as attempted so we don't retry
+        updateState(profileId, st, true);
+    }
+    
+    /**
+     * Find the next song in the queue after the current one.
+     */
+    private Song findNextSongInQueue(PlaybackState st) {
+        List<Long> cue = st.getCue();
+        if (cue == null || cue.isEmpty()) {
+            return null;
+        }
+        
+        int currentIndex = st.getCueIndex();
+        int nextIndex = currentIndex + 1;
+        
+        if (nextIndex >= cue.size()) {
+            // Wrap around or check secondary queue
+            if (st.getRepeatMode() == PlaybackState.RepeatMode.ALL) {
+                nextIndex = 0;
+            } else {
+                // Check secondary queue
+                List<Long> secondaryCue = st.getSecondaryCue();
+                if (secondaryCue != null && !secondaryCue.isEmpty()) {
+                    return songService.find(secondaryCue.get(0));
+                }
+                return null;
+            }
+        }
+        
+        return songService.find(cue.get(nextIndex));
+    }
+    
+    /**
+     * Clear DJ transition plan from state.
+     */
+    private void clearDjTransitionPlan(PlaybackState st) {
+        st.setDjNextSongId(null);
+        st.setDjEntryTime(null);
+        st.setDjExitTime(null);
+        st.setDjTransitionPlanned(null); // Use null to indicate "not yet attempted"
+        st.setDjTransitionConfidence(null);
+        st.setDjTransitionReason(null);
+    }
+    
+    /**
+     * Check if current time is near the end of the song (within trigger percent)
+     */
+    private boolean isTimeNearEnd(double duration, double currentTime, int triggerPercent) {
+        double endThreshold = duration * (100.0 - triggerPercent) / 100.0;
+        return currentTime >= endThreshold;
     }
 
     private synchronized void stopPlaybackTimer(Long profileId) {
@@ -186,13 +302,9 @@ public class PlaybackController {
             }
         }
 
-        if (newState.getCurrentSongId() != null
-                && newState.getCurrentSongId().equals(currentState.getCurrentSongId())
-                && newState.getCurrentTime() == 0) {
-            newState.setCurrentTime(currentState.getCurrentTime());
-        }
-
-         
+        // REMOVED: The logic that restored old time when new time was 0.
+        // This was causing manual seeks to 0:00 to be ignored/overwritten.
+        
         newState.setServerTime(System.currentTimeMillis());
         if (newState.getCue() == null) {
             newState.setCue(new ArrayList<>());
@@ -214,6 +326,17 @@ public class PlaybackController {
     public synchronized void selectSong(Long id, Long profileId) {
         PlaybackState st = getState(profileId);
         Song current = getCurrentSong(profileId);
+
+        // Reset DJ Mode state only if NOT in Smart Shuffle
+        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            st.setDjModeActive(false);
+            Integer originalCrossfade = st.getOriginalCrossfadeDuration();
+            if (originalCrossfade != null && originalCrossfade > 0) {
+                st.setCrossfadeDuration(originalCrossfade);
+            }
+            st.setOriginalCrossfadeDuration(0);
+        }
+        clearDjTransitionPlan(st);
 
         if (current != null && current.id.equals(id)) {
             // Toggle play/pause
@@ -251,6 +374,12 @@ public class PlaybackController {
             if (st.getCue() != null) {
                 st.setCueIndex(st.getCue().indexOf(id));
             }
+            
+            // Plan DJ Mode transition immediately for the selected song
+            if (Boolean.TRUE.equals(st.getDjModeActive()) && st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+                planNextDjTransition(st, profileId);
+            }
+            
             startPlaybackTimer(profileId); // Start timer for new song
         }
 
@@ -458,7 +587,20 @@ public class PlaybackController {
                 st.setSongName(newSong.getTitle());
                 st.setDuration(newSong.getDurationSeconds());
                 st.setPlaying(true);
-                st.setCurrentTime(0);
+                
+                // Use DJ entry time if planned, otherwise start at 0
+                Double entryTime = st.getDjEntryTime();
+                st.setCurrentTime(entryTime != null ? entryTime : 0.0);
+                
+                // Plan DJ Mode transition if active
+                if (Boolean.TRUE.equals(st.getDjModeActive()) && st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+                    // Ensure crossfade is set for DJ mode (default 8s)
+                    if (st.getCrossfadeDuration() == null || st.getCrossfadeDuration() == 0) {
+                        st.setCrossfadeDuration(8);
+                    }
+                    clearDjTransitionPlan(st);
+                    planNextDjTransition(st, profileId);
+                }
                 
                 startPlaybackTimer(profileId);
                 updateState(profileId, st, true);
@@ -476,13 +618,36 @@ public class PlaybackController {
     }
 
     public synchronized void next(Long profileId) {
+        // Reset DJ Mode state only if NOT in Smart Shuffle
+        PlaybackState st = getState(profileId);
+        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            st.setDjModeActive(false);
+            Integer originalCrossfade = st.getOriginalCrossfadeDuration();
+            if (originalCrossfade != null && originalCrossfade > 0) {
+                st.setCrossfadeDuration(originalCrossfade);
+            }
+            st.setOriginalCrossfadeDuration(0);
+        }
+        clearDjTransitionPlan(st);
+        
         currentSettings.addLog("Skipped to next song.");
         advanceSong(true, false, profileId);
     }
 
     public synchronized void previous(Long profileId) {
-        currentSettings.addLog("Skipped to previous song.");
+        // Reset DJ Mode state only if NOT in Smart Shuffle
         PlaybackState st = getState(profileId);
+        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            st.setDjModeActive(false);
+            Integer originalCrossfade = st.getOriginalCrossfadeDuration();
+            if (originalCrossfade != null && originalCrossfade > 0) {
+                st.setCrossfadeDuration(originalCrossfade);
+            }
+            st.setOriginalCrossfadeDuration(0);
+        }
+        clearDjTransitionPlan(st);
+        
+        currentSettings.addLog("Skipped to previous song.");
 
         // 1. If song has been playing for more than 3 seconds, just restart it.
         if (st.getCurrentTime() > 3) {
@@ -495,9 +660,70 @@ public class PlaybackController {
         advanceSong(false, false, profileId);
     }
 
+    public synchronized void handleTransitionStarted(Long profileId) {
+        PlaybackState st = getState(profileId);
+        if (Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjNextSongId() != null) {
+            System.out.println("[DJ] Transition started on frontend, updating server state...");
+            
+            // Capture next song info
+            Long nextSongId = st.getDjNextSongId();
+            Double entryTime = st.getDjEntryTime();
+            
+            // Update history for current song
+            if (st.getCurrentSongId() != null) {
+                Song current = findSong(st.getCurrentSongId());
+                if (current != null) {
+                    playbackHistoryService.add(current, profileId);
+                    ws.broadcastHistoryUpdate(profileId);
+                }
+            }
+            
+            // Advance state immediately to the next song
+            Song nextSong = findSong(nextSongId);
+            if (nextSong != null) {
+                st.setCurrentSongId(nextSongId);
+                st.setArtistName(nextSong.getArtist());
+                st.setSongName(nextSong.getTitle());
+                st.setDuration(nextSong.getDurationSeconds());
+                st.setCurrentTime(entryTime != null ? entryTime : 0);
+                st.setPlaying(true);
+                
+                // Set index in cue
+                if (st.getCue() != null) {
+                    int idx = st.getCue().indexOf(nextSongId);
+                    if (idx != -1) st.setCueIndex(idx);
+                }
+                
+                clearDjTransitionPlan(st);
+                updateState(profileId, st, true);
+                System.out.println("[DJ] Server state advanced to " + nextSong.getTitle() + " at " + st.getCurrentTime() + "s");
+            }
+        }
+    }
+
     public synchronized void handleSongEnded(Long profileId) {
+        PlaybackState st = getState(profileId);
+        
+        System.out.println("=== Song Ended (natural) ===");
+        System.out.println("  DJ Mode active: " + st.getDjModeActive());
+        System.out.println("  DJ Transition planned: " + st.getDjTransitionPlanned());
+        System.out.println("  ShuffleMode: " + st.getShuffleMode());
+        
+        // If DJ Mode was active and a transition was planned, keep DJ Mode active
+        // The frontend handled the crossfade, we just need to clear the plan and let advanceSong re-plan
+        if (Boolean.TRUE.equals(st.getDjModeActive()) && Boolean.TRUE.equals(st.getDjTransitionPlanned())) {
+            System.out.println("[DJ] Transition completed, keeping DJ Mode active for next song");
+            LOGGER.info("DJ Mode: Transition completed, planning next transition");
+            clearDjTransitionPlan(st);
+            // Don't deactivate - keep DJ Mode running for continuous mixing
+        } else if (Boolean.TRUE.equals(st.getDjModeActive())) {
+            // DJ Mode was active but no transition was planned (e.g., song ended before trigger)
+            // Keep DJ Mode active for the next song
+            System.out.println("[DJ] No transition was planned, keeping DJ Mode active");
+            clearDjTransitionPlan(st);
+        }
+        
         currentSettings.addLog("Song ended naturally.");
-        System.out.println("Song Ended");
         advanceSong(true, true, profileId); // Automatic advance due to song end
     }
 
@@ -566,7 +792,7 @@ public class PlaybackController {
                 break;
             case SHUFFLE:
                 newMode = PlaybackState.ShuffleMode.SMART_SHUFFLE;
-                playbackQueueController.initSmartShuffle(state, profileId); // New method call
+                playbackQueueController.initSmartShuffle(state, profileId);
                 break;
             case SMART_SHUFFLE:
             default:
@@ -577,6 +803,39 @@ public class PlaybackController {
 
         state.setShuffleMode(newMode);
         currentSettings.addLog("Shuffle mode set to: " + newMode);
+        updateState(profileId, state, true);
+    }
+
+    /**
+     * Toggles DJ Mode independently of shuffle mode.
+     */
+    public synchronized void toggleDjMode(Long profileId) {
+        PlaybackState state = getState(profileId);
+        boolean wasActive = Boolean.TRUE.equals(state.getDjModeActive());
+        boolean newActive = !wasActive;
+        
+        state.setDjModeActive(newActive);
+        
+        if (newActive) {
+            // Activate DJ Mode
+            state.setOriginalCrossfadeDuration(state.getCrossfadeDuration());
+            if (state.getCrossfadeDuration() == null || state.getCrossfadeDuration() == 0) {
+                state.setCrossfadeDuration(8);
+            }
+            // Plan transition for current song
+            planNextDjTransition(state, profileId);
+            currentSettings.addLog("DJ Mode activated manually");
+        } else {
+            // Deactivate DJ Mode
+            Integer originalCrossfade = state.getOriginalCrossfadeDuration();
+            if (originalCrossfade != null && originalCrossfade > 0) {
+                state.setCrossfadeDuration(originalCrossfade);
+            }
+            state.setOriginalCrossfadeDuration(0);
+            clearDjTransitionPlan(state);
+            currentSettings.addLog("DJ Mode deactivated manually");
+        }
+        
         updateState(profileId, state, true);
     }
 
@@ -611,7 +870,15 @@ public class PlaybackController {
     public synchronized void setSeconds(double seconds, Long profileId) {
         System.out.println("[PlaybackController] setSeconds called with: " + seconds + " for profile: " + profileId);
         PlaybackState st = getState(profileId);
-        playbackQueueController.setSeconds(st, seconds, profileId);
+        synchronized (st) {
+            playbackQueueController.setSeconds(st, seconds, profileId);
+            
+            // Clear and re-plan DJ transition on seek to align with new position
+            if (Boolean.TRUE.equals(st.getDjModeActive()) && st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+                clearDjTransitionPlan(st);
+                planNextDjTransition(st, profileId);
+            }
+        }
         System.out.println("[PlaybackController] PlaybackState currentTime after setSeconds for profile " + profileId + ": " + st.getCurrentTime());
         updateState(profileId, st, true);
     }
@@ -827,8 +1094,12 @@ public class PlaybackController {
 
     public PaginatedQueue getQueuePage(int page, int limit, Long profileId, String search) {
         PlaybackState st = getState(profileId);
-        List<Long> cueIds = st.getCue();
-        if (cueIds == null || cueIds.isEmpty()) {
+        List<Long> cueIds;
+        synchronized(st) {
+            cueIds = new ArrayList<>(st.getCue());
+        }
+        
+        if (cueIds.isEmpty()) {
             return new PaginatedQueue(new ArrayList<>(), 0);
         }
 
@@ -900,6 +1171,66 @@ public class PlaybackController {
 
     public void toggleSongInPlaylist(Long playlistId, Long songId, Long profileId) {
         //TODO should remove the song from a playlist or add it via playlistController -> service
+    }
+
+    /**
+     * Plan the next DJ Mode transition for the current song.
+     * Called after advanceSong when DJ Mode is active.
+     */
+    private void planNextDjTransition(PlaybackState st, Long profileId) {
+        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            System.out.println("[DJ] planNextDjTransition: Not Smart Shuffle, skipping");
+            return;
+        }
+
+        List<Long> cue = st.getCue();
+        int cueIndex = st.getCueIndex();
+        if (cue == null || cueIndex < 0 || cueIndex >= cue.size() - 1) {
+            System.out.println("[DJ] planNextDjTransition: No next song in queue (cueIndex=" + cueIndex + ", size=" + (cue != null ? cue.size() : 0) + ")");
+            return;
+        }
+
+        Long nextSongId = cue.get(cueIndex + 1);
+        Song currentSong = findSong(st.getCurrentSongId());
+        Song nextSong = findSong(nextSongId);
+
+        if (currentSong == null || nextSong == null) {
+            System.out.println("[DJ] planNextDjTransition: Song not found (current=" + currentSong + ", next=" + nextSong + ")");
+            return;
+        }
+
+        boolean currentAnalyzed = audioAnalysisService.isAnalyzed(currentSong.id);
+        boolean nextAnalyzed = audioAnalysisService.isAnalyzed(nextSongId);
+        System.out.println("[DJ] planNextDjTransition: '" + currentSong.getTitle() + "' → '" + nextSong.getTitle() + "'");
+        System.out.println("[DJ]   Current analyzed: " + currentAnalyzed + ", Next analyzed: " + nextAnalyzed);
+
+        if (!currentAnalyzed || !nextAnalyzed) {
+            System.out.println("[DJ] planNextDjTransition: Songs not yet analyzed, skipping");
+            return;
+        }
+
+        int crossfadeSeconds = st.getCrossfadeDuration() != null ? st.getCrossfadeDuration() : 8;
+        DjTransition transition = djTransitionService.calculateTransition(currentSong, nextSong, crossfadeSeconds);
+
+        if (transition != null) {
+            st.setDjNextSongId(nextSongId);
+            st.setDjEntryTime(transition.getEntryTime());
+            st.setDjExitTime(transition.getExitTime());
+            st.setDjTransitionPlanned(true);
+            st.setDjTransitionConfidence(transition.getConfidence());
+            st.setDjTransitionReason(transition.getReason());
+            System.out.println("[DJ] === TRANSITION PLANNED ===");
+            System.out.println("[DJ]   Exit: " + currentSong.getTitle() + " at " + transition.getExitTime() + "s");
+            System.out.println("[DJ]   Entry: " + nextSong.getTitle() + " at " + transition.getEntryTime() + "s");
+            System.out.println("[DJ]   Crossfade: " + transition.getCrossfadeSeconds() + "s, Confidence: " + transition.getConfidence());
+            System.out.println("[DJ]   Reason: " + transition.getReason());
+            LOGGER.info(String.format("DJ Mode: Planned transition to '%s' at exit=%.1fs, entry=%.1fs (confidence=%.2f)",
+                    nextSong.getTitle(), transition.getExitTime(), transition.getEntryTime(), transition.getConfidence()));
+        } else {
+            clearDjTransitionPlan(st);
+            System.out.println("[DJ] planNextDjTransition: Could not calculate transition");
+            LOGGER.fine("DJ Mode: Could not calculate transition, using normal playback");
+        }
     }
 
 }

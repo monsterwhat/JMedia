@@ -18,6 +18,11 @@ public class UserService {
     public User findById(Long id) {
         return User.findById(id);
     }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public User findByUsername(String username) {
+        return User.find("username", username).firstResult();
+    }
     
     @Transactional
     public User create(String username, String password, String groupName) {

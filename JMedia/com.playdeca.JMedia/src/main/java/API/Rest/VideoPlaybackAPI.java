@@ -1,6 +1,7 @@
 package API.Rest;
 
 import Controllers.VideoController; 
+import Models.VideoState;
 import Services.VideoStateService;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
@@ -60,7 +61,7 @@ public class VideoPlaybackAPI {
                     requestContext.activate();
                 }
                 try {
-                    Models.Video video = Models.Video.findById(videoId);
+                    Models.Video video = videoService.findById(videoId);
                     if (video != null && "episode".equalsIgnoreCase(video.type)) {
                         // If intro data is missing, try to fetch it now
                         if (video.introStart == null) {
@@ -188,41 +189,33 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/progress")
     @Blocking
+    @jakarta.transaction.Transactional
     public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing) {
         try {
+            // 1. Update the specific video record for individual resume logic
+            if (videoId != null) {
+                videoService.updateProgress(videoId, seconds);
+                
+                // 2. If this video is currently active in the controller, sync it there too
+                // This ensures WebSocket broadcasts and controller memory state are correct
+                VideoState currentState = videoController.getState();
+                if (videoId.equals(currentState.getCurrentVideoId())) {
+                    currentState.setCurrentTime(seconds);
+                    currentState.setPlaying(playing);
+                    videoController.updateState(currentState, true);
+                }
+            }
+            
+            // 3. Update the persistent VideoState for the active profile
             var state = videoStateService.getOrCreateState();
             if (videoId != null) {
                 state.setCurrentVideoId(videoId);
-                
-                // Also update the specific video record for individual resume logic
-                Models.Video video = Models.Video.findById(videoId);
-                if (video != null) {
-                    // Probe duration if missing
-                    if (video.duration == null || video.duration <= 0) {
-                        videoService.probeVideoDuration(video);
-                    }
-
-                    video.lastWatched = java.time.LocalDateTime.now();
-                    video.resumeTime = (long) (seconds * 1000); // Store in milliseconds
-                    
-                    double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
-                    double progressRatio = (durationSeconds > 0) ? Math.min(1.0, seconds / durationSeconds) : 0;
-                    
-                    video.watchProgress = progressRatio;
-                    // Mark as watched if over 95% complete
-                    if (progressRatio >= 0.95) {
-                        video.watched = true;
-                        video.watchProgress = 1.0;
-                    } else {
-                        video.watched = false;
-                    }
-                    video.persist();
-                }
             }
             state.setCurrentTime(seconds);
             state.setPlaying(playing);
             state.setLastUpdateTime(System.currentTimeMillis());
             videoStateService.saveState(state);
+            
             return Response.ok("{\"success\":true}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -269,5 +262,65 @@ public class VideoPlaybackAPI {
     
     private String safeString(String str) {
         return str != null ? str.replace("\"", "\\\"") : "";
+    }
+
+    @GET
+    @Path("/next/{videoId}")
+    @Blocking
+    public Response getNextEpisode(@PathParam("videoId") Long videoId) {
+        try {
+            Models.Video current = Models.Video.findById(videoId);
+            if (current == null || current.seriesTitle == null || current.episodeNumber == null) {
+                return Response.ok("{\"nextVideoId\":null}").build();
+            }
+
+            // Find next episode in the same series
+            Models.Video next = Models.Video.find(
+                "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber > ?3 and type = 'episode' order by episodeNumber asc",
+                current.seriesTitle, current.seasonNumber, current.episodeNumber
+            ).firstResult();
+
+            if (next == null && current.seasonNumber != null) {
+                // Try next season
+                next = Models.Video.find(
+                    "seriesTitle = ?1 and seasonNumber > ?2 and type = 'episode' order by seasonNumber asc, episodeNumber asc",
+                    current.seriesTitle, current.seasonNumber
+                ).firstResult();
+            }
+
+            return Response.ok("{\"nextVideoId\":" + (next != null ? next.id : "null") + "}").build();
+        } catch (Exception e) {
+            return Response.ok("{\"nextVideoId\":null}").build();
+        }
+    }
+
+    @GET
+    @Path("/previous/{videoId}")
+    @Blocking
+    public Response getPreviousEpisode(@PathParam("videoId") Long videoId) {
+        try {
+            Models.Video current = Models.Video.findById(videoId);
+            if (current == null || current.seriesTitle == null || current.episodeNumber == null) {
+                return Response.ok("{\"previousVideoId\":null}").build();
+            }
+
+            // Find previous episode in the same series
+            Models.Video prev = Models.Video.find(
+                "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber < ?3 and type = 'episode' order by episodeNumber desc",
+                current.seriesTitle, current.seasonNumber, current.episodeNumber
+            ).firstResult();
+
+            if (prev == null && current.seasonNumber != null && current.seasonNumber > 1) {
+                // Try previous season - get last episode
+                prev = Models.Video.find(
+                    "seriesTitle = ?1 and seasonNumber < ?2 and type = 'episode' order by seasonNumber desc, episodeNumber desc",
+                    current.seriesTitle, current.seasonNumber
+                ).firstResult();
+            }
+
+            return Response.ok("{\"previousVideoId\":" + (prev != null ? prev.id : "null") + "}").build();
+        } catch (Exception e) {
+            return Response.ok("{\"previousVideoId\":null}").build();
+        }
     }
 }

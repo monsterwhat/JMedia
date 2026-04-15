@@ -5,6 +5,8 @@ import Models.Profile;
 import Models.Session;
 import Models.User;
 import Services.ProfileService;
+import Services.SessionService;
+import Services.UserService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -23,6 +25,12 @@ public class ProfileAPI {
     ProfileService profileService;
 
     @Inject
+    SessionService sessionService;
+
+    @Inject
+    UserService userService;
+
+    @Inject
     SettingsService settingsService;
 
     private User getCurrentUser(HttpHeaders headers) {
@@ -30,11 +38,11 @@ public class ProfileAPI {
         if (sessionId == null) {
             return null;
         }
-        Session session = Session.findBySessionId(sessionId);
+        Session session = sessionService.findBySessionId(sessionId);
         if (session == null || !session.active) {
             return null;
         }
-        return User.findById(Long.parseLong(session.userId));
+        return userService.findById(Long.parseLong(session.userId));
     }
 
     private String getSessionId(HttpHeaders headers) {
@@ -76,7 +84,7 @@ public class ProfileAPI {
             return Response.status(Response.Status.UNAUTHORIZED).entity("Authentication required.").build();
         }
         
-        Profile profile = Profile.findById(id);
+        Profile profile = profileService.findById(id);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }
@@ -114,7 +122,7 @@ public class ProfileAPI {
             return Response.status(Response.Status.UNAUTHORIZED).entity("Authentication required.").build();
         }
         
-        Profile profile = Profile.findById(id);
+        Profile profile = profileService.findById(id);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }
@@ -135,7 +143,7 @@ public class ProfileAPI {
             return Response.status(Response.Status.UNAUTHORIZED).entity("Authentication required.").build();
         }
         
-        Profile profile = Profile.findById(id);
+        Profile profile = profileService.findById(id);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }
@@ -168,7 +176,7 @@ public class ProfileAPI {
             return Response.status(Response.Status.UNAUTHORIZED).entity("Authentication required.").build();
         }
         
-        Profile profile = Profile.findById(id);
+        Profile profile = profileService.findById(id);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }

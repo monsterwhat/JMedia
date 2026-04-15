@@ -52,6 +52,9 @@
                 case 'shuffle':
                     this.cycleShuffleMode(profileId);
                     break;
+                case 'dj-mode':
+                    this.toggleDjMode(profileId);
+                    break;
                 case 'repeat':
                     this.cycleRepeatMode(profileId);
                     break;
@@ -205,6 +208,36 @@
             this.apiCall('shuffle', profileId)
                 .catch(error => {
                     window.Helpers.log('PlaybackController: Failed to update shuffle mode:', error);
+                });
+        },
+        
+        /**
+         * Toggle DJ Mode
+         * @param {string} profileId - Profile ID
+         */
+        toggleDjMode: function(profileId) {
+            const currentState = window.StateManager.getState();
+            const newMode = !currentState.djModeActive;
+            
+            console.log('[DJ] toggleDjMode called, changing:', currentState.djModeActive, '->', newMode);
+            window.StateManager.updateState({ djModeActive: newMode }, 'playbackController');
+            
+            if (window.showToast) {
+                window.showToast('DJ Mode: ' + (newMode ? 'ON' : 'OFF'), 'success', 2000);
+            }
+            
+            // Send to backend
+            this.apiCall('dj-mode', profileId)
+                .then(result => {
+                    window.Helpers.log('PlaybackController: DJ Mode toggle result:', result);
+                })
+                .catch(error => {
+                    window.Helpers.log('PlaybackController: Failed to toggle DJ Mode:', error);
+                    // Revert on failure
+                    window.StateManager.updateState({ djModeActive: !newMode }, 'playbackController');
+                    if (window.showToast) {
+                        window.showToast('DJ Mode toggle failed: ' + (error.message || 'Unknown error'), 'error', 5000);
+                    }
                 });
         },
         

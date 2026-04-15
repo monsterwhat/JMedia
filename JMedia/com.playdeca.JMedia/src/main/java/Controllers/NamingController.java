@@ -75,8 +75,14 @@ public class NamingController {
             return false;
         }
 
-        if (correctedShowName != null) video.seriesTitle = correctedShowName;
-        if (correctedTitle != null) video.title = correctedTitle;
+        if (correctedShowName != null) {
+            video.seriesTitle = correctedShowName;
+            video.seriesTitleManuallyEdited = true;
+        }
+        if (correctedTitle != null) {
+            video.title = correctedTitle;
+            video.titleManuallyEdited = true;
+        }
         if (correctedSeason != null) video.seasonNumber = correctedSeason;
         if (correctedEpisode != null) video.episodeNumber = correctedEpisode;
         if (correctedYear != null) video.releaseYear = correctedYear;
@@ -87,6 +93,29 @@ public class NamingController {
         LOGGER.info("Applied naming corrections to video {}: {} -> {} ({})", 
                    videoId, correctedShowName, correctedTitle, correctedMediaType);
         
+        return true;
+    }
+    
+    /**
+     * Clears manual override flags, allowing future scans to update the fields again
+     */
+    public boolean clearOverrideFlags(Long videoId, boolean clearSeriesTitle, boolean clearTitle) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            LOGGER.warn("Video not found with ID: {}", videoId);
+            return false;
+        }
+        
+        if (clearSeriesTitle) {
+            video.seriesTitleManuallyEdited = false;
+        }
+        if (clearTitle) {
+            video.titleManuallyEdited = false;
+        }
+        
+        video.persist();
+        LOGGER.info("Cleared override flags for video {}: seriesTitle={}, title={}", 
+                   videoId, clearSeriesTitle, clearTitle);
         return true;
     }
 }

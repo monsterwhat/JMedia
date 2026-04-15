@@ -51,6 +51,7 @@
                     volume: currentState.volume,
                     shuffleMode: currentState.shuffleMode,
                     repeatMode: currentState.repeatMode,
+                    djModeActive: currentState.djModeActive,
                     timestamp: Date.now(),
                     deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
                     savedOffline: false
@@ -115,8 +116,10 @@
                     playing: currentState.playing,
                     duration: currentState.duration,
                     volume: currentState.volume,
-                    shuffleMode: currentState.shuffleMode,
+                    // Don't persist Smart Shuffle - it requires server-side queue reordering
+                    shuffleMode: (currentState.shuffleMode === 'SMART_SHUFFLE') ? 'OFF' : currentState.shuffleMode,
                     repeatMode: currentState.repeatMode,
+                    djModeActive: currentState.djModeActive,
                     timestamp: Date.now(),
                     deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null
                 };

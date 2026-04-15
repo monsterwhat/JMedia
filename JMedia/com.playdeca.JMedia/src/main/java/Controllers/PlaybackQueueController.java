@@ -11,6 +11,7 @@ import Services.SongService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import Models.PlaybackHistory;
+import Services.AudioAnalysisService;
 
 @ApplicationScoped
 public class PlaybackQueueController {
@@ -27,6 +28,9 @@ public class PlaybackQueueController {
 
     @Inject
     private SettingsController settingsController;
+
+    @Inject
+    private AudioAnalysisService audioAnalysisService;
 
 
 
@@ -266,6 +270,9 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         if (newIndex == -1 && !newCue.isEmpty()) {
             state.setCurrentSongId(newCue.get(0));
         }
+        
+        // 6. Pre-analyze upcoming songs for DJ Mode transitions
+        audioAnalysisService.ensureUpcomingSongsAnalyzed(newCue, 5);
     }
 
     public void clearShuffle(PlaybackState state, Long profileId) {
@@ -457,7 +464,15 @@ public void songSelected(Long songId, Long profileId) {
     }
 
 private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEarly, Long profileId) {
-        Song currentSong = songService.find(state.getCurrentSongId());
+    // FIX: If a DJ transition is already planned, DO NOT pick a new random song.
+    // We must respect the song the DJ has already analyzed and aligned.
+    if (!skippedEarly && Boolean.TRUE.equals(state.getDjTransitionPlanned()) && state.getDjNextSongId() != null) {
+        System.out.println("[DJ] Respecting already planned transition to song ID: " + state.getDjNextSongId());
+        return;
+    }
+
+    Song currentSong = songService.find(state.getCurrentSongId());
+
         if (currentSong == null) {
             return;
         }
@@ -659,5 +674,72 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         state.setSecondaryCue(newSecondaryCue);
         int newIndex = newSecondaryCue.indexOf(state.getCurrentSongId());
         state.setSecondaryCueIndex(newIndex);
+    }
+    
+    /**
+     * Prepare a DJ Mode transition - find a song with tighter BPM matching for seamless mix
+     * Called at 1/12 remaining in the song when DJ Mode is active
+     */
+    public void prepareDjModeTransition(PlaybackState state, Long profileId, int djModeBpmTolerance) {
+        Song currentSong = songService.find(state.getCurrentSongId());
+        if (currentSong == null || currentSong.getBpm() <= 0) {
+            return;
+        }
+        
+        // Get the song pool
+        List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
+                ? state.getOriginalCue() : state.getCue();
+        
+        if (songPool == null || songPool.isEmpty()) {
+            return;
+        }
+        
+        // Try to find a song with tighter BPM tolerance
+        Song nextSong = null;
+        
+        if (currentSong.getGenre() != null && !currentSong.getGenre().isBlank()) {
+            nextSong = songService.findRandomSongByGenreAndBpm(
+                    currentSong.getGenre(),
+                    currentSong.getBpm(),
+                    djModeBpmTolerance,
+                    currentSong.id,
+                    songPool
+            );
+        }
+        
+        // Fall back to BPM-only search if no genre match
+        if (nextSong == null) {
+            List<Song> allSongs = songService.findByIds(songPool);
+            List<Song> bpmMatched = allSongs.stream()
+                    .filter(s -> s.id != null && !s.id.equals(currentSong.id))
+                    .filter(s -> s.getBpm() > 0)
+                    .filter(s -> Math.abs(s.getBpm() - currentSong.getBpm()) <= djModeBpmTolerance)
+                    .sorted((a, b) -> {
+                        int diffA = Math.abs(a.getBpm() - currentSong.getBpm());
+                        int diffB = Math.abs(b.getBpm() - currentSong.getBpm());
+                        return Integer.compare(diffA, diffB);
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+            
+            if (!bpmMatched.isEmpty()) {
+                java.util.Collections.shuffle(bpmMatched);
+                nextSong = bpmMatched.get(0);
+            }
+        }
+        
+        // If found, move it to be the next song in queue
+        if (nextSong != null) {
+            List<Long> cue = state.getCue();
+            if (cue != null) {
+                int currentSongIndexInCue = state.getCueIndex();
+                int nextSongCurrentIndex = cue.indexOf(nextSong.id);
+                
+                if (nextSongCurrentIndex != -1 && nextSongCurrentIndex != currentSongIndexInCue + 1) {
+                    Long songToMove = cue.remove(nextSongCurrentIndex);
+                    int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
+                    cue.add(insertionPoint, songToMove);
+                }
+            }
+        }
     }
 }

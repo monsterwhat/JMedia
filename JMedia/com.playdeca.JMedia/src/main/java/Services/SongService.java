@@ -52,6 +52,11 @@ public class SongService {
 
     @Transactional
     public void clearAllSongs() {
+        clearSongsByDirectory(null);
+    }
+
+    @Transactional
+    public void clearSongsByDirectory(String dirPath) {
         // Reset playback state for all profiles
         List<Profile> profiles = Profile.listAll();
         for (Profile p : profiles) {
@@ -64,7 +69,18 @@ public class SongService {
 
         playbackHistoryService.clearHistoryForAllProfiles();
         playlistService.clearAllPlaylistSongs();
-        em.createQuery("DELETE FROM Song").executeUpdate();
+        
+        // Delete SongAnalysis first (due to foreign key constraint)
+        em.createQuery("DELETE FROM SongAnalysis").executeUpdate();
+        
+        if (dirPath != null && !dirPath.isBlank()) {
+            // Delete only songs from specific directory
+            em.createQuery("DELETE FROM Song WHERE path LIKE :dirPath")
+                .setParameter("dirPath", dirPath + "%")
+                .executeUpdate();
+        } else {
+            em.createQuery("DELETE FROM Song").executeUpdate();
+        }
     }
 
     @Transactional
@@ -550,5 +566,12 @@ public class SongService {
             "SELECT DISTINCT s.genre FROM Song s WHERE s.genre IS NOT NULL AND s.genre != '' ORDER BY s.genre", 
             String.class)
             .getResultList();
+    }
+
+    @Transactional
+    public List<Song> findAllExcluding(Long excludeSongId) {
+        return em.createQuery("SELECT s FROM Song s WHERE s.id != :excludeId", Song.class)
+                .setParameter("excludeId", excludeSongId)
+                .getResultList();
     }
 }

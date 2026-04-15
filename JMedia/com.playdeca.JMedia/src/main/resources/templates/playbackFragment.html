@@ -2,6 +2,8 @@
 <link rel="stylesheet" href="/css/player.css"/>
 <link rel="stylesheet" href="/css/subtitle-styling.css"/>
 
+{#include subtitleSettingsComponent}{/include}
+
 <div class="player-container paused" id="customPlayer"
      data-video-id="{item.id}"
      data-title="{item.title ?: item.seriesTitle}"
@@ -14,7 +16,8 @@
      data-start-time="{resumeTime}"
      data-next-id="{nextEpisodeId}"
      data-prev-id="{prevEpisodeId}"
-     data-needs-transcode="{needsTranscoding}"
+     data-needs-transcode="{#if item.videoCodec == 'hevc'}true{#else}false{/if}"
+     data-video-codec="{item.videoCodec ?: ''}"
      data-intro-start="{item.introStart ?: 0}"
      data-intro-end="{item.introEnd ?: 0}"
      data-outro-start="{item.outroStart ?: 0}"
@@ -28,6 +31,7 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {

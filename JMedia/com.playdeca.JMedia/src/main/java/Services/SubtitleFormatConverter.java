@@ -38,9 +38,13 @@ public class SubtitleFormatConverter {
     
     /**
      * Shifts all timestamps in a WebVTT string by a specified offset in seconds.
+     * @param vttContent The WebVTT content to modify
+     * @param shiftSeconds The amount to shift in seconds. 
+     *                     Positive value: cues appear LATER (timestamps increase).
+     *                     Negative value: cues appear EARLIER (timestamps decrease).
      */
-    public String applyOffset(String vttContent, double offsetSeconds) {
-        if (offsetSeconds <= 0 || vttContent == null) return vttContent;
+    public String applyOffset(String vttContent, double shiftSeconds) {
+        if (shiftSeconds == 0 || vttContent == null) return vttContent;
         
         vttContent = vttContent.replace("\r\n", "\n").replace("\r", "\n");
         
@@ -80,12 +84,15 @@ public class SubtitleFormatConverter {
                     double start = parseVttTimeToSeconds(times[0]);
                     double end = parseVttTimeToSeconds(times[1]);
                     
-                    // If the subtitle ends before our seek point, discard it
-                    if (end <= offsetSeconds) continue;
+                    // Shift times (Positive shift means cues appear LATER)
+                    double newStart = start + shiftSeconds;
+                    double newEnd = end + shiftSeconds;
                     
-                    // Shift times
-                    double newStart = Math.max(0, start - offsetSeconds);
-                    double newEnd = Math.max(0, end - offsetSeconds);
+                    // If the subtitle ends before the start of our new timeline, discard it
+                    if (newEnd <= 0) continue;
+                    
+                    // Ensure start time isn't negative
+                    newStart = Math.max(0, newStart);
                     
                     String newTimestampLine = formatSecondsToVtt(newStart) + " --> " + formatSecondsToVtt(newEnd);
                     

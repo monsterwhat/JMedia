@@ -308,7 +308,7 @@ public class VideoAPI {
         }
 
         // Transcode if it's an MKV OR if the codec is not natively web-friendly (non-H.264)
-        if (isMKV || transcodingService.isTranscodeNeededForWeb(video)) {
+        if (isMKV || transcodingService.isTranscodeNeededForWeb(video, userAgent)) {
             return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader);
         }
 
@@ -316,12 +316,19 @@ public class VideoAPI {
     }
 
     private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader) {
+        final Long videoId = video.id;
+        final double startPos = startSeconds;
+        
+        LOG.info("Stream: Starting transcode/remux for video {} from {} seconds", videoId, startPos);
+        
         StreamingOutput streamingOutput = output -> {
             try {
-                transcodingService.streamRemuxedMKV(video, videoFile, startSeconds, userAgent, output);
+                // Use TranscodingService - the old direct FFmpeg remux approach
+                // This is the same as what was in the JAR: streams MKV → MP4 on-the-fly via pipe
+                transcodingService.streamRemuxedMKV(video, videoFile, startPos, userAgent, output);
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
-                    LOG.error("MKV Remux streaming error for {}: {}", videoFile.getName(), e.getMessage());
+                    LOG.error("Transcoding error for {}: {}", videoFile.getName(), e.getMessage());
                 }
             }
         };
@@ -332,12 +339,11 @@ public class VideoAPI {
                 .header("Cache-Control", "no-cache");
 
         // If client sends a Range probe (common in iOS/Safari/Firefox), return 206 Partial Content.
-        // Safari requires this to confirm range support.
         if (rangeHeader != null && rangeHeader.contains("bytes=0-1")) {
             responseBuilder.status(Response.Status.PARTIAL_CONTENT);
             responseBuilder.header("Content-Range", "bytes 0-1/*");
         }
-        // For all other requests (even with Range: bytes=0-), return 200 OK to avoid confusing browsers with dummy ranges.
+        
         return responseBuilder.build();
     }
 
@@ -943,46 +949,30 @@ public class VideoAPI {
     @Path("/progress/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
+    @jakarta.transaction.Transactional
     public Response reportProgress(@PathParam("videoId") Long videoId, @QueryParam("time") double timeSeconds) {
         try {
-            Models.Video video = Models.Video.findById(videoId);
-            if (video != null) {
-                if (video.duration == null || video.duration <= 0) {
-                    videoService.probeVideoDuration(video);
-                }
+            // Use unified service for progress updates to ensure consistency and correct transaction handling
+            videoService.updateProgress(videoId, timeSeconds);
 
-                video.resumeTime = (long) (timeSeconds * 1000);
-                video.lastWatched = java.time.LocalDateTime.now();
-                video.dateModified = java.time.LocalDateTime.now();
-                
-                double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
-                double progressRatio = (durationSeconds > 0) ? Math.min(1.0, timeSeconds / durationSeconds) : 0;
-                
-                video.watchProgress = progressRatio;
-                if (progressRatio >= 0.95) {
-                    video.watched = true;
-                    video.watchProgress = 1.0;
-                } else {
-                    video.watched = false;
-                }
-                
-                video.persist();
-
-                try {
-                    Models.VideoState state = videoStateService.getOrCreateState();
-                    if (state != null) {
-                        state.setCurrentVideoId(videoId);
-                        state.setCurrentTime(timeSeconds);
-                        state.setLastUpdateTime(System.currentTimeMillis());
-                        if (video.duration != null) {
-                            state.setDuration(video.duration);
-                        }
-                        videoStateService.saveState(state);
+            // Also update the ephemeral VideoState for real-time UI synchronization if needed
+            try {
+                Models.VideoState state = videoStateService.getOrCreateState();
+                if (state != null) {
+                    state.setCurrentVideoId(videoId);
+                    state.setCurrentTime(timeSeconds);
+                    state.setLastUpdateTime(System.currentTimeMillis());
+                    
+                    Models.Video video = Models.Video.findById(videoId);
+                    if (video != null && video.duration != null) {
+                        state.setDuration(video.duration);
                     }
-                } catch (Exception e) {
-                    LOG.warn("Could not sync VideoState for video {}: {}", videoId, e.getMessage());
+                    videoStateService.saveState(state);
                 }
+            } catch (Exception e) {
+                LOG.warn("Could not sync VideoState for video {}: {}", videoId, e.getMessage());
             }
+            
             return Response.ok(ApiResponse.success(null)).build();
         } catch (Exception e) {
             LOG.error("Error reporting progress for video {}: {}", videoId, e.getMessage());

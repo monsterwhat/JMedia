@@ -5,6 +5,7 @@ import Controllers.VideoController;
 import Services.VideoService;
 import Services.VideoHistoryService;
 import Services.VideoStateService;
+import Services.GenreService;
 import Models.Video;
 import Models.VideoState;
 import io.quarkus.qute.Template;
@@ -35,6 +36,9 @@ public class VideoUiApi {
 
     @Inject
     VideoService videoService;
+
+    @Inject
+    GenreService genreService;
 
     @Inject
     Services.TranscodingService transcodingService;
@@ -375,9 +379,9 @@ public class VideoUiApi {
             resumeTime = item.watchProgress * (item.getDurationSeconds());
         }
 
-        // If the video is nearly finished (over 95%), start from the beginning
+        // If the video is nearly finished (over 98%), start from the beginning
         double durationSeconds = item.getDurationSeconds();
-        if (durationSeconds > 0 && (resumeTime / durationSeconds) >= 0.95) {
+        if (durationSeconds > 0 && (resumeTime / durationSeconds) >= 0.98) {
             resumeTime = 0;
         }
 
@@ -385,7 +389,7 @@ public class VideoUiApi {
         Models.Video prevEpisode = videoService.findPreviousEpisode(item);
 
         boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
-        boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item);
+        boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, null);
 
         return playbackFragment
                 .data("item", item)

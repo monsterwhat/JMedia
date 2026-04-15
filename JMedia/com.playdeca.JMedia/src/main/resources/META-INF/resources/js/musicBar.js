@@ -374,6 +374,69 @@ window.setVideoPlaying = (active) => {
     }
 };
 
+// === Global Video Page Detection ===
+// This runs on every page since musicBar.js loads globally
+// Detects if we're on a video page and hides music accordingly
+function checkVideoPageState() {
+    // Check for video player container on current page
+    const playerContainer = document.querySelector('.player-container');
+    const videoElement = document.getElementById('videoElement');
+    const customPlayer = document.getElementById('customPlayer');
+    
+    const isOnVideoPage = playerContainer || videoElement || customPlayer;
+    const musicPlayer = document.querySelector('.mobile-player') || 
+                       document.querySelector('.persistent-music-player') ||
+                       document.getElementById('musicPlayerContainer');
+    
+    if (isOnVideoPage) {
+        // We're on a video page - hide music and mute
+        window.videoPlaying = true;
+        document.body.classList.add('video-active');
+        
+        if (musicPlayer) {
+            musicPlayer.classList.add('video-active');
+            musicPlayer.style.setProperty('display', 'none', 'important');
+        }
+        
+        // Mute local audio (only if audio is initialized)
+        if (audio && audioElementReady && !audio.paused) {
+            console.log("[MusicBar] Auto-suspending: Pausing audio for video page");
+            audio.pause();
+            // Also notify server (silently)
+            if (typeof apiPost === 'function') {
+                apiPost('pause', null, true);
+            }
+        }
+    } else {
+        // Not on video page - show music
+        // Only restore if window.videoPlaying was true (meaning we were on video page before)
+        if (window.videoPlaying === true) {
+            window.videoPlaying = false;
+            document.body.classList.remove('video-active');
+            
+            if (musicPlayer) {
+                musicPlayer.classList.remove('video-active');
+                musicPlayer.style.removeProperty('display');
+            }
+        }
+    }
+}
+
+// Check on page load
+setTimeout(checkVideoPageState, 500);
+
+// Check when htmx swaps content (SPA navigation)
+document.body.addEventListener('htmx:afterSwap', () => {
+    setTimeout(checkVideoPageState, 100);
+});
+
+document.body.addEventListener('htmx:afterSettle', () => {
+    setTimeout(checkVideoPageState, 100);
+});
+
+// Check periodically
+setInterval(checkVideoPageState, 1000);
+
 // Smooth UI update loop
 setInterval(() => {
     // Normal UI updates

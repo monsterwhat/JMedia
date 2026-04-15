@@ -9,6 +9,8 @@
         <script src="/js/theme-initializer.js"></script>
         <script src="/js/fetch-credentials.js"></script>
         <script src="/js/htmx.min.js"></script>
+        <!-- HLS.js for video streaming -->
+        <script src="/lib/hls.min.js"></script>
         <script>
             htmx.config.withCredentials = true;
         </script>
@@ -31,6 +33,7 @@
         <script src="/js/music-index.js" defer></script>
         <script src="/js/video-spa.js" defer></script>
         <script src="/js/import-spa.js" defer></script>
+        <script src="/js/import.js" defer></script>
         
         <!-- Legacy/Shared Scripts (Loaded globally) -->
         <script src="/js/toast.js" defer></script>
@@ -44,6 +47,7 @@
         <script src="/js/musicBar/data/SongContextCache.js?v=2" defer></script>
         <script src="/js/musicBar/data/QueueManager.js?v=2" defer></script>
         <script src="/js/musicBar/core/AudioEngine.js?v=2" defer></script>
+        <script src="/js/musicBar/core/DjTransitionManager.js?v=1" defer></script>
         <script src="/js/musicBar/core/WebSocketManager.js?v=2" defer></script>
         <script src="/js/musicBar/controls/PlaybackController.js?v=2" defer></script>
         <script src="/js/musicBar/controls/TimeController.js?v=2" defer></script>
@@ -214,6 +218,8 @@
 
             <!-- Main Content Area (Shell) -->
             <div class="standard-main">
+                
+                
                 <!-- Views will be injected here (Header + Content) -->
                 <div id="app-content" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"></div>
 
@@ -231,27 +237,34 @@
                         
                         <div class="mobile-player-controls">
                             <button id="shuffleBtn" class="mobile-btn"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                            <button id="djModeBtn" class="mobile-btn" title="Toggle DJ Mode (Seamless Transitions)"><i id="djModeIcon" class="pi pi-headphones"></i></button>
                             <button id="prevBtn" class="mobile-btn"><i class="pi pi-step-backward"></i></button>
                             <button id="playPauseBtn" class="mobile-btn mobile-btn-primary"><i id="playPauseIcon" class="pi pi-play"></i></button>
                             <button id="nextBtn" class="mobile-btn"><i class="pi pi-step-forward"></i></button>
                             <button id="repeatBtn" class="mobile-btn"><i id="repeatIcon" class="pi pi-refresh"></i></button>
                         </div>
 
-                        <div class="mobile-player-right-side">
-                            <div class="mobile-volume-wrapper">
-                                <button id="volumeToggleBtn" class="mobile-btn"><i id="volumeIcon" class="pi pi-volume-up"></i></button>
-                                <div class="volume-slider-container">
-                                    <input type="range" id="musicVolumeProgressBar" class="vertical-volume" min="0" max="100" value="70">
+<div class="mobile-player-right-side">
+                                <div class="mobile-volume-wrapper">
+                                    <button id="volumeToggleBtn" class="mobile-btn"><i id="volumeIcon" class="pi pi-volume-up"></i></button>
+                                    <div class="volume-slider-container">
+                                        <input type="range" id="musicVolumeProgressBar" class="vertical-volume" min="0" max="100" value="70">
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="mobile-progress-container">
-                        <span id="musicCurrentTime">0:00</span>
-                        <input type="range" id="musicProgressBar" class="mobile-progress" min="0" max="100" value="0">
-                        <span id="musicTotalTime">0:00</span>
-                    </div>
+                        <!-- DJ Mode Indicator (above progress bar, below controls) -->
+                        <div id="djModeIndicator" class="dj-indicator is-hidden my-1" style="display: none; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px 8px;">
+                            <i class="pi pi-compact-disc" style="font-size: 0.75rem"></i>
+                            <span id="djModeIndicatorText"></span>
+                        </div>
+
+                        <div class="mobile-progress-container">
+                            <span id="musicCurrentTime">0:00</span>
+                            <input type="range" id="musicProgressBar" class="mobile-progress" min="0" max="100" value="0">
+                            <span id="musicTotalTime">0:00</span>
+                        </div>
                 </div>
             </div>
         </div>
@@ -403,14 +416,26 @@
 
                     <!-- AI Tab -->
                     <div id="ai-tab-content" style="display: none;">
-                        <div class="content has-text-centered py-6">
+                        <div class="content has-text-centered py-4">
                             <i class="pi pi-bolt" style="font-size: 3rem; color: #ffa502;"></i>
-                            <h3 class="title is-4 mt-4">Whisper AI Generation</h3>
-                            <p>Generate high-quality subtitles using OpenAI Whisper directly from the video audio.</p>
-                            <p class="help mb-4">This process runs in the background and may take several minutes depending on video length and server hardware.</p>
-                            <button class="button is-warning is-rounded is-large" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
+                            <h3 class="title is-5 mt-3">Whisper AI Generation</h3>
+                            <p class="mb-3">Generate high-quality subtitles using OpenAI Whisper directly from the video audio.</p>
+                            <p class="help mb-3">This process runs in the background and may take several minutes depending on video length and server hardware.</p>
+                            
+                            <button class="button is-warning is-rounded is-medium" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
                                 <i class="pi pi-magic"></i>&nbsp;Generate with AI
                             </button>
+                            
+                            <!-- Progress indicator (hidden by default) -->
+                            <div id="aiGenerationProgress" class="mt-4" style="display: none;">
+                                <div class="is-flex is-justify-content-center is-align-items-center">
+                                    <i class="pi pi-spin pi-spinner mr-2"></i>
+                                    <span id="aiGenerationStatus">Generating subtitles...</span>
+                                </div>
+                                <button class="button is-danger is-small is-rounded mt-2" id="cancelAiGenerationBtn" onclick="subtitleManager.cancelAiGeneration()">
+                                    <i class="pi pi-times"></i>&nbsp;Cancel
+                                </button>
+                            </div>
                         </div>
                     </div>
 

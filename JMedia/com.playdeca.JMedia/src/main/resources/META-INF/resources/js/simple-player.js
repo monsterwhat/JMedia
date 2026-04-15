@@ -5,39 +5,33 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.container = document.getElementById(config.containerId);
             this.video = document.getElementById(config.videoId);
             this.videoId = config.currentVideoId;
+            this.videoType = this.container.dataset.type || 'movie';
             
-            if (!this.container || !this.video) {
-                console.error('[SimplePlayer] Container or Video element not found!');
-                return;
-            }
+            if (!this.container || !this.video) return;
+
+            // Basic setup
+            this.video.setAttribute('playsinline', 'true');
+            this.video.setAttribute('webkit-playsinline', 'true');
+            this.video.controls = false;
 
             this.needsTranscode = this.container.dataset.needsTranscode === 'true';
+            this.streamStartOffset = 0; // Track where stream started (for server-side seek)
             this.profileId = localStorage.getItem('activeProfileId') || '1';
             this.volumeKey = 'jmedia_video_volume_' + this.profileId;
             this.muteKey = 'jmedia_video_mute_' + this.profileId;
             this.userActiveTimeout = null;
             
-            const savedVol = localStorage.getItem(this.volumeKey);
-            const savedMute = localStorage.getItem(this.muteKey) === 'true';
+            // Critical: Duration parsing
+            const rawDur = parseFloat(this.container.dataset.duration || 0);
+            this.totalDuration = rawDur > 5000 ? rawDur / 1000 : rawDur; 
             
             this.state = {
                 playing: false,
-                volume: savedVol !== null ? parseFloat(savedVol) : 0.7,
-                muted: savedMute,
-                duration: 0,
-                currentTime: 0
+                volume: parseFloat(localStorage.getItem(this.volumeKey) || '0.7'),
+                muted: localStorage.getItem(this.muteKey) === 'true',
+                lastSeekTime: 0
             };
 
-            this.streamStartOffset = 0;
-            this.currentSpeed = 1.0;
-            this.controlBarHeight = 80; // Default, will be measured dynamically
-            this.lastSelectedTrackId = localStorage.getItem('jmedia_last_track_' + this.videoId) || null;
-            this.storyboard = {
-                metadata: null,
-                loaded: false
-            };
-
-            // Intro/Outro markers
             this.markers = {
                 introStart: parseFloat(this.container.dataset.introStart || 0),
                 introEnd: parseFloat(this.container.dataset.introEnd || 0),
@@ -47,313 +41,286 @@ if (typeof window.SimplePlayer === 'undefined') {
                 recapEnd: parseFloat(this.container.dataset.recapEnd || 0)
             };
             
-            console.log('[SimplePlayer] Loaded Markers:', this.markers);
-
-            // If markers are missing, try to refresh them once after a short delay (for on-demand enrichment)
-            if (this.markers.introEnd === 0 && this.markers.outroStart === 0 && this.markers.recapEnd === 0) {
-                console.log('[SimplePlayer] Markers missing, scheduling a refresh in 5 seconds...');
-                setTimeout(() => this.refreshMarkers(), 5000);
-            }
+            this.storyboard = { metadata: null, loaded: false };
+            this.lastSelectedTrackId = localStorage.getItem('jmedia_last_track_' + this.videoId) || null;
             
             window.currentPlayerInstance = this;
-            // Compatibility with existing subtitle components (subtitleTrackSelector, etc)
             window.player = this;
+
+            console.log(`[SimplePlayer] Initialized for video ${this.videoId}. Resume time from server: ${this.container.dataset.startTime}s`);
+            this.initialResumeTime = parseFloat(this.container.dataset.startTime || 0);
+
+            // Save progress on page close/refresh
+            window.onbeforeunload = () => {
+                this.saveProgressNow();
+            };
 
             this.init();
 
-            // Restore fullscreen if it was set before episode transition
+            // Restore fullscreen if navigation occurred while in fullscreen
             if (sessionStorage.getItem('jmedia_restore_fullscreen') === 'true') {
                 sessionStorage.removeItem('jmedia_restore_fullscreen');
                 setTimeout(() => {
-                    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+                    const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;        
                     if (this.container && !isFullscreen) {
-                        if (this.container.requestFullscreen) {
-                            this.container.requestFullscreen().catch(err => {
-                                console.log('[SimplePlayer] Could not restore fullscreen:', err.message);
-                            });
-                        } else if (this.container.webkitEnterFullscreen) {
-                            this.container.webkitEnterFullscreen();
-                        }
+                        if (this.container.requestFullscreen) this.container.requestFullscreen().catch(() => {});
+                        else if (this.container.webkitEnterFullscreen) this.container.webkitEnterFullscreen();
                     }
                 }, 500);
             }
         }
 
-        // Compatibility methods for other components (subtitleTrackSelector, etc)
-        textTracks() {
-            return this.video.textTracks;
-        }
+        async initHlsStream(savedTime) {
+            // Session is now per video - no time bucket needed
+            // One transcoding serves the entire video
+            const sessionId = `vid-${this.videoId}`;
+            const playlistUrl = `/api/video/hls/${sessionId}/playlist.m3u8`;
+            this.hlsSessionId = sessionId;
 
-        updateSubtitleUI() {
-            console.log('[SimplePlayer] updateSubtitleUI called');
-            // This is a placeholder for components that expect this method
-        }
+            const isIOS = /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) || 
+                         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            
+            const isFirefox = /Firefox/i.test(navigator.userAgent);
+            const isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
+            
+            // hls.js is needed for Firefox - native HLS doesn't work
+            // Also use hls.js for Chrome/Edge unless it's a direct stream
+            const useHlsJs = !isSafari && typeof Hls !== 'undefined' && Hls.isSupported();
+            
+            // Only native HLS on Safari (desktop) and iOS
+            const supportsNativeHls = (isSafari || isIOS);
 
-        addRemoteTextTrack(trackObj, manualActivation = true) {
-            console.log('[SimplePlayer] Adding remote text track:', trackObj);
+            this._showLoading('Preparing video...');
 
-            const trackEl = document.createElement('track');
-            trackEl.kind = trackObj.kind || 'subtitles';
-            trackEl.label = trackObj.label;
-            trackEl.srclang = trackObj.language;
-            trackEl.src = trackObj.src;
-            trackEl.default = trackObj.default || false;
-
-            this.video.appendChild(trackEl);
-
-            if (manualActivation) {
-                trackEl.onload = () => {
-                    // Give some browsers more time to register the track object
+            if (supportsNativeHls) {
+                console.log('[SimplePlayer] Using native HLS (Safari/iOS)');
+                this.video.src = playlistUrl;
+                this.video.addEventListener('loadedmetadata', () => {
+                    if (savedTime > 0) this.video.currentTime = savedTime;
+                    this.applyInitialState();
+                    setTimeout(() => this.loadSubtitles(), 500);
+                }, { once: true });
+                this.video.play().catch(() => console.log('[SimplePlayer] User gesture required'));
+            } else if (useHlsJs) {
+                console.log('[SimplePlayer] Using hls.js (Firefox/Chrome)');
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: false,
+                    // Keep polling for new segments while transcoding
+                    manifestLoadingMaxRetry: 10,
+                    manifestLoadingRetryDelay: 1000,
+                    manifestLoadingMaxRetryTimeout: 10000,
+                    fragLoadingMaxRetry: 10,
+                    fragLoadingMaxRetryTimeout: 10000
+                });
+                this.hlsInstance = hls;
+                hls.loadSource(playlistUrl);
+                hls.attachMedia(this.video);
+                
+                // Wait for at least some segments before playing
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    console.log('[SimplePlayer] HLS manifest parsed, waiting for buffer...');
+                    // Give FFmpeg time to generate initial segments
                     setTimeout(() => {
-                        if (trackEl.track) trackEl.track.mode = 'showing';
-                        this.updateSubtitleUI(); // Refresh UI to show the new track
-                    }, 100);
-                };
-                // Fallback for immediate activation attempt
-                if (trackEl.track) {
-                    setTimeout(() => { trackEl.track.mode = 'showing'; }, 100);
-                }
-            }
-
-            return trackEl;
-        }
-
-        async refreshMarkers() {
-            console.log('[SimplePlayer] Refreshing markers from server...');
-            try {
-                const res = await fetch(`/api/video/${this.videoId}`);
-                const json = await res.json();
-                // VideoAPI returns ApiResponse { success: true, data: video }
-                if (json && json.success && json.data) {
-                    const video = json.data;
-                    this.markers.introStart = parseFloat(video.introStart || 0);
-                    this.markers.introEnd = parseFloat(video.introEnd || 0);
-                    this.markers.outroStart = parseFloat(video.outroStart || 0);
-                    this.markers.outroEnd = parseFloat(video.outroEnd || 0);
-                    this.markers.recapStart = parseFloat(video.recapStart || 0);
-                    this.markers.recapEnd = parseFloat(video.recapEnd || 0);
-                    console.log('[SimplePlayer] Markers updated from server:', this.markers);
-
-                    // Update progress markers after refresh
-                    const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
-                    const duration = (this.needsTranscode && manualDuration > 0) ? manualDuration : 
-                                   (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
-                    this.updateProgressMarkers(duration);
-                }
-            } catch (e) {
-                console.error('[SimplePlayer] Failed to refresh markers:', e);
-            }
-        }
-
-        updateProgressMarkers(duration) {
-            if (!this.progressIntroMarker || !this.progressOutroMarker || !duration || duration <= 0) return;
-
-            // Intro marker (from introStart to introEnd)
-            if (this.markers.introStart > 0 && this.markers.introEnd > 0) {
-                const introStartPct = (this.markers.introStart / duration) * 100;
-                const introEndPct = (this.markers.introEnd / duration) * 100;
-                this.progressIntroMarker.style.left = introStartPct + '%';
-                this.progressIntroMarker.style.width = (introEndPct - introStartPct) + '%';
-                this.progressIntroMarker.style.display = 'block';
+                        console.log('[SimplePlayer] Starting playback');
+                        if (savedTime > 0) this.video.currentTime = savedTime;
+                        this.video.play().catch(console.error);
+                        setTimeout(() => this.loadSubtitles(), 500);
+                    }, 2000);
+                });
+                
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    console.error('[SimplePlayer] HLS error:', data);
+                    
+                    // For sequence mismatch errors, fully reset and reload
+                    if (data.fatal && data.details && data.details.includes('mismatch')) {
+                        console.log('[SimplePlayer] Sequence mismatch - resetting and reloading');
+                        data.fatal = false;
+                        hls.reset();
+                        setTimeout(() => hls.loadSource(playlistUrl), 100);
+                        return;
+                    }
+                    
+                    // Don't fail on network or parsing errors - keep retrying
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        console.log('[SimplePlayer] Non-fatal error, will retry...');
+                        hls.startLoad();
+                    }
+                });
+                
+                // Track buffer health
+                hls.on(Hls.Events.FRAG_BUFFERED, () => {
+                    console.log('[SimplePlayer] Fragment buffered');
+                });
             } else {
-                this.progressIntroMarker.style.display = 'none';
+                console.error('[SimplePlayer] No HLS support - cannot play video');
+                this._showLoading('HLS not supported on this browser');
             }
 
-            // Outro marker (from outroStart to end)
-            if (this.markers.outroStart > 0) {
-                const outroStartPct = (this.markers.outroStart / duration) * 100;
-                this.progressOutroMarker.style.left = outroStartPct + '%';
-                this.progressOutroMarker.style.width = (100 - outroStartPct) + '%';
-                this.progressOutroMarker.style.display = 'block';
-            } else {
-                this.progressOutroMarker.style.display = 'none';
-            }
+            this.video.addEventListener('playing', () => this._hideLoading(), { once: true });
         }
 
         init() {
-            console.log('[SimplePlayer] Init called');
-
-            // Move the global subtitle modal into this container so it shows in fullscreen
-            const globalModal = document.getElementById('subtitleManagementModal');
-            if (globalModal && this.container) {
-                this.container.appendChild(globalModal);
-            }
-
             this.buildUI();
             this.attachEvents();
-            this.measureControlBarHeight(); // Measure initial control bar height
-            this.setPlaybackSpeed(this.currentSpeed);
+            this.applyInitialState();
             
-            // Update control bar height on resize
-            window.addEventListener('resize', () => this.measureControlBarHeight());
-            
-            // Add a small delay before loading storyboard to avoid network rush
-            setTimeout(() => this.loadStoryboard(), 1000);
-            
-            // Restore Audio
-            this.video.volume = Math.pow(this.state.volume, 2);
-            this.video.muted = this.state.muted;
-            this.updateVolumeUI();
-            
-            // Setup initial source
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
             const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || 
                          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
             
-            let targetSrc;
-            if (this.needsTranscode && savedTime > 0) {
-                console.log(`[SimplePlayer] Transcode needed, resuming from ${savedTime}s via server-side seek`);
-                this.streamStartOffset = savedTime;
-                targetSrc = `/api/video/stream/${this.videoId}?start=${savedTime}`;
+            // Use HLS for iOS when transcoding is needed (HEVC) - NEVER fall back to MP4
+            // All others → Direct remuxed stream
+            if (isIOS && this.needsTranscode) {
+                console.log('[SimplePlayer] iOS + transcode detected → using HLS');
+                this.initHlsStream(savedTime);
             } else {
-                this.streamStartOffset = 0;
-                targetSrc = `/api/video/stream/${this.videoId}`;
-            }
-
-            // Only update src if it's different to prevent unnecessary reloads/restarts
-            const currentSrc = this.video.getAttribute('src');
-            if (currentSrc !== targetSrc) {
-                this.video.src = targetSrc;
-                if (!this.needsTranscode && savedTime > 0) {
-                    this.video.currentTime = savedTime;
+                // Direct stream - with start param if needsTranscode and resuming
+                if (this.needsTranscode && savedTime > 0) {
+                    console.log(`[SimplePlayer] Transcode needed, resuming from ${savedTime}s via server-side seek`);
+                    this.streamStartOffset = savedTime; // Track where stream actually starts
+                    this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
+                } else {
+                    this.streamStartOffset = 0;
+                    this.video.src = `/api/video/stream/${this.videoId}`;
                 }
-                // Clear the start time attribute so it doesn't trigger again on re-inits
-                this.container.dataset.startTime = '0';
+                this.loadSubtitles();
             }
 
-            // Load subtitles AFTER setting streamStartOffset for proper sync
-            this.loadSubtitles();
-
-            // Ensure Firefox subtitle overlay exists
-            if (window.subtitleManager?.ensureFirefoxOverlay) {
-                window.subtitleManager.ensureFirefoxOverlay();
+            this.loadStoryboard();
+            this.setMusicSuspended(true);
+            this.startProgressReporting();
+            this.updateMarkers();
+            this.checkMarkers();
+            
+            if (window.subtitleManager) {
+                window.subtitleManager.bindVideo(this.video, this.container);
             }
 
+            // Auto-refresh markers for episodes if they are currently all zero
+            const allZero = Object.values(this.markers).every(v => v === 0);
+            if (allZero && (this.videoType === 'Episode' || this.videoType === 'episode')) {
+                this.refreshMarkers();
+            }
+            
             this.showControls();
-
-            // Initial check for autoplay or already playing state
-            if (!this.video.paused) {
-                console.log('[SimplePlayer] Video playing on init (autoplay), suspending music');
-                this.setMusicSuspended(true);
-                this.startProgressReporting();
-            }
         }
 
-        startProgressReporting() {
-            clearInterval(this._progressInterval);
-            this._progressInterval = setInterval(() => this.reportProgress(true), 3000);
-        }
-
-        stopProgressReporting() {
-            clearInterval(this._progressInterval);
-            // Final report when stopping
-            this.reportProgress(true);
-        }
-
-        setMusicSuspended(suspended) {
-            if (typeof window.setVideoPlaying === 'function') {
-                window.setVideoPlaying(suspended);
-            } else {
-                // Fallback if musicBar isn't ready
-                window.videoPlaying = suspended;
-                const player = document.getElementById('musicPlayerContainer');
-                if (player) {
-                    player.style.display = suspended ? 'none' : 'flex';
+        async refreshMarkers(retries = 3) {
+            console.log('[SimplePlayer] Refreshing markers for episode...');
+            try {
+                const res = await fetch(`/api/video/${this.videoId}`);
+                if (res.ok) {
+                    const json = await res.json();
+                    const data = json.data || json;
+                    
+                    if (data.introStart !== undefined) {
+                        this.markers = {
+                            introStart: data.introStart || 0,
+                            introEnd: data.introEnd || 0,
+                            outroStart: data.outroStart || 0,
+                            outroEnd: data.outroEnd || 0,
+                            recapStart: data.recapStart || 0,
+                            recapEnd: data.recapEnd || 0
+                        };
+                        console.log('[SimplePlayer] Markers refreshed:', this.markers);
+                        this.updateMarkers();
+                        this.checkMarkers();
+                        
+                        // If still all zero and we have retries, try again after a delay
+                        // (Backend enrichment might be in progress)
+                        const allZeroNow = Object.values(this.markers).every(v => v === 0);
+                        if (allZeroNow && retries > 0) {
+                            console.log(`[SimplePlayer] Markers still zero, retrying in 2s... (${retries} left)`);
+                            setTimeout(() => this.refreshMarkers(retries - 1), 2000);
+                        }
+                    }
                 }
+            } catch (e) {
+                console.error('[SimplePlayer] Failed to refresh markers', e);
             }
+        }
+
+        initDirectStream(savedTime) {
+            // Use direct remuxed stream via /api/video/stream
+            // If needsTranscode and resuming, pass start param for server-side seek
+            if (this.needsTranscode && savedTime > 0) {
+                console.log('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
+                this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
+            } else {
+                this.video.src = `/api/video/stream/${this.videoId}`;
+            }
+            
+            this._showLoading('Loading video...');
+            
+            this.video.addEventListener('loadedmetadata', () => {
+                console.log('[SimplePlayer] Direct stream metadata loaded, duration:', this.video.duration);
+                this.applyInitialState();
+                setTimeout(() => this.loadSubtitles(), 500);
+            }, { once: true });
+            
+            this.video.addEventListener('playing', () => {
+                this._hideLoading();
+            }, { once: true });
+            
+            this.video.addEventListener('error', (e) => {
+                console.error('[SimplePlayer] Direct stream error:', this.video.error);
+                this._showLoading('Stream error, trying HLS...');
+                // Fallback to HLS on error
+                setTimeout(() => this.initHlsStream(savedTime), 1000);
+            });
+            
+            this.video.play().catch(e => {
+                console.log('[SimplePlayer] Play requires user gesture:', e);
+            });
         }
 
         buildUI() {
-            const old = this.container.querySelectorAll('.controls-container, .media-info, .big-play-btn, .subtitle-menu, .buffering-overlay');
-            old.forEach(el => el.remove());
-
-            const type = (this.container.dataset.type || '').toLowerCase();
-            const isEpisode = type === 'episode';
-            const nextId = this.container.dataset.nextId;
-            const hasNext = (nextId && nextId !== 'null' && nextId !== '');
-
-            console.log('[SimplePlayer] buildUI Metadata:', { type, isEpisode, nextId, hasNext });
-
             const uiHTML = `
+                <div class="video-click-overlay"></div>
                 <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
                 <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
-
-                <div class="skip-recap-container" id="skipRecapBtn" style="display: none;">
-                    <button class="button is-info is-rounded">
-                        <i class="pi pi-history mr-2"></i> Skip Recap
-                    </button>
-                </div>
-
-                <div class="skip-intro-container" id="skipIntroBtn" style="display: none;">
-                    <button class="button is-info is-rounded">
-                        <i class="pi pi-fast-forward mr-2"></i> Skip Intro
-                    </button>
-                </div>
                 
-                <div class="skip-outro-container" id="skipOutroBtn" style="display: none;">
-                    <button class="button is-info is-rounded">
-                        <i class="pi pi-step-forward mr-2"></i> Skip Outro
-                    </button>
-                </div>
+                <div class="skip-recap-container" id="skipRecapBtn" style="display: none;"><button class="button is-info is-rounded"><i class="pi pi-history mr-2"></i> Skip Recap</button></div>
+                <div class="skip-intro-container" id="skipIntroBtn" style="display: none;"><button class="button is-info is-rounded"><i class="pi pi-fast-forward mr-2"></i> Skip Intro</button></div>
+                <div class="skip-outro-container" id="skipOutroBtn" style="display: none;"><button class="button is-info is-rounded"><i class="pi pi-step-forward mr-2"></i> Skip Outro</button></div>
 
                 <div class="media-info">
-                    <div class="back-button-container">
-                        <button class="back-btn" id="videoBackBtn" title="Go Back" onclick="if(window.currentPlayerInstance) window.currentPlayerInstance.goBack();"
-                                data-type="${this.container.dataset.type || ''}"
-                                data-video-id="${this.videoId}"
-                                data-series-title="${this.container.dataset.seriesTitle || ''}"
-                                data-season-number="${this.container.dataset.seasonNumber || 1}">
-                            <i class="pi pi-arrow-left"></i>
-                        </button>
-                    </div>
-                    <div class="info-title" id="videoTitleLink" style="cursor: pointer;" title="View Details" onclick="if(window.currentPlayerInstance) window.currentPlayerInstance.goToDetails();"
-                         data-type="${this.container.dataset.type || ''}"
-                         data-video-id="${this.videoId}"
-                         data-series-title="${this.container.dataset.seriesTitle || ''}"
-                         data-season-number="${this.container.dataset.seasonNumber || 1}">${this.container.dataset.title || 'Video'}</div>
-                    ${this.container.dataset.meta ? `<div class="info-meta" style="font-size: 0.9rem; color: rgba(255,255,255,0.7); margin-left: 10px; margin-top: 4px;">${this.container.dataset.meta}</div>` : ''}
+                    <div class="back-button-container"><button class="back-btn" id="videoBackBtn"><i class="pi pi-arrow-left"></i></button></div>
+                    <div class="info-title" id="videoTitleLink">${this.container.dataset.title || 'Video'}</div>
                 </div>
 
                 <div class="controls-container">
                     <div class="preview-container" id="scrollPreview">
+                        <div class="storyboard-img" id="storyboardImg"></div>
                         <div class="preview-time" id="previewTime">0:00</div>
                     </div>
-
                     <div class="progress-container">
-                        <div class="progress-buffered" style="width: 0%;"></div>
                         <div class="progress-filled" style="width: 0%;"></div>
                         <div class="progress-intro-marker" style="display: none;"></div>
                         <div class="progress-outro-marker" style="display: none;"></div>
                     </div>
-                    
                     <div class="controls-row">
+                        <button class="control-btn" id="videoPrevBtn"><i class="pi pi-step-backward"></i></button>
                         <button class="control-btn" id="videoPlayPauseBtn"><i class="pi pi-play"></i></button>
+                        <button class="control-btn" id="videoNextBtn"><i class="pi pi-step-forward"></i></button>
                         
-                        <div id="episodeNavControls" class="is-flex" style="${isEpisode || hasNext ? 'display: flex !important;' : 'display: none !important;'}">
-                            <button class="control-btn" id="videoPrevEpBtn" title="Previous Episode" style="${isEpisode ? '' : 'display:none;'}"><i class="pi pi-step-backward"></i></button>
-                            <button class="control-btn" id="videoNextEpBtn" title="Next Episode" style="${hasNext ? '' : 'visibility: hidden;'}"><i class="pi pi-step-forward"></i></button>
+                        <div class="skip-buttons-row">
+                            <button class="control-btn skip-btn" data-skip="-30"><i class="pi pi-angle-double-left"></i><span class="skip-val">30</span></button>
+                            <button class="control-btn skip-btn" data-skip="-15"><i class="pi pi-angle-left"></i><span class="skip-val">15</span></button>
+                            <button class="control-btn skip-btn" data-skip="15"><i class="pi pi-angle-right"></i><span class="skip-val">15</span></button>
+                            <button class="control-btn skip-btn" data-skip="30"><i class="pi pi-angle-double-right"></i><span class="skip-val">30</span></button>
                         </div>
 
-                        <div class="is-flex">
-                            <button class="control-btn skip-btn" data-skip="-30" title="Skip back 30s"><i class="pi pi-angle-double-left"></i><span class="skip-val">-30</span></button>
-                            <button class="control-btn skip-btn" data-skip="-15" title="Skip back 15s"><i class="pi pi-angle-left"></i><span class="skip-val">-15</span></button>
-                            <button class="control-btn skip-btn" data-skip="15" title="Skip forward 15s"><i class="pi pi-angle-right"></i><span class="skip-val">+15</span></button>
-                            <button class="control-btn skip-btn" data-skip="30" title="Skip forward 30s"><i class="pi pi-angle-double-right"></i><span class="skip-val">+30</span></button>
-                        </div>
-
-                        <div class="time-display">
-                            <span id="videoCurrentTime">0:00</span> / <span id="videoTotalTime">0:00</span>
-                        </div>
-
+                        <div class="time-display"><span id="videoCurrentTime">0:00</span> / <span id="videoTotalTime">0:00</span></div>
                         <div class="spacer"></div>
-
+                        
                         <div class="volume-container">
                             <button class="control-btn" id="videoMuteBtn"><i class="pi pi-volume-up"></i></button>
                             <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="${this.state.volume}">
                         </div>
-
-                        <button class="control-btn" id="videoSpeedBtn" title="Playback Speed"><i class="pi pi-speedometer"></i> <span id="speedValue">1.0x</span></button>
-
+                        
+                        <button class="control-btn" id="videoSpeedBtn"><span id="speedValue">1.0x</span></button>
                         <button class="control-btn" id="videoSubtitleBtn"><i class="pi pi-comments"></i></button>
                         <button class="control-btn" id="videoFullscreenBtn"><i class="pi pi-expand"></i></button>
                     </div>
@@ -362,406 +329,243 @@ if (typeof window.SimplePlayer === 'undefined') {
                 <div class="subtitle-menu" id="subtitleMenu">
                     <div class="menu-header">Subtitles</div>
                     <div class="subtitle-list" id="subtitleList">
-                        <div class="subtitle-option" id="sub-off">Off</div>
+                        <div class="subtitle-option" id="sub-off" data-id="off">Off</div>
                     </div>
                     
                     <div class="menu-divider"></div>
-                    <div class="subtitle-sync-section p-3">
-                        <div class="is-flex is-justify-content-between is-align-items-center mb-2">
-                            <span class="is-size-7">Sync Offset</span>
-                            <span id="subOffsetVal" class="tag is-dark is-small">0.0s</span>
-                        </div>
-                        <div class="is-flex gap-2">
-                            <button class="button is-small is-dark is-fullwidth" onclick="event.stopPropagation(); currentPlayerInstance.adjustSubtitleOffset(-0.5)">
-                                <i class="pi pi-minus mr-1"></i> 0.5s
-                            </button>
-                            <button class="button is-small is-dark is-fullwidth" onclick="event.stopPropagation(); currentPlayerInstance.adjustSubtitleOffset(0.5)">
-                                <i class="pi pi-plus mr-1"></i> 0.5s
-                            </button>
-                        </div>
-                        <button class="button is-ghost is-small is-fullwidth mt-1" style="color: rgba(255,255,255,0.5)" onclick="event.stopPropagation(); currentPlayerInstance.adjustSubtitleOffset(0, true)">Reset</button>
+                    <div class="menu-header" style="font-size: 0.7rem; opacity: 0.6; padding-top: 5px;">Timing Offset</div>
+                    <div class="subtitle-correction-row">
+                        <button class="correction-btn" id="subMinusBtn">-0.2s</button>
+                        <div class="correction-val" id="subCorrectionVal">0.0s</div>
+                        <button class="correction-btn" id="subPlusBtn">+0.2s</button>
                     </div>
 
                     <div class="menu-divider"></div>
-                    <div class="subtitle-actions">
-                        <div class="subtitle-option action-opt" id="sub-generate"><i class="pi pi-bolt"></i> Generate (AI)</div>
-                        <div class="subtitle-option action-opt" id="sub-download"><i class="pi pi-search"></i> Search (Web)</div>
-                    </div>
+                    <div class="subtitle-option" id="manageSubtitlesBtn"><i class="pi pi-cog"></i> Manage Subtitles</div>
                 </div>
+                
                 <div class="speed-menu" id="speedMenu">
-                    <div class="menu-header">Playback Speed</div>
-                    <div class="speed-list" id="speedList">
-                        <div class="speed-option" data-speed="0.2">0.2x</div>
-                        <div class="speed-option" data-speed="0.5">0.5x</div>
+                    <div class="menu-header">Speed</div>
+                    <div class="speed-list">
                         <div class="speed-option active" data-speed="1.0">1.0x</div>
+                        <div class="speed-option" data-speed="1.25">1.25x</div>
                         <div class="speed-option" data-speed="1.5">1.5x</div>
                         <div class="speed-option" data-speed="2.0">2.0x</div>
-                        <div class="speed-option" data-speed="3.0">3.0x</div>
-                    </div>
-                    <div class="menu-divider"></div>
-                    <div class="speed-actions">
-                        <div class="speed-option action-opt" data-speed="1.0" id="speed-reset"><i class="pi pi-refresh mr-1"></i> Reset</div>
                     </div>
                 </div>
             `;
-
             this.container.insertAdjacentHTML('beforeend', uiHTML);
-
+            
+            // Elements
             this.playBtn = this.container.querySelector('#videoPlayPauseBtn');
             this.playIcon = this.playBtn.querySelector('i');
             this.bigPlay = this.container.querySelector('.big-play-btn');
             this.progressBar = this.container.querySelector('.progress-filled');
             this.progressContainer = this.container.querySelector('.progress-container');
-            this.progressIntroMarker = this.container.querySelector('.progress-intro-marker');
-            this.progressOutroMarker = this.container.querySelector('.progress-outro-marker');
-            this.previewContainer = this.container.querySelector('#scrollPreview');
-            this.previewTime = this.container.querySelector('#previewTime');
             this.timeCurrent = this.container.querySelector('#videoCurrentTime');
             this.timeTotal = this.container.querySelector('#videoTotalTime');
             this.volSlider = this.container.querySelector('.volume-slider');
             this.muteBtn = this.container.querySelector('#videoMuteBtn');
-            this.subtitleBtn = this.container.querySelector('#videoSubtitleBtn');
-            this.subtitleMenu = this.container.querySelector('#subtitleMenu');
-            this.subtitleList = this.container.querySelector('#subtitleList');
             this.fullscreenBtn = this.container.querySelector('#videoFullscreenBtn');
             this.speedBtn = this.container.querySelector('#videoSpeedBtn');
-            console.log('[SimplePlayer] Speed button found:', this.speedBtn);
-            this.speedMenu = this.container.querySelector('#speedMenu');
             this.speedValue = this.container.querySelector('#speedValue');
+            this.subtitleBtn = this.container.querySelector('#videoSubtitleBtn');
+            this.subtitleMenu = this.container.querySelector('#subtitleMenu');
+            this.speedMenu = this.container.querySelector('#speedMenu');
             this.buffering = this.container.querySelector('.buffering-overlay');
             this.backBtn = this.container.querySelector('#videoBackBtn');
-            this.titleLink = this.container.querySelector('#videoTitleLink');
-            this.offsetDisplay = this.container.querySelector('#subOffsetVal');
-
-            this.skipIntroBtn = this.container.querySelector('#skipIntroBtn');
-            this.skipOutroBtn = this.container.querySelector('#skipOutroBtn');
-            this.skipRecapBtn = this.container.querySelector('#skipRecapBtn');
-
-            this.subOffset = 0;
-
+            this.clickOverlay = this.container.querySelector('.video-click-overlay');
+            this.prevBtn = this.container.querySelector('#videoPrevBtn');
+            this.nextBtn = this.container.querySelector('#videoNextBtn');
+            this.preview = this.container.querySelector('#scrollPreview');
+            this.previewImg = this.container.querySelector('#storyboardImg');
+            this.previewTime = this.container.querySelector('#previewTime');
+            this.subtitleList = this.container.querySelector('#subtitleList');
+            
+            // Load last selected subtitle track
+            this.lastSelectedTrackId = localStorage.getItem('jmedia_last_track_' + this.videoId);
+            
+            // Off button
             const offBtn = this.container.querySelector('#sub-off');
-            offBtn.onclick = (e) => { e.stopPropagation(); this.selectSubtitle('off', offBtn); };
-
-            if (this.backBtn) {
-                this.backBtn.onclick = (e) => { e.stopPropagation(); this.goBack(); };
+            if (offBtn) {
+                offBtn.onclick = (e) => { e.stopPropagation(); this.selectSubtitle('off', offBtn); };
             }
-            if (this.titleLink) {
-                this.titleLink.onclick = (e) => { e.stopPropagation(); this.goToDetails(); };
-            }
+        }
 
-            if (this.skipIntroBtn) {
-                this.skipIntroBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (this.markers.introEnd > 0) {
-                        if (this.needsTranscode) this.performServerSeek(this.markers.introEnd);
-                        else this.video.currentTime = this.markers.introEnd;
-                        this.skipIntroBtn.style.display = 'none';
-                    }
-                };
+        selectSubtitle(trackId, element) {
+            console.log('[SimplePlayer] Selecting subtitle track:', trackId);
+            
+            // UI Update
+            this.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));
+            if (element) element.classList.add('active');
+            this.subtitleMenu.classList.remove('active');
+            
+            // Logic
+            if (trackId === 'off') {
+                this.turnOffSubtitles();
+            } else {
+                // For other tracks, the click handler in loadSubtitles handles the actual loading
+                // but we need this for the initial load and when manually triggered
             }
-
-            if (this.skipRecapBtn) {
-                this.skipRecapBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (this.markers.recapEnd > 0) {
-                        if (this.needsTranscode) this.performServerSeek(this.markers.recapEnd);
-                        else this.video.currentTime = this.markers.recapEnd;
-                        this.skipRecapBtn.style.display = 'none';
-                    }
-                };
-            }
-
-            if (this.skipOutroBtn) {
-                this.skipOutroBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (this.markers.outroEnd > 0) {
-                        if (this.needsTranscode) this.performServerSeek(this.markers.outroEnd);
-                        else this.video.currentTime = this.markers.outroEnd;
-                        this.skipOutroBtn.style.display = 'none';
-                    } else {
-                        // If no outro end, just go to next episode or end
-                        this.playNextEpisode();
-                    }
-                };
-            }
-
-            this.container.querySelector('#sub-generate').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('generate', e.target); };
-            this.container.querySelector('#sub-download').onclick = (e) => { e.stopPropagation(); this.triggerSubtitleAction('download', e.target); };
+            
+            localStorage.setItem('jmedia_last_track_' + this.videoId, trackId);
+            this.lastSelectedTrackId = trackId;
         }
 
         attachEvents() {
-            console.log('[SimplePlayer] Attaching events');
-            const toggle = () => {
+            const toggle = (e) => {
+                if (e) e.stopPropagation();
                 if (this.video.paused) this.video.play().catch(() => {});
                 else this.video.pause();
+                this.showControls();
             };
 
             this.video.addEventListener('play', () => {
-                console.log('[SimplePlayer] Video Play Event');
-                this.container.classList.remove('paused');
                 this.playIcon.className = 'pi pi-pause';
                 this.bigPlay.style.display = 'none';
-                this.reportProgress(true);
-                this.setMusicSuspended(true);
-
-                // Start granular periodic progress reporting (every 3 seconds)
-                clearInterval(this._progressInterval);
-                this._progressInterval = setInterval(() => this.reportProgress(true), 3000);
+                this.container.classList.remove('paused');
+                this.showControls();
             });
 
             this.video.addEventListener('pause', () => {
-                console.log('[SimplePlayer] Video Pause Event');
-                this.container.classList.add('paused');
                 this.playIcon.className = 'pi pi-play';
                 this.bigPlay.style.display = 'flex';
-                this.reportProgress(false);
-                this.setMusicSuspended(false);
-                
-                // Stop periodic reporting
-                clearInterval(this._progressInterval);
-                // Report one last time on pause to be precise
-                this.reportProgress(true);
+                this.container.classList.add('paused');
+                this.showControls();
             });
 
-            // Ensure we save progress when the user leaves the page
-            window.addEventListener('beforeunload', () => {
-                if (!this.video.paused) {
-                    this.reportProgress(true);
+            this.video.addEventListener('timeupdate', () => {
+                // For fragmented/metadata-incomplete streams, video.duration may be wrong.
+                // Always use totalDuration from DB for timeline accuracy.
+                let dur = this.totalDuration;
+                if (!dur || dur === Infinity) {
+                    dur = this.video.duration;
+                }
+                if (!dur || dur === Infinity) return;
+                
+                // When stream started at an offset (server-side seek), add offset to current time
+                const displayTime = this.video.currentTime + (this.streamStartOffset || 0);
+                const pct = (displayTime / dur) * 100;
+                this.progressBar.style.width = Math.min(100, pct) + '%';
+                this.timeCurrent.innerText = this.formatTime(displayTime);
+                this.checkMarkers();
+            });
+
+            this.video.addEventListener('loadedmetadata', () => {
+                const dur = this.video.duration;
+                console.log(`[SimplePlayer] Metadata loaded. Stream duration: ${dur}s, DB duration: ${this.totalDuration}s`);
+                
+                // CRITICAL: Only trust stream duration if it's larger than what we have
+                // HLS often reports only the buffered duration initially.
+                if (dur && dur !== Infinity && dur > this.totalDuration) {
+                    this.totalDuration = dur;
+                }
+                
+                this.applyInitialState();
+                this.updateMarkers();
+
+                // Perform client-side seek for direct streams (where streamStartOffset is 0)
+                if (this.initialResumeTime > 0 && (!this.streamStartOffset || this.streamStartOffset === 0)) {
+                    console.log(`[SimplePlayer] Performing client-side seek to ${this.initialResumeTime}s`);
+                    this.video.currentTime = this.initialResumeTime;
+                    // Reset initial resume time to prevent repeated seeks on metadata reload
+                    this.initialResumeTime = 0;
                 }
             });
 
             this.video.onwaiting = () => this.buffering.style.display = 'block';
             this.video.onplaying = () => this.buffering.style.display = 'none';
-
-            this.video.addEventListener('ended', () => {
-                console.log('[SimplePlayer] Video ended');
+            this.video.onended = () => {
+                console.log('[SimplePlayer] Video ended, playing next episode...');
                 this.playNextEpisode();
-            });
-            
-            this.video.ontimeupdate = () => {
-                const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
-                const duration = (this.needsTranscode && manualDuration > 0) ? manualDuration : 
-                               (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
-                
-                if (!duration || duration <= 0) return;
-                
-                const displayTime = this.video.currentTime + this.streamStartOffset;
-                const pct = (displayTime / duration) * 100;
-                this.progressBar.style.width = Math.min(100, pct) + '%';
-                this.timeCurrent.innerText = this.formatTime(displayTime);
-
-                // Recap Skip logic
-                if (this.markers.recapEnd > 0 && displayTime >= this.markers.recapStart && displayTime < this.markers.recapEnd) {
-                    if (this.skipRecapBtn.style.display !== 'block') {
-                        console.log('[SimplePlayer] Showing Skip Recap');
-                        this.skipRecapBtn.style.display = 'block';
-                    }
-                } else {
-                    this.skipRecapBtn.style.display = 'none';
-                }
-
-                // Intro Skip logic: show if within intro markers
-                if (this.markers.introEnd > 0 && displayTime >= this.markers.introStart && displayTime < this.markers.introEnd) {
-                    if (this.skipIntroBtn.style.display !== 'block') {
-                        console.log('[SimplePlayer] Showing Skip Intro');
-                        this.skipIntroBtn.style.display = 'block';
-                    }
-                } else {
-                    this.skipIntroBtn.style.display = 'none';
-                }
-
-                // Outro Skip logic: show if during credits (outroStart onwards)
-                if (this.markers.outroStart > 0 && displayTime >= this.markers.outroStart) {
-                    // If there's an outroEnd, only show until then. Otherwise show until end.
-                    if (this.markers.outroEnd > 0 && displayTime >= this.markers.outroEnd) {
-                        if (this.skipOutroBtn.style.display !== 'none') {
-                            this.skipOutroBtn.style.display = 'none';
-                        }
-                    } else {
-                        if (this.skipOutroBtn.style.display !== 'block') {
-                            console.log('[SimplePlayer] Showing Skip Outro');
-                            this.skipOutroBtn.style.display = 'block';
-                        }
-                    }
-                } else {
-                    if (this.skipOutroBtn.style.display !== 'none') {
-                        this.skipOutroBtn.style.display = 'none';
-                    }
-                }
             };
 
-            this.video.onprogress = () => {
-                const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
-                const duration = (this.needsTranscode && manualDuration > 0) ? manualDuration : 
-                               (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
-                
-                if (this.video.buffered.length > 0 && duration > 0) {
-                    const bufferedEnd = this.video.buffered.end(this.video.buffered.length - 1) + this.streamStartOffset;
-                    const pct = (bufferedEnd / duration) * 100;
-                    const bufferedBar = this.container.querySelector('.progress-buffered');
-                    if (bufferedBar) bufferedBar.style.width = Math.min(100, pct) + '%';
-                }
-            };
-
-            this.video.addEventListener('loadedmetadata', () => {
-                const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
-                const duration = (this.needsTranscode && manualDuration > 0) ? manualDuration : 
-                               (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
-                
-                this.timeTotal.innerText = this.formatTime(duration);
-                this.updateProgressMarkers(duration);
-            });
-
-            this.playBtn.onclick = (e) => { e.stopPropagation(); toggle(); };
-            this.bigPlay.onclick = (e) => { e.stopPropagation(); toggle(); };
-            
-            this.container.onclick = (e) => {
-                if (e.target.closest('.controls-container') || e.target.closest('.subtitle-menu') || e.target.closest('.speed-menu') || e.target.closest('.modal')) return;
-                toggle();
-            };
+            // Interaction
+            this.clickOverlay.onclick = toggle;
+            this.bigPlay.onclick = toggle;
+            this.playBtn.onclick = toggle;
+            this.backBtn.onclick = (e) => { e.stopPropagation(); this.goBack(); };
+            this.prevBtn.onclick = (e) => { e.stopPropagation(); this.playPreviousEpisode(); };
+            this.nextBtn.onclick = (e) => { e.stopPropagation(); this.playNextEpisode(); };
+            this.container.querySelector('#videoTitleLink').onclick = (e) => { e.stopPropagation(); this.goToDetails(); };
 
             this.container.querySelectorAll('.skip-btn').forEach(btn => {
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     const skipAmount = parseFloat(btn.dataset.skip);
                     
-                    const currentDisplayTime = this.video.currentTime + this.streamStartOffset;
+                    // Calculate current display time (accounting for stream start offset)
+                    const currentDisplayTime = this.video.currentTime + (this.streamStartOffset || 0);
                     const newTime = Math.max(0, currentDisplayTime + skipAmount);
 
-                    if (this.needsTranscode) {
+                    // For transcoded streams, use server-side seek
+                    if (this.needsTranscode && !this.hlsSessionId) {
                         this.performServerSeek(newTime);
                     } else {
                         this.video.currentTime = newTime;
                     }
                     
                     this.showControls();
-                    this.reportProgress(!this.video.paused);
                 };
             });
 
-            const nextBtn = this.container.querySelector('#videoNextEpBtn');
-            const prevBtn = this.container.querySelector('#videoPrevEpBtn');
-            
-            if (nextBtn) {
-                nextBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.playNextEpisode();
-                };
-            }
-            
-            if (prevBtn) {
-                prevBtn.onclick = async (e) => {
-                    e.stopPropagation();
-                    
-                    const currentDisplayTime = this.video.currentTime + this.streamStartOffset;
-                    if (currentDisplayTime > 5) {
-                        if (this.needsTranscode) {
-                            this.performServerSeek(0);
-                        } else {
-                            this.video.currentTime = 0;
-                        }
-                    } else {
-                        this.playPreviousEpisode();
-                    }
-                };
-            }
-
-            // Detect touch device more reliably
-            const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            this.volSlider.oninput = (e) => {
+                const val = parseFloat(e.target.value);
+                this.state.volume = val;
+                this.video.volume = Math.pow(val, 2);
+                localStorage.setItem(this.volumeKey, val);
+                this.updateVolumeUI();
+            };
 
             this.muteBtn.onclick = (e) => {
                 e.stopPropagation();
-                // Desktop: click to mute
-                if (!isTouchDevice || window.innerWidth > 800) {
-                    this.toggleMute();
-                    return;
-                }
-                
-                // Mobile: tap shows slider, hold mutes
-                const container = this.muteBtn.closest('.volume-container');
-                if (container && !container.classList.contains('active')) {
-                    container.classList.add('active');
-                    clearTimeout(this._volTimeout);
-                    this._volTimeout = setTimeout(() => container.classList.remove('active'), 3000);
-                }
-            };
-
-            this.muteBtn.ontouchstart = (e) => {
-                if (isTouchDevice && window.innerWidth <= 800) {
-                    clearTimeout(this._muteHoldTimer);
-                    this._muteHoldTimer = setTimeout(() => {
-                        this.toggleMute();
-                    }, 350);
-                }
-            };
-
-            this.muteBtn.ontouchend = (e) => {
-                clearTimeout(this._muteHoldTimer);
-            };
-
-            this.volSlider.oninput = (e) => {
-                e.stopPropagation();
-                this.state.volume = parseFloat(e.target.value);
-                this.video.volume = Math.pow(this.state.volume, 2);
-                this.video.muted = false;
-                this.state.muted = false;
-                localStorage.setItem(this.volumeKey, this.state.volume);
-                localStorage.setItem(this.muteKey, 'false');
+                this.video.muted = !this.video.muted;
+                localStorage.setItem(this.muteKey, this.video.muted);
                 this.updateVolumeUI();
-                
-                // Reset hide timer on slider interaction
-                const container = this.muteBtn.closest('.volume-container');
-                if (container && container.classList.contains('active')) {
-                    clearTimeout(this._volTimeout);
-                    this._volTimeout = setTimeout(() => container.classList.remove('active'), 3000);
-                }
             };
 
             this.progressContainer.onclick = (e) => {
                 e.stopPropagation();
                 const rect = this.progressContainer.getBoundingClientRect();
-                const pos = (e.clientX - rect.left) / rect.width;
                 
-                const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
-                const duration = (this.needsTranscode && manualDuration > 0) ? manualDuration : 
-                               (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
-                
-                const newTime = pos * duration;
-
-                if (this.needsTranscode) {
-                    this.performServerSeek(newTime);
-                } else {
-                    this.video.currentTime = newTime;
+                // Use DB duration for seeking (stream may report wrong duration)
+                let dur = this.totalDuration;
+                if (!dur || dur === Infinity) {
+                    dur = this.video.duration;
                 }
                 
+                const seekTo = ((e.clientX - rect.left) / rect.width) * dur;
+                
+                // For transcoded streams, use server-side seek to allow seeking forward past loaded content
+                if (this.needsTranscode && !this.hlsSessionId) {
+                    this.performServerSeek(seekTo);
+                } else {
+                    this.video.currentTime = seekTo;
+                }
+                this.video.dispatchEvent(new Event('timeupdate'));
                 this.showControls();
-                this.reportProgress(!this.video.paused);
             };
 
-            this.progressContainer.onmousemove = (e) => {
-                if (!this.storyboard.loaded) return;
-                const rect = this.progressContainer.getBoundingClientRect();
-                const pos = (e.clientX - rect.left) / rect.width;
-                
-                const manualDuration = parseFloat(this.container.dataset.duration || 0) / 1000;
-                const duration = (this.needsTranscode && manualDuration > 0) ? manualDuration : 
-                               (this.video.duration && isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : manualDuration);
-                
-                const previewTime = pos * duration;
-                
-                this.previewContainer.style.display = 'block';
-                this.previewContainer.style.left = (pos * 100) + '%';
-                this.previewTime.innerText = this.formatTime(previewTime);
-                
-                this.updateStoryboardPreview(previewTime);
+            this.progressContainer.onmousemove = (e) => this.handleMouseMove(e);
+            this.progressContainer.onmouseleave = () => this.preview.classList.remove('active');
+
+            this.speedBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.speedMenu.classList.toggle('active');
+                this.subtitleMenu.classList.remove('active');
             };
 
-            this.progressContainer.onmouseleave = () => {
-                this.previewContainer.style.display = 'none';
-            };
-            this.progressContainer.ontouchend = () => {
-                this.previewContainer.style.display = 'none';
-            };
+            this.container.querySelectorAll('.speed-option').forEach(opt => {
+                opt.onclick = (e) => {
+                    e.stopPropagation();
+                    const speed = parseFloat(opt.dataset.speed);
+                    this.video.playbackRate = speed;
+                    this.speedValue.innerText = speed.toFixed(1) + 'x';
+                    this.container.querySelectorAll('.speed-option').forEach(o => o.classList.remove('active'));
+                    opt.classList.add('active');
+                    this.speedMenu.classList.remove('active');
+                };
+            });
 
             this.subtitleBtn.onclick = (e) => {
                 e.stopPropagation();
@@ -769,613 +573,494 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this.speedMenu.classList.remove('active');
             };
 
-            this.speedBtn.onclick = (e) => {
+            this.container.querySelector('#manageSubtitlesBtn').onclick = (e) => {
                 e.stopPropagation();
-                console.log('[SimplePlayer] Speed button clicked');
-                this.speedMenu.classList.toggle('active');
-                console.log('[SimplePlayer] Speed menu active:', this.speedMenu.classList.contains('active'));
                 this.subtitleMenu.classList.remove('active');
-            };
-            this.speedBtn.onmouseover = (e) => {
-                console.log('[SimplePlayer] Speed button mouseover');
+                if (window.subtitleManager) {
+                    window.subtitleManager.openModal(this.videoId, this.container.dataset.title, this.container.dataset.path);
+                }
             };
 
-            // Speed option click handlers
-            this.container.querySelectorAll('.speed-option').forEach(option => {
-                option.onclick = (e) => {
-                    e.stopPropagation();
-                    console.log('[SimplePlayer] Speed option clicked:', option.dataset.speed);
-                    const speed = parseFloat(option.dataset.speed);
-                    this.setPlaybackSpeed(speed);
-                    this.speedMenu.classList.remove('active');
-                };
-            });
+            this.container.querySelector('#subMinusBtn').onclick = (e) => {
+                e.stopPropagation();
+                if (window.subtitleManager) window.subtitleManager.adjustCorrection(-0.2);
+            };
+
+            this.container.querySelector('#subPlusBtn').onclick = (e) => {
+                e.stopPropagation();
+                if (window.subtitleManager) window.subtitleManager.adjustCorrection(0.2);
+            };
 
             this.fullscreenBtn.onclick = (e) => {
                 e.stopPropagation();
-                
-                // Check if already in any type of fullscreen
-                const inStandardFullscreen = document.fullscreenElement === this.container;
-                const inWebkitFullscreen = document.webkitFullscreenElement === this.container;
-                const inCssFullscreen = this.container.classList.contains('is-css-fullscreen');
-                
-                if (!inStandardFullscreen && !inWebkitFullscreen && !inCssFullscreen) {
-                    // Try standard API first
-                    if (this.container.requestFullscreen) {
-                        this.container.requestFullscreen().catch(err => {
-                            console.log('[SimplePlayer] Standard fullscreen failed, trying CSS fallback');
-                            this.enableCssFullscreen();
-                        });
-                    } else if (this.container.webkitEnterFullscreen) {
-                        // iOS Safari video element fullscreen (less ideal)
-                        this.container.webkitEnterFullscreen();
-                    } else {
-                        // Fallback: CSS-based fullscreen for mobile
-                        this.enableCssFullscreen();
+
+                // Check if we're on iOS
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+                if (isIOS) {
+                    // iOS Safari only supports fullscreen on the video element itself
+                    // and uses webkitEnterFullscreen (not the standard API)
+                    if (this.video.webkitEnterFullscreen) {
+                        this.video.webkitEnterFullscreen();
+                    } else if (this.video.webkitSupportsFullscreen) {
+                        // Fallback for older iOS versions
+                        this.video.webkitEnterFullScreen();
                     }
                 } else {
-                    // Exit fullscreen
-                    if (inStandardFullscreen) {
+                    // Standard fullscreen API for other browsers
+                    if (document.fullscreenElement) {
                         document.exitFullscreen();
-                    } else if (inWebkitFullscreen) {
-                        document.webkitExitFullscreen();
-                    } else if (inCssFullscreen) {
-                        this.disableCssFullscreen();
+                    } else if (this.container.requestFullscreen) {
+                        this.container.requestFullscreen();
+                    } else if (this.container.webkitRequestFullscreen) {
+                        // Safari on macOS
+                        this.container.webkitRequestFullscreen();
                     }
                 }
             };
-            
-            document.addEventListener('fullscreenchange', () => this.updateFullscreenState());
-            document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenState());
 
-            // CSS Fullscreen fallback for mobile
-            window.addEventListener('resize', () => {
-                if (this.container.classList.contains('is-css-fullscreen')) {
-                    this.adjustCssFullscreen();
-                }
-            });
+            // Listen for fullscreen changes to update UI classes
+            const onFullscreenChange = () => {
+                const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
+                this.container.classList.toggle('is-fullscreen', isFullscreen);
+                console.log('[SimplePlayer] Fullscreen changed:', isFullscreen);
 
-            // Autohide controls - works on desktop and iPad
-            this.container.onmousemove = () => this.showControls();
-            this.container.ontouchstart = () => this.showControls();
-            this.container.ontouchend = () => this.showControls(); // iPad touch interaction
-            this.container.onpointermove = () => this.showControls(); // Pointer events for both mouse and touch
-            
-            // Use pointerleave instead of mouseleave for better cross-device support
-            this.container.onpointerleave = () => {
-                if (!this.video.paused) {
-                    this.hideControls();
+                // Re-trigger subtitle lift update if needed
+                if (this.controlsVisible) this.showControls();
+            };
+
+            document.addEventListener('fullscreenchange', onFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+            // Markers - use server-side seek for transcoded streams
+            this.container.querySelector('#skipIntroBtn').onclick = () => {
+                if (this.needsTranscode && !this.hlsSessionId) {
+                    this.performServerSeek(this.markers.introEnd);
+                } else {
+                    this.video.currentTime = this.markers.introEnd;
                 }
             };
-            
-            // Also ensure moving over UI elements keeps them visible
-            const uiElements = this.container.querySelectorAll('.controls-container, .media-info, .subtitle-menu');
-            uiElements.forEach(el => {
-                el.onpointermove = (e) => {
-                    e.stopPropagation();
-                    this.showControls();
-                };
-            });
-
-            // Handle visibility change - hide controls when switching apps/tabs on iPad
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden && !this.video.paused) {
-                    this.hideControls();
+            this.container.querySelector('#skipRecapBtn').onclick = () => {
+                if (this.needsTranscode && !this.hlsSessionId) {
+                    this.performServerSeek(this.markers.recapEnd);
+                } else {
+                    this.video.currentTime = this.markers.recapEnd;
                 }
-            });
+            };
+            this.container.querySelector('#skipOutroBtn').onclick = () => this.goBack();
 
-            window.addEventListener('keydown', (e) => {
-                if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-                if (this.container.style.display === 'none') return;
+            // Auto-hide controls
+            this.container.onmousemove = () => this.showControls();
+            this.container.ontouchstart = () => this.showControls();
+            
+            // Keyboard shortcuts
+            window.addEventListener('keydown', this.handleKeydown.bind(this));
+        }
 
-                switch(e.code) {
-                    case 'Space':
-                    case 'KeyK':
-                        e.preventDefault();
-                        toggle();
-                        this.showControls();
-                        break;
-                    case 'ArrowLeft':
-                    case 'KeyJ':
-                        this.video.currentTime = Math.max(0, this.video.currentTime - 10);
-                        this.showControls();
-                        break;
-                    case 'ArrowRight':
-                    case 'KeyL':
-                        this.video.currentTime = Math.min(this.video.duration, this.video.currentTime + 10);
-                        this.showControls();
-                        break;
-                    case 'KeyF':
-                        this.fullscreenBtn.click();
-                        break;
-                    case 'KeyM':
-                        this.muteBtn.click();
-                        break;
-                    case 'Escape':
-                        if (this.container.classList.contains('is-css-fullscreen')) {
-                            this.disableCssFullscreen();
+        handleKeydown(e) {
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+            switch(e.code) {
+                case 'Space':
+                case 'KeyK': e.preventDefault(); this.bigPlay.click(); break;
+                case 'ArrowLeft': case 'KeyJ': 
+                    {
+                        // Calculate current display time (accounting for stream start offset)
+                        const currentDisplayTime = this.video.currentTime + (this.streamStartOffset || 0);
+                        const newTime = Math.max(0, currentDisplayTime - 10);
+                        
+                        // For transcoded streams, use server-side seek
+                        if (this.needsTranscode && !this.hlsSessionId) {
+                            this.performServerSeek(newTime);
+                        } else {
+                            this.video.currentTime = Math.max(0, this.video.currentTime - 10);
                         }
-                        break;
-                }
-            });
+                        this.showControls();
+                    }
+                    break;
+                case 'ArrowRight': case 'KeyL': 
+                    {
+                        const maxDur = this.totalDuration || this.video.duration;
+                        // Calculate current display time (accounting for stream start offset)
+                        const currentDisplayTime = this.video.currentTime + (this.streamStartOffset || 0);
+                        const newTime = Math.min(maxDur || this.video.duration, currentDisplayTime + 10);
+                        
+                        // For transcoded streams, use server-side seek
+                        if (this.needsTranscode && !this.hlsSessionId) {
+                            this.performServerSeek(newTime);
+                        } else {
+                            this.video.currentTime = Math.min(maxDur || this.video.duration, this.video.currentTime + 10);
+                        }
+                        this.showControls();
+                    }
+                    break;
+                case 'KeyF': this.fullscreenBtn.click(); break;
+                case 'KeyM': this.muteBtn.click(); break;
+            }
         }
 
-        enableCssFullscreen() {
-            console.log('[SimplePlayer] Enabling CSS fullscreen (mobile fallback)');
-            this.container.classList.add('is-css-fullscreen');
-            this.container.classList.add('is-fullscreen');
-            this.adjustCssFullscreen();
-            this.updateFullscreenIcon();
-        }
-
-        disableCssFullscreen() {
-            console.log('[SimplePlayer] Disabling CSS fullscreen');
-            this.container.classList.remove('is-css-fullscreen');
-            this.container.classList.remove('is-fullscreen');
-            // Reset container styles
-            this.container.style.position = '';
-            this.container.style.top = '';
-            this.container.style.left = '';
-            this.container.style.width = '';
-            this.container.style.height = '';
-            this.container.style.zIndex = '';
-            document.body.style.overflow = '';
-            this.updateFullscreenIcon();
-        }
-
-        adjustCssFullscreen() {
-            // Ensure the container fills the viewport
-            this.container.style.position = 'fixed';
-            this.container.style.top = '0';
-            this.container.style.left = '0';
-            this.container.style.width = '100vw';
-            this.container.style.height = '100vh';
-            this.container.style.zIndex = '9999';
-            document.body.style.overflow = 'hidden';
-        }
-
-        updateFullscreenState() {
-            const inStandardFullscreen = document.fullscreenElement === this.container;
-            const inWebkitFullscreen = document.webkitFullscreenElement === this.container;
+        handleMouseMove(e) {
+            const rect = this.progressContainer.getBoundingClientRect();
             
-            if (inStandardFullscreen || inWebkitFullscreen) {
-                this.container.classList.add('is-fullscreen');
-            } else if (!this.container.classList.contains('is-css-fullscreen')) {
-                this.container.classList.remove('is-fullscreen');
+            // Use DB duration for preview/hover (stream may report wrong)
+            let dur = this.totalDuration;
+            if (!dur || dur === Infinity) {
+                dur = this.video.duration;
             }
-            this.updateFullscreenIcon();
-        }
+            if (!dur) return;
+            
+            const pct = (e.clientX - rect.left) / rect.width;
+            const time = pct * dur;
+            
+            this.preview.classList.add('active');
+            this.preview.style.left = Math.max(0, Math.min(rect.width - 160, e.clientX - rect.left - 80)) + 'px';
+            this.previewTime.innerText = this.formatTime(time);
 
-        updateFullscreenIcon() {
-            const icon = this.fullscreenBtn ? this.fullscreenBtn.querySelector('i') : null;
-            if (icon) {
-                const isFullscreen = document.fullscreenElement === this.container || 
-                                   document.webkitFullscreenElement === this.container ||
-                                   this.container.classList.contains('is-css-fullscreen');
-                icon.className = isFullscreen ? 'pi pi-expand' : 'pi pi-expand';
+            if (this.storyboard.loaded && this.storyboard.metadata) {
+                const m = this.storyboard.metadata;
+                const tileIndex = Math.min(Math.floor(time / m.interval), m.totalTiles - 1);
+                const col = tileIndex % m.columns;
+                const row = Math.floor(tileIndex / m.columns);
+                this.previewImg.style.backgroundImage = `url(${this._storyboardUrl || `/api/video/storyboard/${this.videoId}`})`;
+                this.previewImg.style.backgroundPosition = `-${col * m.width}px -${row * m.height}px`;
+                this.previewImg.style.backgroundSize = `${m.width * m.columns}px ${m.height * m.rows}px`;
             }
-        }
-
-        formatTime(seconds) {
-            if (!seconds || isNaN(seconds)) return '0:00';
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            if (h > 0) {
-                return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-            }
-            return `${m}:${s.toString().padStart(2, '0')}`;
-        }
-
-        updateVolumeUI() {
-            const icon = this.muteBtn.querySelector('i');
-            if (this.state.muted || this.state.volume === 0) {
-                icon.className = 'pi pi-volume-off';
-                this.volSlider.value = 0;
-            } else if (this.state.volume < 0.5) {
-                icon.className = 'pi pi-volume-down';
-                this.volSlider.value = this.state.volume;
-            } else {
-                icon.className = 'pi pi-volume-up';
-                this.volSlider.value = this.state.volume;
-            }
-        }
-
-        toggleMute() {
-            this.video.muted = !this.video.muted;
-            this.state.muted = this.video.muted;
-            localStorage.setItem(this.muteKey, this.state.muted);
-            this.updateVolumeUI();
         }
 
         showControls() {
             this.container.classList.remove('controls-hidden');
-            const liftHeight = this.measureControlBarHeight();
-            document.documentElement.style.setProperty('--sub-lift', `${liftHeight}px`);
-            // Update Firefox subtitle overlay if available
-            if (window.subtitleManager?.setSubtitleLift) {
-                window.subtitleManager.setSubtitleLift(liftHeight);
-            }
+            if (window.subtitleManager) window.subtitleManager.setSubtitleLift(45);
+
             clearTimeout(this.userActiveTimeout);
-            
-            // Always set a timeout if we are NOT paused
             if (!this.video.paused) {
                 this.userActiveTimeout = setTimeout(() => {
-                    this.hideControls();
+                    this.container.classList.add('controls-hidden');
+                    if (window.subtitleManager) window.subtitleManager.setSubtitleLift(0);
                 }, 3000);
             }
         }
 
-        hideControls() {
-            this.container.classList.add('controls-hidden');
-            document.documentElement.style.setProperty('--sub-lift', '0px');
-            // Update Firefox subtitle overlay if available
-            if (window.subtitleManager?.setSubtitleLift) {
-                window.subtitleManager.setSubtitleLift(0);
+        applyInitialState() {
+            this.video.volume = Math.pow(this.state.volume, 2);
+            this.video.muted = this.state.muted;
+            this.updateVolumeUI();
+            if (this.totalDuration > 0) this.timeTotal.innerText = this.formatTime(this.totalDuration);
+            
+            // Update current time display to account for server-side seek offset
+            // This ensures the UI shows the correct resume time on initial load
+            if (this.streamStartOffset > 0) {
+                this.timeCurrent.innerText = this.formatTime(this.streamStartOffset);
+                // Also update progress bar to show correct position
+                const pct = (this.streamStartOffset / this.totalDuration) * 100;
+                this.progressBar.style.width = Math.min(100, pct) + '%';
             }
-            this.subtitleMenu.classList.remove('active');
-            if (this.previewContainer) {
-                this.previewContainer.style.display = 'none';
-            }
-            clearTimeout(this.userActiveTimeout);
         }
 
-        async loadSubtitles(providedTracks) {
-            let tracks = providedTracks;
-            
-            if (!tracks) {
-                console.log(`[SimplePlayer] Fetching subtitles for video ${this.videoId}`);
-                const url = `/api/video/subtitles/${this.videoId}`;
-                try {
-                    const res = await fetch(url).then(r => r.json());
-                    // Handle different possible response structures
-                    tracks = res.tracks || res.data || (Array.isArray(res) ? res : []);
-                    console.log(`[SimplePlayer] Loaded ${tracks.length} tracks from server`);
-                } catch (e) {
-                    console.error('[SimplePlayer] Failed to load subtitles:', e);
-                    tracks = [];
-                }
-            } else {
-                console.log(`[SimplePlayer] Using ${tracks.length} provided tracks`);
-            }
-            
-            this.renderSubtitleList(tracks);
+        updateVolumeUI() {
+            const icon = this.muteBtn.querySelector('i');
+            if (this.video.muted || this.state.volume === 0) icon.className = 'pi pi-volume-off';
+            else icon.className = this.state.volume < 0.5 ? 'pi pi-volume-down' : 'pi pi-volume-up';
+            this.volSlider.value = this.state.volume;
         }
 
-        renderSubtitleList(tracks) {
-            if (!this.subtitleList) return;
+        formatTime(s) {
+            if (isNaN(s) || s < 0 || s === Infinity) return '0:00';
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const secs = Math.floor(s % 60);
+            return (h > 0 ? h + ':' : '') + (h > 0 ? m.toString().padStart(2, '0') : m) + ':' + secs.toString().padStart(2, '0');
+        }
 
-            // Clear existing options except the "Off" option
-            this.subtitleList.innerHTML = '<div class="subtitle-option" id="sub-off" data-id="off">Off</div>';
-            
-            const offBtn = this.subtitleList.querySelector('#sub-off');
-            offBtn.onclick = (e) => { e.stopPropagation(); this.selectSubtitle('off', offBtn); };
-
-            if (this.lastSelectedTrackId === 'off' || !this.lastSelectedTrackId) {
-                offBtn.classList.add('active');
+        updateMarkers() {
+            // Use DB duration for markers (stream may report wrong)
+            let dur = this.totalDuration;
+            if (!dur || dur === Infinity) {
+                dur = this.video.duration;
             }
-
-            tracks.forEach(track => {
-                const div = document.createElement('div');
-                div.className = 'subtitle-option';
-                div.dataset.id = track.id;
-                
-                // Use correct fields from SubtitleTrackDTO
-                const label = track.displayName || track.languageName || track.filename || 'Unknown';
-                const typeInfo = track.isEmbedded ? '[Embedded]' : '[External]';
-                div.innerText = `${label} (${track.format || 'SRT'}) ${typeInfo}`;
-                
-                div.onclick = (e) => {
-                    e.stopPropagation();
-                    this.selectSubtitle(track.id, div);
-                };
-                
-                this.subtitleList.appendChild(div);
-                
-                // Auto-restore last selected track
-                if (this.lastSelectedTrackId && String(track.id) === String(this.lastSelectedTrackId)) {
-                    this.selectSubtitle(track.id, div);
+            if (!dur || dur === Infinity) return;
+            const showMarker = (m, start, end) => {
+                const el = this.container.querySelector(m);
+                if (el && start > 0 && end > 0) {
+                    el.style.left = (start / dur * 100) + '%';
+                    el.style.width = ((end - start) / dur * 100) + '%';
+                    el.style.display = 'block';
                 }
+            };
+            showMarker('.progress-intro-marker', this.markers.introStart, this.markers.introEnd);
+            showMarker('.progress-outro-marker', this.markers.outroStart, dur);
+        }
+
+        checkMarkers() {
+            // Use display time (accounting for stream start offset)
+            const t = this.video.currentTime + (this.streamStartOffset || 0);
+            const show = (id, visible) => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = visible ? 'block' : 'none';
+            };
+            show('skipIntroBtn', t >= this.markers.introStart && t < this.markers.introEnd);
+            show('skipRecapBtn', t >= this.markers.recapStart && t < this.markers.recapEnd);
+            show('skipOutroBtn', t >= this.markers.outroStart && this.markers.outroStart > 0);
+        }
+
+        turnOffSubtitles() {
+            console.log('[SimplePlayer] Turning off subtitles');
+            // Disable ALL existing tracks first
+            this.video.querySelectorAll('track').forEach(el => {
+                el.track.mode = 'hidden';
+                el.remove();
             });
-        }
-
-        selectSubtitle(trackId, element) {
-            console.log(`[SimplePlayer] Selecting subtitle track: ${trackId}`);
-            
-            this.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));
-            if (element) {
-                element.classList.add('active');
-            }
-            this.subtitleMenu.classList.remove('active');
-
-            // Clear any existing tracks from the DOM and ensure they are disabled in the video element
-            const oldTracks = this.video.querySelectorAll('track');
-            oldTracks.forEach(t => t.remove());
-            
-            // Also clear from the textTracks list (some browsers keep them around)
+            // Also clear textTracks
             if (this.video.textTracks) {
                 for (let i = 0; i < this.video.textTracks.length; i++) {
-                    this.video.textTracks[i].mode = 'disabled';
-                }
-            }
-
-            if (trackId === 'off' || !trackId) {
-                // Extra clearing for Firefox - try to force cues to disappear
-                if (navigator.userAgent.includes('Firefox')) {
-                    console.log('[SimplePlayer] Firefox detected, attempting to clear frozen subtitles');
-                    // Try setting to hidden first, then disabled
-                    if (this.video.textTracks) {
-                        for (let i = 0; i < this.video.textTracks.length; i++) {
-                            const track = this.video.textTracks[i];
-                            if (track.mode === 'disabled') {
-                                track.mode = 'hidden';
-                                setTimeout(() => {
-                                    track.mode = 'disabled';
-                                }, 10);
-                            }
-                        }
-                    }
-                    // Also try removing all track elements again
-                    const moreTracks = this.video.querySelectorAll('track');
-                    moreTracks.forEach(t => t.remove());
-                    // Force a refresh by slightly changing playback rate
-                    const originalRate = this.video.playbackRate;
-                    this.video.playbackRate = 1.0001;
-                    setTimeout(() => {
-                        this.video.playbackRate = originalRate;
-                    }, 50);
-                }
-                this.lastSelectedTrackId = 'off';
-                localStorage.setItem('jmedia_last_track_' + this.videoId, 'off');
-                return;
-            }
-
-            this.lastSelectedTrackId = trackId;
-            localStorage.setItem('jmedia_last_track_' + this.videoId, trackId);
-
-            const trackEl = document.createElement('track');
-            trackEl.kind = 'subtitles';
-            trackEl.label = element ? element.innerText : 'Subtitle';
-            trackEl.srclang = 'en';
-            
-            // Correct endpoint is /track/, and we MUST pass the start offset for sync (especially for MKV)
-            let src = `/api/video/subtitles/track/${trackId}`;
-            if (this.streamStartOffset > 0) {
-                src += `?start=${this.streamStartOffset}`;
-            }
-            
-            trackEl.src = src;
-            trackEl.default = true;
-
-            console.log(`[SimplePlayer] Appending track: ${trackEl.label} with src: ${src}`);
-            this.video.appendChild(trackEl);
-
-            // Force browser to recognize the new track
-            trackEl.onload = () => {
-                console.log(`[SimplePlayer] Track loaded: ${trackEl.label}`);
-                setTimeout(() => {
-                    if (trackEl.track) {
-                        trackEl.track.mode = 'showing';
-                        console.log(`[SimplePlayer] Track mode set to showing (onload)`);
-                    }
-                }, 100);
-            };
-
-            trackEl.onerror = (e) => {
-                console.error(`[SimplePlayer] Failed to load subtitle track: ${src}`, e);
-            };
-
-            // Fallback for browsers that don't trigger onload for tracks reliably
-            setTimeout(() => {
-                if (trackEl.track && trackEl.track.mode !== 'showing') {
-                    trackEl.track.mode = 'showing';
-                    console.log(`[SimplePlayer] Track mode set to showing (timeout fallback)`);
-                }
-            }, 500);
-
-            // Also check all textTracks to be sure
-            setTimeout(() => {
-                const tracks = this.video.textTracks;
-                for (let i = 0; i < tracks.length; i++) {
-                    if (tracks[i].label === trackEl.label) {
-                        tracks[i].mode = 'showing';
-                    } else {
-                        tracks[i].mode = 'disabled';
-                    }
-                }
-            }, 1000);    }
-
-        adjustSubtitleOffset(seconds, reset = false) {
-            if (reset) this.subOffset = 0;
-            else this.subOffset += seconds;
-            
-            if (this.offsetDisplay) {
-                this.offsetDisplay.innerText = (this.subOffset > 0 ? '+' : '') + this.subOffset.toFixed(1) + 's';
-            }
-
-            // Apply to active track
-            const tracks = this.video.textTracks;
-            if (tracks && tracks.length > 0) {
-                const track = tracks[0];
-                if (track.cues) {
-                    for (let i = 0; i < track.cues.length; i++) {
-                        const cue = track.cues[i];
-                        if (!cue._originalStart) {
-                            cue._originalStart = cue.startTime;
-                            cue._originalEnd = cue.endTime;
-                        }
-                        cue.startTime = cue._originalStart + this.subOffset;
-                        cue.endTime = cue._originalEnd + this.subOffset;
-                    }
-                    // Force browser to re-evaluate active cues after modifying cue times
-                    this.video.currentTime = this.video.currentTime;
+                    this.video.textTracks[i].mode = 'hidden';
                 }
             }
         }
 
-        setPlaybackSpeed(speed) {
-            console.log('[SimplePlayer] Setting playback speed to:', speed);
-            if (speed <= 0) speed = 1.0;
-            this.video.playbackRate = speed;
-            this.currentSpeed = speed;
-            this.speedValue.innerText = speed.toFixed(1) + 'x';
-            // Update active state in speed menu
-            this.container.querySelectorAll('.speed-option').forEach(option => {
-                const optSpeed = parseFloat(option.dataset.speed);
-                if (Math.abs(optSpeed - speed) < 0.01) {
-                    option.classList.add('active');
-                } else {
-                    option.classList.remove('active');
+        async loadSubtitles() {
+            try {
+                console.log('[SimplePlayer] Loading subtitles for video:', this.videoId);
+                const tracksRes = await fetch(`/api/video/subtitles/${this.videoId}`);
+                if (!tracksRes.ok) {
+                    console.error('[SimplePlayer] Subtitle API error:', tracksRes.status);
+                    return;
                 }
+                const tracksData = await tracksRes.json();
+                console.log('[SimplePlayer] Subtitle response:', tracksData);
+                const tracks = tracksData.tracks || tracksData.data || [];
+                console.log('[SimplePlayer] Found tracks:', tracks.length);
+                
+                const list = this.container.querySelector('#subtitleList');
+                if (!list) {
+                    console.error('[SimplePlayer] Subtitle list element not found');
+                    return;
+                }
+                
+                // Clear existing options except "Off" which should always be there
+                const offOption = list.querySelector('#sub-off');
+                if (offOption) {
+                    // Remove all other options
+                    list.querySelectorAll('.subtitle-option:not(#sub-off)').forEach(el => el.remove());
+                    // Setup Off button handler
+                    offOption.onclick = (e) => {
+                        e.stopPropagation();
+                        this.turnOffSubtitles();
+                        // Update UI
+                        this.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));
+                        offOption.classList.add('active');
+                        this.subtitleMenu.classList.remove('active');
+                        localStorage.setItem('jmedia_last_track_' + this.videoId, 'off');
+                    };
+                    // Set active state based on last selection
+                    if (!this.lastSelectedTrackId || this.lastSelectedTrackId === 'off') {
+                        offOption.classList.add('active');
+                    }
+                }
+                
+                tracks.forEach(t => {
+                    const opt = document.createElement('div');
+                    opt.className = 'subtitle-option';
+                    opt.setAttribute('data-id', t.id);  // Ensure data-id is set for all options
+                    opt.innerText = `${t.displayName || t.filename} (${t.isEmbedded ? 'Embedded' : 'External'})`;
+                    opt.onclick = (e) => {
+                        e.stopPropagation();
+                        console.log('[SimplePlayer] Selecting subtitle:', t);
+                        
+                        // Disable ALL existing tracks first
+                        this.video.querySelectorAll('track').forEach(el => {
+                            el.track.mode = 'hidden';
+                            el.remove();
+                        });
+                        // Also clear textTracks
+                        if (this.video.textTracks) {
+                            for (let i = 0; i < this.video.textTracks.length; i++) {
+                                this.video.textTracks[i].mode = 'hidden';
+                            }
+                        }
+                        
+                        if (t.id !== 'off') {
+                            const track = document.createElement('track');
+                            track.kind = 'subtitles';
+                            
+                            // Get correction from localStorage
+                            const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
+                            
+                            // Build URL with start offset for server-side seek
+                            // When resuming from a saved position via server-side seek, video.currentTime
+                            // starts at 0 (beginning of stream), but display time is adjusted via
+                            // streamStartOffset. We must shift subtitle timestamps to match.
+                            const startOffset = this.streamStartOffset || 0;
+                            let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                            if (parseFloat(correction) !== 0) {
+                                src += `&correction=${correction}`;
+                            }
+                            
+                            track.src = src;
+                            track.srclang = t.language || 'en';
+                            track.label = t.displayName || 'Subtitle';
+                            track.default = true;
+                            track.id = 'subtitle-track-' + t.id;
+                            this.video.appendChild(track);
+                            
+                            // Wait for track to be ready in textTracks
+                            const setupTrack = () => {
+                                const tracks = Array.from(this.video.textTracks || []);
+                                console.log('[SimplePlayer] Available textTracks:', tracks.map(t => ({ label: t.label, mode: t.mode, kind: t.kind })));
+                                
+                                // Find by matching label or by finding the newly added track
+                                let textTrack = tracks.find(tr => tr.label === (t.displayName || 'Subtitle'));
+                                
+                                // Also try to find by matching src if available
+                                if (!textTrack) {
+                                    textTrack = tracks.find(tr => tr.kind === 'subtitles' && tr.mode !== 'disabled');
+                                }
+                                
+                                if (textTrack) {
+                                    console.log('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
+                                    textTrack.mode = 'showing';
+                                    
+                                    // Firefox specific overlay update
+                                    const updateFF = () => {
+                                        if (window.subtitleManager && /Firefox/i.test(navigator.userAgent)) {
+                                            const activeCues = textTrack.activeCues;
+                                            const overlay = document.getElementById('firefox-subtitle-overlay');
+                                            if (overlay) {
+                                                if (activeCues && activeCues.length > 0) {
+                                                    overlay.textContent = activeCues[0].text;
+                                                    overlay.classList.add('active');
+                                                } else {
+                                                    overlay.classList.remove('active');
+                                                }
+                                            }
+                                        }
+                                    };
+
+                                    textTrack.oncuechange = (e) => {
+                                        console.log('[SimplePlayer] CUE CHANGE - activeCues:', textTrack.activeCues?.length);
+                                        updateFF();
+                                        if (textTrack.activeCues && textTrack.activeCues.length > 0) {
+                                            console.log('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
+                                        }
+                                    };
+                                    
+                                    // Initial update
+                                    updateFF();
+                                } else {
+                                    console.log('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracks.length);
+                                    setTimeout(setupTrack, 200);
+                                }
+                            };
+                            
+                            // Also handle load/error events on the track element
+                            track.addEventListener('load', () => {
+                                console.log('[SimplePlayer] Track element loaded');
+                                setTimeout(setupTrack, 100);
+                            });
+                            
+                            track.addEventListener('error', (e) => {
+                                console.error('[SimplePlayer] Track load error:', e);
+                            });
+                            
+                            // Initial attempt after a delay
+                            setTimeout(setupTrack, 500);
+                        } else {
+                            console.log('[SimplePlayer] Subtitles turned OFF');
+                        }
+this.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));
+                        opt.classList.add('active');
+                        this.subtitleMenu.classList.remove('active');
+                        localStorage.setItem('jmedia_last_track_' + this.videoId, t.id);
+                        
+                        // Store reference to current track for seeking updates
+                        this.currentSubtitleTrackId = t.id;
+                    };
+                    list.appendChild(opt);
+                    if (this.lastSelectedTrackId == t.id) opt.click();
+                });
+                
+                // If no track was auto-clicked, click 'Off' by default
+                if (this.lastSelectedTrackId == null && list.querySelector('#sub-off')) {
+                    list.querySelector('#sub-off').click();
+                }
+            } catch (e) { console.error('Subtitle load failed', e); }
+        }
+
+        async loadStoryboard() {
+            try {
+                const res = await fetch(`/api/video/storyboard/${this.videoId}/metadata`);
+                if (res.ok) {
+                    const json = await res.json();
+                    this.storyboard.metadata = json.data || json;
+                    const wasReady = this.storyboard.loaded;
+                    this.storyboard.loaded = this.storyboard.metadata.isReady;
+                    
+                    // If storyboard just became ready, refresh the preview image
+                    if (this.storyboard.loaded && !wasReady) {
+                        console.log('[SimplePlayer] Storyboard generation complete, refreshing preview');
+                        // Force background image refresh by adding a cache-busting query
+                        // Store a stable cache-busting timestamp that updates when storyboard becomes ready
+                        this._storyboardUrl = `/api/video/storyboard/${this.videoId}?t=${Date.now()}`;
+                    }
+                    
+                    // If not ready yet, poll again in 2 seconds
+                    if (!this.storyboard.loaded) {
+                        setTimeout(() => this.loadStoryboard(), 2000);
+                    }
+                }
+            } catch (e) {}
+        }
+
+        startProgressReporting() {
+            this._prog = setInterval(() => {
+                if (!this.video.paused && this.video.currentTime > 0) {
+                    const displayTime = this.video.currentTime + (this.streamStartOffset || 0);
+                    // Use the more comprehensive playback progress endpoint
+                    const url = `/api/video/playback/progress?videoId=${this.videoId}&time=${displayTime}&playing=${!this.video.paused}`;
+                    fetch(url, { 
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'X-User-ID': this.profileId }
+                    }).catch(err => console.error('[SimplePlayer] Progress report failed:', err));
+                }
+            }, 5000);
+
+            window.addEventListener('beforeunload', () => this.saveProgressNow());
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') this.saveProgressNow();
             });
         }
 
-        applySubtitleStyle() {
-            console.log('[SimplePlayer] Applying subtitle style updates');
-            // Re-apply current sub-lift to ensure the padding is updated
-            const isHidden = this.container.classList.contains('controls-hidden');
-            const liftHeight = isHidden ? 0 : this.measureControlBarHeight();
-            document.documentElement.style.setProperty('--sub-lift', `${liftHeight}px`);
-        }
-
-        measureControlBarHeight() {
-            // Measure the actual height of the controls container
-            const controlsContainer = this.container.querySelector('.controls-container');
-            if (controlsContainer) {
-                const height = controlsContainer.offsetHeight;
-                // Add some padding (10px) for safety
-                this.controlBarHeight = height + 10;
-            }
-            // Fallback to 80px if we can't measure
-            return this.controlBarHeight;
-        }
-
-        triggerSubtitleAction(action, element) {
-            this.subtitleMenu.classList.remove('active');
-            if (action === 'generate') {
-                if (window.subtitleManager) {
-                    window.subtitleManager.currentVideoId = this.videoId;
-                    window.subtitleManager.currentVideoTitle = this.container.dataset.title || 'Video';
-                    window.subtitleManager.generateAiSubtitles();
-                }
-            } else if (action === 'download') {
-                if (window.subtitleManager) window.subtitleManager.openModal(this.videoId, this.container.dataset.title || 'Video', this.container.dataset.path || '');
-            }
-        }
-
-        loadStoryboard() {
-            if (!this.videoId) return;
-            const url = `/api/video/storyboard/${this.videoId}/metadata`;
-            fetch(url)
-                .then(res => res.ok ? res.json() : null)
-                .then(data => {
-                    if (data && data.success) {
-                        this.storyboard.metadata = data.data;
-                        if (data.data.isReady) {
-                            this.storyboard.loaded = true;
-                            console.log('[SimplePlayer] Storyboard metadata and image ready');
-                        } else {
-                            console.log('[SimplePlayer] Storyboard still generating, retrying in 5s...');
-                            setTimeout(() => this.loadStoryboard(), 5000);
-                        }
-                    }
-                })
-                .catch(err => {
-                    console.error('[SimplePlayer] Error loading storyboard metadata:', err);
-                    // Retry on network error too
-                    setTimeout(() => this.loadStoryboard(), 10000);
-                });
-        }
-
-        updateStoryboardPreview(time) {
-            if (!this.storyboard.metadata) return;
-            const meta = this.storyboard.metadata;
-            const index = Math.floor(time / meta.interval);
-            const col = index % meta.columns;
-            const row = Math.floor(index / meta.columns);
-
-            const x = col * meta.width;
-            const y = row * meta.height;
-
-            const previewImg = this.previewContainer.querySelector('.storyboard-img') || document.createElement('div');
-            if (!previewImg.classList.contains('storyboard-img')) {
-                previewImg.className = 'storyboard-img';
-                this.previewContainer.prepend(previewImg);
-            }
-
-            previewImg.style.width = meta.width + 'px';
-            previewImg.style.height = meta.height + 'px';
-            previewImg.style.backgroundImage = `url(/api/video/storyboard/${this.videoId}/tiles)`;
-            previewImg.style.backgroundPosition = `-${x}px -${y}px`;
-            previewImg.style.backgroundSize = (meta.columns * meta.width) + 'px auto';
-        }
-
-        reportProgress(playing) {
-            if (!playing) return;
-            const time = this.video.currentTime + this.streamStartOffset;
-            fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST', credentials: 'same-origin' });
-        }
-
-        async reportProgressInternal(time) {
-            fetch(`/api/video/progress/${this.videoId}?time=${time}`, { method: 'POST', credentials: 'same-origin' });
-        }
-
-        async playNextEpisode() {
-            const nextId = this.container.dataset.nextId;
-            if (nextId && nextId !== 'null') {
-                // Store fullscreen state before navigation
-                const isFullscreen = document.fullscreenElement === this.container || document.webkitFullscreenElement === this.container;
-                if (isFullscreen) {
-                    sessionStorage.setItem('jmedia_restore_fullscreen', 'true');
-                }
-                if (window.videoSPA) {
-                    window.videoSPA.playVideo(nextId);
-                } else {
-                    window.location.href = `/video?section=playback&videoId=${nextId}`;
-                }
-            }
-        }
-
-        async playPreviousEpisode() {
-            const prevId = this.container.dataset.prevId;
-            if (prevId && prevId !== 'null') {
-                // Store fullscreen state before navigation
-                const isFullscreen = document.fullscreenElement === this.container || document.webkitFullscreenElement === this.container;
-                if (isFullscreen) {
-                    sessionStorage.setItem('jmedia_restore_fullscreen', 'true');
-                }
-                if (window.videoSPA) {
-                    window.videoSPA.playVideo(prevId);
-                } else {
-                    window.location.href = `/video?section=playback&videoId=${prevId}`;
-                }
-            }
-        }
-
-        async goBack() {
-            if (window.videoSPA) {
-                window.videoSPA.goBack();
-            } else if (window.app) {
-                window.app.navigate('/video');
-            } else {
-                window.location.href = '/video';
-            }
-        }
-
-        async goToDetails() {
-            if (window.videoSPA) {
-                const player = this.container || document.getElementById('customPlayer');
-                const videoId = player ? (player.getAttribute('data-video-id') || this.videoId) : this.videoId;
-                window.videoSPA.switchSection('details', { videoId: videoId });
-            } else if (window.app) {
-                window.app.navigate('/video');
-            } else {
-                window.location.href = '/video';
+        saveProgressNow() {
+            if (this.video.currentTime > 0 || this.streamStartOffset > 0) {
+                const displayTime = this.video.currentTime + (this.streamStartOffset || 0);
+                // Use the comprehensive endpoint here too
+                const url = `/api/video/playback/progress?videoId=${this.videoId}&time=${displayTime}&playing=${!this.video.paused}`;
+                
+                // CRITICAL: sendBeacon cannot send custom headers like X-User-ID.
+                // We MUST use fetch with keepalive: true to ensure headers are sent even when page is closing.
+                fetch(url, { 
+                    method: 'POST', 
+                    keepalive: true,
+                    credentials: 'include',
+                    headers: { 'X-User-ID': this.profileId }
+                }).catch(() => {});
             }
         }
 
         performServerSeek(time) {
             console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
+            
+            // For HLS streams, seeking is native — just set currentTime
+            if (this.hlsSessionId) {
+                console.log('[SimplePlayer] HLS stream — using native seek');
+                this.video.currentTime = time;
+                return;
+            }
+            
+            // Show loading indicator during seek
+            if (this.buffering) this.buffering.style.display = 'block';
+            
+            // Save current progress before seek
+            this.saveProgressNow();
             
             // Explicitly pause and clear src to trigger a clean disconnect on the server before restarting
             this.video.pause();
@@ -1385,36 +1070,101 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.streamStartOffset = time;
             this.video.src = `/api/video/stream/${this.videoId}?start=${time}`;
             
+            // Wait for enough buffer before playing (prevents choppiness)
+            const playWhenReady = () => {
+                // Check if we have enough buffer (readyState >= 3 = HAVE_FUTURE_DATA)
+                if (this.video.readyState >= 3) {
+                    console.log('[SimplePlayer] Buffer ready, starting playback');
+                    this.video.play().catch(e => console.log('[SimplePlayer] Play after seek failed:', e));
+                    this.video.removeEventListener('canplay', playWhenReady);
+                    this.video.removeEventListener('progress', checkBuffer);
+                }
+            };
+            
+            const checkBuffer = () => {
+                // Check if we have at least 2 seconds buffered
+                if (this.video.buffered.length > 0) {
+                    const bufferedEnd = this.video.buffered.end(this.video.buffered.length - 1);
+                    const bufferedDuration = bufferedEnd - this.video.currentTime;
+                    if (bufferedDuration >= 2 || this.video.readyState >= 3) {
+                        playWhenReady();
+                    }
+                }
+            };
+            
+            // Listen for buffer events
+            this.video.addEventListener('canplay', playWhenReady, { once: true });
+            this.video.addEventListener('progress', checkBuffer);
+            
+            // Fallback: start playing after timeout if buffer check doesn't fire
+            setTimeout(() => {
+                if (this.buffering && this.buffering.style.display !== 'none') {
+                    console.log('[SimplePlayer] Fallback: forcing playback after timeout');
+                    this.video.play().catch(e => console.log('[SimplePlayer] Fallback play failed:', e));
+                }
+            }, 3000);
+            
             // Refresh subtitles if one is selected to ensure it gets the correct start offset
             if (this.lastSelectedTrackId && this.lastSelectedTrackId !== 'off') {
-                const activeOpt = this.subtitleList.querySelector(`.subtitle-option[data-id="${this.lastSelectedTrackId}"]`);
-                this.selectSubtitle(this.lastSelectedTrackId, activeOpt);
+                const activeOpt = this.subtitleList?.querySelector(`.subtitle-option[data-id="${this.lastSelectedTrackId}"]`);
+                if (activeOpt) {
+                    activeOpt.click();
+                }
             }
-            
-            this.video.play().catch(console.error);
+        }
+
+        setMusicSuspended(s) {
+            window.videoPlaying = s;
+            document.body.setAttribute('data-video-active', s ? 'true' : 'false');
+            if (s) document.querySelectorAll('audio').forEach(a => a.pause());
+        }
+
+        goBack() { if (window.videoSPA) window.videoSPA.goBack(); else window.history.back(); }
+        goToDetails() { if (window.videoSPA) window.videoSPA.switchSection('details', { videoId: this.videoId }); }
+
+        async playNextEpisode() {
+            // Try to get next episode from series
+            try {
+                const res = await fetch(`/api/video/playback/next/${this.videoId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.nextVideoId) {
+                        if (window.videoSPA) {
+                            window.videoSPA.switchSection('playback', { videoId: data.nextVideoId });
+                        }
+                    }
+                }
+            } catch (e) { console.error('Failed to load next episode', e); }
+        }
+
+        async playPreviousEpisode() {
+            // Try to get previous episode from series
+            try {
+                const res = await fetch(`/api/video/playback/previous/${this.videoId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.previousVideoId) {
+                        if (window.videoSPA) {
+                            window.videoSPA.switchSection('playback', { videoId: data.previousVideoId });
+                        }
+                    }
+                }
+            } catch (e) { console.error('Failed to load previous episode', e); }
+        }
+
+        _showLoading(msg) { if (window.Toast) window.Toast.info(msg); }
+        _hideLoading() { 
+            const container = document.getElementById('toast-container');
+            if (container) container.querySelectorAll('.toast.info').forEach(t => t.remove());
         }
 
         destroy() {
-            console.log(`[SimplePlayer] Destroying instance for video ${this.videoId}`);
-            this.stopProgressReporting();
-            clearTimeout(this.userActiveTimeout);
-            
-            if (this.video) {
-                this.video.pause();
-                this.video.src = "";
-                this.video.load();
-                
-                // Clone the video element to remove all event listeners
-                const newVideo = this.video.cloneNode(true);
-                if (this.video.parentNode) {
-                    this.video.parentNode.replaceChild(newVideo, this.video);
-                }
-                this.video = newVideo;
-            }
-            
-            if (window.currentPlayerInstance === this) {
-                window.currentPlayerInstance = null;
-            }
+            clearInterval(this._prog);
+            this.setMusicSuspended(false);
+            if (this.hlsInstance) this.hlsInstance.destroy();
+            this.video.pause();
+            this.video.src = "";
+            window.removeEventListener('keydown', this.handleKeydown);
         }
     };
 }

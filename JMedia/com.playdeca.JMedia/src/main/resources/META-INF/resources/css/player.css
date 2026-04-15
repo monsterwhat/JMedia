@@ -2,7 +2,21 @@
 :root {
     --player-primary: #48c774 !important; /* Green */
     --player-bg: #000 !important;
-    --control-bg: linear-gradient(transparent, rgba(0, 0, 0, 0.95)) !important;
+    --control-bg: linear-gradient(transparent, rgba(0,0,0,0.95)) !important;
+}
+
+/* Hide music player when video is active */
+#musicPlayerContainer.video-active,
+body.video-active #musicPlayerContainer,
+body.video-active .music-player-container,
+body.video-active [id*="musicPlayerContainer"] {
+    display: none !important;
+}
+
+/* Also handle via data attribute for dynamic elements */
+body[data-video-active="true"] #musicPlayerContainer,
+body[data-video-active="true"] .music-player {
+    display: none !important;
 }
 
 .player-container {
@@ -97,7 +111,18 @@
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
-    z-index: 2 !important;
+    z-index: 1 !important;
+    pointer-events: none !important;
+}
+
+.video-click-overlay {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 5 !important;
+    cursor: pointer !important;
 }
 
 #videoElement {
@@ -105,6 +130,7 @@
     height: 100% !important;
     background: #000 !important;
     display: block !important;
+    pointer-events: auto !important;
 }
 
 /* --- Controls & Overlays --- */
@@ -167,13 +193,14 @@
     bottom: 0 !important;
     left: 0 !important;
     width: 100% !important;
-    padding: 0 20px 15px 20px !important;
+    padding: 20px 30px 25px 30px !important;
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.95)) !important;
     z-index: 1000 !important;
     display: flex !important;
     flex-direction: column !important;
     opacity: 1 !important;
     transition: opacity 0.3s ease !important;
+    pointer-events: auto !important;
 }
 
 /* Visibility Logic */
@@ -212,27 +239,9 @@
     z-index: 2147483647 !important;
 }
 
-/* Mobile portrait CSS fullscreen - use dynamic viewport height */
-@media screen and (max-width: 768px) and (orientation: portrait) {
-    .player-container.is-css-fullscreen {
-        height: 100dvh !important;
-    }
-}
-
-.player-container.is-css-fullscreen #videoElement {
-    border-radius: 0 !important;
-}
-
-.player-container.is-css-fullscreen .controls-container {
-    padding-bottom: 30px !important;
-}
-
-.player-container.is-fullscreen #videoElement {
-    border-radius: 0 !important;
-}
-
+.player-container.is-css-fullscreen .controls-container,
 .player-container.is-fullscreen .controls-container {
-    padding-bottom: 30px !important;
+    padding-bottom: 35px !important;
 }
 
 /* Ensure PrimeIcons show up correctly in fullscreen */
@@ -348,51 +357,6 @@
     gap: 12px !important;
 }
 
-.control-btn {
-    background: none !important;
-    border: none !important;
-    color: #fff !important;
-    cursor: pointer !important;
-    padding: 8px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: color 0.2s !important;
-    flex-shrink: 0 !important;
-}
-
-.control-btn:hover {
-    color: var(--player-primary) !important;
-}
-
-.control-btn i {
-    font-size: 1.4rem !important;
-}
-
-.skip-btn {
-    position: relative !important;
-}
-
-.skip-val {
-    position: absolute !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    font-size: 0.6rem !important;
-    font-weight: 900 !important;
-    margin-top: 13px !important;
-    color: #fff !important;
-}
-
-.time-display {
-    color: #fff !important;
-    font-size: 0.95rem !important;
-    white-space: nowrap !important;
-    flex-shrink: 0 !important;
-    font-variant-numeric: tabular-nums !important;
-    min-width: 100px !important;
-}
-
 .spacer { flex: 1 !important; }
 
 .volume-container {
@@ -431,9 +395,13 @@
     opacity: 1 !important;
 }
 
-/* Subtitles Container and Z-Index */
-video::cue {
-    z-index: 2147483647;
+.time-display {
+    color: #fff !important;
+    font-size: 0.95rem !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    font-variant-numeric: tabular-nums !important;
+    min-width: 100px !important;
 }
 
 /* Subtitles */
@@ -547,6 +515,39 @@ video::cue {
     font-size: 1.5rem !important;
 }
 
+.subtitle-correction-row {
+    display: flex !important;
+    align-items: center !important;
+    padding: 10px 15px !important;
+    gap: 10px !important;
+}
+
+.correction-btn {
+    background: rgba(255,255,255,0.1) !important;
+    border: 1px solid rgba(255,255,255,0.2) !important;
+    color: #fff !important;
+    border-radius: 4px !important;
+    padding: 4px 8px !important;
+    cursor: pointer !important;
+    font-size: 0.8rem !important;
+    transition: all 0.2s !important;
+    flex: 1 !important;
+}
+
+.correction-btn:hover {
+    background: rgba(255,255,255,0.2) !important;
+    border-color: var(--player-primary) !important;
+}
+
+.correction-val {
+    font-family: monospace !important;
+    font-weight: bold !important;
+    font-size: 1rem !important;
+    color: var(--player-primary) !important;
+    min-width: 50px !important;
+    text-align: center !important;
+}
+
 .subtitle-actions .subtitle-option {
     color: rgba(255,255,255,0.8) !important;
     font-size: 0.85rem !important;
@@ -566,31 +567,44 @@ video::cue {
     width: 160px !important;
     height: 90px !important;
     background-color: #000 !important;
-    border: 2px solid #fff !important;
+    border: 2px solid rgba(255,255,255,0.8) !important;
     border-radius: 4px !important;
     pointer-events: none !important;
-    display: none;
+    opacity: 0;
+    visibility: hidden;
     z-index: 1100 !important;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.5) !important;
-    overflow: hidden !important;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.8) !important;
+    overflow: visible !important; /* Allow time to show outside */
+    transition: opacity 0.2s ease, visibility 0.2s ease !important;
+}
+
+.preview-container.active {
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 
 .storyboard-img {
     width: 100% !important;
     height: 100% !important;
     background-repeat: no-repeat !important;
+    border-radius: 2px !important;
+    background-color: #111 !important;
 }
 
 .preview-time {
     position: absolute !important;
-    bottom: -25px !important;
+    top: -35px !important; /* Move above the preview image */
     left: 50% !important;
     transform: translateX(-50%) !important;
-    background: rgba(0,0,0,0.8) !important;
-    padding: 2px 6px !important;
+    background: var(--player-primary) !important; /* Use theme primary color */
+    color: #000 !important; /* Black text on green background for max visibility */
+    padding: 2px 8px !important;
     border-radius: 4px !important;
-    font-size: 0.75rem !important;
-    color: #fff !important;
+    font-size: 0.9rem !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5) !important;
+    border: 1px solid rgba(0,0,0,0.1) !important;
 }
 
 /* --- Skip Intro/Outro/Recap Buttons --- */
@@ -641,4 +655,306 @@ video::cue {
 .player-container .modal-card {
     margin: 0 auto !important;
     max-height: 90vh !important;
+    min-width: 300px !important;
+    max-width: 90vw !important;
+    resize: both !important;
+    overflow: auto !important;
+}
+
+/* Resizable modal handle */
+.player-container .modal-card::after {
+    content: "⟲" !important;
+    position: absolute !important;
+    bottom: 5px !important;
+    right: 5px !important;
+    font-size: 12px !important;
+    color: rgba(255,255,255,0.3) !important;
+    cursor: se-resize !important;
+}
+
+.player-container .modal-card-head {
+    cursor: move !important;
+}
+
+/* === Mobile Orientation Fixes === */
+
+/* Mobile landscape (horizontal) - prevent subtitle menu overflow */
+@media screen and (max-width: 900px) and (orientation: landscape) {
+    .player-container.is-css-fullscreen {
+        overflow: visible !important;
+    }
+    
+    .player-container.is-css-fullscreen .subtitle-menu,
+    .player-container.is-css-fullscreen .speed-menu {
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: 55vw !important;
+        max-width: 250px !important;
+        max-height: 45vh !important;
+        overflow-y: auto !important;
+    }
+    
+    .player-container.is-css-fullscreen .subtitle-list {
+        max-height: 20vh !important;
+        overflow-y: auto !important;
+    }
+    
+    /* Ensure controls are below the menu */
+    .player-container.is-css-fullscreen .controls-container {
+        position: absolute !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 2147483646 !important;
+    }
+    
+    /* Adjust media info for landscape */
+    .player-container.is-css-fullscreen .media-info {
+        padding: 15px 20px !important;
+    }
+}
+
+/* Mobile portrait (vertical) - ensure UI visibility */
+@media screen and (max-width: 420px) and (orientation: portrait) {
+    .player-container.is-css-fullscreen {
+        overflow: visible !important;
+    }
+    
+    /* Center the menu on screen in portrait */
+    .player-container.is-css-fullscreen .subtitle-menu,
+    .player-container.is-css-fullscreen .speed-menu {
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: 75vw !important;
+        max-width: 300px !important;
+        max-height: 45vh !important;
+        z-index: 2147483647 !important;
+        overflow-y: auto !important;
+    }
+    
+    .player-container.is-css-fullscreen .subtitle-list {
+        max-height: 25vh !important;
+        overflow-y: auto !important;
+    }
+    
+    /* Ensure controls are always visible */
+    .player-container.is-css-fullscreen .controls-container {
+        position: absolute !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        padding: 15px 10px !important;
+        background: linear-gradient(transparent, rgba(0,0,0,0.9)) !important;
+        z-index: 2147483646 !important;
+    }
+    
+    /* Ensure media info is visible */
+    .player-container.is-css-fullscreen .media-info {
+        padding: 15px !important;
+    }
+    
+    /* Keep big play button visible and centered */
+    .player-container.is-css-fullscreen .big-play-btn {
+        width: 70px !important;
+        height: 70px !important;
+        top: 50% !important;
+    }
+}
+
+/* Very small screens - compact controls */
+@media screen and (max-width: 400px) and (orientation: portrait) {
+    .player-container.is-css-fullscreen {
+        overflow: visible !important;
+    }
+    
+    .player-container.is-css-fullscreen .subtitle-menu,
+    .player-container.is-css-fullscreen .speed-menu {
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: 80vw !important;
+        max-height: 40vh !important;
+        max-width: 280px !important;
+        z-index: 2147483647 !important;
+        overflow-y: auto !important;
+    }
+    
+    .player-container.is-css-fullscreen .subtitle-list {
+        max-height: 20vh !important;
+        overflow-y: auto !important;
+    }
+    
+    .player-container.is-css-fullscreen .control-btn {
+        padding: 6px !important;
+    }
+    
+    .player-container.is-css-fullscreen .control-btn i {
+        font-size: 1rem !important;
+    }
+}
+
+/* Portrait mode video player fix - ensure video fills screen */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+    /* Make video fill the container properly */
+    .player-container.is-css-fullscreen #videoElement {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+    }
+    
+    /* Ensure video wrapper fills container */
+    .player-container.is-css-fullscreen .video-wrapper {
+        width: 100% !important;
+        height: 100% !important;
+    }
+    
+    /* Ensure controls don't overlap video content */
+    .player-container.is-css-fullscreen .media-info {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        padding: 15px !important;
+    }
+    
+    /* Make sure controls are below video, not overlapping */
+    .player-container.is-css-fullscreen .controls-container {
+        position: absolute !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+    }
+}
+
+/* ============================================
+   iOS-Specific Optimizations
+   ============================================ */
+@supports (-webkit-touch-callout: none) {
+    /* Larger touch targets for iOS */
+    .player-container .control-btn {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        padding: 8px 12px !important;
+    }
+
+    /* Larger skip buttons */
+    .player-container .skip-btn {
+        min-width: 48px !important;
+        min-height: 48px !important;
+    }
+
+    /* Thicker progress bar for touch */
+    .player-container .progress-container {
+        height: 8px !important;
+        cursor: pointer !important;
+    }
+
+    .player-container .progress-bar {
+        height: 8px !important;
+    }
+
+    .player-container .progress-buffered {
+        height: 8px !important;
+    }
+
+    /* Larger thumb on progress bar */
+    .player-container .progress-thumb {
+        width: 18px !important;
+        height: 18px !important;
+        opacity: 1 !important;
+    }
+
+    /* Prevent text selection on controls */
+    .player-container .controls-container {
+        -webkit-user-select: none !important;
+        user-select: none !important;
+        -webkit-touch-callout: none !important;
+    }
+
+    /* Smooth scrolling for episode lists */
+    .player-container .episode-list,
+    .player-container .season-list {
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* Larger tap targets for media info actions */
+    .player-container .info-actions button,
+    .player-container .media-action-btn {
+        min-height: 44px !important;
+        min-width: 44px !important;
+        padding: 12px 16px !important;
+    }
+
+    /* Subtitle menu larger for iOS */
+    .player-container .subtitle-menu {
+        min-width: 250px !important;
+    }
+
+    .player-container .subtitle-option {
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+        font-size: 1rem !important;
+    }
+
+    /* Speed menu larger */
+    .player-container .speed-option {
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+    }
+
+    /* Skip intro/outro buttons larger */
+    .player-container .skip-btn-intro,
+    .player-container .skip-btn-outro,
+    .player-container .skip-btn-recap {
+        min-height: 40px !important;
+        padding: 8px 20px !important;
+        font-size: 0.95rem !important;
+    }
+
+    /* Better fullscreen button sizing */
+    .player-container #videoFullscreenBtn {
+        min-width: 48px !important;
+        min-height: 48px !important;
+    }
+
+    /* Episode navigation buttons */
+    .player-container #videoNextEpBtn,
+    .player-container #videoPrevEpBtn {
+        min-width: 44px !important;
+        min-height: 44px !important;
+    }
+
+    /* Prevent iOS rubber-banding on player */
+    .player-container .video-wrapper {
+        overscroll-behavior: none !important;
+        -webkit-overflow-scrolling: auto !important;
+    }
+
+    /* Ensure video fills properly on iOS */
+    .player-container video {
+        object-fit: contain !important;
+        -webkit-media-controls {
+            display: none !important;
+        }
+    }
+
+    /* iOS safe area handling */
+    @supports (padding: max(0px)) {
+        .player-container.is-css-fullscreen .controls-container {
+            padding-left: max(12px, env(safe-area-inset-left)) !important;
+            padding-right: max(12px, env(safe-area-inset-right)) !important;
+            padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+        }
+
+        .player-container.is-css-fullscreen .media-info {
+            padding-top: max(15px, env(safe-area-inset-top)) !important;
+        }
+    }
 }

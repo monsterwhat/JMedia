@@ -1,0 +1,360 @@
+<!-- Audio Track Selector Component -->
+<div class="audio-track-selector" id="audioTrackSelector">
+    <div class="audio-track-button" onclick="window.toggleAudioTrackMenu()" title="Audio">
+        <i class="pi pi-volume"></i>
+        <span class="current-track" id="currentAudioTrackDisplay">Default</span>
+    </div>
+    
+    <div class="audio-track-menu" id="audioTrackMenu" style="display: none;">
+        <div class="track-list-header">Audio Tracks</div>
+        <div class="track-list" id="audioTrackList">
+            <div class="track-item" data-track="default" onclick="window.selectAudioTrack('default')">
+                <span class="track-name">Default</span>
+                <i class="pi pi-check track-selected" style="display: none;"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentAudioTrackId = 'default';
+let availableAudioTracks = [];
+
+// Initialize audio track selector
+window.initializeAudioTrackSelector = function() {
+    if (window.player) {
+        window.loadAvailableAudioTracks();
+        window.updateCurrentAudioTrackDisplay();
+    }
+};
+
+// Load available audio tracks
+window.loadAvailableAudioTracks = async function() {
+    try {
+        const videoId = window.currentVideoId;
+        if (!videoId) return;
+        
+        const response = await fetch('/api/video/' + videoId + '/audio-tracks');
+        
+        if (response.ok) {
+            const data = await response.json();
+            const payload = data.data || data;
+            availableAudioTracks = payload.tracks || [];
+            currentAudioTrackId = payload.preferredTrackId || 'default';
+            window.populateAudioTrackMenu();
+        }
+    } catch (error) {
+        console.error('Error loading audio tracks:', error);
+    }
+};
+
+// Populate the track menu with available tracks
+window.populateAudioTrackMenu = function() {
+    const trackList = document.getElementById('audioTrackList');
+    
+    // Clear existing tracks (keep "Default" option)
+    while (trackList.children.length > 1) {
+        trackList.removeChild(trackList.lastChild);
+    }
+    
+    // Add available tracks
+    availableAudioTracks.forEach(track => {
+        const trackItem = document.createElement('div');
+        trackItem.className = 'track-item';
+        trackItem.dataset.track = track.id;
+        
+        let label = track.displayName || track.languageName || track.languageCode || 'Unknown';
+        if (track.channels) {
+            const channelLabel = track.channels === 6 ? ' 5.1' : track.channels === 8 ? ' 7.1' : track.channels === 2 ? ' Stereo' : '';
+            label += channelLabel;
+        }
+        if (track.title) {
+            label += ' (' + track.title + ')';
+        }
+        
+        trackItem.innerHTML = '<span class="track-name">' + label + '</span>' +
+            '<i class="pi pi-check track-selected" style="display: none;"></i>';
+        trackItem.onclick = () => window.selectAudioTrack(track.id);
+        trackList.appendChild(trackItem);
+    });
+    
+    // Update selection indicators
+    window.updateAudioTrackSelection();
+    window.updateCurrentAudioTrackDisplay();
+};
+
+// Toggle audio track menu visibility
+window.toggleAudioTrackMenu = function() {
+    const menu = document.getElementById('audioTrackMenu');
+    const isVisible = menu.style.display !== 'none';
+    
+    // Hide all other menus
+    document.querySelectorAll('.audio-track-menu, .subtitle-track-menu, .settings-menu').forEach(m => m.style.display = 'none');
+    
+    menu.style.display = isVisible ? 'none' : 'block';
+    
+    if (!isVisible) {
+        window.loadAvailableAudioTracks(); // Refresh tracks when opening
+    }
+};
+
+// Select an audio track
+window.selectAudioTrack = function(trackId) {
+    if (!window.player) return;
+
+    if (trackId === 'default') {
+        // Reset to default - enable all audio tracks (browser default behavior)
+        const audioTracks = window.player.audioTracks();
+        if (audioTracks) {
+            for (let i = 0; i < audioTracks.length; i++) {
+                audioTracks[i].enabled = true;
+            }
+        }
+    } else {
+        // Find and enable the selected track
+        const audioTracks = window.player.audioTracks();
+        if (audioTracks) {
+            let trackFound = false;
+            
+            for (let i = 0; i < audioTracks.length; i++) {
+                const playerTrack = audioTracks[i];
+                // Match by language or by index
+                const match = availableAudioTracks.find(at => 
+                    at.id == trackId && (
+                        (playerTrack.language && playerTrack.language === at.languageCode) ||
+                        (playerTrack.label && playerTrack.label.includes(at.languageName))
+                    )
+                );
+                
+                if (match) {
+                    playerTrack.enabled = true;
+                    trackFound = true;
+                } else {
+                    playerTrack.enabled = false;
+                }
+            }
+            
+            // If no match found in player's native tracks, try fallback
+            if (!trackFound) {
+                const trackInfo = availableAudioTracks.find(t => t.id == trackId);
+                if (trackInfo) {
+                    // Enable the first track as fallback and log warning
+                    if (audioTracks.length > 0) {
+                        audioTracks[0].enabled = true;
+                    }
+                    console.warn('Audio track not found in player, using default. Track info:', trackInfo);
+                }
+            }
+        }
+    }
+    
+    currentAudioTrackId = trackId;
+    window.updateAudioTrackSelection();
+    window.updateCurrentAudioTrackDisplay();
+    
+    // Save preference
+    window.saveAudioTrackPreference(trackId);
+    
+    // Close menu
+    document.getElementById('audioTrackMenu').style.display = 'none';
+};
+
+// Update track selection indicators
+window.updateAudioTrackSelection = function() {
+    document.querySelectorAll('#audioTrackList .track-item').forEach(item => {
+        const trackId = item.dataset.track;
+        const checkIcon = item.querySelector('.track-selected');
+        
+        if (trackId === currentAudioTrackId.toString()) {
+            checkIcon.style.display = 'inline';
+            item.classList.add('selected');
+        } else {
+            checkIcon.style.display = 'none';
+            item.classList.remove('selected');
+        }
+    });
+};
+
+// Update current track display
+window.updateCurrentAudioTrackDisplay = function() {
+    const display = document.getElementById('currentAudioTrackDisplay');
+    if (!display) return;
+    
+    if (currentAudioTrackId === 'default') {
+        display.textContent = 'Default';
+    } else {
+        const track = availableAudioTracks.find(t => t.id == currentAudioTrackId);
+        if (track) {
+            display.textContent = track.languageName || track.languageCode || 'Audio';
+        } else {
+            display.textContent = 'Default';
+        }
+    }
+};
+
+// Save track preference
+window.saveAudioTrackPreference = async function(trackId) {
+    try {
+        const videoId = window.currentVideoId;
+        if (!videoId) return;
+        
+        const trackInfo = availableAudioTracks.find(t => t.id == trackId);
+        
+        await fetch('/api/video/audio-preference', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                videoId: videoId,
+                trackId: trackId !== 'default' ? trackId : null,
+                preferredLanguage: trackInfo ? trackInfo.languageCode : null
+            })
+        });
+    } catch (error) {
+        console.error('Error saving audio track preference:', error);
+    }
+};
+
+// Close menu when clicking outside
+document.addEventListener('click', function(e) {
+    const selector = document.getElementById('audioTrackSelector');
+    const menu = document.getElementById('audioTrackMenu');
+    if (selector && menu && !selector.contains(e.target) && menu.style.display !== 'none') {
+        menu.style.display = 'none';
+    }
+});
+
+// Initialize immediately if loaded after DOMContentLoaded
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(window.initializeAudioTrackSelector, 500);
+} else {
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(window.initializeAudioTrackSelector, 1000);
+    });
+}
+</script>
+
+<style>
+.audio-track-selector {
+    position: relative;
+    display: inline-block;
+}
+
+.audio-track-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.2s;
+    backdrop-filter: blur(10px);
+}
+
+.audio-track-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.audio-track-button .current-track {
+    font-size: 0.8em;
+    opacity: 0.9;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.audio-track-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 8px;
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(20px);
+    z-index: 1000;
+}
+
+.audio-track-menu .track-list-header {
+    padding: 12px 16px 8px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #ccc;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.audio-track-menu .track-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.audio-track-menu .track-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.audio-track-menu .track-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.audio-track-menu .track-item.selected {
+    background: rgba(50, 115, 220, 0.2);
+}
+
+.audio-track-menu .track-name {
+    flex: 1;
+    color: white;
+    font-size: 0.9em;
+}
+
+.audio-track-menu .track-selected {
+    color: #3273dc;
+    font-size: 0.8em;
+}
+
+/* Scrollbar styling */
+.audio-track-menu .track-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.audio-track-menu .track-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.audio-track-menu .track-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.audio-track-menu .track-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .audio-track-menu {
+        right: 0;
+        left: auto;
+        min-width: 180px;
+    }
+    
+    .audio-track-button .current-track {
+        max-width: 60px;
+    }
+}
+</style>

@@ -65,6 +65,13 @@ public class Settings extends PanacheEntity {
     private Integer bpmTolerance = 10;
     private String bpmToleranceOverrides = "{}"; // JSON map: {"electronic": 5, "jazz": 15}
     
+    // DJ Mode settings for seamless BPM-matched transitions
+    private Boolean djModeEnabled = false;
+    private Integer djModeSections = 12; // Divide song into 12 sections, trigger at last section (default)
+    private Integer djModeTriggerPercent = 15; // Alternative: trigger when X% of song remains (default 15%)
+    private Integer djModeBpmTolerance = 5; // Tighter BPM tolerance when DJ mode triggers
+    private Integer djModeCrossfadeSeconds = 8; // Longer crossfade during DJ mode
+    
     // Metadata enrichment during reload
     private Boolean enableMetadataEnrichment = true; // Enrich missing metadata from external APIs during reload
     private Boolean enableBpmExtraction = true; // Extract BPM using FFmpeg during reload
@@ -240,6 +247,47 @@ public class Settings extends PanacheEntity {
     
     public void setBpmToleranceOverrides(String bpmToleranceOverrides) {
         this.bpmToleranceOverrides = bpmToleranceOverrides;
+    }
+    
+    // DJ Mode getters and setters
+    public Boolean getDjModeEnabled() {
+        return djModeEnabled != null ? djModeEnabled : false;
+    }
+    
+    public void setDjModeEnabled(Boolean djModeEnabled) {
+        this.djModeEnabled = djModeEnabled;
+    }
+    
+    public Integer getDjModeSections() {
+        return djModeSections != null ? djModeSections : 12;
+    }
+    
+    public void setDjModeSections(Integer djModeSections) {
+        this.djModeSections = djModeSections;
+    }
+    
+    public Integer getDjModeTriggerPercent() {
+        return djModeTriggerPercent != null ? djModeTriggerPercent : 15;
+    }
+    
+    public void setDjModeTriggerPercent(Integer djModeTriggerPercent) {
+        this.djModeTriggerPercent = djModeTriggerPercent;
+    }
+    
+    public Integer getDjModeBpmTolerance() {
+        return djModeBpmTolerance != null ? djModeBpmTolerance : 5;
+    }
+    
+    public void setDjModeBpmTolerance(Integer djModeBpmTolerance) {
+        this.djModeBpmTolerance = djModeBpmTolerance;
+    }
+    
+    public Integer getDjModeCrossfadeSeconds() {
+        return djModeCrossfadeSeconds != null ? djModeCrossfadeSeconds : 8;
+    }
+    
+    public void setDjModeCrossfadeSeconds(Integer djModeCrossfadeSeconds) {
+        this.djModeCrossfadeSeconds = djModeCrossfadeSeconds;
     }
     
     public Boolean getEnableMetadataEnrichment() {

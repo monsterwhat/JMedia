@@ -53,13 +53,38 @@ public class TranscodingService {
                (ua.contains("macintosh") && ua.contains("safari") && !ua.contains("chrome") && !ua.contains("firefox"));
     }
 
-    public boolean isTranscodeNeededForWeb(Video video) {
+    public boolean isTranscodeNeededForWeb(Video video, String userAgent) {
         if (video.videoCodec == null) {
             return true;
         }
         String codec = video.videoCodec.toLowerCase(Locale.ROOT);
+        
         // H.264/AVC is the most compatible baseline for the web
-        return !codec.contains("h264") && !codec.contains("avc");
+        if (codec.contains("h264") || codec.contains("avc")) {
+            return false;
+        }
+        
+        // HEVC/H.265 - check if browser can play it natively
+        if (codec.contains("hevc") || codec.contains("h265")) {
+            if (userAgent != null) {
+                String ua = userAgent.toLowerCase(Locale.ROOT);
+                // Firefox on Windows 10/11 can play HEVC with hardware support
+                if (ua.contains("firefox") && ua.contains("windows nt 10")) {
+                    LOG.info("HEVC detected - Firefox on Windows can likely play natively, using mkvmerge");
+                    return false;
+                }
+                // Chrome on Windows with HEVC support (recent versions)
+                if (ua.contains("chrome") && ua.contains("windows") && !ua.contains("edg")) {
+                    LOG.info("HEVC detected - Chrome on Windows can likely play natively, using mkvmerge");
+                    return false;
+                }
+            }
+            LOG.info("HEVC detected - will transcode to H.264 for web compatibility");
+            return true;
+        }
+        
+        // For other codecs or unsupported browsers, transcode is needed
+        return true;
     }
 
     public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output) throws IOException {
@@ -80,8 +105,8 @@ public class TranscodingService {
         boolean isIOS = isIOSClient(userAgent);
         LOG.info("Client request - iOS: {}, User-Agent: {}", isIOS, userAgent);
         
-        // Use the generalized web compatibility check
-        boolean needsVideoTranscode = isTranscodeNeededForWeb(video);
+        // Use the generalized web compatibility check (now with userAgent for browser detection)
+        boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent);
 
         if (needsVideoTranscode) {
             LOG.info("Transcoding forced for codec: {} to ensure web compatibility", video.videoCodec);
@@ -90,6 +115,23 @@ public class TranscodingService {
         boolean canCopyAudio = canCopyAudio(video);
         boolean needsAudioTranscode = !canCopyAudio;
 
+        // For MKV files that only need remuxing (not transcoding), use mkvmerge for instant seeking
+        // Only use mkvmerge when NOT transcoding video AND not seeking (startSeconds = 0)
+        // mkvmerge does NOT support seeking to a specific time, so we must use FFmpeg when seeking
+        if (!needsVideoTranscode && startSeconds == 0) {
+            LOG.info("Using mkvmerge for instant remux of {}", videoFile.getName());
+            String mkvmergePath = discoveryService.findMkvmerge();
+            if (mkvmergePath != null) {
+                streamViaMkvmerge(mkvmergePath, videoFile, output);
+                return;
+            } else {
+                LOG.warn("mkvmerge not found, falling back to FFmpeg for remux");
+            }
+        } else if (!needsVideoTranscode && startSeconds > 0) {
+            LOG.info("Seeking to {}s requested - using FFmpeg instead of mkvmerge for accurate seeking", startSeconds);
+        }
+
+        // Use FFmpeg for transcoding (HEVC->H264) or when mkvmerge not available
         streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output);
     }
 
@@ -238,12 +280,24 @@ public class TranscodingService {
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
 
-        if (startSeconds > 0) {
+        // For accurate seeking without choppiness/audio sync issues:
+        // When transcoding: use -ss after -i for frame-accurate seek
+        // When copying: use -ss before -i for fast keyframe seek (small offset acceptable)
+        if (startSeconds > 0 && !needsVideoTranscode) {
+            // Fast seek to keyframe before target (for stream copy mode)
+            // This may start a few seconds before the exact target, but browser can handle the offset
             command.add("-ss");
             command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
         }
 
         command.add("-i"); command.add(videoFile.getAbsolutePath());
+        
+        // When transcoding, do accurate seek after input
+        if (startSeconds > 0 && needsVideoTranscode) {
+            // Frame-accurate seek (slower but precise when re-encoding)
+            command.add("-ss");
+            command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
+        }
 
         command.add("-map"); command.add("0:v:0");
         command.add("-map"); command.add("0:a:0?");
@@ -296,20 +350,38 @@ public class TranscodingService {
             ));
         }
 
-        // Use consistent movflags for 2026 - fragmented MP4 with CMAF-style options
-        // For Safari compatibility, we use frag_keyframe and default_base_moof.
-        // empty_moov is essential for streaming over a pipe.
+        // Audio sync options for seeking
+        if (startSeconds > 0) {
+            command.add("-async"); command.add("1");
+            // Use vfr (variable frame rate) instead of cfr to avoid frame duplication/dropping
+            // This fixes the "choppy video" issue while maintaining audio sync
+            command.add("-vsync"); command.add("vfr");
+            // Drop frames if behind to maintain real-time playback (prevents buffering buildup)
+            command.add("-fflags"); command.add("+discardcorrupt");
+        }
+
+        // Use fragmented MP4 for streaming over pipe (non-seekable output)
+        // This is required for streaming - empty_moov allows immediate playback
         String movflags = "frag_keyframe+empty_moov+default_base_moof";
         
-        command.addAll(List.of(
-            "-sn", // No subtitles in the video stream (handled by VTT API)
-            "-f", "mp4",
-            "-movflags", movflags,
-            "-g", "48", // Force 2s keyframe interval for snappy, frame-accurate seeking
-            "-avoid_negative_ts", "make_zero",
-            "-ignore_unknown",
-            "pipe:1"
-        ));
+        // Common output options for both transcoding and remuxing
+        command.add("-sn"); // Disable subtitles
+        command.add("-f"); command.add("mp4");
+        command.add("-movflags"); command.add(movflags);
+        
+        // Keyframe interval for better seeking behavior
+        command.add("-g"); command.add("48");
+        
+        // Handle negative timestamps after seeking (critical for audio sync)
+        command.add("-avoid_negative_ts"); command.add("make_zero");
+        
+        // Copyts preserves original timestamps (important for audio sync when seeking)
+        if (startSeconds > 0) {
+            command.add("-copyts");
+        }
+        
+        command.add("-ignore_unknown");
+        command.add("pipe:1");
 
         // Log the FFmpeg command for debugging
         LOG.info("FFmpeg command for {} (iOS={}): {}", videoFile.getName(), isIOS, String.join(" ", command));

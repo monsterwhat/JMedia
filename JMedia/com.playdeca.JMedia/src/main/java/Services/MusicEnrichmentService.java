@@ -3,6 +3,9 @@ package Services;
 import Models.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,6 +44,9 @@ public class MusicEnrichmentService {
 
     @Inject
     AlbumArtService albumArtService;
+    
+    @PersistenceContext
+    EntityManager em;
 
     public record MusicBrainzResult(String mbid, String genre) {}
 
@@ -61,10 +67,12 @@ public class MusicEnrichmentService {
             List<String> sources
     ) {}
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public void enrichSong(Song song) {
         enrichSong(song, false);
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public void enrichSong(Song song, boolean overwriteBasicInfo) {
         if (song == null) {
             return;
@@ -100,7 +108,7 @@ public class MusicEnrichmentService {
                         (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
                         song.setGenre(result.genre());
                     }
-                    song.persist();
+                    em.merge(song);
                     LOGGER.info("Enriched song from MusicBrainz: {} - {}", artist, title);
                 }
             } catch (Exception e) {
@@ -123,7 +131,7 @@ public class MusicEnrichmentService {
                     if (result.bpm() > 0) {
                         song.setBpm(result.bpm());
                     }
-                    song.persist();
+                    em.merge(song);
                     LOGGER.info("Enriched BPM from AcousticBrainz for {} - {}", artist, title);
                 }
             } catch (Exception e) {
@@ -173,7 +181,7 @@ public class MusicEnrichmentService {
                     }
                     
                     if (updated) {
-                        song.persist();
+                        em.merge(song);
                         LOGGER.info("Enriched song from Deezer: {} - {}", artist, title);
                     }
                 }
@@ -195,7 +203,7 @@ public class MusicEnrichmentService {
                     String base64 = downloadArtwork(result.artworkUrl());
                     if (base64 != null) {
                         song.setArtworkBase64(base64);
-                        song.persist();
+                        em.merge(song);
                         LOGGER.info("Enriched artwork from TheAudioDB for {} - {}", artist, title);
                     }
                 }
@@ -332,14 +340,25 @@ public class MusicEnrichmentService {
 
     public MusicBrainzResult searchMusicBrainz(String artist, String title) {
         try {
-            String query = String.format("artist:%s AND recording:%s",
-                URLEncoder.encode(artist, StandardCharsets.UTF_8),
-                URLEncoder.encode(title, StandardCharsets.UTF_8));
-
-            String url = MUSICBRAINZ_API_URL + "?query=" + query + "&fmt=json&limit=1";
+            // Encode artist and title values - replace + with %20 after encoding
+            String encodedArtist = URLEncoder.encode(artist, StandardCharsets.UTF_8).replace("+", "%20");
+            String encodedTitle = URLEncoder.encode(title, StandardCharsets.UTF_8).replace("+", "%20");
+            
+            // Build query string with encoded field values  
+            String query = String.format("artist:%s AND recording:%s", encodedArtist, encodedTitle);
+            
+            // Encode the ENTIRE query string for use as the query parameter value
+            String encodedQueryValue = URLEncoder.encode(query, StandardCharsets.UTF_8);
+            
+            // Build full URL string - query parameter value is fully encoded
+            String urlString = MUSICBRAINZ_API_URL + "?query=" + encodedQueryValue + "&fmt=json&limit=1";
+            
+            // Create URI from URL - URL handles encoding internally
+            java.net.URL url = new java.net.URL(urlString);
+            java.net.URI uri = new java.net.URI(url.getProtocol(), url.getHost(), url.getPath(), url.getQuery(), null);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(uri)
                     .header("User-Agent", "JMedia/1.0 (contact: dev@example.com)")
                     .header("Accept", "application/json")
                     .timeout(Duration.ofSeconds(15))

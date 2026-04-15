@@ -29,6 +29,9 @@ public class Song extends PanacheEntity {
     private Long size;
     private Long lastModified;
     private String musicbrainzId;
+    
+    @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true)
+    private SongAnalysis analysis;
   
     @Override
     public boolean equals(Object o) {

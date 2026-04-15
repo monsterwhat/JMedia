@@ -23,150 +23,191 @@ let advancedConfig = {
     youtubePlayerClient: ''
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('[Import] DOMContentLoaded fired');
-    const spotdlUrlInput = document.getElementById('spotdlUrl');
-    const spotdlOutputTextarea = document.getElementById('spotdlOutput');
-    const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
-    const downloadFolderInput = document.getElementById('downloadFolder');
-    const playlistSelect = document.getElementById('playlistSelect');
-    const newPlaylistNameInput = document.getElementById('newPlaylistName');
+// Function to establish WebSocket connection
+const connectWebSocket = () => {
+    if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
+        return; // Already connected
+    }
 
-    // Helper function to display warning messages
-    const displayWarning = (message) => {
-        if (spotdlWarningMessage) {
-            spotdlWarningMessage.textContent = message;
-            spotdlWarningMessage.classList.remove('is-hidden');
-        } else {
-            console.warn("spotdlWarningMessage element not found. Message:", message);
-        }
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    
+    // Determine WebSocket URL dynamically
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws/import-status/${profileId}`;
+
+    console.log('[Import] Connecting to WebSocket:', wsUrl);
+    importWebSocket = new WebSocket(wsUrl);
+
+    importWebSocket.onopen = () => {
+        console.log('WebSocket connected for import status');
     };
 
-    // Helper function to clear warning messages
-    const clearWarning = () => {
-        if (spotdlWarningMessage) {
-            spotdlWarningMessage.textContent = '';
-            spotdlWarningMessage.classList.add('is-hidden');
-        }
-    };
-
-    // Function to reset the import form to a clean state
-    const resetImportForm = () => {
-        if (spotdlUrlInput) spotdlUrlInput.value = '';
-        if (playlistSelect) playlistSelect.value = '';
-        if (newPlaylistNameInput) newPlaylistNameInput.value = '';
-    };
-
-    // Function to establish WebSocket connection
-    const connectWebSocket = () => {
-        if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
-            return; // Already connected
-        }
-
-        // Determine WebSocket URL dynamically
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/ws/import-status/${globalActiveProfileId}`;
-
-        importWebSocket = new WebSocket(wsUrl);
-
-        importWebSocket.onopen = () => {
-            console.log('WebSocket connected for import status');
-            // Initial messages (installation status, cached output, import in progress) will be sent by the server
-            // No need to set initial text here.
-        };
-
-        importWebSocket.onmessage = (event) => {
-            // Check if the message is a JSON string (likely installation status)
-            if (event.data.startsWith('{') && event.data.endsWith('}')) {
-                try {
-                    const status = JSON.parse(event.data);
-                    window.whisperInstalled = status.whisperInstalled;
-                    if (!status.allInstalled) {
-                        let warningText = "External tools not fully installed: ";
-                        if (!status.pythonInstalled) warningText += "Python (" + status.pythonMessage + ") ";
-                        if (!status.spotdlInstalled) warningText += "SpotDL (" + status.spotdlMessage + ") ";
-                        if (!status.ffmpegInstalled) warningText += "FFmpeg (" + status.ffmpegMessage + ") ";
-                        if (!status.whisperInstalled) warningText += "Whisper (" + status.whisperMessage + ") ";
-                        displayWarning(warningText);
-                    } else {
-                        clearWarning();
-                    }
-                } catch (e) {
-                    console.error("Failed to parse WebSocket message as JSON:", e);
-                    if (spotdlOutputTextarea) {
-                        spotdlOutputTextarea.value += event.data + '\n'; // Append as regular text if not JSON
-                    }
+    importWebSocket.onmessage = (event) => {
+        const spotdlOutputTextarea = document.getElementById('spotdlOutput');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
+        
+        // Check if the message is a JSON string (likely installation status)
+        if (event.data.startsWith('{') && event.data.endsWith('}')) {
+            try {
+                const status = JSON.parse(event.data);
+                window.whisperInstalled = status.whisperInstalled;
+                if (!status.allInstalled) {
+                    let warningText = "External tools not fully installed: ";
+                    if (!status.pythonInstalled) warningText += "Python (" + status.pythonMessage + ") ";
+                    if (!status.spotdlInstalled) warningText += "SpotDL (" + status.spotdlMessage + ") ";
+                    if (!status.ffmpegInstalled) warningText += "FFmpeg (" + status.ffmpegMessage + ") ";
+                    if (!status.whisperInstalled) warningText += "Whisper (" + status.whisperMessage + ") ";
+                    displayWarning(warningText);
+                } else {
+                    clearWarning();
                 }
-            } else if (event.data === "[IMPORT_IN_PROGRESS]") {
-                if (downloadBtn) downloadBtn.disabled = true;
-                if (cancelDownloadBtn) cancelDownloadBtn.disabled = false;
-                if (spotdlOutputTextarea) spotdlOutputTextarea.value += 'An import is already in progress. Displaying current output...\n';
-            } else if (event.data === "[IMPORT_FINISHED]") {
-                if (downloadBtn) downloadBtn.disabled = false;
-                if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
-                resetImportForm();
-                if (spotdlOutputTextarea) spotdlOutputTextarea.value += 'Import process finished.\n';
-            } else if (event.data && event.data.includes("cancelled")) {
-                if (downloadBtn) downloadBtn.disabled = false;
-                if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
-                resetImportForm();
-            } else {
+            } catch (e) {
+                console.error("Failed to parse WebSocket message as JSON:", e);
                 if (spotdlOutputTextarea) {
-                    spotdlOutputTextarea.value += event.data; // Append raw data, server sends newlines
+                    spotdlOutputTextarea.value += event.data + '\n';
                 }
             }
-            if (spotdlOutputTextarea) {
-                spotdlOutputTextarea.scrollTop = spotdlOutputTextarea.scrollHeight; // Auto-scroll to bottom
-            }
-        };
-
-        importWebSocket.onclose = (event) => {
-            console.log('WebSocket disconnected for import status', event);
-            if (spotdlOutputTextarea) {
-                spotdlOutputTextarea.value += '\nWebSocket disconnected.\n';
-            }
-            if (downloadBtn) downloadBtn.disabled = false; // Re-enable button on close
-            if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
-            if (!event.wasClean) {
-                displayWarning('WebSocket connection closed unexpectedly. Please check server logs.');
-            }
-        };
-
-        importWebSocket.onerror = (error) => {
-            console.error('WebSocket error for import status:', error);
-            displayWarning('WebSocket error. Check console for details.');
+        } else if (event.data === "[IMPORT_IN_PROGRESS]") {
+            if (downloadBtn) downloadBtn.disabled = true;
+            if (cancelDownloadBtn) cancelDownloadBtn.disabled = false;
+            if (spotdlOutputTextarea) spotdlOutputTextarea.value += 'An import is already in progress. Displaying current output...\n';
+        } else if (event.data === "[IMPORT_FINISHED]") {
             if (downloadBtn) downloadBtn.disabled = false;
             if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
-        };
+            resetImportForm();
+            if (spotdlOutputTextarea) spotdlOutputTextarea.value += 'Import process finished.\n';
+        } else if (event.data && event.data.includes("cancelled")) {
+            if (downloadBtn) downloadBtn.disabled = false;
+            if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+            resetImportForm();
+        } else {
+            if (spotdlOutputTextarea) {
+                spotdlOutputTextarea.value += event.data;
+            }
+        }
+        if (spotdlOutputTextarea) {
+            spotdlOutputTextarea.scrollTop = spotdlOutputTextarea.scrollHeight;
+        }
     };
 
-    // Expose a global function for starting import from search
-    window.startImportFromSearch = (searchQuery) => {
-        clearWarning();
-        const urls = [searchQuery]; // Use the search query as a single URL for import
-        const format = importSettings.outputFormat || 'mp3';
-        const downloadThreads = importSettings.downloadThreads || 4;
-        const searchThreads = importSettings.searchThreads || 4;
-        const currentDownloadPath = downloadFolderInput ? downloadFolderInput.value : ''; // Get from input if exists
-
-        if (!searchQuery) {
-            displayWarning('Please enter a search query for Auto Find.');
-            return;
+    importWebSocket.onclose = (event) => {
+        console.log('WebSocket disconnected for import status', event);
+        const spotdlOutputTextarea = document.getElementById('spotdlOutput');
+        if (spotdlOutputTextarea) {
+            spotdlOutputTextarea.value += '\nWebSocket disconnected.\n';
         }
-        if (!currentDownloadPath) {
-            displayWarning('Please specify a download folder in the Import page settings.');
-            return;
+        const downloadBtn = document.getElementById('downloadBtn');
+        const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
+        if (downloadBtn) downloadBtn.disabled = false;
+        if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+        if (!event.wasClean) {
+            displayWarning('WebSocket connection closed unexpectedly. Please check server logs.');
         }
+    };
 
-        // Clear output and disable button immediately
-        if (spotdlOutputTextarea) spotdlOutputTextarea.value = '';
-        if (downloadBtn) { // Check if downloadBtn exists on the current page
-            downloadBtn.disabled = true;
+    importWebSocket.onerror = (error) => {
+        console.error('WebSocket error for import status:', error);
+        displayWarning('WebSocket error. Check console for details.');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
+        if (downloadBtn) downloadBtn.disabled = false;
+        if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
+    };
+};
+
+// Helper function to display warning messages
+const displayWarning = (message) => {
+    const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
+    if (spotdlWarningMessage) {
+        spotdlWarningMessage.textContent = message;
+        spotdlWarningMessage.classList.remove('is-hidden');
+    } else {
+        console.warn("spotdlWarningMessage element not found. Message:", message);
+        if (window.showToast) window.showToast(message, 'warning');
+    }
+};
+
+// Helper function to clear warning messages
+const clearWarning = () => {
+    const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
+    if (spotdlWarningMessage) {
+        spotdlWarningMessage.textContent = '';
+        spotdlWarningMessage.classList.add('is-hidden');
+    }
+};
+
+// Function to reset the import form to a clean state
+const resetImportForm = () => {
+    const spotdlUrlInput = document.getElementById('spotdlUrl');
+    const playlistSelect = document.getElementById('playlistSelect');
+    const newPlaylistNameInput = document.getElementById('newPlaylistName');
+    if (spotdlUrlInput) spotdlUrlInput.value = '';
+    if (playlistSelect) playlistSelect.value = '';
+    if (newPlaylistNameInput) newPlaylistNameInput.value = '';
+};
+
+// Expose a global function for starting import from search
+window.startImportFromSearch = async (searchQuery) => {
+    console.log('[Import] startImportFromSearch called with query:', searchQuery);
+    clearWarning();
+    
+    if (!searchQuery) {
+        displayWarning('Please enter a search query for Auto Find.');
+        return;
+    }
+
+    const downloadFolderInput = document.getElementById('downloadFolder');
+    let currentDownloadPath = downloadFolderInput ? downloadFolderInput.value : '';
+
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+
+    // If we are not on the import page, we need to fetch the default download path
+    if (!currentDownloadPath) {
+        try {
+            console.log('[Import] Fetching default download path for Auto Find...');
+            const response = await fetch(`/api/import/${profileId}/default-download-path`);
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data) {
+                    currentDownloadPath = apiResponse.data;
+                }
+            }
+        } catch (error) {
+            console.error('[Import] Error fetching default download path:', error);
         }
+    }
 
+    if (!currentDownloadPath) {
+        displayWarning('Please specify a download folder in the Import page settings.');
+        // If we can't find the path, we might need to navigate to the import page
+        if (window.app && window.app.navigate) {
+            if (confirm('Music library path not configured. Would you like to go to the Import page to configure it?')) {
+                window.app.navigate('/import');
+            }
+        }
+        return;
+    }
+
+    const urls = [searchQuery];
+    const format = importSettings.outputFormat || 'mp3';
+    const downloadThreads = importSettings.downloadThreads || 4;
+    const searchThreads = importSettings.searchThreads || 4;
+
+    // Show feedback that something is happening
+    if (window.showToast) window.showToast('Starting Auto Find for: ' + searchQuery, 'info');
+
+    if (!importWebSocket || importWebSocket.readyState !== WebSocket.OPEN) {
+        console.log('[Import] WebSocket not connected, connecting now...');
+        connectWebSocket();
+        // Wait a bit for connection
+        setTimeout(() => sendStartImport(), 1000);
+    } else {
+        sendStartImport();
+    }
+
+    function sendStartImport() {
         if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
             const message = {
                 type: 'start-import',
@@ -175,603 +216,368 @@ document.addEventListener('DOMContentLoaded', () => {
                 downloadThreads,
                 searchThreads,
                 downloadPath: currentDownloadPath,
-                playlistName: null // No specific playlist for auto find, user can add later
+                playlistName: null
+            };
+            importWebSocket.send(JSON.stringify(message));
+            
+            // If we are on the import page, clear output and disable button
+            const spotdlOutputTextarea = document.getElementById('spotdlOutput');
+            const downloadBtn = document.getElementById('downloadBtn');
+            if (spotdlOutputTextarea) spotdlOutputTextarea.value = 'Auto Find started for: ' + searchQuery + '\n';
+            if (downloadBtn) downloadBtn.disabled = true;
+        } else {
+            displayWarning('WebSocket connection failed. Cannot start Auto Find.');
+        }
+    }
+};
+
+window.initImportLogic = () => {
+    console.log('[Import] Initializing Import Logic');
+    const spotdlUrlInput = document.getElementById('spotdlUrl');
+    const downloadFolderInput = document.getElementById('downloadFolder');
+    const playlistSelect = document.getElementById('playlistSelect');
+    const newPlaylistNameInput = document.getElementById('newPlaylistName');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const spotdlOutputTextarea = document.getElementById('spotdlOutput');
+    const spotdlWarningMessage = document.getElementById('spotdlWarningMessage');
+    const cancelDownloadBtn = document.getElementById('cancelDownloadBtn');
+
+    if (!spotdlUrlInput || !downloadBtn) {
+        console.log('[Import] Key elements not found, skipping initialization');
+        return;
+    }
+
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+
+    const fetchImportSettings = async () => {
+        try {
+            const response = await fetch(`/api/settings/${profileId}`);
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data) {
+                    importSettings = apiResponse.data;
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching settings:', error);
+        }
+    };
+
+    const fetchAndPopulatePlaylists = async () => {
+        try {
+            const response = await fetch(`/api/music/playlists/${profileId}`);
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data && playlistSelect) {
+                    playlistSelect.innerHTML = '<option value="">-- Select existing playlist --</option>';
+                    apiResponse.data.forEach(playlist => {
+                        const option = document.createElement('option');
+                        option.value = playlist.name;
+                        option.textContent = playlist.name;
+                        playlistSelect.appendChild(option);
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Network error fetching playlists:', error);
+        }
+    };
+
+    const setDefaultDownloadFolder = async () => {
+        if (!downloadFolderInput) return;
+        try {
+            const response = await fetch(`/api/import/${profileId}/default-download-path`);
+            if (response.ok) {
+                const apiResponse = await response.json();
+                if (apiResponse.data) {
+                    downloadFolderInput.value = apiResponse.data;
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching default download path:', error);
+        }
+    };
+
+    // Initialize UI
+    fetchAndPopulatePlaylists();
+    fetchImportSettings();
+    setDefaultDownloadFolder();
+    
+    // Advanced Configuration functions are global in this file scope if not careful
+    // but they are assigned to window. so they should be fine.
+    loadAdvancedConfiguration();
+    setupUpdateButton();
+
+    if (cancelDownloadBtn) {
+        cancelDownloadBtn.disabled = true;
+    }
+
+    downloadBtn.onclick = () => {
+        clearWarning();
+        const rawInput = spotdlUrlInput.value;
+        const format = importSettings.outputFormat || 'mp3';
+        const downloadThreads = importSettings.downloadThreads || 4;
+        const searchThreads = importSettings.searchThreads || 4;
+        const downloadPath = downloadFolderInput.value;
+        const selectedPlaylist = playlistSelect.value;
+        const newPlaylistName = newPlaylistNameInput.value.trim();
+
+        if (!rawInput || !rawInput.trim()) {
+            displayWarning('Please enter song(s), URLs, or a song list.');
+            return;
+        }
+        if (!downloadPath) {
+            displayWarning('Please specify a download folder.');
+            return;
+        }
+
+        let playlistNameToSend = null;
+        if (selectedPlaylist && newPlaylistName) {
+            displayWarning('Please select an existing playlist OR enter a new playlist name, not both.');
+            return;
+        } else if (selectedPlaylist) {
+            playlistNameToSend = selectedPlaylist;
+        } else if (newPlaylistName) {
+            playlistNameToSend = newPlaylistName;
+        }
+
+        const urls = parseSongInput(rawInput);
+        if (spotdlOutputTextarea) spotdlOutputTextarea.value = '';
+        downloadBtn.disabled = true;
+        
+        if (cancelDownloadBtn) cancelDownloadBtn.disabled = false;
+
+        if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
+            const message = {
+                type: 'start-import',
+                urls,
+                format,
+                downloadThreads,
+                searchThreads,
+                downloadPath,
+                playlistName: playlistNameToSend
             };
             importWebSocket.send(JSON.stringify(message));
         } else {
             displayWarning('WebSocket is not connected. Attempting to reconnect...');
-            connectWebSocket(); // Try to reconnect
-            if (downloadBtn) {
-                downloadBtn.disabled = false;
+            connectWebSocket();
+            downloadBtn.disabled = false;
+        }
+    };
+
+    if (cancelDownloadBtn) {
+        cancelDownloadBtn.onclick = () => {
+            if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
+                const message = { type: 'cancel-import' };
+                importWebSocket.send(JSON.stringify(message));
+                cancelDownloadBtn.disabled = true;
+            }
+        };
+    }
+
+    // Connect WebSocket
+    connectWebSocket();
+};
+
+// Advanced configuration logic
+const loadAdvancedConfiguration = async () => {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    try {
+        const response = await fetch(`/api/settings/${profileId}`);
+        if (response.ok) {
+            const apiResponse = await response.json();
+            if (apiResponse.data) {
+                Object.assign(advancedConfig, {
+                    primarySource: apiResponse.data.primarySource || 'YOUTUBE',
+                    secondarySource: apiResponse.data.secondarySource || 'SPOTDL',
+                    youtubeEnabled: apiResponse.data.youtubeEnabled !== false,
+                    spotdlEnabled: apiResponse.data.spotdlEnabled !== false,
+                    maxRetryAttempts: apiResponse.data.maxRetryAttempts || 3,
+                    retryWaitTime: (apiResponse.data.retryWaitTimeMs || 90000) / 1000,
+                    switchStrategy: apiResponse.data.switchStrategy || 'AFTER_FAILURES',
+                    switchThreshold: apiResponse.data.switchThreshold || 3,
+                    enableSmartRateLimitHandling: apiResponse.data.enableSmartRateLimitHandling !== false,
+                    fallbackOnLongWait: apiResponse.data.fallbackOnLongWait !== false,
+                    maxAcceptableWaitTime: (apiResponse.data.maxAcceptableWaitTimeMs || 3600000) / 60000,
+                    youtubeForceIpv4: apiResponse.data.youtubeForceIpv4 || false,
+                    youtubeForceIpv6: apiResponse.data.youtubeForceIpv6 || false,
+                    youtubeUserAgent: apiResponse.data.youtubeUserAgent || '',
+                    youtubeExtractorArgs: apiResponse.data.youtubeExtractorArgs || '',
+                    youtubeImpersonate: apiResponse.data.youtubeImpersonate || '',
+                    youtubeUpdateChannel: apiResponse.data.youtubeUpdateChannel || 'STABLE',
+                    youtubePlayerClient: apiResponse.data.youtubePlayerClient || ''
+                });
+                
+                updateAdvancedConfigUI();
+                loadYtDlpVersion();
             }
         }
-    };
+    } catch (error) {
+        console.error('Error loading advanced configuration:', error);
+    }
+};
 
-    // Load advanced configuration
-    const loadAdvancedConfiguration = async () => {
-        try {
-            const response = await fetch(`/api/settings/${globalActiveProfileId}`);
-            if (response.ok) {
-                const apiResponse = await response.json();
-                if (apiResponse.data) {
-                    // Update advanced config with settings
-                    Object.assign(advancedConfig, {
-                        primarySource: apiResponse.data.primarySource || 'YOUTUBE',
-                        secondarySource: apiResponse.data.secondarySource || 'SPOTDL',
-                        youtubeEnabled: apiResponse.data.youtubeEnabled !== false,
-                        spotdlEnabled: apiResponse.data.spotdlEnabled !== false,
-                        maxRetryAttempts: apiResponse.data.maxRetryAttempts || 3,
-                        retryWaitTime: (apiResponse.data.retryWaitTimeMs || 90000) / 1000,
-                        switchStrategy: apiResponse.data.switchStrategy || 'AFTER_FAILURES',
-                        switchThreshold: apiResponse.data.switchThreshold || 3,
-                        enableSmartRateLimitHandling: apiResponse.data.enableSmartRateLimitHandling !== false,
-                        fallbackOnLongWait: apiResponse.data.fallbackOnLongWait !== false,
-                        maxAcceptableWaitTime: (apiResponse.data.maxAcceptableWaitTimeMs || 3600000) / 60000,
-                        // YouTube advanced options
-                        youtubeForceIpv4: apiResponse.data.youtubeForceIpv4 || false,
-                        youtubeForceIpv6: apiResponse.data.youtubeForceIpv6 || false,
-                        youtubeUserAgent: apiResponse.data.youtubeUserAgent || '',
-                        youtubeExtractorArgs: apiResponse.data.youtubeExtractorArgs || '',
-                        youtubeImpersonate: apiResponse.data.youtubeImpersonate || '',
-                        youtubeUpdateChannel: apiResponse.data.youtubeUpdateChannel || 'STABLE',
-                        youtubePlayerClient: apiResponse.data.youtubePlayerClient || ''
-                    });
-                    
-                    // Update UI elements
-                    updateAdvancedConfigUI();
-                    // Load yt-dlp version
-                    loadYtDlpVersion();
-                }
-            }
-        } catch (error) {
-            console.error('Error loading advanced configuration:', error);
-            displayWarning('Failed to load advanced configuration.');
-        }
-    };
-
-    // Update UI with loaded configuration
-    const updateAdvancedConfigUI = () => {
-        document.getElementById('youtubeEnabled').checked = advancedConfig.youtubeEnabled;
-        document.getElementById('spotdlEnabled').checked = advancedConfig.spotdlEnabled;
-        document.getElementById('enableSmartRateLimitHandling').checked = advancedConfig.enableSmartRateLimitHandling;
-        document.getElementById('fallbackOnLongWait').checked = advancedConfig.fallbackOnLongWait;
-        
-        document.getElementById('primarySource').value = advancedConfig.primarySource;
-        document.getElementById('secondarySource').value = advancedConfig.secondarySource;
-        document.getElementById('switchStrategy').value = advancedConfig.switchStrategy;
-        
-        document.getElementById('maxRetryAttempts').value = advancedConfig.maxRetryAttempts;
-        document.getElementById('retryWaitTime').value = advancedConfig.retryWaitTime;
-        document.getElementById('switchThreshold').value = advancedConfig.switchThreshold;
-        document.getElementById('maxAcceptableWaitTime').value = advancedConfig.maxAcceptableWaitTime;
-        
-        // YouTube advanced options
-        document.getElementById('youtubeForceIpv4').checked = advancedConfig.youtubeForceIpv4;
-        document.getElementById('youtubeForceIpv6').checked = advancedConfig.youtubeForceIpv6;
-        document.getElementById('youtubeUserAgent').value = advancedConfig.youtubeUserAgent || '';
-        document.getElementById('youtubeExtractorArgs').value = advancedConfig.youtubeExtractorArgs || '';
-        document.getElementById('youtubeImpersonate').value = advancedConfig.youtubeImpersonate || '';
-        document.getElementById('youtubeUpdateChannel').value = advancedConfig.youtubeUpdateChannel || 'STABLE';
-        document.getElementById('youtubePlayerClient').value = advancedConfig.youtubePlayerClient || '';
-        
-        updateSecondarySourceOptions();
-    };
-
-    // Update secondary source based on primary selection
-    const updateSecondarySourceOptions = () => {
-        const primarySource = document.getElementById('primarySource').value;
-        const secondarySelect = document.getElementById('secondarySource');
-        
-        secondarySelect.innerHTML = '<option value="NONE">None</option>';
-        
-        if (primarySource === 'YOUTUBE') {
-            secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
-        } else if (primarySource === 'SPOTDL') {
-            secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
-        } else {
-            // Primary is NONE - show both options
-            secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
-            secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
-        }
-    };
+const updateAdvancedConfigUI = () => {
+    const youtubeEnabled = document.getElementById('youtubeEnabled');
+    if (!youtubeEnabled) return;
     
-    // Load yt-dlp version
-    const loadYtDlpVersion = async () => {
-        try {
-            const response = await fetch(`/api/settings/${globalActiveProfileId}/install-status`);
-            if (response.ok) {
-                const data = await response.json();
-                if (data.data && data.data.ytdlpMessage) {
-                    // Extract version from message (format: "yt-dlp found" or "yt-dlp X.Y.Z")
-                    const msg = data.data.ytdlpMessage;
-                    const versionMatch = msg.match(/yt-dlp[^\d]*(\d+\.\d+(\.\d+)?)/i);
-                    const versionElement = document.getElementById('ytdlpVersion');
-                    if (versionElement) {
-                        versionElement.textContent = versionMatch ? versionMatch[1] : (msg.includes('found') ? 'Installed' : msg);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Error loading yt-dlp version:', error);
-            const versionElement = document.getElementById('ytdlpVersion');
-            if (versionElement) {
-                versionElement.textContent = 'Unknown';
-            }
-        }
-    };
+    youtubeEnabled.checked = advancedConfig.youtubeEnabled;
+    document.getElementById('spotdlEnabled').checked = advancedConfig.spotdlEnabled;
+    document.getElementById('enableSmartRateLimitHandling').checked = advancedConfig.enableSmartRateLimitHandling;
+    document.getElementById('fallbackOnLongWait').checked = advancedConfig.fallbackOnLongWait;
     
-    // Update yt-dlp
-    window.updateYtDlp = async () => {
-        const updateBtn = document.getElementById('updateYtDlpBtn');
-        const statusElement = document.getElementById('ytdlpUpdateStatus');
-        
-        if (!updateBtn || !statusElement) {
-            console.error('Update button or status element not found');
-            return;
-        }
-        
-        const channel = document.getElementById('youtubeUpdateChannel').value;
-        
-        // Disable button and show loading
-        updateBtn.disabled = true;
-        updateBtn.classList.add('is-loading');
-        statusElement.textContent = 'Updating...';
-        statusElement.className = 'is-size-7 has-text-info';
-        
-        try {
-            const response = await fetch(`/api/settings/${globalActiveProfileId}/update-yt-dlp?channel=${channel}`, {
-                method: 'POST'
-            });
-            
+    document.getElementById('primarySource').value = advancedConfig.primarySource;
+    document.getElementById('secondarySource').value = advancedConfig.secondarySource;
+    document.getElementById('switchStrategy').value = advancedConfig.switchStrategy;
+    
+    document.getElementById('maxRetryAttempts').value = advancedConfig.maxRetryAttempts;
+    document.getElementById('retryWaitTime').value = advancedConfig.retryWaitTime;
+    document.getElementById('switchThreshold').value = advancedConfig.switchThreshold;
+    document.getElementById('maxAcceptableWaitTime').value = advancedConfig.maxAcceptableWaitTime;
+    
+    document.getElementById('youtubeForceIpv4').checked = advancedConfig.youtubeForceIpv4;
+    document.getElementById('youtubeForceIpv6').checked = advancedConfig.youtubeForceIpv6;
+    document.getElementById('youtubeUserAgent').value = advancedConfig.youtubeUserAgent || '';
+    document.getElementById('youtubeExtractorArgs').value = advancedConfig.youtubeExtractorArgs || '';
+    document.getElementById('youtubeImpersonate').value = advancedConfig.youtubeImpersonate || '';
+    document.getElementById('youtubeUpdateChannel').value = advancedConfig.youtubeUpdateChannel || 'STABLE';
+    document.getElementById('youtubePlayerClient').value = advancedConfig.youtubePlayerClient || '';
+    
+    updateSecondarySourceOptions();
+};
+
+const updateSecondarySourceOptions = () => {
+    const primarySourceSelect = document.getElementById('primarySource');
+    if (!primarySourceSelect) return;
+    const primarySource = primarySourceSelect.value;
+    const secondarySelect = document.getElementById('secondarySource');
+    
+    secondarySelect.innerHTML = '<option value="NONE">None</option>';
+    if (primarySource === 'YOUTUBE') {
+        secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
+    } else if (primarySource === 'SPOTDL') {
+        secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
+    } else {
+        secondarySelect.innerHTML += '<option value="SPOTDL">SpotDL</option>';
+        secondarySelect.innerHTML += '<option value="YOUTUBE">YouTube (yt-dlp)</option>';
+    }
+};
+
+const loadYtDlpVersion = async () => {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    try {
+        const response = await fetch(`/api/settings/${profileId}/install-status`);
+        if (response.ok) {
             const data = await response.json();
-            
-            if (response.ok) {
-                statusElement.textContent = 'Update initiated! Reloading version in 5s...';
-                statusElement.className = 'is-size-7 has-text-success';
-                
-                // Reload version after delay
-                setTimeout(() => {
-                    loadYtDlpVersion();
-                    updateBtn.disabled = false;
-                    updateBtn.classList.remove('is-loading');
-                }, 5000);
-                
-                showToast('yt-dlp update initiated: ' + data.message, 'success');
-            } else {
-                statusElement.textContent = 'Update failed: ' + (data.error || 'Unknown error');
-                statusElement.className = 'is-size-7 has-text-danger';
+            if (data.data && data.data.ytdlpMessage) {
+                const msg = data.data.ytdlpMessage;
+                const versionMatch = msg.match(/yt-dlp[^\d]*(\d+\.\d+(\.\d+)?)/i);
+                const versionElement = document.getElementById('ytdlpVersion');
+                if (versionElement) {
+                    versionElement.textContent = versionMatch ? versionMatch[1] : (msg.includes('found') ? 'Installed' : msg);
+                }
+            }
+        }
+    } catch (error) {
+        const versionElement = document.getElementById('ytdlpVersion');
+        if (versionElement) versionElement.textContent = 'Unknown';
+    }
+};
+
+const setupUpdateButton = () => {
+    const updateBtn = document.getElementById('updateYtDlpBtn');
+    if (updateBtn) {
+        updateBtn.onclick = window.updateYtDlp;
+    }
+    const primarySourceSelect = document.getElementById('primarySource');
+    if (primarySourceSelect) {
+        primarySourceSelect.onchange = updateSecondarySourceOptions;
+    }
+};
+
+window.updateYtDlp = async () => {
+    const updateBtn = document.getElementById('updateYtDlpBtn');
+    const statusElement = document.getElementById('ytdlpUpdateStatus');
+    if (!updateBtn || !statusElement) return;
+    
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const channel = document.getElementById('youtubeUpdateChannel').value;
+    
+    updateBtn.disabled = true;
+    updateBtn.classList.add('is-loading');
+    statusElement.textContent = 'Updating...';
+    
+    try {
+        const response = await fetch(`/api/settings/${profileId}/update-yt-dlp?channel=${channel}`, { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+            statusElement.textContent = 'Update initiated! Reloading in 5s...';
+            setTimeout(() => {
+                loadYtDlpVersion();
                 updateBtn.disabled = false;
                 updateBtn.classList.remove('is-loading');
-                showToast('Failed to update yt-dlp: ' + (data.error || 'Unknown error'), 'error');
-            }
-        } catch (error) {
-            console.error('Error updating yt-dlp:', error);
-            statusElement.textContent = 'Error: ' + error.message;
-            statusElement.className = 'is-size-7 has-text-danger';
+            }, 5000);
+        } else {
+            statusElement.textContent = 'Update failed: ' + (data.error || 'Unknown error');
             updateBtn.disabled = false;
             updateBtn.classList.remove('is-loading');
-            showToast('Error updating yt-dlp', 'error');
         }
-    };
-    
-    // Setup update button listener
-    const setupUpdateButton = () => {
-        const updateBtn = document.getElementById('updateYtDlpBtn');
-        if (updateBtn) {
-            updateBtn.addEventListener('click', window.updateYtDlp);
-        }
-    };
-
-    // Save advanced configuration
-    window.saveAdvancedConfiguration = async () => {
-        console.log('[Import] saveAdvancedConfiguration called');
-        console.log('[Import] globalActiveProfileId:', globalActiveProfileId);
-        
-        try {
-            // Validate configuration
-            if (!validateAdvancedConfig()) {
-                console.log('[Import] Validation failed');
-                return;
-            }
-            
-            // Prepare data for API
-            const configData = {
-                primarySource: document.getElementById('primarySource').value,
-                secondarySource: document.getElementById('secondarySource').value,
-                youtubeEnabled: document.getElementById('youtubeEnabled').checked,
-                spotdlEnabled: document.getElementById('spotdlEnabled').checked,
-                enableSmartRateLimitHandling: document.getElementById('enableSmartRateLimitHandling').checked,
-                maxRetryAttempts: parseInt(document.getElementById('maxRetryAttempts').value),
-                retryWaitTimeMs: parseInt(document.getElementById('retryWaitTime').value) * 1000,
-                switchStrategy: document.getElementById('switchStrategy').value,
-                switchThreshold: parseInt(document.getElementById('switchThreshold').value),
-                fallbackOnLongWait: document.getElementById('fallbackOnLongWait').checked,
-                maxAcceptableWaitTimeMs: parseInt(document.getElementById('maxAcceptableWaitTime').value) * 60000,
-                // YouTube advanced options
-                youtubeForceIpv4: document.getElementById('youtubeForceIpv4').checked,
-                youtubeForceIpv6: document.getElementById('youtubeForceIpv6').checked,
-                youtubeUserAgent: document.getElementById('youtubeUserAgent').value,
-                youtubeExtractorArgs: document.getElementById('youtubeExtractorArgs').value,
-                youtubeImpersonate: document.getElementById('youtubeImpersonate').value,
-                youtubeUpdateChannel: document.getElementById('youtubeUpdateChannel').value,
-                youtubePlayerClient: document.getElementById('youtubePlayerClient').value
-            };
-            
-            console.log('[Import] Sending config:', configData);
-            
-            const response = await fetch(`/api/settings/${globalActiveProfileId}/import-sources`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(configData)
-            });
-            
-            console.log('[Import] Response status:', response.status);
-            
-            if (response.ok) {
-                showToast('Advanced configuration saved successfully!', 'success');
-                // Update local config
-                Object.assign(advancedConfig, configData);
-            } else {
-                const errorResponse = await response.json();
-                console.error('[Import] Save failed:', errorResponse);
-                showToast('Failed to save configuration: ' + (errorResponse.error || 'Unknown error'), 'error');
-            }
-        } catch (error) {
-            console.error('Error saving advanced configuration:', error);
-            showToast('Error saving advanced configuration', 'error');
-        }
-    };
-
-    // Validate advanced configuration
-    const validateAdvancedConfig = () => {
-        const youtubeEnabled = document.getElementById('youtubeEnabled').checked;
-        const spotdlEnabled = document.getElementById('spotdlEnabled').checked;
-        const primarySource = document.getElementById('primarySource').value;
-        const secondarySource = document.getElementById('secondarySource').value;
-        const maxRetryAttempts = parseInt(document.getElementById('maxRetryAttempts').value);
-        const switchThreshold = parseInt(document.getElementById('switchThreshold').value);
-        
-        console.log('[Import] Validating - youtubeEnabled:', youtubeEnabled, 'spotdlEnabled:', spotdlEnabled);
-        console.log('[Import] Validating - primarySource:', primarySource, 'secondarySource:', secondarySource);
-        
-        if (!youtubeEnabled && !spotdlEnabled) {
-            displayError('At least one download source must be enabled');
-            return false;
-        }
-        
-        if (primarySource === secondarySource) {
-            displayError('Primary and secondary sources must be different');
-            return false;
-        }
-        
-        if (!youtubeEnabled && primarySource === 'YOUTUBE') {
-            displayError('YouTube selected as primary but not enabled');
-            return false;
-        }
-        
-        if (!spotdlEnabled && secondarySource === 'SPOTDL') {
-            displayError('SpotDL selected as secondary but not enabled');
-            return false;
-        }
-        
-        if (switchThreshold > maxRetryAttempts) {
-            displayError('Failure threshold cannot be greater than max retry attempts');
-            return false;
-        }
-        
-        console.log('[Import] Validation passed');
-        return true;
-    };
-
-    // Test configuration with a sample download
-    const testConfiguration = async () => {
-        if (!validateAdvancedConfig()) {
-            return;
-        }
-        
-        showToast('Testing configuration with sample search...', 'info');
-        
-        try {
-            // Use a simple search query for testing
-            const testQuery = 'test song';
-            
-            if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
-                const message = {
-                    type: 'start-import',
-                    urls: [testQuery],
-                    format: importSettings.outputFormat || 'mp3',
-                    downloadThreads: 1, // Use minimal threads for testing
-                    searchThreads: 1,
-                    downloadPath: downloadFolderInput.value,
-                    playlistName: null,
-                    testMode: true // Flag this as a test
-                };
-                importWebSocket.send(JSON.stringify(message));
-            } else {
-                displayError('WebSocket not connected for testing');
-            }
-        } catch (error) {
-            console.error('Error testing configuration:', error);
-            displayError('Failed to test configuration');
-        }
-    };
-
-    // Error display functions
-    const displayError = (message) => {
-        const statusDiv = document.getElementById('configStatus');
-        statusDiv.className = 'notification is-danger';
-        statusDiv.textContent = message;
-        statusDiv.classList.remove('is-hidden');
-    };
-
-    const showConfigSuccess = (message) => {
-        const statusDiv = document.getElementById('configStatus');
-        statusDiv.className = 'notification is-success';
-        statusDiv.textContent = message;
-        statusDiv.classList.remove('is-hidden');
-    };
-
-    // Only run import.html specific logic if a key element is present
-    if (spotdlUrlInput && downloadFolderInput && playlistSelect && newPlaylistNameInput && downloadBtn && spotdlOutputTextarea && spotdlWarningMessage) {
-        const fetchImportSettings = async () => {
-            try {
-                const response = await fetch(`/api/settings/${globalActiveProfileId}`);
-                if (response.ok) {
-                    const apiResponse = await response.json();
-                    if (apiResponse.data) {
-                        importSettings = apiResponse.data;
-                    }
-                } else {
-                    console.error('Failed to fetch settings');
-                    displayWarning('Failed to load import settings.');
-                }
-            } catch (error) {
-                console.error('Error fetching settings:', error);
-                displayWarning('Error fetching import settings.');
-            }
-        };
-
-        // Function to fetch and populate playlists
-        const fetchAndPopulatePlaylists = async () => {
-            try {
-                const response = await fetch(`/api/music/playlists/${globalActiveProfileId}`);
-                if (response.ok) {
-                    const apiResponse = await response.json();
-                    if (apiResponse.data) {
-                        // Clear existing options except the default one
-                        playlistSelect.innerHTML = '<option value="">-- Select existing playlist --</option>';
-                        apiResponse.data.forEach(playlist => {
-                            const option = document.createElement('option');
-                            option.value = playlist.name; // Use playlist name as value
-                            option.textContent = playlist.name;
-                            playlistSelect.appendChild(option);
-                        });
-                    }
-                } else {
-                    console.error('Failed to fetch playlists:', response.status, response.statusText);
-                    displayWarning('Failed to load playlists. Please try again later.');
-                }
-            } catch (error) {
-                console.error('Network error fetching playlists:', error);
-                displayWarning('Network error fetching playlists.');
-            }
-        };
-
-        // Fetch playlists on page load
-        fetchAndPopulatePlaylists();
-        fetchImportSettings();
-        loadAdvancedConfiguration();
-        setupUpdateButton();
-
-        // Fetch default music library path and set default download folder
-        const setDefaultDownloadFolder = async () => {
-            try {
-                // Change to the new endpoint
-                const response = await fetch(`/api/import/${globalActiveProfileId}/default-download-path`);
-                if (response.ok) {
-                    const apiResponse = await response.json();
-                    if (apiResponse.data) {
-                        // Directly use the path provided by the backend
-                        downloadFolderInput.value = apiResponse.data;
-                    } else {
-                        // This case handles when the music library path is not configured on the backend
-                        console.warn('Music library path not configured in settings. Defaulting to empty download folder.');
-                        displayWarning('Music library path not configured in settings. Please configure it in the Settings page.');
-                        downloadFolderInput.value = '';
-                    }
-                } else {
-                    // This handles non-2xx status codes, like 404 if the path is not configured
-                    console.error('Failed to fetch default SpotDL download path:', response.status, response.statusText);
-                    displayWarning('Failed to fetch default SpotDL download path. Please ensure the music library path is configured in the Settings page.');
-                    downloadFolderInput.value = '';
-                }
-            } catch (error) {
-                console.error('Network error fetching default SpotDL download path:', error);
-                displayWarning('Network error fetching default SpotDL download path.');
-                downloadFolderInput.value = '';
-                }
-        };
-
-        setDefaultDownloadFolder(); // Call on page load
-        connectWebSocket(); // Connect WebSocket only if import elements are present
-
-        // Initialize cancel button state
-        if (cancelDownloadBtn) {
-            cancelDownloadBtn.disabled = true;
-        }
-
-        if (downloadBtn) {
-            downloadBtn.addEventListener('click', () => {
-                clearWarning();
-                const rawInput = spotdlUrlInput.value;
-                const format = importSettings.outputFormat || 'mp3';
-                const downloadThreads = importSettings.downloadThreads || 4;
-                const searchThreads = importSettings.searchThreads || 4;
-                const downloadPath = downloadFolderInput.value;
-                const selectedPlaylist = playlistSelect.value;
-                const newPlaylistName = newPlaylistNameInput.value.trim();
-
-                if (!rawInput || !rawInput.trim()) {
-                    displayWarning('Please enter song(s), URLs, or a song list.');
-                    return;
-                }
-                if (!downloadPath) {
-                    displayWarning('Please specify a download folder.');
-                    return;
-                }
-
-                let playlistNameToSend = null;
-                if (selectedPlaylist && newPlaylistName) {
-                    displayWarning('Please select an existing playlist OR enter a new playlist name, not both.');
-                    return;
-                } else if (selectedPlaylist) {
-                    playlistNameToSend = selectedPlaylist;
-                } else if (newPlaylistName) {
-                    playlistNameToSend = newPlaylistName;
-                }
-
-                // Parse the input to determine if it's a song list or single item
-                const urls = parseSongInput(rawInput);
-
-                // Clear output and disable button immediately
-                spotdlOutputTextarea.value = '';
-                downloadBtn.disabled = true;
-                
-                // Enable cancel button immediately using setTimeout to ensure UI updates
-                setTimeout(() => {
-                    const cancelBtnDirect = document.getElementById('cancelDownloadBtn');
-                    if (cancelBtnDirect) {
-                        cancelBtnDirect.disabled = false;
-                    }
-                }, 10);
-
-                if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
-                    const message = {
-                        type: 'start-import',
-                        urls,
-                        format,
-                        downloadThreads,
-                        searchThreads,
-                        downloadPath,
-                        playlistName: playlistNameToSend
-                    };
-                    
-                    // Send message in next tick to allow UI to update first
-                    setTimeout(() => {
-                        importWebSocket.send(JSON.stringify(message));
-                    }, 50);
-                } else {
-                    displayWarning('WebSocket is not connected. Attempting to reconnect...');
-                    connectWebSocket(); // Try to reconnect
-                    downloadBtn.disabled = false;
-                    if (cancelDownloadBtn) cancelDownloadBtn.disabled = true;
-                }
-            });
-        }
-
-        // Cancel button handler
-        if (cancelDownloadBtn) {
-            cancelDownloadBtn.addEventListener('click', () => {
-                if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
-                    const message = {
-                        type: 'cancel-import'
-                    };
-                    importWebSocket.send(JSON.stringify(message));
-                    cancelDownloadBtn.disabled = true;
-                } else {
-                    displayWarning('WebSocket is not connected. Cannot cancel import.');
-                }
-            });
-        }
-
-        // Helper function to parse song input
-        function parseSongInput(input) {
-            if (!input || !input.trim()) {
-                return [];
-            }
-
-            // Split by lines and remove empty lines
-            const lines = input.split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0);
-
-            // If only one line, treat as single item (could be a URL, search query, or single song)
-            if (lines.length === 1) {
-                return [lines[0]];
-            }
-
-            // Multiple lines - check if first line is a URL and others are metadata
-            // For now, treat any multi-line input as a song list
-            // In the future, we could detect playlist formats
-            return lines;
-        }
-
-        // Event listeners for advanced configuration
-        // Primary source change handler
-        const primarySourceSelect = document.getElementById('primarySource');
-        if (primarySourceSelect) {
-            primarySourceSelect.addEventListener('change', updateSecondarySourceOptions);
-        }
-        
-        // Save configuration handler
-        const saveBtn = document.getElementById('saveAdvancedConfigBtn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', saveAdvancedConfiguration);
-        }
-        
-        // Reset configuration handler
-        const resetBtn = document.getElementById('resetAdvancedConfigBtn');
-        if (resetBtn) {
-            resetBtn.addEventListener('click', () => {
-                if (confirm('Reset all advanced settings to defaults?')) {
-                    // Reset to defaults and save
-                    const defaults = {
-                        primarySource: 'YOUTUBE',
-                        secondarySource: 'SPOTDL',
-                        youtubeEnabled: true,
-                        spotdlEnabled: true,
-                        maxRetryAttempts: 3,
-                        retryWaitTime: 90,
-                        switchStrategy: 'AFTER_FAILURES',
-                        switchThreshold: 3,
-                        enableSmartRateLimitHandling: true,
-                        fallbackOnLongWait: true,
-                        maxAcceptableWaitTime: 60
-                    };
-                    
-                    Object.assign(advancedConfig, defaults);
-                    updateAdvancedConfigUI();
-                    saveAdvancedConfiguration();
-                }
-            });
-        }
-            
-        // Test configuration handler
-        const testBtn = document.getElementById('testConfigurationBtn');
-        if (testBtn) {
-            testBtn.addEventListener('click', testConfiguration);
-        }
-
-        // External App Warning Logic
-        const externalAppWarning = document.getElementById('externalAppWarning');
-        const dismissWarningBtn = externalAppWarning ? externalAppWarning.querySelector('.delete') : null;
-        const spotdlWarningShownKey = 'spotdlWarningShown';
-
-        if (externalAppWarning) {
-            if (localStorage.getItem(spotdlWarningShownKey) === 'true') {
-                externalAppWarning.classList.add('is-hidden');
-            } else {
-                externalAppWarning.classList.remove('is-hidden'); // Ensure visible if not shown before
-            }
-
-            if (dismissWarningBtn) {
-                dismissWarningBtn.addEventListener('click', () => {
-                    externalAppWarning.classList.add('is-hidden');
-                    localStorage.setItem(spotdlWarningShownKey, 'true');
-                });
-            }
-        }
+    } catch (error) {
+        statusElement.textContent = 'Error: ' + error.message;
+        updateBtn.disabled = false;
+        updateBtn.classList.remove('is-loading');
     }
+};
+
+window.saveAdvancedConfiguration = async () => {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    try {
+        const configData = {
+            primarySource: document.getElementById('primarySource').value,
+            secondarySource: document.getElementById('secondarySource').value,
+            youtubeEnabled: document.getElementById('youtubeEnabled').checked,
+            spotdlEnabled: document.getElementById('spotdlEnabled').checked,
+            enableSmartRateLimitHandling: document.getElementById('enableSmartRateLimitHandling').checked,
+            maxRetryAttempts: parseInt(document.getElementById('maxRetryAttempts').value),
+            retryWaitTimeMs: parseInt(document.getElementById('retryWaitTime').value) * 1000,
+            switchStrategy: document.getElementById('switchStrategy').value,
+            switchThreshold: parseInt(document.getElementById('switchThreshold').value),
+            fallbackOnLongWait: document.getElementById('fallbackOnLongWait').checked,
+            maxAcceptableWaitTimeMs: parseInt(document.getElementById('maxAcceptableWaitTime').value) * 60000,
+            youtubeForceIpv4: document.getElementById('youtubeForceIpv4').checked,
+            youtubeForceIpv6: document.getElementById('youtubeForceIpv6').checked,
+            youtubeUserAgent: document.getElementById('youtubeUserAgent').value,
+            youtubeExtractorArgs: document.getElementById('youtubeExtractorArgs').value,
+            youtubeImpersonate: document.getElementById('youtubeImpersonate').value,
+            youtubeUpdateChannel: document.getElementById('youtubeUpdateChannel').value,
+            youtubePlayerClient: document.getElementById('youtubePlayerClient').value
+        };
+        
+        const response = await fetch(`/api/settings/${profileId}/import-sources`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(configData)
+        });
+        
+        if (response.ok) {
+            if (window.showToast) window.showToast('Advanced configuration saved successfully!', 'success');
+            Object.assign(advancedConfig, configData);
+        } else {
+            const err = await response.json();
+            if (window.showToast) window.showToast('Failed to save configuration: ' + (err.error || 'Unknown'), 'error');
+        }
+    } catch (error) {
+        console.error('Error saving advanced configuration:', error);
+    }
+};
+
+function parseSongInput(input) {
+    if (!input || !input.trim()) return [];
+    return input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+}
+
+// Initial connection for Auto Find support from other pages
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[Import] Initial main-page connection');
+    connectWebSocket();
 });

@@ -38,7 +38,18 @@
                                 <button id="scanVideoLibrary" class="button is-primary is-small" hx-post="/api/video/scan" hx-swap="none">Scan Videos</button>
                                 <button id="reloadMetadata" class="button is-info is-small">Reload Music Metadata</button>
                                 <button id="reloadVideoMetadata" class="button is-info is-small" hx-post="/api/video/reload-metadata" hx-swap="none">Reload Video Metadata</button>
+                                <button id="writeMetadata" class="button is-warning is-small">Write Music Metadata</button>
                             </div>
+
+                            <hr>
+                            <h6 class="title is-6 mb-4">Music Directories</h6>
+                            <div id="musicDirectoriesList" class="mb-3"></div>
+                            <button class="button is-small is-warning" onclick="window.addDirectory('MUSIC')">+ Add Music Directory</button>
+
+                            <hr>
+                            <h6 class="title is-6 mb-4">Video Directories</h6>
+                            <div id="videoDirectoriesList" class="mb-3"></div>
+                            <button class="button is-small is-info" onclick="window.addDirectory('VIDEO')">+ Add Video Directory</button>
                         </div>
 
                         <hr>

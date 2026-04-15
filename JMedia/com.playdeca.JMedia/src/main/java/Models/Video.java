@@ -166,6 +166,14 @@ public class Video extends PanacheEntity {
     public boolean hasSubtitles; // Whether video has embedded/sidecar subtitles
     public boolean autoSelectSubtitles; // Enable auto-selection based on audio
     
+    // Audio Track Information
+    @OneToMany(mappedBy = "video", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    public List<AudioTrack> audioTracks;
+    
+    public Long defaultAudioTrackId;
+    public String preferredAudioLanguage; // User preference
+    public boolean hasMultipleAudioTrack; // Whether video has multiple audio streams
+    
     // User Interaction Fields
     public LocalDateTime dateAdded;
     public LocalDateTime lastWatched;
@@ -201,6 +209,10 @@ public class Video extends PanacheEntity {
     
     // System Fields
     public boolean isActive = true;
+    
+    // Manual Override Flags - prevent rescans from overwriting user edits
+    public boolean seriesTitleManuallyEdited = false;
+    public boolean titleManuallyEdited = false;
     
     public void setThumbnailPath(String thumbnailPath) {
         this.thumbnailPath = thumbnailPath;

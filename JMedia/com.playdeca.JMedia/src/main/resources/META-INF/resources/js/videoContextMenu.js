@@ -258,7 +258,7 @@ class VideoContextMenu {
     async editMetadata() {
         const modal = document.getElementById('editVideoModal');
         const modalBody = document.getElementById('editVideoModalBody');
-        
+
         if (!modal || !modalBody) {
             this.showNotification('Edit modal not found', 'danger');
             return;
@@ -269,8 +269,9 @@ class VideoContextMenu {
         if (this.currentVideoData.type === 'Show' || this.currentVideoData.type === 'Series') {
             editUrl = `/api/video/manage/edit-series/${encodeURIComponent(this.currentVideoData.title)}`;
         } else if (this.currentVideoData.type === 'Season') {
-            if (this.currentVideoData.sampleVideoId) {
-                editUrl = `/api/video/manage/edit/${this.currentVideoData.sampleVideoId}`;
+            const sampleId = this.currentVideoData.sampleVideoId || this.currentVideoId;
+            if (sampleId) {
+                editUrl = `/api/video/manage/edit/${sampleId}`;
             } else {
                 this.showNotification('Cannot edit season without sample video', 'warning');
                 return;
@@ -279,7 +280,6 @@ class VideoContextMenu {
             const showTitle = this.currentVideoData.title;
             editUrl = `/api/video/manage/edit-series/${encodeURIComponent(showTitle)}`;
         }
-
         modalBody.innerHTML = '<div class="has-text-centered p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i></div>';
         modal.classList.add('is-active');
 
@@ -389,20 +389,21 @@ function extractVideoData(el) {
         const data = {
             id: target.dataset.videoId || target.dataset.sampleVideoId,
             title: target.dataset.title || target.dataset.seriesTitle || target.querySelector('.standard-card-title, .card-title, .episode-title-text')?.textContent.trim() || target.textContent.trim(),
-            type: target.dataset.type || (target.classList.contains('episode-entry') ? 'Episode' : 'Video')
+            type: target.dataset.type || (target.classList.contains('episode-entry') ? 'Episode' : 'Video'),
+            sampleVideoId: target.dataset.sampleVideoId
         };
 
         if (target.dataset.seriesTitle && target.dataset.seasonNumber) {
             data.type = 'Season';
             data.seriesTitle = target.dataset.seriesTitle;
             data.seasonNumber = target.dataset.seasonNumber;
-            data.sampleVideoId = target.dataset.sampleVideoId;
             data.title = 'Season ' + target.dataset.seasonNumber;
         } else if (target.dataset.seriesTitle) {
             data.type = 'Show';
             data.title = target.dataset.seriesTitle;
         }
 
+        console.log('[VideoContextMenu] Extracted Data:', data);
         return data;
     } catch (error) {
         console.error('Error extracting video data:', error);

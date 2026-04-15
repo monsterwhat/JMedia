@@ -19,6 +19,7 @@
             repeatMode: "OFF",
             cue: [],
             hasLyrics: false,
+            currentSongData: null,
             
             // Responsive/UI state properties
             playerExpanded: false,
@@ -33,7 +34,17 @@
             contextMenuVisible: false,
             filterMenuVisible: false,
             profileModalVisible: false,
-            volumeSliderVisible: false
+            volumeSliderVisible: false,
+            
+            // DJ Mode transition fields (from server)
+            djNextSongId: null,
+            djEntryTime: 0,
+            djExitTime: 0,
+            djTransitionPlanned: false,
+            djTransitionConfidence: 0,
+            djTransitionReason: '',
+            djModeActive: false,
+            crossfadeDuration: 0
         },
         
         // Offline flag management
@@ -53,9 +64,16 @@
             this.setupEventListeners();
             
             // Set initial volume from device manager if available
+            // Use updateState to ensure listeners (like AudioEngine) are notified
             if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
-                this.state.volume = window.DeviceManager.getDeviceVolume();
+                const vol = window.DeviceManager.getDeviceVolume();
+                this.updateState({ volume: vol }, 'deviceManager');
             }
+            
+            // Handle late device manager initialization
+            window.addEventListener('deviceVolumeLoaded', (e) => {
+                this.updateState({ volume: e.detail.volume }, 'deviceManager');
+            });
             
             window.Helpers.log('StateManager initialized');
         },
@@ -382,6 +400,7 @@
                     volume: 0.8,
                     shuffleMode: "OFF",
                     repeatMode: "OFF",
+                    djModeActive: false,
                     cue: [],
                     hasLyrics: false,
                     
@@ -406,6 +425,28 @@
                 
                 this.replaceState(mergedState, 'restored');
                 window.Helpers.log('StateManager initialized from restored state:', mergedState);
+                
+                // If Smart Shuffle was restored, tell server to activate it
+                // This triggers server-side queue reordering by genre/BPM
+                if (restoredState.shuffleMode === 'SMART_SHUFFLE') {
+                    window.Helpers.log('StateManager: Restored Smart Shuffle - activating on server');
+                    let pid = null;
+                    if (window.globalActiveProfileId) {
+                        pid = window.globalActiveProfileId;
+                    } else {
+                        pid = localStorage.getItem('activeProfileId');
+                    }
+                    if (pid) {
+                        fetch(`/api/music/playback/shuffle/${pid}`, { 
+                            method: 'POST',
+                            credentials: 'include'
+                        }).then(() => {
+                            window.Helpers.log('StateManager: Smart Shuffle activated on server');
+                        }).catch(e => {
+                            console.warn('StateManager: Failed to activate Smart Shuffle:', e);
+                        });
+                    }
+                }
             } else {
                 window.Helpers.log('StateManager no restored state available');
             }

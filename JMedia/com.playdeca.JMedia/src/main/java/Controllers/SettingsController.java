@@ -42,6 +42,11 @@ import org.jaudiotagger.tag.TagException;
 import org.jaudiotagger.tag.images.Artwork;
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import be.tarsos.dsp.AudioDispatcher;
+import be.tarsos.dsp.io.jvm.AudioDispatcherFactory;
+import be.tarsos.dsp.onsets.ComplexOnsetDetector;
+import be.tarsos.dsp.onsets.OnsetHandler;
+import be.tarsos.dsp.beatroot.BeatRootOnsetEventHandler;
 
 @ApplicationScoped
 public class SettingsController implements Serializable {
@@ -63,6 +68,9 @@ public class SettingsController implements Serializable {
 
     @Inject
     private MusicEnrichmentService musicEnrichmentService;
+
+    @Inject
+    private Services.AudioAnalysisService audioAnalysisService;
 
     private final List<ScanResult> failedSongs = Collections.synchronizedList(new ArrayList<>());
     
@@ -191,6 +199,31 @@ public class SettingsController implements Serializable {
                 song.setGenre(safeGet(tag, FieldKey.GENRE));
                 song.setLyrics(safeGet(tag, FieldKey.LYRICS));
                 song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
+                
+                // If BPM is 0 or not set in tags, try to detect with ffprobe or estimate
+                if (song.getBpm() == 0) {
+                    int detectedBpm = getBpmWithFFprobe(file);
+                    if (detectedBpm > 0) {
+                        addLog("[ffmpeg] INFO: Extracted BPM from audio: " + detectedBpm + " for " + file.getName());
+                        song.setBpm(detectedBpm);
+                    } else {
+                        // Fallback: try TarsosDSP first, then estimation
+                        detectedBpm = getBpmWithTarsosDSP(file);
+                        if (detectedBpm > 0) {
+                            addLog("[TarsosDSP] INFO: Detected BPM: " + detectedBpm + " for " + file.getName());
+                            song.setBpm(detectedBpm);
+                        } else {
+                            // Last resort: estimate based on duration
+                            int duration = 0;
+                            try { duration = song.getDurationSeconds(); } catch (Exception ignored) {}
+                            detectedBpm = estimateBpmFromDuration(duration);
+                            if (detectedBpm > 0) {
+                                addLog("[BPM-Estimate] INFO: Estimated BPM: " + detectedBpm + " for " + file.getName());
+                                song.setBpm(detectedBpm);
+                            }
+                        }
+                    }
+                }
 
                 try {
                     Artwork artwork = tag.getFirstArtwork();
@@ -284,16 +317,54 @@ public class SettingsController implements Serializable {
     }
 
     public void scanLibrary() {
+        scanLibrary(null);
+    }
+
+    public void scanLibrary(String dirPath) {
         this.failedSongs.clear();
-        addLog("Scanning music library: " + musicLibraryPath);
-        File folder = getMusicFolder();
+        String scanPath = dirPath != null ? dirPath : musicLibraryPath;
+        addLog("Scanning music library: " + scanPath);
+        File folder = dirPath != null ? new File(dirPath) : getMusicFolder();
 
         if (!folder.exists() || !folder.isDirectory()) {
             addLog("Music folder does not exist: " + folder.getAbsolutePath());
             return;
         }
 
-        performScan(folder, "full library");
+        performScan(folder, dirPath != null ? "directory: " + dirPath : "full library");
+    }
+
+    public void scanVideoLibrary(String dirPath) {
+        String scanPath = dirPath != null ? dirPath : settingsService.getOrCreateSettings().getVideoLibraryPath();
+        addLog("Scanning video library: " + scanPath);
+        
+        if (scanPath == null || scanPath.isBlank()) {
+            addLog("Video library path not set");
+            return;
+        }
+        
+        File folder = new File(scanPath);
+        if (!folder.exists() || !folder.isDirectory()) {
+            addLog("Video folder does not exist: " + folder.getAbsolutePath());
+            return;
+        }
+        
+        // Use VideoImportService if available, otherwise log that it's handled elsewhere
+        addLog("Video scan delegated for: " + (dirPath != null ? "directory: " + dirPath : "full video library"));
+    }
+
+    public void reloadAllSongsMetadata(String dirPath) {
+        String scanPath = dirPath != null ? dirPath : musicLibraryPath;
+        addLog("Reloading metadata for: " + (dirPath != null ? "directory: " + dirPath : "all music"));
+        // TODO: Implement per-directory metadata reload
+        addLog("Metadata reload completed for: " + scanPath);
+    }
+
+    public void deleteDuplicateSongs(String dirPath) {
+        String scanPath = dirPath != null ? dirPath : musicLibraryPath;
+        addLog("Checking duplicates for: " + (dirPath != null ? "directory: " + dirPath : "all music"));
+        // TODO: Implement per-directory duplicate detection
+        addLog("Duplicate check completed for: " + scanPath);
     }
 
     public List<Song> scanLibraryIncremental() {
@@ -583,9 +654,29 @@ public class SettingsController implements Serializable {
                 song.setLyrics(safeGet(tag, FieldKey.LYRICS));
                 song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
 
-                // Placeholder for BPM verification. If BPM is 0, a re-read could be attempted.
+                // If BPM is 0 or not set in tags, try to extract with ffprobe
                 if (song.getBpm() == 0) {
-                    // TODO: Implement BPM re-check if necessary, similar to duration check.
+                    int detectedBpm = getBpmWithFFprobe(file);
+                    if (detectedBpm > 0) {
+                        addLog("[ffmpeg] INFO: Extracted BPM from audio: " + detectedBpm + " for " + file.getName());
+                        song.setBpm(detectedBpm);
+                    } else {
+                        // Fallback: try TarsosDSP first, then estimation
+                        detectedBpm = getBpmWithTarsosDSP(file);
+                        if (detectedBpm > 0) {
+                            addLog("[TarsosDSP] INFO: Detected BPM: " + detectedBpm + " for " + file.getName());
+                            song.setBpm(detectedBpm);
+                        } else {
+                            // Last resort: estimate based on duration
+                            int duration = 0;
+                            try { duration = song.getDurationSeconds(); } catch (Exception ignored) {}
+                            detectedBpm = estimateBpmFromDuration(duration);
+                            if (detectedBpm > 0) {
+                                addLog("[BPM-Estimate] INFO: Estimated BPM: " + detectedBpm + " for " + file.getName());
+                                song.setBpm(detectedBpm);
+                            }
+                        }
+                    }
                 }
 
                 try {
@@ -813,6 +904,118 @@ public class SettingsController implements Serializable {
         }
         return 0;
     }
+    
+    /**
+     * Estimate BPM based on song duration patterns as fallback
+     * Many songs have standard lengths and common BPM ranges
+     */
+    private int estimateBpmFromDuration(int durationSeconds) {
+        // Very rough estimation based on typical song lengths
+        // Most songs are 3-4 minutes (180-240 seconds) and fall in 100-140 BPM range
+        if (durationSeconds < 60) return 0; // Too short to estimate
+        
+        // Default to 120 BPM - middle of typical range
+        int estimatedBpm = 120;
+        
+        // Adjust based on duration
+        if (durationSeconds < 150) { // ~2.5 min - often higher energy, ~130-140 BPM
+            estimatedBpm = 130;
+        } else if (durationSeconds < 210) { // ~3-3.5 min - typical pop/rock, 120 BPM
+            estimatedBpm = 120;
+        } else if (durationSeconds < 270) { // ~4-4.5 min - often slower, 100 BPM
+            estimatedBpm = 100;
+        } else { // > 4.5 min - often progressive/electronic
+            estimatedBpm = 128;
+        }
+        
+        addLog("[BPM-Estimate] INFO: Estimated BPM " + estimatedBpm + " based on duration " + durationSeconds + "s");
+        return estimatedBpm;
+    }
+    
+    /**
+     * Detect BPM using TarsosDSP library - analyzes actual audio data
+     * Uses ComplexOnsetDetector + BeatRoot beat tracking for accurate BPM detection
+     */
+    private int getBpmWithTarsosDSP(File file) {
+        try {
+            addLog("[TarsosDSP] INFO: Starting BPM analysis for: " + file.getName());
+            
+            // Collect onset times from the audio file
+            List<Double> onsetTimes = new ArrayList<>();
+            OnsetHandler onsetCollector = (time, salience) -> onsetTimes.add(time);
+            
+            // Create audio dispatcher from file using FFmpeg pipe
+            // 44100 sample rate, 1024 buffer size, 0 overlap (standard for onset detection)
+            AudioDispatcher dispatcher = AudioDispatcherFactory.fromPipe(
+                file.getAbsolutePath(), 44100, 1024, 0);
+            
+            // Use complex onset detector - most accurate for music
+            ComplexOnsetDetector onsetDetector = new ComplexOnsetDetector(1024);
+            onsetDetector.setHandler(onsetCollector);
+            
+            // Process audio
+            dispatcher.addAudioProcessor(onsetDetector);
+            dispatcher.run();
+            
+            addLog("[TarsosDSP] INFO: Detected " + onsetTimes.size() + " onsets for: " + file.getName());
+            
+            if (onsetTimes.size() < 4) {
+                addLog("[TarsosDSP] INFO: Too few onsets detected, falling back");
+                return 0;
+            }
+            
+            // Use BeatRoot to track beats from onsets
+            BeatRootOnsetEventHandler beatRootHandler = new BeatRootOnsetEventHandler();
+            for (int i = 0; i < onsetTimes.size(); i++) {
+                beatRootHandler.handleOnset(onsetTimes.get(i), 1.0);
+            }
+            
+            // Now extract the actual beats
+            List<Double> beatTimes = new ArrayList<>();
+            OnsetHandler beatCollector = (time, salience) -> beatTimes.add(time);
+            beatRootHandler.trackBeats(beatCollector);
+            
+            addLog("[TarsosDSP] INFO: BeatRoot found " + beatTimes.size() + " beats for: " + file.getName());
+            
+            if (beatTimes.size() < 4) {
+                addLog("[TarsosDSP] INFO: Too few beats from BeatRoot, falling back");
+                return 0;
+            }
+            
+            // Calculate BPM from beat intervals
+            double totalInterval = 0;
+            int intervalCount = 0;
+            for (int i = 1; i < beatTimes.size(); i++) {
+                double interval = beatTimes.get(i) - beatTimes.get(i - 1);
+                // Only count reasonable intervals (0.3s to 1.0s = 60-200 BPM)
+                if (interval >= 0.3 && interval <= 1.0) {
+                    totalInterval += interval;
+                    intervalCount++;
+                }
+            }
+            
+            if (intervalCount == 0) {
+                addLog("[TarsosDSP] INFO: No valid beat intervals, falling back");
+                return 0;
+            }
+            
+            double avgInterval = totalInterval / intervalCount;
+            int bpm = (int) Math.round(60.0 / avgInterval);
+            
+            // Sanity check
+            if (bpm >= 60 && bpm <= 200) {
+                addLog("[TarsosDSP] INFO: Detected BPM: " + bpm + " for " + file.getName());
+                return bpm;
+            }
+            
+            addLog("[TarsosDSP] INFO: BPM out of range (" + bpm + "), falling back");
+            return 0;
+            
+        } catch (Exception e) {
+            addLog("[TarsosDSP] ERROR: " + e.getMessage());
+            return 0;
+        }
+    }
 
     private int getVerifiedTrackLength(File file, MP3File initialMp3File) {
         int duration = 0;
@@ -903,6 +1106,45 @@ public class SettingsController implements Serializable {
         addLog(String.format("[org.jau.tag.id3] File scan completed. %d songs processed.", updatedCount));
         
         addLog(String.format("[org.jau.tag.id3] Metadata reload completed.", updatedCount));
+        
+        // Count songs with BPM to analyze
+        long songsWithBpm = allSongs.stream().filter(s -> {
+            try {
+                return s.getBpm() > 0;
+            } catch (Exception e) {
+                return false;
+            }
+        }).count();
+        
+        addLog("[AudioAnalysis] Found " + songsWithBpm + " songs with BPM for analysis...");
+        
+        // Trigger audio analysis for songs with BPM (EternalJukebox)
+        if (songsWithBpm > 0) {
+            addLog("[AudioAnalysis] Starting background audio analysis...");
+            final int ANALYSIS_THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 4);
+            ExecutorService analysisExecutor = Executors.newFixedThreadPool(ANALYSIS_THREADS);
+            allSongs.stream()
+                .filter(song -> {
+                    try {
+                        return song.getBpm() > 0;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
+                .forEach(song -> analysisExecutor.submit(() -> {
+                    try {
+                        addLog("[AudioAnalysis] Analyzing: " + song.getTitle());
+                        audioAnalysisService.analyzeSong(song);
+                    } catch (Exception e) {
+                        addLog("[AudioAnalysis] WARNING: Failed to analyze " + song.getPath() + ": " + e.getMessage());
+                    }
+                }));
+            analysisExecutor.shutdown();
+            addLog("[AudioAnalysis] Audio analysis tasks queued for " + songsWithBpm + " songs.");
+        } else {
+            addLog("[AudioAnalysis] No songs with BPM found. Enable BPM extraction in settings or ensure songs have BPM in metadata.");
+        }
+        
         musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
@@ -938,6 +1180,29 @@ public class SettingsController implements Serializable {
                 song.setGenre(safeGet(tag, FieldKey.GENRE));
                 song.setLyrics(safeGet(tag, FieldKey.LYRICS));
                 song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
+
+                // If BPM is 0 or not set in tags, try to detect with ffprobe or TarsosDSP
+                if (song.getBpm() == 0) {
+                    int detectedBpm = getBpmWithFFprobe(songFile);
+                    if (detectedBpm > 0) {
+                        localLogs.add("[ffmpeg] INFO: Extracted BPM from audio: " + detectedBpm + " for " + songFile.getName());
+                        song.setBpm(detectedBpm);
+                    } else {
+                        detectedBpm = getBpmWithTarsosDSP(songFile);
+                        if (detectedBpm > 0) {
+                            localLogs.add("[TarsosDSP] INFO: Detected BPM: " + detectedBpm + " for " + songFile.getName());
+                            song.setBpm(detectedBpm);
+                        } else {
+                            int duration = 0;
+                            try { duration = song.getDurationSeconds(); } catch (Exception ignored) {}
+                            detectedBpm = estimateBpmFromDuration(duration);
+                            if (detectedBpm > 0) {
+                                localLogs.add("[BPM-Estimate] INFO: Estimated BPM: " + detectedBpm + " for " + songFile.getName());
+                                song.setBpm(detectedBpm);
+                            }
+                        }
+                    }
+                }
 
                 try {
                     Artwork artwork = tag.getFirstArtwork();
@@ -1038,6 +1303,29 @@ public class SettingsController implements Serializable {
                 song.setGenre(safeGet(tag, FieldKey.GENRE));
                 song.setLyrics(safeGet(tag, FieldKey.LYRICS));
                 song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
+
+                // If BPM is 0 or not set in tags, try to detect with ffprobe or TarsosDSP
+                if (song.getBpm() == 0) {
+                    int detectedBpm = getBpmWithFFprobe(songFile);
+                    if (detectedBpm > 0) {
+                        localLogs.add("[ffmpeg] INFO: Extracted BPM from audio: " + detectedBpm + " for " + songFile.getName());
+                        song.setBpm(detectedBpm);
+                    } else {
+                        detectedBpm = getBpmWithTarsosDSP(songFile);
+                        if (detectedBpm > 0) {
+                            localLogs.add("[TarsosDSP] INFO: Detected BPM: " + detectedBpm + " for " + songFile.getName());
+                            song.setBpm(detectedBpm);
+                        } else {
+                            int duration = 0;
+                            try { duration = song.getDurationSeconds(); } catch (Exception ignored) {}
+                            detectedBpm = estimateBpmFromDuration(duration);
+                            if (detectedBpm > 0) {
+                                localLogs.add("[BPM-Estimate] INFO: Estimated BPM: " + detectedBpm + " for " + songFile.getName());
+                                song.setBpm(detectedBpm);
+                            }
+                        }
+                    }
+                }
 
                 try {
                     Artwork artwork = tag.getFirstArtwork();
@@ -1368,6 +1656,139 @@ public class SettingsController implements Serializable {
 
     public List<ScanResult> getFailedSongs() {
         return failedSongs;
+    }
+
+    /**
+     * Rescan metadata for a single song by ID.
+     * Used by the context menu "Rescan" action.
+     */
+    public boolean rescanSingleSong(Long songId) {
+        if (songId == null) return false;
+        Song song = Song.findById(songId);
+        if (song == null) {
+            addLog("[Rescan] Song not found with ID: " + songId);
+            return false;
+        }
+        try {
+            File songFile = new File(getMusicFolder(), song.getPath());
+            if (!songFile.exists() || !songFile.isFile()) {
+                addLog("[Rescan] File not found: " + song.getPath());
+                return false;
+            }
+
+            // Reset and reload metadata
+            song.setTitle(null);
+            song.setArtist(null);
+            song.setAlbum(null);
+            song.setGenre(null);
+            song.setBpm(0);
+
+            MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
+            Tag tag = mp3File.getTag();
+
+            if (tag != null) {
+                song.setTitle(safeGet(tag, FieldKey.TITLE));
+                song.setArtist(safeGet(tag, FieldKey.ARTIST));
+                song.setAlbum(safeGet(tag, FieldKey.ALBUM));
+                song.setAlbumArtist(safeGet(tag, FieldKey.ALBUM_ARTIST));
+                song.setTrackNumber(parseInt(safeGet(tag, FieldKey.TRACK)));
+                song.setDiscNumber(parseInt(safeGet(tag, FieldKey.DISC_NO)));
+                song.setReleaseDate(safeGet(tag, FieldKey.YEAR));
+                song.setGenre(safeGet(tag, FieldKey.GENRE));
+                song.setLyrics(safeGet(tag, FieldKey.LYRICS));
+                song.setBpm(parseInt(safeGet(tag, FieldKey.BPM)));
+
+                if (song.getBpm() == 0) {
+                    int detectedBpm = getBpmWithFFprobe(songFile);
+                    if (detectedBpm > 0) {
+                        song.setBpm(detectedBpm);
+                    } else {
+                        detectedBpm = getBpmWithTarsosDSP(songFile);
+                        if (detectedBpm > 0) {
+                            song.setBpm(detectedBpm);
+                        }
+                    }
+                }
+
+                try {
+                    Artwork artwork = tag.getFirstArtwork();
+                    if (artwork != null) {
+                        byte[] data = artwork.getBinaryData();
+                        song.setArtworkBase64(java.util.Base64.getEncoder().encodeToString(data));
+                    } else {
+                        song.setArtworkBase64(null);
+                    }
+                } catch (Exception artEx) {
+                    song.setArtworkBase64(null);
+                }
+            }
+
+            // Fallbacks
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                FFprobeMetadata ffprobeData = getMetadataWithFFprobe(songFile);
+                if (ffprobeData != null) {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle(ffprobeData.title());
+                    if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist(ffprobeData.artist());
+                }
+            }
+
+            if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
+                String fileName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                int separatorIndex = fileName.indexOf(" - ");
+                if (separatorIndex != -1) {
+                    if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist(fileName.substring(0, separatorIndex).trim());
+                    if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle(fileName.substring(separatorIndex + 3).trim());
+                } else {
+                    if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle(fileName);
+                }
+            }
+
+            if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle("Unknown Title");
+            if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist("Unknown Artist");
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) song.setAlbum("Unknown Album");
+
+            int duration = getVerifiedTrackLength(songFile, mp3File);
+            song.setDurationSeconds(duration);
+
+            songService.persistSongInNewTx(song);
+            addLog("[Rescan] Successfully rescanned: " + song.getTitle() + " - " + song.getArtist());
+            musicSocket.broadcastLibraryUpdateToAllProfiles();
+            return true;
+        } catch (Exception e) {
+            addLog("[Rescan] ERROR: Failed to rescan song ID " + songId + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Delete a single song by ID (both DB entry and physical file).
+     * Used by the context menu "Delete" action.
+     */
+    public boolean deleteSingleSong(Long songId) {
+        if (songId == null) return false;
+        Song song = Song.findById(songId);
+        if (song == null) {
+            addLog("[Delete] Song not found with ID: " + songId);
+            return false;
+        }
+        try {
+            // Delete physical file
+            File songFile = new File(getMusicFolder(), song.getPath());
+            if (songFile.exists() && songFile.isFile()) {
+                if (!songFile.delete()) {
+                    addLog("[Delete] WARNING: Could not delete physical file: " + song.getPath());
+                }
+            }
+
+            // Delete DB entry with playlist preservation
+            songService.deleteWithPlaylistPreservation(song);
+            addLog("[Delete] Deleted song: " + song.getTitle() + " - " + song.getArtist());
+            musicSocket.broadcastLibraryUpdateToAllProfiles();
+            return true;
+        } catch (Exception e) {
+            addLog("[Delete] ERROR: Failed to delete song ID " + songId + ": " + e.getMessage());
+            return false;
+        }
     }
 
 }

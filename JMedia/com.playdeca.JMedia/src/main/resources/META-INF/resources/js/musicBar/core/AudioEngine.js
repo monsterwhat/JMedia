@@ -6,565 +6,520 @@
     'use strict';
     
     window.AudioEngine = {
-        // Audio element reference
+        // Audio elements
         audio: null,
+        audioNext: null,
+        activePlayer: 1,
         
-        // Element ready flag
+        // Web Audio API components
+        ctx: null,
+        nodes: {
+            p1: null, // Source node for audio
+            p2: null, // Source node for audioNext
+            g1: null, // Gain node for audio
+            g2: null  // Gain node for audioNext
+        },
+        
         audioElementReady: false,
-        
-        // Event listeners storage
-        eventListeners: {},
-        
-        // Autoplay policy tracking
         autoplayBlocked: false,
         autoplayAttempted: false,
         
-        /**
-         * Initialize audio engine
-         */
         init: function() {
-            this.initializeAudioElement();
+            if (this.initialized) return;
+            this.initialized = true;
+            
+            this.initializeAudioElements();
+            this.initWebAudio();
             this.setupEventListeners();
-            window.Helpers.log('AudioEngine initialized');
-        },
-        
-        /**
-         * Initialize audio element with retry logic
-         */
-        initializeAudioElement: function() {
-            this.audio = document.getElementById('audioPlayer');
+            window.Helpers.log('AudioEngine: Web Audio initialized (idempotent)');
             
-            // SAFETY: Verify audio element exists
-            if (!this.audio) {
-                console.error('[AudioEngine] audioPlayer element not found in DOM!');
-                
-                // Try to find it again after DOM is loaded
-                setTimeout(() => {
-                    const audioRetry = document.getElementById('audioPlayer');
-                    if (audioRetry) {
-                        window.Helpers.log('AudioEngine audioPlayer element found after delay');
-                        this.audio = audioRetry;
-                        this.audioElementReady = true;
-                        this.setupAudioEvents();
-                    } else {
-                        console.error('[AudioEngine] audioPlayer element still not found after delay!');
-                    }
-                }, 1000);
-            } else {
-                window.Helpers.log('AudioEngine audioPlayer element found successfully');
-                this.audioElementReady = true;
-                this.setupAudioEvents();
-            }
-        },
-        
-        /**
-         * Set up audio element event listeners
-         */
-        setupAudioEvents: function() {
-            if (!this.audio) {
-                return;
-            }
-            
-            // Audio ended event
-            this.audio.onended = () => {
-                window.Helpers.log('AudioEngine: Audio playback ended');
-                
-                // Trigger next song
-                if (window.globalActiveProfileId) {
-                    fetch(`/api/music/playback/next/${window.globalActiveProfileId}`, { method: 'POST', credentials: 'same-origin' });
-                }
-            };
-            
-            // Metadata loaded event
-            this.audio.onloadedmetadata = () => {
-                window.Helpers.log('AudioEngine: Audio metadata loaded', {
-                    duration: this.audio.duration,
-                    readyState: this.audio.readyState
-                });
-                
-                // Emit metadata loaded event
-                window.dispatchEvent(new CustomEvent('audioMetadataLoaded', {
-                    detail: {
-                        duration: this.audio.duration,
-                        readyState: this.audio.readyState
-                    }
-                }));
-            };
-            
-            // Error event
-            this.audio.onerror = (error) => {
-                console.error('[AudioEngine] Audio error:', error);
-                
-                window.dispatchEvent(new CustomEvent('audioError', {
-                    detail: { error: error }
-                }));
-            };
-            
-            window.Helpers.log('AudioEngine: Audio events configured');
-        },
-        
-        /**
-         * Set up event listeners for engine coordination
-         */
-        setupEventListeners: function() {
-            // Listen for state changes to update audio volume
-            window.addEventListener('statePropertyChanged', (e) => {
-                if (e.detail.property === 'volume') {
-                    this.setVolume(e.detail.newValue, 'stateManager');
-                }
-                
-                // Load audio source when currentSongId changes
-                if (e.detail.property === 'currentSongId' && e.detail.newValue && window.StateManager) {
+            // Re-load if state exists
+            setTimeout(() => {
+                if (window.StateManager) {
                     const state = window.StateManager.getState();
-                    const newSongId = String(e.detail.newValue);
-                    const oldSongId = e.detail.oldValue ? String(e.detail.oldValue) : null;
-                    
-                    if (newSongId !== oldSongId) {
-                        window.Helpers.log('AudioEngine: currentSongId changed, loading audio source', newSongId);
-                        const currentSong = {
-                            id: newSongId,
+                    if (state && state.currentSongId && state.playing) {
+                        this.loadAudioSourceOnly({
+                            id: String(state.currentSongId),
                             title: state.songName,
                             artist: state.artist,
                             duration: state.duration
-                        };
-                        this.setSource(currentSong, null, null, state.playing, state.currentTime || 0);
+                        }, state.currentTime || 0);
                     }
                 }
-            });
-            
-            // Listen for audio control requests
-            window.addEventListener('requestAudioControl', (e) => {
-                this.handleControlRequest(e.detail);
-            });
-            
-            window.Helpers.log('AudioEngine: Event listeners configured');
+            }, 500);
         },
-        
-        /**
-         * Handle audio control requests
-         * @param {Object} request - Control request details
-         */
-        handleControlRequest: function(request) {
-            const { action, value, source } = request;
-            
-            switch (action) {
-                case 'play':
-                    this.play();
-                    break;
-                case 'pause':
-                    this.pause();
-                    break;
-                case 'setTime':
-                    this.setTime(value);
-                    break;
-                case 'setVolume':
-                    this.setVolume(value, source);
-                    break;
-                case 'setSource':
-                    this.setSource(value.source, value.prevSong, value.nextSong, value.play, value.backendTime);
-                    break;
-                default:
-                    window.Helpers.log('AudioEngine: Unknown control request:', action);
-            }
-        },
-        
-        /**
-         * Set audio source with atomic operation
-         * @param {Object} currentSong - Current song data
-         * @param {Object} prevSong - Previous song data
-         * @param {Object} nextSong - Next song data
-         * @param {boolean} play - Whether to start playback
-         * @param {number} backendTime - Time to seek to
-         * @returns {boolean} Success status
-         */
-        setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0) {
-            if (!window.SynchronizationManager) {
-                window.Helpers.log('AudioEngine: SynchronizationManager not available');
-                return false;
+
+        initWebAudio: function() {
+            if (this.ctx) return;
+
+            // Skip Web Audio on mobile to ensure reliable background playback (especially on iOS)
+            // AudioContext is often suspended when the app goes to the background/phone is locked
+            const isMobile = window.DeviceManager ? window.DeviceManager.shouldUseMobileUI() : false;
+            if (isMobile) {
+                window.Helpers.log('AudioEngine: Skipping Web Audio on mobile for background playback reliability');
+                return;
             }
             
-            // Block playback until profile is initialized
-            if (!window.globalActiveProfileId || window.profileInitialized === undefined || window.profileInitialized === false) {
-                window.Helpers.log('AudioEngine: Profile not ready, queuing playback');
+            try {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
                 
-                // Show loading state in UI
+                // Ensure elements have crossOrigin set before creating source nodes
+                this.audio.crossOrigin = 'anonymous';
+                this.audioNext.crossOrigin = 'anonymous';
+                
+                // Create source nodes from audio elements
+                this.nodes.p1 = this.ctx.createMediaElementSource(this.audio);
+                this.nodes.p2 = this.ctx.createMediaElementSource(this.audioNext);
+                
+                // Create gain nodes
+                this.nodes.g1 = this.ctx.createGain();
+                this.nodes.g2 = this.ctx.createGain();
+                
+                // Connect: Source -> Gain -> Destination
+                this.nodes.p1.connect(this.nodes.g1);
+                this.nodes.g1.connect(this.ctx.destination);
+                
+                this.nodes.p2.connect(this.nodes.g2);
+                this.nodes.g2.connect(this.ctx.destination);
+                
+                // Initial volumes - PRIORITIZE DEVICE MANAGER
+                let initialVol = 0.8;
+                if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
+                    initialVol = window.DeviceManager.getDeviceVolume();
+                } else if (window.StateManager) {
+                    initialVol = window.StateManager.getProperty('volume');
+                }
+                
+                this.nodes.g1.gain.value = initialVol;
+                this.nodes.g2.gain.value = 0.0;
+                
+                window.Helpers.log('AudioEngine: Web Audio nodes connected successfully with initial volume ' + initialVol);
+                
+                // Resume on user interaction
+                const resume = () => {
+                    if (this.ctx.state === 'suspended') {
+                        this.ctx.resume().then(() => {
+                            window.Helpers.log('AudioEngine: AudioContext resumed by user interaction');
+                            document.removeEventListener('click', resume);
+                            document.removeEventListener('keydown', resume);
+                        });
+                    }
+                };
+                document.addEventListener('click', resume);
+                document.addEventListener('keydown', resume);
+            } catch (e) {
+                console.error('AudioEngine: Web Audio API initialization failed', e);
+            }
+        },
+
+        initializeAudioElements: function() {
+            this.audio = document.getElementById('audioPlayer');
+            this.audioNext = document.getElementById('audioPlayerNext');
+            
+            if (!this.audioNext) {
+                this.audioNext = document.createElement('audio');
+                this.audioNext.id = 'audioPlayerNext';
+                this.audioNext.crossOrigin = 'anonymous'; // Critical for Web Audio
+                document.body.appendChild(this.audioNext);
+            }
+            
+            this.audio.crossOrigin = 'anonymous';
+            this.audioElementReady = true;
+            this.setupAudioEvents(this.audio);
+            this.setupAudioEvents(this.audioNext);
+        },
+
+        setupAudioEvents: function(el) {
+            el.onended = () => {
+                if (el === this.getActivePlayer()) {
+                    // Get profile ID - must have a valid one
+                    let profileId = null;
+                    if (window.StateManager && window.StateManager.getProperty('profileId')) {
+                        profileId = window.StateManager.getProperty('profileId');
+                    } else if (window.globalActiveProfileId) {
+                        profileId = window.globalActiveProfileId;
+                    } else {
+                        profileId = localStorage.getItem('activeProfileId');
+                    }
+                    
+                    if (profileId && profileId !== 'undefined') {
+                        fetch(`/api/music/playback/next/${profileId}`, { method: 'POST' });
+                    }
+                }
+            };
+            
+            el.onerror = (e) => {
+                console.error('AudioEngine: Element error', el.id, e);
+            };
+        },
+
+        getActivePlayer: function() {
+            return this.activePlayer === 1 ? this.audio : this.audioNext;
+        },
+
+        getActiveGain: function() {
+            return this.activePlayer === 1 ? this.nodes.g1 : this.nodes.g2;
+        },
+
+        getInactivePlayer: function() {
+            return this.activePlayer === 1 ? this.audioNext : this.audio;
+        },
+
+        getInactiveGain: function() {
+            return this.activePlayer === 1 ? this.nodes.g2 : this.nodes.g1;
+        },
+
+        /**
+         * Preload next song for crossfade (HTML5 audio fallback)
+         * Note: WebAudio preload is preferred - this is fallback
+         */
+        preload: function(songId, startTime = 0) {
+            // Get profile ID - must have a valid one, no defaults
+            let profileId = null;
+            if (window.StateManager && window.StateManager.getProperty('profileId')) {
+                profileId = window.StateManager.getProperty('profileId');
+            } else if (window.globalActiveProfileId) {
+                profileId = window.globalActiveProfileId;
+            } else {
+                profileId = localStorage.getItem('activeProfileId');
+            }
+            
+            // Don't attempt to load if profileId is not valid - wait for it
+            if (!profileId || profileId === 'undefined') {
+                console.log('[AudioEngine preload] Waiting for valid profileId...');
+                const self = this;
+                setTimeout(function() {
+                    self.preload(songId, startTime);
+                }, 200);
+                return;
+            }
+            
+            // Don't attempt to load if songId is not valid
+            if (!songId || songId === 'null' || songId === 'undefined') {
+                console.log('[AudioEngine preload] Invalid songId, skipping preload');
+                return;
+            }
+            
+            const nextPlayer = this.getInactivePlayer();
+            const url = `/api/music/stream/${profileId}/${songId}`;
+            
+            if (nextPlayer.src.indexOf(url) === -1) {
+                window.Helpers.log('AudioEngine: Preloading ' + songId + ' at ' + startTime + 's');
+                nextPlayer.src = url;
+                nextPlayer.load(); // Start buffering
+                
+                nextPlayer.onloadedmetadata = () => {
+                    nextPlayer.currentTime = startTime;
+                };
+            }
+        },
+
+        crossfadeTo: function(songId, entryTime, duration) {
+            if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+            
+            const currentPlayer = this.getActivePlayer();
+            const nextPlayer = this.getInactivePlayer();
+            const currentGain = this.getActiveGain();
+            const nextGain = this.getInactiveGain();
+            const fadeTime = duration || 8;
+            const now = this.ctx ? this.ctx.currentTime : 0;
+            
+            // Get profile ID - must have a valid one
+            let profileId = null;
+            if (window.StateManager && window.StateManager.getProperty('profileId')) {
+                profileId = window.StateManager.getProperty('profileId');
+            } else if (window.globalActiveProfileId) {
+                profileId = window.globalActiveProfileId;
+            } else {
+                profileId = localStorage.getItem('activeProfileId');
+            }
+            
+            // Don't proceed if profileId is not valid
+            if (!profileId || profileId === 'undefined') {
+                console.log('[AudioEngine crossfadeTo] Waiting for valid profileId...');
+                const self = this;
+                setTimeout(function() {
+                    self.crossfadeTo(songId, entryTime, duration);
+                }, 200);
+                return;
+            }
+            
+            // Don't proceed if songId is not valid
+            if (!songId || songId === 'null' || songId === 'undefined') {
+                console.log('[AudioEngine crossfadeTo] Invalid songId, skipping');
+                return;
+            }
+            
+            // ENSURE the next player has the correct source if not already preloaded
+            if (songId) {
+                const url = `/api/music/stream/${profileId}/${songId}`;
+                if (nextPlayer.src.indexOf(url) === -1) {
+                    window.Helpers.log('AudioEngine: Loading ' + songId + ' during crossfade');
+                    nextPlayer.src = url;
+                }
+            }
+
+            // USE ACTUAL CURRENT VOLUME as target
+            const targetVolume = window.StateManager ? window.StateManager.getProperty('volume') : 0.8;
+            
+            console.log('[AudioEngine crossfade] targetVolume:', targetVolume, 'state volume:', window.StateManager ? window.StateManager.getProperty('volume') : 'N/A');
+
+            window.Helpers.log('AudioEngine: Starting WebAudio crossfade (' + fadeTime + 's) to entry ' + entryTime + 's');
+
+            // 1. Prepare next player state
+            if (nextPlayer.readyState > 0) {
+                nextPlayer.currentTime = entryTime || 0;
+            } else {
+                nextPlayer.onloadedmetadata = () => {
+                    nextPlayer.currentTime = entryTime || 0;
+                };
+            }
+
+            // 2. Schedule volume ramps
+            if (this.ctx) {
+                currentGain.gain.setValueAtTime(currentGain.gain.value, now);
+                currentGain.gain.exponentialRampToValueAtTime(0.0001, now + fadeTime);
+                
+                nextGain.gain.setValueAtTime(0.0001, now);
+                nextGain.gain.exponentialRampToValueAtTime(targetVolume || 0.0001, now + fadeTime);
+            }
+
+            // 3. Execute play and swap
+            nextPlayer.play().then(() => {
+                setTimeout(() => {
+                    currentPlayer.pause();
+                    currentPlayer.src = '';
+                    if (this.ctx) currentGain.gain.value = 0;
+                    this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                    window.Helpers.log('AudioEngine: Crossfade finalized');
+                    
+                    // Clear crossfade flag to re-enable progress bar updates
+                    if (window.SynchronizationManager) {
+                        window.SynchronizationManager.setFlag('isCrossfading', false);
+                    }
+                    
+                    // Update DJ indicator back to active (transition complete)
+                    if (window.DjTransitionManager) {
+                        window.DjTransitionManager.transitionPrepared = false;
+                        window.DjTransitionManager.isTransitioning = false;
+                        window.DjTransitionManager.transitionData = null;
+                        // Clear the monitor timer
+                        if (window.DjTransitionManager.monitorTimer) {
+                            clearInterval(window.DjTransitionManager.monitorTimer);
+                            window.DjTransitionManager.monitorTimer = null;
+                        }
+                        window.DjTransitionManager.updateDjIndicator('active');
+                    }
+                    
+                    // FIX: Update state with NEW song's duration after crossfade
+                    const newDuration = nextPlayer.duration || 0;
+                    if (window.StateManager && newDuration > 0) {
+                        window.StateManager.updateState({ duration: newDuration }, 'audioEngine');
+                        window.Helpers.log('AudioEngine: Updated duration to ' + newDuration);
+                    }
+                    
+                    // Ensure volume is consistent after crossfade
+                    const currentVol = window.StateManager ? window.StateManager.getProperty('volume') : 0.8;
+                    if (this.getActiveGain()) {
+                        this.getActiveGain().gain.value = currentVol;
+                    }
+                    
+                    // Request state save after crossfade completes to persist any volume changes
+                    window.dispatchEvent(new CustomEvent('requestStateSave', {
+                        detail: { source: 'audioEngine', includeCurrentTime: false }
+                    }));
+                }, (fadeTime + 0.1) * 1000);
+            }).catch(e => {
+                console.error('AudioEngine: Crossfade play failed', e);
+                this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
+                if (window.SynchronizationManager) {
+                    window.SynchronizationManager.setFlag('isCrossfading', false);
+                }
+                nextPlayer.play().catch(() => {});
+            });
+        },
+
+        setVolume: function(volume, source = 'unknown') {
+            const gain = this.getActiveGain();
+            
+            let vol = volume;
+            // Use saved volume if none provided
+            if (vol === null || vol === undefined) {
+                if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
+                    vol = window.DeviceManager.getDeviceVolume();
+                } else if (window.StateManager) {
+                    vol = window.StateManager.getProperty('volume');
+                }
+            }
+            
+            if (typeof vol !== 'number') vol = 0.8;
+            vol = window.Helpers.clamp(vol, 0, 1);
+            
+            // Apply to Web Audio if available
+            if (gain && this.ctx) {
+                const safeVol = Math.max(0.0001, vol);
+                gain.gain.setValueAtTime(gain.gain.value, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(safeVol, this.ctx.currentTime + 0.1);
+            }
+            
+            // ALWAYS apply to element as well for visual/sync purposes
+            const player = this.getActivePlayer();
+            if (player) {
+                player.volume = vol;
+            }
+            
+            if (source !== 'stateManager' && window.StateManager) {
+                window.dispatchEvent(new CustomEvent('requestStateUpdate', {
+                    detail: { changes: { volume: vol }, source: 'audioEngine' }
+                }));
+            }
+        },
+
+        // Rest of the wrapper methods use getActivePlayer()
+        play: function() {
+            if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+            return this.getActivePlayer().play();
+        },
+        
+        pause: function() {
+            this.getActivePlayer().pause();
+        },
+
+        getCurrentTime: function() { return this.getActivePlayer()?.currentTime || 0; },
+        getDuration: function() { return this.getActivePlayer()?.duration || 0; },
+        isPlaying: function() { return !this.getActivePlayer()?.paused; },
+        isPaused: function() { return !!this.getActivePlayer()?.paused; },
+        getAudioElement: function() { return this.getActivePlayer(); },
+        
+        performSetSource: function(operationId, currentSong, prevSong, nextSong, play, backendTime) {
+            SynchronizationManager.setActiveAudioOperation(operationId);
+            SynchronizationManager.setFlag('isUpdatingAudioSource', true);
+            
+            const player = this.getActivePlayer();
+            const gain = this.getActiveGain();
+            const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
+            
+            if (player.src !== url) {
+                player.src = url;
+                player.load();
+                
+                // RESTORE VOLUME ON LOAD
+                let currentVol = 0.8;
+                if (window.DeviceManager && window.DeviceManager.hasDeviceVolume()) {
+                    currentVol = window.DeviceManager.getDeviceVolume();
+                } else if (window.StateManager) {
+                    currentVol = window.StateManager.getProperty('volume');
+                }
+                gain.gain.value = currentVol;
+                player.volume = currentVol;
+            } else if (play && player.paused) {
+                player.play();
+            }
+
+            player.onloadedmetadata = () => {
+                const seekTime = backendTime > 0 ? backendTime : 0;
+                player.currentTime = seekTime;
+                
                 window.dispatchEvent(new CustomEvent('requestStateUpdate', {
                     detail: {
-                        changes: { 
-                            songName: 'Loading profile...',
-                            artist: 'Please wait'
+                        changes: {
+                            currentSongId: currentSong.id,
+                            songName: currentSong.title,
+                            artist: currentSong.artist,
+                            duration: player.duration,
+                            currentTime: seekTime
                         },
                         source: 'audioEngine'
                     }
                 }));
                 
-                // Queue playback for when profile is ready
-                const self = this;
-                const onceHandler = () => {
-                    document.body.removeEventListener('profileReady', onceHandler);
-                    setTimeout(() => {
-                        self.setSource(currentSong, prevSong, nextSong, play, backendTime);
-                    }, 100);
-                };
-                document.body.addEventListener('profileReady', onceHandler, { once: true });
-                return false;
-            }
-            
-            // Use atomic operation for song switching
-            return SynchronizationManager.executeAtomic('audio', window.globalActiveProfileId, (operationId) => {
-                return this.performSetSource(operationId, currentSong, prevSong, nextSong, play, backendTime);
-            });
-        },
-        
-        /**
-         * Perform the actual source setting operation
-         * @param {string} operationId - Operation ID
-         * @param {Object} currentSong - Current song data
-         * @param {Object} prevSong - Previous song data
-         * @param {Object} nextSong - Next song data
-         * @param {boolean} play - Whether to start playback
-         * @param {number} backendTime - Time to seek to
-         */
-        performSetSource: function(operationId, currentSong, prevSong, nextSong, play, backendTime) {
-            // Set active operation and cancel any previous operation
-            SynchronizationManager.setActiveAudioOperation(operationId);
-            SynchronizationManager.setFlag('isUpdatingAudioSource', true);
-            
-            window.Helpers.log('AudioEngine performing setSource', {
-                operationId: operationId,
-                currentSongId: currentSong?.id,
-                songTitle: currentSong?.title,
-                play: play,
-                backendTime: backendTime,
-                profileId: window.globalActiveProfileId
-            });
-            
-            // Validate current song
-            if (!currentSong || !currentSong.id) {
-                SynchronizationManager.clearActiveAudioOperation(operationId);
-                SynchronizationManager.setFlag('isUpdatingAudioSource', false);
-                return false;
-            }
-            
-            // Ensure audio element is ready
-            if (!this.audio || !this.audioElementReady) {
-                window.Helpers.log('AudioEngine: Audio element not ready, reinitializing...');
-                this.initializeAudioElement();
-                
-                // Retry after short delay
-                setTimeout(() => {
-                    if (this.audio && this.audioElementReady) {
-                        this.performSetSource(operationId, currentSong, prevSong, nextSong, play, backendTime);
-                    } else {
-                        SynchronizationManager.clearActiveAudioOperation(operationId);
-                        SynchronizationManager.setFlag('isUpdatingAudioSource', false);
-                    }
-                }, 500);
-                return true; // Async operation started
-            }
-            
-            const sameSong = String(window.StateManager?.getProperty('currentSongId')) === String(currentSong.id);
-            const newAudioSrc = `/api/music/stream/${window.globalActiveProfileId}/${currentSong.id}`;
-            
-            // Reset autoplay state when changing songs
-            if (this.audio.src !== newAudioSrc) {
-                this.autoplayAttempted = false;
-            }
-            
-            console.log('🎵 AudioEngine: Setting source to:', newAudioSrc);
-            console.log('🎵 AudioEngine: Song data:', {
-                id: currentSong.id,
-                title: currentSong.title,
-                artist: currentSong.artist,
-                profileId: window.globalActiveProfileId
-            });
-            
-            // Update state
-            window.dispatchEvent(new CustomEvent('requestStateUpdate', {
-                detail: {
-                    changes: {
-                        currentSongId: currentSong.id,
-                        songName: currentSong.title ?? "Unknown Title",
-                        artist: currentSong.artist ?? window.StateManager?.getProperty('artist'),
-                        currentTime: (sameSong || backendTime !== 0) ? (backendTime ?? 0) : 0,
-                        duration: currentSong.durationSeconds ?? 0,
-                        hasLyrics: currentSong.lyrics !== null && currentSong.lyrics !== undefined && currentSong.lyrics !== ''
-                    },
-                    source: 'audioEngine'
-                }
-            }));
-            
-            // Handle audio source change
-            if (this.audio.src !== newAudioSrc) {
-                // Clear audio buffer only when changing songs
-                try {
-                    this.audio.src = '';
-                    this.audio.load(); // Clear buffer for song change
-                } catch (error) {
-                    // Silent cleanup failure - non-critical
-                }
-                
-                window.Helpers.log('AudioEngine setting audio src to:', newAudioSrc);
-                this.audio.src = newAudioSrc;
-                this.audio.load();
-            } else if (sameSong && play) {
-                // Fast resume for same song - no source change needed
-                if (this.audio.paused) {
-                    this.audio.play().catch(console.error);
-                }
-                
-                SynchronizationManager.clearActiveAudioOperation(operationId);
-                SynchronizationManager.setFlag('isUpdatingAudioSource', false);
-                return true;
-            }
-            
-            // Set volume (use device volume)
-            this.setVolume(null, 'deviceManager');
-            
-            // Set up metadata handling
-            this.audio.onloadedmetadata = () => {
-                window.Helpers.log('AudioEngine: Audio metadata loaded for setSource', {
-                    duration: this.audio.duration,
-                    readyState: this.audio.readyState
-                });
-                
-                // Update duration if valid
-                if (typeof this.audio.duration === 'number' && !isNaN(this.audio.duration) && this.audio.duration > 0) {
-                    window.dispatchEvent(new CustomEvent('requestStateUpdate', {
-                        detail: {
-                            changes: { duration: this.audio.duration },
-                            source: 'audioEngine'
-                        }
-                    }));
-                }
-                
-                // Validate and set current time - use backendTime directly for reliability
-                const seekTime = backendTime > 0 ? backendTime : (window.StateManager?.getProperty('currentTime') || 0);
-                if (seekTime >= 0 && seekTime <= this.audio.duration) {
-                    window.Helpers.log('AudioEngine: Restoring playback position to', seekTime);
-                    this.audio.currentTime = seekTime;
-                }
-                
-                // Clear flags after successful metadata load
                 SynchronizationManager.clearActiveAudioOperation(operationId);
                 SynchronizationManager.setFlag('isUpdatingAudioSource', false);
             };
-            
-            // Set up canplay event for actual playback
-            this.audio.oncanplay = () => {
-                console.log('🎵 AudioEngine: Audio can play, readyState:', this.audio.readyState, 'src:', this.audio.src);
-                
-                // Handle playback when audio is ready to play
-                if (play) {
-                    // Don't repeatedly attempt if autoplay was already blocked
-                    if (this.autoplayBlocked) {
-                        console.log('🎵 AudioEngine: Autoplay blocked, waiting for user interaction');
-                        return;
-                    }
-                    
-                    // Only attempt play once per source change
-                    if (!this.autoplayAttempted) {
-                        this.autoplayAttempted = true;
-                        console.log('🎵 AudioEngine: Attempting to play audio...');
-                        this.audio.play().then(() => {
-                            console.log('🎵 AudioEngine: Audio play successful');
-                            this.autoplayBlocked = false;
-                        }).catch(error => {
-                            if (error.name === 'NotAllowedError') {
-                                console.warn('🎵 AudioEngine: Autoplay blocked by browser policy');
-                                this.autoplayBlocked = true;
-                                this.autoplayAttempted = false;
-                            } else if (error.name !== 'AbortError') {
-                                console.error('[AudioEngine] Audio play failed:', error);
-                            }
-                        });
-                    }
-                } else {
-                    console.log('🎵 AudioEngine: Pausing audio...');
-                    this.audio.pause();
-                    this.autoplayAttempted = false;
-                }
-            };
-            
-            // Set up error handling
-            this.audio.onerror = (error) => {
-                console.error('[AudioEngine] Audio error:', {
-                    error: error,
-                    src: this.audio.src,
-                    networkState: this.audio.networkState,
-                    readyState: this.audio.readyState
-                });
-                
-                SynchronizationManager.clearActiveAudioOperation(operationId);
-                SynchronizationManager.setFlag('isUpdatingAudioSource', false);
-            };
+
+            if (play) {
+                player.play().catch(() => { this.autoplayBlocked = true; });
+            }
             
             return true;
         },
-        
-        /**
-         * Play audio
-         * @returns {Promise} Play promise
-         */
-        play: function() {
-            if (this.audio) {
-                // If already playing, just return
-                if (!this.audio.paused) return Promise.resolve();
-                
-                // Reset autoplay blocked flag when user explicitly triggers play
-                this.autoplayBlocked = false;
-                this.autoplayAttempted = false;
-                
-                // If loading, wait for it
-                return this.audio.play().catch(error => {
-                    // Ignore abort errors (user navigation or fast toggling)
-                    if (error.name === 'AbortError') {
-                        return;
+
+        loadAudioSourceOnly: function(currentSong, seekTime) {
+            const player = this.getActivePlayer();
+            const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
+            player.src = url;
+            player.onloadedmetadata = () => {
+                player.currentTime = seekTime;
+                player.play().catch(() => {});
+            };
+        },
+
+        setupEventListeners: function() {
+            window.addEventListener('statePropertyChanged', (e) => {
+                if (e.detail.property === 'volume') this.setVolume(e.detail.newValue, 'stateManager');
+                if (e.detail.property === 'currentSongId' && e.detail.newValue && window.StateManager) {
+                    const state = window.StateManager.getState();
+                    if (String(e.detail.newValue) !== String(e.detail.oldValue)) {
+                        this.setSource({
+                            id: e.detail.newValue,
+                            title: state.songName,
+                            artist: state.artist,
+                            duration: state.duration
+                        }, null, null, state.playing, state.currentTime || 0);
                     }
-                    console.error('[AudioEngine] Play failed:', error);
-                    throw error;
-                });
-            }
-            return Promise.reject(new Error('Audio element not available'));
+                }
+            });
+            window.addEventListener('requestAudioControl', (e) => this.handleControlRequest(e.detail));
         },
-        
-        /**
-         * Reset autoplay blocked state (call after user interaction)
-         */
-        resetAutoplayState: function() {
-            this.autoplayBlocked = false;
-            this.autoplayAttempted = false;
-        },
-        
-        /**
-         * Pause audio
-         */
-        pause: function() {
-            if (this.audio) {
-                this.audio.pause();
-                window.Helpers.log('AudioEngine: Audio paused');
+
+        handleControlRequest: function(request) {
+            const { action, value, source } = request;
+            switch (action) {
+                case 'play': this.play(); break;
+                case 'pause': this.pause(); break;
+                case 'setTime': this.setTime(value); break;
+                case 'setVolume': this.setVolume(value, source); break;
+                case 'setSource': this.setSource(value.source, value.prevSong, value.nextSong, value.play, value.backendTime); break;
             }
         },
-        
-        /**
-         * Set playback time
-         * @param {number} time - Time in seconds
-         */
+
+        setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0) {
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            if (!window.SynchronizationManager) return false;
+            return SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
+                return this.performSetSource(opId, currentSong, prevSong, nextSong, play, backendTime);
+            });
+        },
+
+        resetAutoplayState: function() { this.autoplayBlocked = false; this.autoplayAttempted = false; },
+
         setTime: function(time) {
-            if (this.audio) {
-                const validTime = window.Helpers.safeNumber(time, 0);
-                this.audio.currentTime = validTime;
-                window.Helpers.log('AudioEngine: Time set to', validTime);
-            }
+            const player = this.getActivePlayer();
+            if (player) player.currentTime = window.Helpers.safeNumber(time, 0);
         },
-        
-        /**
-         * Set audio volume
-         * @param {number} volume - Volume level (0-1)
-         * @param {string} source - Source of volume change
-         */
-        setVolume: function(volume, source = 'unknown') {
-            if (!this.audio) {
-                return;
-            }
-            
-            let vol = volume;
-            
-            // Use device volume if no volume provided
-            if (vol === null && window.DeviceManager) {
-                vol = window.DeviceManager.getDeviceVolume();
-            }
-            
-            // Use fallback if no volume exists
-            if (typeof vol !== 'number' || !isFinite(vol)) {
-                vol = 0.8;
-            }
-            
-            vol = window.Helpers.clamp(vol, 0, 1);
-            
-            // Update device volume if from user interaction
-            if (source === 'user' && window.DeviceManager) {
-                window.DeviceManager.saveDeviceVolume(vol);
-            }
-            
-            // Apply to audio element
-            this.audio.volume = vol;
-            
-            // Update state if from external source
-            if (source !== 'stateManager' && window.StateManager) {
-                window.dispatchEvent(new CustomEvent('requestStateUpdate', {
-                    detail: {
-                        changes: { volume: vol },
-                        source: 'audioEngine'
-                    }
-                }));
-            }
-            
-            window.Helpers.log('AudioEngine: Volume set to', vol, 'from', source);
+
+        getStreamUrl: function(songId) {
+            return `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${songId}`;
         },
-        
-        /**
-         * Get current playback time
-         * @returns {number} Current time in seconds
-         */
-        getCurrentTime: function() {
-            return this.audio ? this.audio.currentTime : 0;
+
+        preloadSong: function(songId, startTime) {
+            this.preload(songId, startTime);
+            return this.getInactivePlayer();
         },
-        
-        /**
-         * Get audio duration
-         * @returns {number} Duration in seconds
-         */
-        getDuration: function() {
-            return this.audio ? this.audio.duration : 0;
-        },
-        
-        /**
-         * Check if audio is playing
-         * @returns {boolean} True if playing
-         */
-        isPlaying: function() {
-            return this.audio ? !this.audio.paused : false;
-        },
-        
-        /**
-         * Check if audio is paused
-         * @returns {boolean} True if paused
-         */
-        isPaused: function() {
-            return this.audio ? this.audio.paused : true;
-        },
-        
-        /**
-         * Get audio element reference
-         * @returns {HTMLAudioElement|null} Audio element
-         */
-        getAudioElement: function() {
-            return this.audio;
-        },
-        
-        /**
-         * Get audio ready status
-         * @returns {boolean} True if ready
-         */
-        isReady: function() {
-            return this.audioElementReady && this.audio !== null;
-        },
-        
-        /**
-         * Get audio element information
-         * @returns {Object} Audio element info
-         */
+
+        isReady: function() { return this.audioElementReady && this.getActivePlayer() !== null; },
+
         getAudioInfo: function() {
+            const p = this.getActivePlayer();
+            const gain = this.getActiveGain();
             return {
-                element: this.audio,
                 ready: this.audioElementReady,
-                src: this.audio ? this.audio.src : null,
+                src: p ? p.src : null,
                 currentTime: this.getCurrentTime(),
                 duration: this.getDuration(),
-                volume: this.audio ? this.audio.volume : 0,
+                volume: gain ? gain.gain.value : (p ? p.volume : 0),
                 paused: this.isPaused(),
-                readyState: this.audio ? this.audio.readyState : 0
+                activePlayer: this.activePlayer
             };
         }
     };

@@ -130,11 +130,15 @@ window.selectTrack = function(trackId) \{
             // If track not found in player, try to add it dynamically
             const trackInfo = availableTracks.find(t => t.id == trackId);
             if (trackInfo) \{
+                const startOffset = window.currentPlayerInstance ? (window.currentPlayerInstance.streamStartOffset || 0) : 0;
+                const correction = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || 0);
+                let src = '/api/video/subtitles/track/' + trackInfo.id + '?start=' + startOffset;
+                if (correction !== 0) src += '&correction=' + correction;
                 const trackElement = \{
                     kind: 'subtitles',
                     label: trackInfo.displayName || trackInfo.languageName,
                     language: trackInfo.languageCode,
-                    src: '/api/video/subtitles/track/' + trackInfo.id,
+                    src: src,
                     default: trackInfo.isDefault
                 \};
                 

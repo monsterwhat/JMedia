@@ -109,7 +109,7 @@ public class PlaylistAPI {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
             }
             
-            List<Profile> allProfiles = Profile.listAll();
+            List<Profile> allProfiles = profileService.findAll();
             for (Profile profile : allProfiles) {
                 if (profile.isPlaylistHidden(id)) {
                     profile.removeHiddenPlaylist(id);

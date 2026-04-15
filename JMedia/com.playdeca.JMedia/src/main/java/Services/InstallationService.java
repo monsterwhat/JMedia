@@ -12,11 +12,16 @@ import org.slf4j.LoggerFactory;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 @ApplicationScoped
 public class InstallationService {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(InstallationService.class);
+    
+    // Cache installation status for 24 hours
+    private static final long CACHE_DURATION_MS = 24 * 60 * 60 * 1000L; // 24 hours
+    private final AtomicReference<CachedStatus> statusCache = new AtomicReference<>();
     
     @Inject
     PlatformOperationsFactory platformOperationsFactory;
@@ -26,10 +31,19 @@ public class InstallationService {
     
     /**
      * Gets the current installation status of all required tools.
+     * Results are cached for 24 hours to avoid repeated expensive process checks.
      *
      * @return ImportInstallationStatus with current status of all tools
      */
     public ImportInstallationStatus getInstallationStatus() {
+        // Check cache first
+        CachedStatus cached = statusCache.get();
+        long now = System.currentTimeMillis();
+        if (cached != null && (now - cached.timestamp) < CACHE_DURATION_MS) {
+            LOGGER.debug("Returning cached installation status (age: {}ms)", now - cached.timestamp);
+            return cached.status;
+        }
+        
         LOGGER.info("Starting library installation status detection...");
         
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
@@ -75,8 +89,12 @@ public class InstallationService {
             LOGGER.info("  FFmpeg: {} - {}", ffmpegInstalled ? "INSTALLED" : "NOT INSTALLED", ffmpegMessage);
             LOGGER.info("  Whisper: {} - {}", whisperInstalled ? "INSTALLED" : "NOT INSTALLED", whisperMessage);
             
-            return new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, whisperInstalled, 
+            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, whisperInstalled, 
                     packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, whisperMessage);
+            
+            // Update cache
+            statusCache.set(new CachedStatus(now, status));
+            return status;
             
         } catch (Exception e) {
             LOGGER.error("Critical error during installation status detection", e);
@@ -100,6 +118,7 @@ public class InstallationService {
      * @throws Exception If any installation fails
      */
     public void installAllRequirements(Long profileId) throws Exception {
+        clearCache(); // Force fresh status check after installation
         ImportInstallationStatus status = getInstallationStatus();
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
 
@@ -149,6 +168,7 @@ public class InstallationService {
     public void installPackageManger(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installPackageManger(profileId);
+        clearCache();
     }
 
     /**
@@ -160,6 +180,7 @@ public class InstallationService {
     public void installPython(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installPython(profileId);
+        clearCache();
     }
 
     /**
@@ -171,6 +192,7 @@ public class InstallationService {
     public void installNode(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installNode(profileId);
+        clearCache();
     }
 
     /**
@@ -182,6 +204,7 @@ public class InstallationService {
     public void installFFmpeg(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installFFmpeg(profileId);
+        clearCache();
     }
 
     /**
@@ -194,6 +217,7 @@ public class InstallationService {
     public String installSpotdl(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installSpotdl(profileId);
+        clearCache();
         
         // After installation, return the detected Python executable
         try {
@@ -213,6 +237,7 @@ public class InstallationService {
     public void installYtdlp(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installYtdlp(profileId);
+        clearCache();
     }
     
     /**
@@ -319,6 +344,7 @@ public class InstallationService {
     public void installWhisper(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installWhisper(profileId);
+        clearCache();
     }
     
     /**
@@ -330,6 +356,7 @@ public class InstallationService {
     public void uninstallPython(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallPython(profileId);
+        clearCache();
     }
 
     /**
@@ -341,6 +368,7 @@ public class InstallationService {
     public void uninstallNode(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallNode(profileId);
+        clearCache();
     }
 
     /**
@@ -352,6 +380,7 @@ public class InstallationService {
     public void uninstallFFmpeg(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallFFmpeg(profileId);
+        clearCache();
     }
 
     /**
@@ -363,6 +392,7 @@ public class InstallationService {
     public void uninstallSpotdl(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallSpotdl(profileId);
+        clearCache();
     }
 
     /**
@@ -374,6 +404,7 @@ public class InstallationService {
     public void uninstallYtdlp(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallYtdlp(profileId);
+        clearCache();
     }
 
     /**
@@ -385,6 +416,7 @@ public class InstallationService {
     public void uninstallWhisper(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallWhisper(profileId);
+        clearCache();
     }
     
     /**
@@ -432,5 +464,27 @@ public class InstallationService {
     
     private void broadcast(String message, Long profileId) {
         importStatusSocket.broadcast(message, profileId);
+    }
+    
+    /**
+     * Clears the cached installation status to force a fresh check on next request.
+     * Called after installation operations to ensure accurate status.
+     */
+    public void clearCache() {
+        statusCache.set(null);
+        LOGGER.info("Installation status cache cleared");
+    }
+    
+    /**
+     * Thread-safe cache wrapper for installation status.
+     */
+    private static class CachedStatus {
+        final long timestamp;
+        final ImportInstallationStatus status;
+        
+        CachedStatus(long timestamp, ImportInstallationStatus status) {
+            this.timestamp = timestamp;
+            this.status = status;
+        }
     }
 }

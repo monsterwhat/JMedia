@@ -92,13 +92,65 @@ class App {
             container.innerHTML = html;
             this.currentView = viewName;
             
-            // Player Visibility - Ensure shown on navigation UNLESS a video is active
-            const player = document.querySelector('.persistent-music-player');
-            if (player) {
-                // If window.videoPlaying is set, don't force show it
-                if (!window.videoPlaying) {
-                    player.style.display = 'flex';
-                    player.classList.remove('video-playing');
+            // === VIDEO PAGE DETECTION - Hide/Show Music Player ===
+            const isVideoPage = viewName === 'video';
+            const musicPlayer = document.querySelector('.persistent-music-player') || 
+                               document.querySelector('.mobile-player') ||
+                               document.getElementById('musicPlayerContainer');
+            const audio = document.getElementById('audioPlayer');
+            
+            if (isVideoPage) {
+                // Navigating TO video page - hide music player and pause audio
+                console.log('[App] Navigating to video page - hiding music bar');
+                window.videoPlaying = true;
+                document.body.classList.add('video-active');
+                document.body.setAttribute('data-video-active', 'true');
+                
+                if (musicPlayer) {
+                    musicPlayer.style.setProperty('display', 'none', 'important');
+                    musicPlayer.classList.add('video-active');
+                }
+                
+                // Check if music was playing and save state before pausing
+                const wasPlaying = audio && !audio.paused;
+                window.musicWasPlayingBeforeVideo = wasPlaying;
+                console.log('[App] Music was playing before video:', wasPlaying);
+                
+                // Pause local audio immediately
+                if (audio && !audio.paused) {
+                    console.log('[App] Pausing audio');
+                    audio.pause();
+                }
+                
+                // Notify server to pause (silently)
+                if (typeof window.apiPost === 'function') {
+                    window.apiPost('pause', null, true);
+                }
+            } else {
+                // Navigating AWAY from video page - show music player
+                console.log('[App] Navigating to', viewName, '- showing music bar');
+                window.videoPlaying = false;
+                document.body.classList.remove('video-active');
+                document.body.setAttribute('data-video-active', 'false');
+                
+                if (musicPlayer) {
+                    musicPlayer.style.removeProperty('display');
+                    musicPlayer.classList.remove('video-playing');
+                    musicPlayer.classList.remove('video-active');
+                }
+                
+                // Resume music if it was playing before
+                if (window.musicWasPlayingBeforeVideo === true) {
+                    console.log('[App] Resuming music (was playing before video)');
+                    // Resume via API to sync with server
+                    if (typeof window.apiPost === 'function') {
+                        window.apiPost('play', null, true);
+                    }
+                    // Also resume local audio immediately for faster response
+                    if (audio && audio.paused) {
+                        audio.play().catch(() => {});
+                    }
+                    window.musicWasPlayingBeforeVideo = false;
                 }
             }
 

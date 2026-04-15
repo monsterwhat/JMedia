@@ -271,7 +271,15 @@
                         duration: state.duration,
                         shuffleMode: state.shuffleMode,
                         repeatMode: state.repeatMode,
-                        cue: state.cue
+                        cue: state.cue,
+                        // DJ Mode fields
+                        djModeActive: state.djModeActive,
+                        djNextSongId: state.djNextSongId,
+                        djEntryTime: state.djEntryTime,
+                        djExitTime: state.djExitTime,
+                        djTransitionPlanned: state.djTransitionPlanned,
+                        djTransitionConfidence: state.djTransitionConfidence,
+                        djTransitionReason: state.djTransitionReason
                     },
                     source: 'websocket'
                 }

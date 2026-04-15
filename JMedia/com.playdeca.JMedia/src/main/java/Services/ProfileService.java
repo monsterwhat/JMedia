@@ -31,6 +31,11 @@ public class ProfileService {
         return Profile.list("userId", userId);
     }
 
+    @Transactional
+    public List<Profile> findAll() {
+        return Profile.listAll();
+    }
+
     public Profile findMainProfileByUser(Long userId) {
         return Profile.findMainProfileByUser(userId);
     }

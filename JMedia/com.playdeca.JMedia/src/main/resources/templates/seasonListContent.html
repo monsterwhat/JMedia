@@ -13,7 +13,7 @@
         <h1 class="series-hero-title mb-4" 
             {#if lastPlayedVideo}onclick="window.selectItem({lastPlayedVideo.id}, 'play')"{/if}
             style="cursor: pointer; display: block;" 
-            title="Play / Resume {lastPlayedVideo.episodeTitle ?: lastPlayedVideo.title}">
+            title="{lastPlayedVideo ? 'Play / Resume ' + (lastPlayedVideo.episodeTitle ?: lastPlayedVideo.title) : ''}">
             {seriesTitle}
             <i class="pi pi-play-circle ml-4 play-hint-icon" style="font-size: 0.6em; vertical-align: middle; opacity: 0; transition: all 0.3s;"></i>
         </h1>

@@ -145,8 +145,8 @@ public class FFprobeSubtitleService {
         return track;
     }
 
-    /**
-     * Extract an internal subtitle track and convert to WebVTT string on-the-fly with an optional start offset
+/**
+     * Extract an internal subtitle track and convert to WebVTT string on-the-fly
      */
     public String extractInternalSubtitleToVTT(SubtitleTrack track, double startOffset) throws IOException {
         if (!track.isEmbedded || track.trackIndex == null || track.video == null) {
@@ -162,19 +162,19 @@ public class FFprobeSubtitleService {
         Path baseFilePath = Paths.get(track.video.path);
         Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.video.path);
 
-        // Using -ss before -i for fast seeking even for subtitles
+        // Extract full subtitle track WITHOUT seeking - preserve original timestamps
+        // Browser handles sync based on video.currentTime
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
         command.add("-v");
         command.add("quiet");
+        command.add("-i");
+        command.add(filePath.toAbsolutePath().toString());
         
-        if (startOffset > 0) {
-            command.add("-ss");
-            command.add(String.valueOf(startOffset));
-        }
+        // Don't use -ss - return full track with original timestamps
+        // Browser will sync based on video.currentTime
         
         command.addAll(List.of(
-            "-i", filePath.toAbsolutePath().toString(),
             "-map", "0:" + track.trackIndex,
             "-f", "webvtt",
             "-"

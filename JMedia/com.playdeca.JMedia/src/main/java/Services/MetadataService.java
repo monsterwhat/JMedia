@@ -47,10 +47,47 @@ public class MetadataService {
                 song.setGenre(tag.getFirst(FieldKey.GENRE));
                 song.setLyrics(tag.getFirst(FieldKey.LYRICS));
 
+                // Extract additional fields from standard tags (as fallback if app-enriched data exists)
+                String track = tag.getFirst(FieldKey.TRACK);
+                if (track != null && !track.isBlank()) {
+                    try {
+                        // Handle format "1" or "1/10"
+                        song.setTrackNumber(Integer.parseInt(track.split("/")[0]));
+                    } catch (Exception e) { }
+                }
+                String disc = tag.getFirst(FieldKey.DISC_NO);
+                if (disc != null && !disc.isBlank()) {
+                    try {
+                        song.setDiscNumber(Integer.parseInt(disc.split("/")[0]));
+                    } catch (Exception e) { }
+                }
+                String bpm = tag.getFirst(FieldKey.BPM);
+                if (bpm != null && !bpm.isBlank()) {
+                    try {
+                        song.setBpm(Integer.parseInt(bpm));
+                    } catch (Exception e) { }
+                }
+                String year = tag.getFirst(FieldKey.YEAR);
+                if (year != null && !year.isBlank()) {
+                    song.setDate(year);
+                }
+                
                 // Duration in seconds
                 song.setDurationSeconds(f.getAudioHeader().getTrackLength());
 
-                 // Skip artwork due to jaudiotagger compatibility issues
+                // Extract custom fields from COMMENT (as backup if standard fields are empty)
+                extractCustomFields(tag, song);
+                
+                // Extract explicit flag from COMMENT
+                String comment = tag.getFirst(FieldKey.COMMENT);
+                if (comment != null && comment.toLowerCase().contains("explicit")) {
+                    song.setExplicit(true);
+                }
+                
+                // If standard fields are empty, try extracting from COMMENT custom fields
+                fillMissingFromComment(tag, song);
+                
+                // Skip artwork due to jaudiotagger compatibility issues
                 song.setArtworkBase64("");
                 song.setTitle(audioFile.getName().substring(0, audioFile.getName().lastIndexOf('.')));
                 song.setArtist("Unknown Artist");
@@ -102,6 +139,68 @@ public class MetadataService {
         }
         
         return song;
+    }
+    
+    /**
+     * Extracts custom JMedia fields from the COMMENT tag.
+     * Format: mbz:{musicbrainzId};app:JMedia v1.1.0 | ReleaseDate:2024-01-15 | Explicit
+     */
+    private void extractCustomFields(Tag tag, Song song) {
+        String comment = tag.getFirst(FieldKey.COMMENT);
+        if (comment == null || comment.isBlank()) {
+            return;
+        }
+        
+        // Split by | for multiple custom fields
+        String[] parts = comment.split("\\|");
+        for (String part : parts) {
+            part = part.trim();
+            
+            // Extract MusicBrainz ID: mbz:...
+            if (part.startsWith("mbz:")) {
+                try {
+                    String mbzId = part.substring(4).trim();
+                    if (!mbzId.isEmpty() && !mbzId.contains(" ")) {
+                        song.setMusicbrainzId(mbzId);
+                    }
+                } catch (Exception e) {
+                    // Ignore parsing errors
+                }
+            }
+            
+            // Extract ReleaseDate: ReleaseDate:2024-01-15
+            if (part.startsWith("ReleaseDate:")) {
+                try {
+                    String releaseDate = part.substring(11).trim();
+                    if (!releaseDate.isEmpty()) {
+                        song.setReleaseDate(releaseDate);
+                    }
+                } catch (Exception e) {
+                    // Ignore parsing errors
+                }
+            }
+        }
+    }
+    
+    /**
+     * Fills missing standard fields from COMMENT custom fields
+     */
+    private void fillMissingFromComment(Tag tag, Song song) {
+        String comment = tag.getFirst(FieldKey.COMMENT);
+        if (comment == null || comment.isBlank()) {
+            return;
+        }
+        
+        // If date is missing, use ReleaseDate from COMMENT
+        if (song.getDate() == null || song.getDate().isBlank()) {
+            for (String part : comment.split("\\|")) {
+                part = part.trim();
+                if (part.startsWith("ReleaseDate:")) {
+                    song.setDate(part.substring(11).trim());
+                    break;
+                }
+            }
+        }
     }
     
     /**

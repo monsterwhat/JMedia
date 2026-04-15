@@ -46,6 +46,7 @@
         stateManager: false,
         statePersistence: false,
         audioEngine: false,
+        djTransitionManager: false,
         webSocketManager: false,
         actionTracker: false,
         playbackController: false,
@@ -81,6 +82,10 @@
                 const restoredState = window.StatePersistence.initializeWithRestored();
                 if (restoredState) {
                     window.Helpers.log('[musicBar] Initialized with restored state:', restoredState);
+                    // Trigger UI update for restored state (especially for djMode indicator)
+                    if (window.UIUpdater) {
+                        window.UIUpdater.performUIUpdate();
+                    }
                 }
             }
 
@@ -118,6 +123,7 @@
             {name: 'StateManager', obj: window.StateManager, module: modules.stateManager},
             {name: 'StatePersistence', obj: window.StatePersistence, module: modules.statePersistence},
             {name: 'AudioEngine', obj: window.AudioEngine, module: modules.audioEngine},
+            {name: 'DjTransitionManager', obj: window.DjTransitionManager, module: modules.djTransitionManager},
             {name: 'WebSocketManager', obj: window.WebSocketManager, module: modules.webSocketManager},
             {name: 'ActionTracker', obj: window.ActionTracker, module: modules.actionTracker},
             {name: 'PlaybackController', obj: window.PlaybackController, module: modules.playbackController},
@@ -359,6 +365,12 @@
         }
 
         window.AudioEngine.init();
+        
+        // Initialize DJ transition manager
+        if (window.DjTransitionManager) {
+            window.DjTransitionManager.init();
+            window.Helpers.log('[musicBar] DjTransitionManager initialized');
+        }
     }
 
     /**

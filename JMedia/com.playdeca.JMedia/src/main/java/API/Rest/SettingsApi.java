@@ -23,9 +23,13 @@ import Services.InstallationService;
 import Services.Platform.PlatformOperations;
 import Services.Platform.PlatformOperationsFactory;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import Services.MediaDirectoryService;
+import Services.VideoImportService;
+import java.nio.file.Paths;
 
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
@@ -60,6 +64,9 @@ public class SettingsApi {
 
     @Inject
     Services.CertificateService certificateService;
+
+    @Inject
+    VideoImportService videoImportService;
 
     @GET
     @Path("/https/status")
@@ -560,13 +567,59 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/scanLibrary")
-    public Response scanLibrary(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+    public Response scanLibrary(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        
+        String dirPath = null;
+        if (directoryId != null) {
+            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            if (dir != null && dir.enabled && dir.mediaType == Models.MediaDirectory.MediaType.MUSIC) {
+                dirPath = dir.path;
+            }
+        }
+        
+        final String finalDirPath = dirPath;
         executor.submit(() -> {
-            settingsController.scanLibrary();
+            settingsController.scanLibrary(finalDirPath);
         }, "LibraryScanThread");
 
-        return Response.ok(ApiResponse.success("Full scan started")).build();
+        String msg = directoryId != null ? "Scan started for directory" : "Full scan started";
+        return Response.ok(ApiResponse.success(msg)).build();
+    }
+
+    @POST
+    @Path("/{profileId}/scanVideo")
+    public Response scanVideo(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        
+        String dirPath = null;
+        if (directoryId != null) {
+            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            if (dir != null && dir.enabled && dir.mediaType == Models.MediaDirectory.MediaType.VIDEO) {
+                dirPath = dir.path;
+            }
+        }
+        
+        final String finalDirPath = dirPath;
+        executor.submit(() -> {
+            try {
+                if (finalDirPath != null) {
+                    videoImportService.scanAndProcess(Paths.get(finalDirPath));
+                } else {
+                    String videoPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                    if (videoPath != null && !videoPath.isBlank()) {
+                        videoImportService.scanAndProcess(Paths.get(videoPath));
+                    }
+                }
+                settingsController.addLog("Video scan completed");
+            } catch (Exception e) {
+                LOGGER.error("Video scan failed", e);
+                settingsController.addLog("Video scan failed: " + e.getMessage());
+            }
+        }, "VideoScanThread");
+
+        String msg = directoryId != null ? "Video scan started for directory" : "Video scan started";
+        return Response.ok(ApiResponse.success(msg)).build();
     }
 
     @POST
@@ -588,12 +641,18 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/clearSongs")
-    public Response clearSongs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+    public Response clearSongs(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
-            songService.clearAllSongs();
-            settingsController.addLog("All songs cleared from database.");
-            return Response.ok(ApiResponse.success("All songs deleted")).build();
+            String dirPath = null;
+            if (directoryId != null) {
+                Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+                if (dir != null) dirPath = dir.path;
+            }
+            songService.clearSongsByDirectory(dirPath);
+            String msg = directoryId != null ? "Songs cleared for directory" : "All songs cleared";
+            settingsController.addLog(msg + " from database.");
+            return Response.ok(ApiResponse.success(msg)).build();
         } catch (Exception e) {
             settingsController.addLog("Failed to clear songs DB: " + e.getMessage());
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to clear songs")).build();
@@ -602,24 +661,42 @@ public class SettingsApi {
 
     @POST
     @Path("/{profileId}/reloadMetadata")
-    public Response reloadMetadata(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+    public Response reloadMetadata(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        
+        String dirPath = null;
+        if (directoryId != null) {
+            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            if (dir != null) dirPath = dir.path;
+        }
+        
+        final String finalDirPath = dirPath;
         executor.submit(() -> {
-            settingsController.reloadAllSongsMetadata();
+            settingsController.reloadAllSongsMetadata(finalDirPath);
         }, "MetadataReloadThread");
 
-        return Response.ok(ApiResponse.success("Metadata reload started")).build();
+        String msg = directoryId != null ? "Metadata reload started for directory" : "Metadata reload started";
+        return Response.ok(ApiResponse.success(msg)).build();
     }
 
     @POST
     @Path("/{profileId}/deleteDuplicates")
-    public Response deleteDuplicates(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+    public Response deleteDuplicates(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        
+        String dirPath = null;
+        if (directoryId != null) {
+            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            if (dir != null) dirPath = dir.path;
+        }
+        
+        final String finalDirPath = dirPath;
         executor.submit(() -> {
-            settingsController.deleteDuplicateSongs();
+            settingsController.deleteDuplicateSongs(finalDirPath);
         }, "DeleteDuplicatesThread");
 
-        return Response.ok(ApiResponse.success("Duplicate deletion started")).build();
+        String msg = directoryId != null ? "Duplicate check started for directory" : "Duplicate check started";
+        return Response.ok(ApiResponse.success(msg)).build();
     }
 
     @POST
@@ -718,4 +795,70 @@ public class SettingsApi {
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to delete cookies file")).build();
         }
-    }}
+    }
+
+    // -----------------------------
+    // MEDIA DIRECTORY MANAGEMENT
+    // -----------------------------
+    @Inject
+    MediaDirectoryService mediaDirectoryService;
+
+    @GET
+    @Path("/{profileId}/directories")
+    public Response listDirectories(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        List<Models.MediaDirectory> dirs = mediaDirectoryService.listAll();
+        return Response.ok(ApiResponse.success(dirs)).build();
+    }
+
+    @POST
+    @Path("/{profileId}/directories")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response addDirectory(@PathParam("profileId") Long profileId, Map<String, String> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            String path = data.get("path");
+            String typeStr = data.get("type"); // "MUSIC" or "VIDEO"
+            if (path == null || path.isBlank()) {
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Path is required")).build();
+            }
+            if (!mediaDirectoryService.validatePath(path)) {
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid directory path")).build();
+            }
+            Models.MediaDirectory.MediaType type = Models.MediaDirectory.MediaType.VIDEO;
+            if (typeStr != null && "MUSIC".equalsIgnoreCase(typeStr)) {
+                type = Models.MediaDirectory.MediaType.MUSIC;
+            }
+            Models.MediaDirectory dir = mediaDirectoryService.addDirectory(path, type);
+            return Response.ok(ApiResponse.success(dir)).build();
+        } catch (Exception e) {
+            LOGGER.error("Error adding directory", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to add directory")).build();
+        }
+    }
+
+    @DELETE
+    @Path("/{profileId}/directories/{id}")
+    public Response deleteDirectory(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            mediaDirectoryService.removeDirectory(id);
+            return Response.ok(ApiResponse.success("Directory removed")).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Failed to remove directory")).build();
+        }
+    }
+
+    @PUT
+    @Path("/{profileId}/directories/{id}/enable")
+    public Response toggleDirectory(@PathParam("profileId") Long profileId, @PathParam("id") Long id, Map<String, Boolean> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        Boolean enabled = data.get("enabled");
+        if (enabled == null) enabled = true;
+        Models.MediaDirectory dir = mediaDirectoryService.updateEnabled(id, enabled);
+        if (dir == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Directory not found")).build();
+        }
+        return Response.ok(ApiResponse.success(dir)).build();
+    }
+}

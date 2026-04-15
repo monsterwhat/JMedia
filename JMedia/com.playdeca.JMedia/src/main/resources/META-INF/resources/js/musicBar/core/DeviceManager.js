@@ -85,6 +85,11 @@
                     if (isFinite(v)) {
                         this.deviceVolumes[this.deviceId] = v;
                         window.Helpers.log('DeviceManager loaded device volume:', v);
+                        
+                        // Notify other modules that volume is ready
+                        window.dispatchEvent(new CustomEvent('deviceVolumeLoaded', {
+                            detail: { volume: v }
+                        }));
                     }
                 }
             } catch (e) {

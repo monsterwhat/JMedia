@@ -1,8 +1,8 @@
 <div class="detail-container">
     <script>
         (function() {
-            var videoType = '{item.type}';
-            var seriesTitle = '{item.seriesTitle}';
+            var videoType = '{item.type ?: ""}';
+            var seriesTitle = '{item.seriesTitle ?: ""}';
             var seasonNumber = {item.seasonNumber ?: 0};
             
             if (videoType && videoType.toLowerCase() === 'episode') {
@@ -18,7 +18,7 @@
     <div class="poster-section">
         <img class="poster-image" 
              src="/api/video/thumbnail/{item.id}" 
-             alt="{item.title ?: item.seriesTitle}">
+             alt="{item.title ?: item.seriesTitle ?: 'Video'}">
         <div class="play-button" onclick="window.selectItem({item.id}, 'play')">
             <i class="pi pi-play"></i>
         </div>
@@ -39,7 +39,7 @@
                 <i class="pi pi-arrow-left"></i> Back
             </button>
             <div class="title-section">
-                <h1>{item.title ?: item.seriesTitle}</h1>
+                <h1>{item.title ?: item.seriesTitle ?: 'Untitled Video'}</h1>
                 {#if item.tagline}
                 <p class="tagline">{item.tagline}</p>
                 {/if}
@@ -47,7 +47,7 @@
                 <div class="meta-info">
                     <div class="meta-item">
                         <i class="pi pi-calendar"></i>
-                        <span>{item.releaseYear ?: (item.releaseDate ? item.releaseDate.substring(0,4) : '2024')}</span>
+                        <span>{item.releaseYear ?: (item.releaseDate && item.releaseDate.length >= 4 ? item.releaseDate.substring(0,4) : '2024')}</span>
                     </div>
                     {#if item.runtimeMins}
                     <div class="meta-item">
@@ -65,10 +65,10 @@
                         <span class="mpaa-badge">{item.mpaaRating}</span>
                     </div>
                     {/if}
-                    {#if item.type.toLowerCase() == 'episode'}
+                    {#if item.type && item.type.toLowerCase() == 'episode'}
                     <div class="meta-item">
                         <i class="pi pi-tv"></i>
-                        <span>S{item.seasonNumber}E{item.episodeNumber}</span>
+                        <span>S{item.seasonNumber ?: 0}E{item.episodeNumber ?: 0}</span>
                     </div>
                     {/if}
                 </div>
@@ -77,16 +77,16 @@
 
         <!-- Ratings Row -->
         <div class="ratings-row">
-            {#if item.imdbRating > 0}
+            {#if item.imdbRating && item.imdbRating > 0}
             <div class="rating-badge imdb">
                 <span class="label">IMDb</span>
                 <span class="value">{item.imdbRating}</span>
             </div>
             {/if}
-            {#if item.tmdbRating > 0}
+            {#if item.tmdbRating && item.tmdbRating > 0}
             <div class="rating-badge tmdb">
                 <span class="label">TMDB</span>
-                <span class="value">{item.tmdbRating.toString().substring(0,3)}</span>
+                <span class="value">{item.tmdbRating}</span>
             </div>
             {/if}
             {#if item.metacriticRating}
@@ -102,10 +102,10 @@
             <button class="action-btn btn-primary" onclick="window.selectItem({item.id}, 'play')">
                 <i class="pi pi-play"></i> Play Now
             </button>
-            <button class="action-btn btn-secondary" onclick="subtitleManager.openModal({item.id}, '{item.title ?: item.seriesTitle}', '{item.path.replace('\\', '/')}')">
+            <button class="action-btn btn-secondary" onclick="subtitleManager.openModal({item.id}, '{item.title ?: item.seriesTitle ?: 'Video'}', '')">
                 <i class="pi pi-closed-captioning"></i> Subtitles
             </button>
-            <button class="action-btn btn-secondary" onclick="window.addToWatchlist('{item.title ?: 'Video'}', {item.id})">
+            <button class="action-btn btn-secondary" onclick="window.addToWatchlist('{item.title ?: item.seriesTitle ?: 'Video'}', {item.id})">
                 <i class="pi pi-bookmark"></i> Watchlist
             </button>
         </div>
@@ -118,9 +118,11 @@
         <!-- Genres & Keywords -->
         <div class="tags-section">
             <div class="genre-tags">
-                {#for genre in item.genres}
-                <span class="genre-tag">{genre}</span>
-                {/for}
+                {#if item.genres}
+                    {#for genre in item.genres}
+                    <span class="genre-tag">{genre}</span>
+                    {/for}
+                {/if}
             </div>
         </div>
 

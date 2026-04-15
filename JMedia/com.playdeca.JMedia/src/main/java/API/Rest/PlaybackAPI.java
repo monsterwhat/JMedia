@@ -111,6 +111,15 @@ public class PlaybackAPI {
     }
 
     @POST
+    @Path("/transition-started/{profileId}")
+    public Response transitionStarted(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.handleTransitionStarted(userProfile.id);
+        return Response.ok(ApiResponse.success("Transition started acknowledged")).build();
+    }
+
+    @POST
     @Path("/select/{profileId}/{id}")
     public Response selectSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
@@ -132,6 +141,15 @@ public class PlaybackAPI {
         if (userProfile == null) return Response.status(401).build();
         playbackController.toggleShuffle(userProfile.id);
         return Response.ok(ApiResponse.success("Shuffle toggled")).build();
+    }
+
+    @POST
+    @Path("/dj-mode/{profileId}")
+    public Response toggleDjMode(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.toggleDjMode(userProfile.id);
+        return Response.ok(ApiResponse.success("DJ Mode toggled")).build();
     }
 
     @POST

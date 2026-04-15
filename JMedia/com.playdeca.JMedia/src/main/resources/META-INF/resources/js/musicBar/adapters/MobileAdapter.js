@@ -426,15 +426,6 @@
                 }
             });
             
-            // Handle visibility changes
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden) {
-                    this.pauseBackgroundTasks();
-                } else {
-                    this.resumeBackgroundTasks();
-                }
-            });
-            
             // Re-setup swipe handlers after HTMX swaps (for dynamically added content)
             document.body.addEventListener('htmx:afterSwap', (e) => {
                 if (e.detail && e.detail.target) {

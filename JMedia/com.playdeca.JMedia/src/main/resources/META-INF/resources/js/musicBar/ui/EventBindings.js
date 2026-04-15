@@ -71,6 +71,19 @@
                 };
             }
             
+            // DJ Mode button
+            const djModeBtn = document.getElementById('djModeBtn');
+            if (djModeBtn) {
+                const newDjModeBtn = djModeBtn.cloneNode(true);
+                djModeBtn.parentNode.replaceChild(newDjModeBtn, djModeBtn);
+                
+                newDjModeBtn.onclick = () => {
+                    window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
+                        detail: { action: 'dj-mode', profileId: window.globalActiveProfileId }
+                    }));
+                };
+            }
+            
             // Repeat button
             const repeatBtn = document.getElementById('repeatBtn');
             if (repeatBtn) {

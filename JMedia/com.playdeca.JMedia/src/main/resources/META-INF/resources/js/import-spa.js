@@ -130,6 +130,11 @@ window.uploadCookiesFile = function(file) {
 window.initImportView = function() {
     console.log("Initializing Import View");
     
+    // Initialize core import logic
+    if (window.initImportLogic) {
+        window.initImportLogic();
+    }
+    
     // Admin check logic
     (async () => {
         try {

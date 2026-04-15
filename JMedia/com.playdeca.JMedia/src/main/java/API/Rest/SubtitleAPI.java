@@ -12,12 +12,7 @@ import Services.SubtitlePreferenceEngine;
 import Services.UserInteractionService;
 import Services.WhisperService;
 import Services.SubtitleDownloadService;
-import Services.FFprobeSubtitleService;
-import Services.SettingsService;
-
-import java.io.IOException;
-import java.nio.file.Files; 
-import java.nio.file.Paths;
+import Services.FFprobeSubtitleService; 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -265,7 +260,8 @@ public class SubtitleAPI {
     @Path("/track/{trackId}")
     @Produces("text/vtt")
     public Response streamSubtitle(@PathParam("trackId") Long trackId,
-                                  @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double offset) {
+                                  @QueryParam("start") @jakarta.ws.rs.DefaultValue("0") double offset,
+                                  @QueryParam("correction") @jakarta.ws.rs.DefaultValue("0") double correction) {
         SubtitleTrack track = SubtitleTrack.findById(trackId);
         if (track == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -276,9 +272,23 @@ public class SubtitleAPI {
         try {
             String webVTTContent;
             
+            // For external tracks:
+            // -offset: shift earlier by seek position (because the browser video starts at 0.0)
+            // +correction: user-defined adjustment (positive = later, negative = earlier)
+            double externalShift = -offset + correction;
+
+            // For embedded tracks, ffmpeg extracts the full subtitle with original timestamps.
+            // When the video stream starts at an offset (server-side seek), video.currentTime starts at 0
+            // but the video is actually at the offset position. We must shift subtitles to match.
             if (track.isEmbedded) {
-                // Internal track - extract on-the-fly with offset for performance
                 webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track, offset);
+                
+                // Apply the same offset shift as external tracks: negative offset shifts timestamps
+                // so a cue originally at 'offset' seconds appears at video.currentTime = 0
+                double effectiveShift = -offset + correction;
+                if (effectiveShift != 0) {
+                    webVTTContent = formatConverter.applyOffset(webVTTContent, effectiveShift);
+                }
             } else {
                 // External track - read and convert using the robust converter service
                 java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
@@ -291,9 +301,9 @@ public class SubtitleAPI {
                 // Convert to WebVTT
                 webVTTContent = formatConverter.convertToWebVTT(track);
 
-                // Apply time offset if requested (for seeking in remuxed streams)
-                if (offset > 0) {
-                    webVTTContent = formatConverter.applyOffset(webVTTContent, offset);
+                // Apply total shift (seek offset + user correction)
+                if (externalShift != 0) {
+                    webVTTContent = formatConverter.applyOffset(webVTTContent, externalShift);
                 }
             }
 
@@ -309,6 +319,7 @@ public class SubtitleAPI {
             return Response.ok(webVTTContent)
                     .header("Content-Type", "text/vtt; charset=utf-8")
                     .header("Cache-Control", "public, max-age=3600")
+                    .header("Access-Control-Allow-Origin", "*")
                     .build();
 
         } catch (Exception e) {

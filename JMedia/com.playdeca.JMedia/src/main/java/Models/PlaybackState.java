@@ -64,6 +64,18 @@ public class PlaybackState extends PanacheEntity {
 
     private Integer crossfadeDuration = 0;
 
+    // DJ Mode state tracking
+    private Boolean djModeActive = false;
+    private Integer originalCrossfadeDuration = 0;
+
+    // DJ Mode transition planning (beat-aligned cross-song transitions)
+    private Long djNextSongId;           // The next song to transition into
+    private Double djEntryTime;          // Where in the next song to start (seconds)
+    private Double djExitTime;           // Where in the current song to start crossfade
+    private Boolean djTransitionPlanned; // Whether a transition has been calculated
+    private Double djTransitionConfidence; // 0.0-1.0 confidence of the match
+    private String djTransitionReason;   // Human-readable explanation of the match
+
     public enum ShuffleMode {
         OFF,
         SHUFFLE,

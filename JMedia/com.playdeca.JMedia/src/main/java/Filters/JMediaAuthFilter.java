@@ -37,6 +37,15 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
             "/login.html"
     );
 
+    // Streaming endpoints that must work even without auth (video element can't handle 401 JSON)
+    private static final List<String> STREAMING_ENDPOINTS = Arrays.asList(
+            "/api/video/stream/",
+            "/api/video/hls/",
+            "/api/video/subtitles/",
+            "/api/video/progress/",
+            "/api/video/storyboard/"
+    );
+
     @Inject
     SessionService sessionService;
 
@@ -54,9 +63,9 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
 
         LOG.debug("Processing request path: '{}'", path);
 
-        // 1. Allow public endpoints and static resources immediately
-        if (isPublicEndpoint(path) || isStaticResource(path)) {
-            LOG.debug("Path '{}' is public - allowing access", path);
+        // 1. Allow public endpoints, static resources, and streaming endpoints immediately
+        if (isPublicEndpoint(path) || isStaticResource(path) || isStreamingEndpoint(path)) {
+            LOG.debug("Path '{}' is public/streaming - allowing access", path);
 
             // Still check for block status on login endpoint
             if (path.equals("/api/auth/login") && rateLimitService.isBlocked(clientIp, null)) {
@@ -123,6 +132,10 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
 
     private boolean isStaticResource(String path) {
         return STATIC_RESOURCES.stream().anyMatch(resource -> path.startsWith(resource));
+    }
+
+    private boolean isStreamingEndpoint(String path) {
+        return STREAMING_ENDPOINTS.stream().anyMatch(endpoint -> path.startsWith(endpoint));
     }
 
     private boolean isSessionValid(String sessionId, String clientIp) {

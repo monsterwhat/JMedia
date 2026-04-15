@@ -160,19 +160,19 @@ public class StreamAPI {
      * Calculates optimal buffer size based on file size and client characteristics
      */
     private int calculateOptimalBufferSize(long fileLength, HttpHeaders headers) {
-        // Default to 32KB for modern connections
-        int defaultSize = 32 * 1024;
-        int maxSize = 64 * 1024;
+        // Default to 256KB for modern connections
+        int defaultSize = 256 * 1024;
+        int maxSize = 512 * 1024; // 512KB max for high-bandwidth clients
         
         // For smaller files, use proportionally smaller buffers
         if (fileLength < 1024 * 1024) { // < 1MB files
-            return Math.min(16 * 1024, fileLength > 0 ? (int) fileLength : 16 * 1024);
+            return Math.min(64 * 1024, fileLength > 0 ? (int) fileLength : 64 * 1024);
         }
         
         // Detect connection type from User-Agent or headers
         String userAgent = headers.getHeaderString("User-Agent");
         if (userAgent != null && (userAgent.contains("Mobile") || userAgent.contains("Android") || userAgent.contains("iPhone"))) {
-            return 16 * 1024; // Smaller for mobile to reduce memory usage
+            return 128 * 1024; // 128KB for mobile - balanced for bandwidth/memory
         }
         
         return defaultSize;

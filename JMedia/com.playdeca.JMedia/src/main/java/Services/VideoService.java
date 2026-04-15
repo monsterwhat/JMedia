@@ -47,6 +47,81 @@ public class VideoService {
         return Video.listAll();
     }
 
+    @Transactional
+    public List<Video> findActive() {
+        return Video.list("isActive", true);
+    }
+
+    @Transactional
+    public long countActive() {
+        return Video.count("isActive", true);
+    }
+
+    @Transactional
+    public Video findById(Long id) {
+        return Video.findById(id);
+    }
+
+    @Transactional
+    public List<Video> findBySeries(String seriesTitle) {
+        return Video.list("seriesTitle = ?1 and type = ?2", seriesTitle, "episode");
+    }
+
+    @Transactional
+    public List<Video> findBySeriesAndSeason(String seriesTitle, Integer seasonNumber) {
+        return Video.list("seriesTitle = ?1 and seasonNumber = ?2 and type = ?3", seriesTitle, seasonNumber, "episode");
+    }
+
+    @Transactional
+    public List<Video> findBySeriesAndSeasonAndEpisode(String seriesTitle, Integer seasonNumber, Integer episodeNumber) {
+        return Video.list("seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber = ?3 and type = ?4", 
+            seriesTitle, seasonNumber, episodeNumber, "episode");
+    }
+
+    @Transactional
+    public void updateAudioTrackPreference(Long videoId, Long trackId, String language) {
+        Video video = Video.findById(videoId);
+        if (video != null) {
+            video.defaultAudioTrackId = trackId;
+            if (language != null) {
+                video.preferredAudioLanguage = language;
+            }
+            video.persist();
+        }
+    }
+
+    @Transactional
+    public void updateProgress(Long videoId, double timeSeconds) {
+        Video video = Video.findById(videoId);
+        if (video != null) {
+            if (video.duration == null || video.duration <= 0) {
+                probeVideoDuration(video);
+            }
+
+            video.resumeTime = (long) (timeSeconds * 1000);
+            video.lastWatched = java.time.LocalDateTime.now();
+            video.dateModified = java.time.LocalDateTime.now();
+            
+            double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
+            double progressRatio = (durationSeconds > 0) ? Math.min(1.0, timeSeconds / durationSeconds) : 0;
+            
+            video.watchProgress = progressRatio;
+            if (progressRatio >= 0.98) {
+                video.watched = true;
+                video.watchProgress = 1.0;
+            } else {
+                video.watched = false;
+            }
+            
+            video.persist();
+        }
+    }
+
+    @Transactional
+    public void persistVideo(Video video) {
+        video.persist();
+    }
+
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Long> findAllVideoIds() {
         return em.createQuery("SELECT v.id FROM Video v ORDER BY v.id", Long.class)
@@ -56,6 +131,19 @@ public class VideoService {
     @Transactional
     public Video find(Long id) {
         Video video = Video.findById(id);
+        
+        if (video != null) {
+            // Initialize ALL lazy collections used in templates
+            org.hibernate.Hibernate.initialize(video.genres);
+            org.hibernate.Hibernate.initialize(video.directors);
+            org.hibernate.Hibernate.initialize(video.writers);
+            org.hibernate.Hibernate.initialize(video.cast);
+            org.hibernate.Hibernate.initialize(video.productionCompanies);
+            org.hibernate.Hibernate.initialize(video.networks);
+            org.hibernate.Hibernate.initialize(video.akas);
+            org.hibernate.Hibernate.initialize(video.keywords);
+        }
+        
         if (video != null && (video.duration == null || video.duration <= 0)) {
             probeVideoDuration(video);
         }
@@ -567,6 +655,7 @@ public class VideoService {
         Video video = Video.findById(id);
         if (video != null) {
             video.title = title;
+            video.titleManuallyEdited = true; // Mark as manually edited
             video.dateModified = LocalDateTime.now();
             video.persist();
             LOGGER.info("Updated title for video ID {}: '{}'", id, title);
@@ -577,8 +666,15 @@ public class VideoService {
     public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type) {
         Video video = Video.findById(id);
         if (video != null) {
-            video.title = title;
-            video.seriesTitle = seriesTitle;
+            // Mark as manually edited when user explicitly sets these values
+            if (title != null) {
+                video.title = title;
+                video.titleManuallyEdited = true;
+            }
+            if (seriesTitle != null) {
+                video.seriesTitle = seriesTitle;
+                video.seriesTitleManuallyEdited = true;
+            }
             video.episodeTitle = episodeTitle;
             video.seasonNumber = seasonNumber;
             video.episodeNumber = episodeNumber;
@@ -596,6 +692,7 @@ public class VideoService {
         List<Video> episodes = findEpisodesForSeries(oldSeriesTitle);
         for (Video ep : episodes) {
             ep.seriesTitle = newSeriesTitle;
+            ep.seriesTitleManuallyEdited = true; // Mark as manually edited
             ep.dateModified = LocalDateTime.now();
             ep.persist();
         }
@@ -608,6 +705,7 @@ public class VideoService {
         List<Video> videos = Video.list("seriesTitle = ?1", oldTitle);
         for (Video v : videos) {
             v.seriesTitle = newTitle;
+            v.seriesTitleManuallyEdited = true; // Mark as manually edited
             v.persist();
         }
         LOGGER.info("Updated series title from '{}' to '{}' for {} videos", oldTitle, newTitle, videos.size());
@@ -630,6 +728,39 @@ public class VideoService {
     @Transactional
     public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath) {
         updateSeriesMetadata(seriesTitle, posterPath, backdropPath, null);
+    }
+    
+    /**
+     * Clears manual override flags for a video, allowing future scans to update those fields
+     */
+    @Transactional
+    public void clearManualOverrideFlags(Long videoId, boolean clearSeriesTitle, boolean clearTitle) {
+        Video video = Video.findById(videoId);
+        if (video != null) {
+            if (clearSeriesTitle) {
+                video.seriesTitleManuallyEdited = false;
+            }
+            if (clearTitle) {
+                video.titleManuallyEdited = false;
+            }
+            video.persist();
+            LOGGER.info("Cleared override flags for video {}: seriesTitle={}, title={}", 
+                       videoId, clearSeriesTitle, clearTitle);
+        }
+    }
+    
+    /**
+     * Clears manual override flags for all episodes of a series
+     */
+    @Transactional
+    public void clearSeriesManualOverrideFlags(String seriesTitle, boolean clearSeriesTitle, boolean clearTitle) {
+        List<Video> videos = Video.list("seriesTitle = ?1", seriesTitle);
+        for (Video v : videos) {
+            if (clearSeriesTitle) v.seriesTitleManuallyEdited = false;
+            if (clearTitle) v.titleManuallyEdited = false;
+            v.persist();
+        }
+        LOGGER.info("Cleared override flags for series '{}' ({} videos)", seriesTitle, videos.size());
     }
 
     // ========== UTILITY METHODS ==========

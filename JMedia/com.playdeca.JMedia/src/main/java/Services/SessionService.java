@@ -35,6 +35,11 @@ public class SessionService {
         
         return session;
     }
+
+    @Transactional
+    public Session findBySessionId(String sessionId) {
+        return Session.findBySessionId(sessionId);
+    }
     
     public boolean validateSession(String sessionId, String ipAddress) {
         LOG.debug("Validating session {} from IP {}", sessionId, ipAddress);

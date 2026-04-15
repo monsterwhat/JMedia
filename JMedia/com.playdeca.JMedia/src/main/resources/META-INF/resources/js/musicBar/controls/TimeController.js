@@ -164,6 +164,11 @@
                 return;
             }
             
+            // Don't update slider during DJ crossfade - causes jumping
+            if (SynchronizationManager.getFlag('isCrossfading')) {
+                return;
+            }
+            
             const slider = document.getElementById('musicProgressBar');
             if (slider) {
                 // Update slider value

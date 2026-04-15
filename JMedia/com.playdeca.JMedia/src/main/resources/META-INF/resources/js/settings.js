@@ -56,6 +56,20 @@ window.reloadMetadata = async function () {
     }
 };
 
+window.writeMetadata = async function () {
+    if (!confirm("This will write all stored metadata to your music files. A backup will be created before each file is modified. Continue?")) {
+        return;
+    }
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const res = await fetch(`/api/song/write-all-metadata`, {method: "POST"});
+    if (res.ok) {
+        const json = await res.json();
+        if(window.showToast) window.showToast(json.message || "Metadata write completed", "success");
+    } else {
+        if(window.showToast) window.showToast("Failed to write metadata", "error");
+    }
+};
+
 window.saveMusicLibraryPath = async function () {
     const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     const input = document.getElementById('musicLibraryPathInput');
@@ -249,6 +263,7 @@ window.initSettingsView = async function() {
     setupClick("clearLogs", window.clearLogs, "Clear logs?");
     setupClick("clearPlaybackHistory", window.clearPlaybackHistory, "Clear all playback history?");
     setupClick("reloadMetadata", window.reloadMetadata, "Reload metadata?");
+    setupClick("writeMetadata", window.writeMetadata);
     setupClick("deleteDuplicates", window.deleteDuplicates, "Delete duplicates?");
     setupClick("saveImportSettingsBtn", window.saveImportSettings);
     setupClick("savePlaybackSettingsBtn", window.savePlaybackSettings);
@@ -547,3 +562,152 @@ window.confirmFolderSelection = function() {
         window.closeFolderBrowser();
     }
 };
+
+// --- Multi-Directory Management ---
+window.loadDirectories = async function() {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    try {
+        const res = await fetch(`/api/settings/${profileId}/directories`);
+        const json = await res.json();
+        if (res.ok && json.data) {
+            window.renderDirectoryList(json.data);
+        }
+    } catch (e) { console.error("Failed to load directories", e); }
+};
+
+window.renderDirectoryList = function(dirs) {
+    const musicContainer = document.getElementById('musicDirectoriesList');
+    const videoContainer = document.getElementById('videoDirectoriesList');
+    
+    const musicDirs = dirs.filter(d => d.mediaType === 'MUSIC');
+    const videoDirs = dirs.filter(d => d.mediaType === 'VIDEO');
+    
+    if (musicContainer) {
+        musicContainer.innerHTML = musicDirs.map(dir => `
+            <div class="directory-item box mb-2 p-3" data-id="${dir.id}">
+                <div class="level is-mobile">
+                    <div class="level-left">
+                        <span>${dir.path}</span>
+                    </div>
+                    <div class="level-right">
+                        <button class="button is-small is-danger" onclick="window.deleteDirectory(${dir.id})">Remove</button>
+                    </div>
+                </div>
+                <div class="buttons mt-2">
+                    <button class="button is-small is-primary" onclick="window.scanDirectory(${dir.id})">Scan</button>
+                    <button class="button is-small is-info" onclick="window.reloadDirectoryMetadata(${dir.id})">Reload</button>
+                    <button class="button is-small is-danger is-outlined" onclick="window.clearDirectorySongs(${dir.id})">Clear</button>
+                </div>
+            </div>
+        `).join('') || '<p class="has-text-grey">No music directories added.</p>';
+    }
+    
+    if (videoContainer) {
+        videoContainer.innerHTML = videoDirs.map(dir => `
+            <div class="directory-item box mb-2 p-3" data-id="${dir.id}">
+                <div class="level is-mobile">
+                    <div class="level-left">
+                        <span>${dir.path}</span>
+                    </div>
+                    <div class="level-right">
+                        <button class="button is-small is-danger" onclick="window.deleteDirectory(${dir.id})">Remove</button>
+                    </div>
+                </div>
+                <div class="buttons mt-2">
+                    <button class="button is-small is-primary" onclick="window.scanVideoDirectory(${dir.id})">Scan</button>
+                    <button class="button is-small is-info" onclick="window.reloadVideoDirectoryMetadata(${dir.id})">Reload</button>
+                    <button class="button is-small is-danger is-outlined" onclick="window.clearDirectoryVideos(${dir.id})">Clear</button>
+                </div>
+            </div>
+        `).join('') || '<p class="has-text-grey">No video directories added.</p>';
+    }
+};
+
+window.addDirectory = async function(type) {
+    const path = prompt(`Enter ${type} directory path:`);
+    if (!path) return;
+    
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    try {
+        const res = await fetch(`/api/settings/${profileId}/directories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, type: type })
+        });
+        const json = await res.json();
+        if (res.ok) {
+            if(window.showToast) window.showToast("Directory added", "success");
+            window.loadDirectories();
+        } else {
+            if(window.showToast) window.showToast(json.error || "Failed to add directory", "error");
+        }
+    } catch (e) {
+        if(window.showToast) window.showToast("Error adding directory", "error");
+    }
+};
+
+window.deleteDirectory = async function(id) {
+    if (!confirm("Remove this directory?")) return;
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    try {
+        const res = await fetch(`/api/settings/${profileId}/directories/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            if(window.showToast) window.showToast("Directory removed", "success");
+            window.loadDirectories();
+        }
+    } catch (e) { console.error(e); }
+};
+
+window.scanDirectory = async function(id) {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const res = await fetch(`/api/settings/${profileId}/scanLibrary?directoryId=${id}`, { method: 'POST' });
+    if (res.ok && window.showToast) window.showToast("Scan started", "success");
+};
+
+window.reloadDirectoryMetadata = async function(id) {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const res = await fetch(`/api/settings/${profileId}/reloadMetadata?directoryId=${id}`, { method: 'POST' });
+    if (res.ok && window.showToast) window.showToast("Metadata reload started", "success");
+};
+
+window.clearDirectorySongs = async function(id) {
+    if (!confirm("Clear songs from this directory?")) return;
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const res = await fetch(`/api/settings/${profileId}/clearSongs?directoryId=${id}`, { method: 'POST' });
+    if (res.ok && window.showToast) window.showToast("Songs cleared", "success");
+};
+
+window.scanVideoDirectory = async function(id) {
+    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+    const res = await fetch(`/api/settings/${profileId}/scanVideo?directoryId=${id}`, { method: 'POST' });
+    if (res.ok && window.showToast) window.showToast("Video scan started", "success");
+};
+
+window.reloadVideoDirectoryMetadata = async function(id) {
+    // TODO: Implement per-directory video metadata reload
+    if(window.showToast) window.showToast("Video metadata reload not yet implemented", "info");
+};
+
+window.clearDirectoryVideos = async function(id) {
+    // TODO: Implement per-directory video clear
+    if(window.showToast) window.showToast("Video clear not yet implemented", "info");
+};
+
+// Init directories on load
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.loadDirectories);
+} else {
+    window.loadDirectories();
+}
+
+// Hook up existing buttons
+document.addEventListener('DOMContentLoaded', function() {
+    const scanLibBtn = document.getElementById('scanLibrary');
+    if (scanLibBtn) scanLibBtn.addEventListener('click', () => window.scanLibrary());
+    
+    const reloadMetaBtn = document.getElementById('reloadMetadata');
+    if (reloadMetaBtn) reloadMetaBtn.addEventListener('click', () => window.reloadMetadata());
+    
+    const clearSongsBtn = document.getElementById('clearSongs');
+    if (clearSongsBtn) clearSongsBtn.addEventListener('click', () => window.clearSongsDB());
+});

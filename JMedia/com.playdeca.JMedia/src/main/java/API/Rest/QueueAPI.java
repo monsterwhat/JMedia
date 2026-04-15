@@ -5,6 +5,7 @@ import Controllers.PlaybackController;
 import Models.Playlist;
 import Models.Profile;
 import Models.Song; 
+import Services.SongService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -22,6 +23,9 @@ public class QueueAPI {
 
     @Inject
     private PlaybackController playbackController;
+
+    @Inject
+    private SongService songService;
 
     @Inject
     private SettingsService settingsService;
@@ -153,7 +157,7 @@ public class QueueAPI {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
         
-        Song sourceSong = Song.findById(songId);
+        Song sourceSong = songService.find(songId);
         if (sourceSong == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Song not found")).build();
         }
@@ -170,7 +174,7 @@ public class QueueAPI {
         
         String[] genreTokens = sourceGenre.toLowerCase().split("\\s+");
         
-        List<Song> allSongs = Song.list("id != ?1", songId);
+        List<Song> allSongs = songService.findAllExcluding(songId);
         
         List<Song> similarSongs = allSongs.stream()
             .filter(song -> {

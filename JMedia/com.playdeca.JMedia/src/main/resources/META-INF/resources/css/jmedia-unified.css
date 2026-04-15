@@ -3,6 +3,18 @@
     Consolidates: mobile.css, indexNew style, settings style, indexProtected style
 */
 
+/* ==================== iOS PREVENTION ==================== */
+/* Prevent iOS force-touch/copy from selecting images in song/album contexts */
+.song-detail-artwork img,
+.album-page-artwork img,
+.song-detail-similar-artwork img,
+.album-page-recommended-artwork img {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    pointer-events: none;
+}
+
 /* ==================== VARIABLES & ROOT ==================== */
 :root {
     color-scheme: light;
@@ -3407,7 +3419,100 @@ input[type="range"]::-webkit-slider-thumb {
     text-overflow: ellipsis;
 }
 
+/* ==================== DJ Mode Transition Indicator ==================== */
+.dj-indicator {
+    position: absolute;
+    top: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+    z-index: 100;
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+
+.dj-indicator.preparing {
+    display: flex !important;
+    background: rgba(50, 152, 220, 0.15);
+    color: #3298dc;
+    border: 1px solid rgba(50, 152, 220, 0.3);
+    animation: dj-pulse 2s ease-in-out infinite;
+}
+
+.dj-indicator.crossfading {
+    display: flex !important;
+    background: rgba(72, 199, 142, 0.2);
+    color: #48c78e;
+    border: 1px solid rgba(72, 199, 142, 0.4);
+    animation: dj-glow 1s ease-in-out infinite;
+}
+
+[data-theme="dark"] .dj-indicator.preparing {
+    background: rgba(50, 152, 220, 0.2);
+    color: #6cb4ee;
+    border-color: rgba(50, 152, 220, 0.4);
+}
+
+[data-theme="dark"] .dj-indicator.crossfading {
+    background: rgba(72, 199, 142, 0.25);
+    color: #6ee7b0;
+    border-color: rgba(72, 199, 142, 0.5);
+}
+
+@keyframes dj-pulse {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+}
+
+@keyframes dj-glow {
+    0%, 100% { box-shadow: 0 0 4px rgba(72, 199, 142, 0.3); }
+    50% { box-shadow: 0 0 12px rgba(72, 199, 142, 0.6); }
+}
+
 .album-page-recommended-count {
     font-size: 0.75rem;
     color: var(--standard-text-dim);
+}
+
+/* ==================== DJ MODE INDICATOR ==================== */
+.dj-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, rgba(72, 199, 142, 0.15), rgba(50, 152, 220, 0.15));
+    border: 1px solid rgba(72, 199, 142, 0.4);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--mobile-text, #363636);
+    backdrop-filter: blur(4px);
+    transition: all 0.3s ease;
+}
+
+.dj-indicator.preparing {
+    background: linear-gradient(135deg, rgba(72, 199, 142, 0.2), rgba(50, 152, 220, 0.2));
+    animation: dj-glow 1.5s ease-in-out infinite;
+}
+
+.dj-indicator.crossfading {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.2), rgba(255, 152, 0, 0.2));
+    border-color: rgba(255, 193, 7, 0.5);
+    animation: pulse 0.8s ease-in-out infinite;
+}
+
+.dj-indicator.complete {
+    background: linear-gradient(135deg, rgba(72, 199, 142, 0.25), rgba(72, 199, 142, 0.1));
+    border-color: rgba(72, 199, 142, 0.6);
+}
+
+.dj-indicator.is-hidden {
+    display: none !important;
 }

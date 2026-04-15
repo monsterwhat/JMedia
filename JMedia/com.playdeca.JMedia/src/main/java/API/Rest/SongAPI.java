@@ -2,8 +2,11 @@ package API.Rest;
 
 import Models.Song;
 import Services.SongService;
+import Services.MetadataWriteService;
 import Controllers.SettingsController;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
@@ -16,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,8 +27,14 @@ import java.util.regex.Pattern;
 @Produces(MediaType.APPLICATION_JSON) // Default to JSON for a REST API
 public class SongAPI {
 
+    @PersistenceContext
+    EntityManager em;
+    
     @Inject
     SongService songService;
+
+    @Inject
+    MetadataWriteService metadataWriteService;
 
     @Inject
     SettingsController settings;
@@ -182,6 +192,100 @@ public class SongAPI {
             }
         }
         dir.delete();
+    }
+
+    /**
+     * Writes stored metadata from the Song back to its audio file.
+     */
+    @POST
+    @Path("/{id}/write-metadata")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response writeMetadataToFile(@PathParam("id") Long id) {
+        System.out.println("Received request to write metadata for song ID: " + id);
+        Song song = songService.find(id);
+        if (song == null) {
+            System.out.println("Song with ID " + id + " not found for metadata write.");
+            return Response.status(Response.Status.NOT_FOUND).entity("Song not found").build();
+        }
+
+        File musicFolder = settings.getMusicFolder();
+        if (musicFolder == null) {
+            System.out.println("Music folder not configured.");
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Music folder not configured.").build();
+        }
+
+        java.nio.file.Path songPath = Paths.get(musicFolder.getAbsolutePath(), song.getPath());
+        System.out.println("Full path to song: " + songPath.toString());
+
+        if (!songPath.toFile().exists()) {
+            System.out.println("Song file not found: " + songPath.toString());
+            return Response.status(Response.Status.NOT_FOUND).entity("Song file not found").build();
+        }
+
+        try {
+            // Synchronous write - waits for completion
+            Boolean success = metadataWriteService.writeMetadataToFile(song, songPath.toString()).get();
+            
+            if (success) {
+                System.out.println("Successfully wrote metadata to: " + songPath.toString());
+                return Response.ok(java.util.Map.of("success", true, "path", songPath.toString())).build();
+            } else {
+                System.out.println("Failed to write metadata to: " + songPath.toString());
+                return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(java.util.Map.of("success", false, "error", "Write failed")).build();
+            }
+        } catch (Exception e) {
+            System.out.println("Error writing metadata for song ID " + id + ": " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(java.util.Map.of("success", false, "error", e.getMessage())).build();
+        }
+    }
+
+    /**
+     * Writes metadata to ALL songs in the database.
+     */
+    @POST
+    @Path("/write-all-metadata")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response writeAllMetadata() {
+        System.out.println("Received request to write metadata for ALL songs");
+        
+        File musicFolder = settings.getMusicFolder();
+        if (musicFolder == null) {
+            System.out.println("Music folder not configured.");
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Music folder not configured.").build();
+        }
+        
+        List<Song> songs = em.createQuery("SELECT s FROM Song s", Song.class).getResultList();
+        if (songs == null || songs.isEmpty()) {
+            return Response.ok(java.util.Map.of("success", true, "message", "No songs to write")).build();
+        }
+        
+        int successCount = 0;
+        int failCount = 0;
+        
+        for (Song song : songs) {
+            try {
+                java.nio.file.Path songPath = Paths.get(musicFolder.getAbsolutePath(), song.getPath());
+                if (!songPath.toFile().exists()) {
+                    failCount++;
+                    continue;
+                }
+                Boolean success = metadataWriteService.writeMetadataToFile(song, songPath.toString()).get();
+                if (success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (Exception e) {
+                failCount++;
+            }
+        }
+        
+        String message = String.format("Written metadata to %d songs. %d failed.", successCount, failCount);
+        System.out.println(message);
+        return Response.ok(java.util.Map.of("success", true, "message", message, "successCount", successCount, "failCount", failCount)).build();
     }
 
 }
