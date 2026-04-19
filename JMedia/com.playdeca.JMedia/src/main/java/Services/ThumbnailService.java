@@ -407,12 +407,12 @@ public class ThumbnailService {
                 return thumbnailPath;
             }
             
-            // Fallback to placeholder if all else fails
-            return "https://picsum.photos/seed/video" + videoId + "/300/450.jpg";
+            // Fallback to app logo if all else fails
+            return "/logo.png";
             
         } catch (Exception e) {
             LOGGER.error("Error getting thumbnail path: " + e.getMessage());
-            return "https://picsum.photos/seed/video" + videoId + "/300/450.jpg";
+            return "/logo.png";
         }
     }
     

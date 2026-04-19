@@ -35,7 +35,7 @@
 
                             <div class="buttons mt-5">
                                 <button id="scanLibrary" class="button is-primary is-small">Scan Music</button>
-                                <button id="scanVideoLibrary" class="button is-primary is-small" hx-post="/api/video/scan" hx-swap="none">Scan Videos</button>
+                                <button id="scanVideoLibrary" class="button is-primary is-small" onclick="window.showScanVideoDialog()">Scan Videos</button>
                                 <button id="reloadMetadata" class="button is-info is-small">Reload Music Metadata</button>
                                 <button id="reloadVideoMetadata" class="button is-info is-small" hx-post="/api/video/reload-metadata" hx-swap="none">Reload Video Metadata</button>
                                 <button id="writeMetadata" class="button is-warning is-small">Write Music Metadata</button>

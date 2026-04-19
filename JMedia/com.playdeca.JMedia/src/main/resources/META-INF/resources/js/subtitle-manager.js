@@ -417,7 +417,7 @@ class SubtitleManager {
         const body = document.getElementById('subtitleSearchResultsBody');
         body.innerHTML = '<tr><td colspan="5" class="has-text-centered">Searching...</td></tr>';
         try {
-            const res = await fetch(`/api/video/subtitles/${this.currentVideoId}/search?language=${lang}`);
+            const res = await fetch(`/api/video/subtitles/${this.currentVideoId}/search?language=${lang}&query=${encodeURIComponent(query)}`);
             const data = await res.json();
             body.innerHTML = data.map(res => `
                 <tr>

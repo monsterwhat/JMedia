@@ -9,6 +9,9 @@
         // DOM element cache
         domElements: {},
         
+        // Track last song to avoid unnecessary image updates
+        lastSongId: null,
+        
         /**
          * Initialize UI updater
          */
@@ -122,6 +125,28 @@
                     djModeIcon.className = 'pi pi-headphones has-text-success';
                 } else {
                     djModeIcon.className = 'pi pi-headphones';
+                }
+            }
+            
+            // 5. Update cover image, favicon, and page title ONLY when song actually changes
+            if (state.currentSongId && state.currentSongId !== this.lastSongId) {
+                this.lastSongId = state.currentSongId;
+                const currentSong = {
+                    id: state.currentSongId,
+                    title: state.songName || 'Unknown',
+                    artist: state.artistName || state.artist || 'Unknown Artist'
+                };
+                console.log('[UIUpdater] Song changed, updating images:', currentSong.title);
+                if (window.ImageManager) {
+                    window.ImageManager.updateImages(currentSong, null, null);
+                } else {
+                    // Fallback: Update directly if ImageManager not ready
+                    const coverEl = document.getElementById('songCoverImage');
+                    const faviconEl = document.getElementById('favicon');
+                    const pageTitleEl = document.getElementById('pageTitle');
+                    if (coverEl) coverEl.src = `/api/music/cover/${currentSong.id}`;
+                    if (faviconEl) faviconEl.href = `/api/music/cover/${currentSong.id}`;
+                    if (pageTitleEl) pageTitleEl.innerText = `${currentSong.title} - ${currentSong.artist}`;
                 }
             }
         },

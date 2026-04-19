@@ -21,7 +21,7 @@ public class MetadataOrganizerService {
     @Inject
     VideoImportService videoImportService;
     
-    public record OrganizedPath(String virtualPath, String displayName) {}
+    public record OrganizedPath(String virtualPath, String displayName, String subtitle) {}
     
     /**
      * Creates a virtual organization structure based on Video entities, not physical folders
@@ -161,7 +161,7 @@ public class MetadataOrganizerService {
             LOGGER.info("DEBUG: Processing show - Name: '{}'", showName);
             String displayName = getDisplayName(showName);
             String virtualPath = "/shows/" + normalizeShowName(showName);
-            OrganizedPath organizedPath = new OrganizedPath(virtualPath, displayName);
+            OrganizedPath organizedPath = new OrganizedPath(virtualPath, displayName, null);
             structure.add(organizedPath);
             LOGGER.info("DEBUG: Added organized path - VirtualPath: '{}', DisplayName: '{}'", virtualPath, displayName);
         }
@@ -186,10 +186,22 @@ public class MetadataOrganizerService {
         LOGGER.info("DEBUG: Found {} seasons for show '{}'", seasons.size(), showName);
         
         for (Integer seasonNumber : seasons) {
-            String displayName = "Season " + seasonNumber;
+            // Get seasonName from any episode in this season
+            String seasonName = null;
+            List<Video> seasonVideos = Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", 
+                    "episode", showName, seasonNumber);
+            for (Video v : seasonVideos) {
+                if (v.seasonName != null && !v.seasonName.isEmpty()) {
+                    seasonName = v.seasonName;
+                    break;
+                }
+            }
+
+            String displayName = seasonName != null ? seasonName : "Season " + seasonNumber;
+            String subtitle = seasonName != null ? "Season " + seasonNumber : null;
             String virtualPath = "/shows/" + normalizeShowName(showName) + "/season/" + seasonNumber;
-            structure.add(new OrganizedPath(virtualPath, displayName));
-            LOGGER.info("DEBUG: Added season {} - DisplayName: '{}', VirtualPath: '{}'", seasonNumber, displayName, virtualPath);
+            structure.add(new OrganizedPath(virtualPath, displayName, subtitle));
+            LOGGER.info("DEBUG: Added season {} - DisplayName: '{}', Subtitle: '{}', VirtualPath: '{}'", seasonNumber, displayName, subtitle, virtualPath);
         }
         
         LOGGER.info("DEBUG: Returning {} season structures", structure.size());
@@ -213,7 +225,7 @@ public class MetadataOrganizerService {
                 seasonNumber, episode.episodeNumber, 
                 episode.title != null ? episode.title : "Episode " + episode.episodeNumber);
             String virtualPath = "/shows/" + normalizeShowName(showName) + "/season/" + seasonNumber + "/episode/" + episode.episodeNumber;
-            structure.add(new OrganizedPath(virtualPath, displayName));
+            structure.add(new OrganizedPath(virtualPath, displayName, null));
         }
         
         return structure;

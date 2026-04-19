@@ -4,6 +4,7 @@ import Models.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +21,15 @@ public class UnifiedVideoEntityCreationService {
 
     /**
      * Finalizes processing by creating/updating a Video entity directly from NamingResult
+     * @param preserveMetadata if true, keep existing metadata (description, imdb, overview, etc.) - used during full scans
      */
     @Transactional
     public Video createVideoFromNamingResult(MediaFile mediaFile, SmartNamingService.NamingResult result) {
+        return createVideoFromNamingResult(mediaFile, result, false);
+    }
+    
+    @Transactional
+    public Video createVideoFromNamingResult(MediaFile mediaFile, SmartNamingService.NamingResult result, boolean preserveMetadata) {
         if (mediaFile == null || result == null) return null;
         
         // Check if video already exists
@@ -33,10 +40,29 @@ public class UnifiedVideoEntityCreationService {
             video.dateAdded = java.time.LocalDateTime.now();
         }
         
+        // Preserve metadata fields if requested (full scan) - backup before overwriting
+        String preservedDescription = preserveMetadata ? video.description : null;
+        String preservedTagline = preserveMetadata ? video.tagline : null;
+        String preservedOverview = preserveMetadata ? video.overview : null;
+        Double preservedImdbRating = preserveMetadata ? video.imdbRating : null;
+        Integer preservedMetacritic = preserveMetadata ? video.metacriticRating : null;
+        String preservedMpaa = preserveMetadata ? video.mpaaRating : null;
+        List<String> preservedGenres = preserveMetadata && video.genres != null ? new ArrayList<>(video.genres) : null;
+        List<String> preservedCast = preserveMetadata && video.cast != null ? new ArrayList<>(video.cast) : null;
+        List<String> preservedDirectors = preserveMetadata && video.directors != null ? new ArrayList<>(video.directors) : null;
+        List<String> preservedWriters = preserveMetadata && video.writers != null ? new ArrayList<>(video.writers) : null;
+        
+        // Preserve external IDs and artwork
+        String preservedImdbId = preserveMetadata ? video.imdbId : null;
+        String preservedTmdbId = preserveMetadata ? video.tmdbId : null;
+        Double preservedTmdbRating = preserveMetadata ? video.tmdbRating : null;
+        String preservedThumbnailPath = preserveMetadata ? video.thumbnailPath : null;
+        String preservedPosterPath = preserveMetadata ? video.posterPath : null;
+        
         // Apply discovered metadata
         video.filename = extractFilenameFromPath(mediaFile.path);
         video.type = result.mediaType;
-        
+
         // Only overwrite title/seriesTitle if NOT manually edited
         if (!video.titleManuallyEdited) {
             video.title = result.title;
@@ -44,9 +70,24 @@ public class UnifiedVideoEntityCreationService {
         if (!video.seriesTitleManuallyEdited) {
             video.seriesTitle = result.showName;
         }
-        
+
         video.seasonNumber = result.season;
+        video.seasonName = result.seasonName;
         video.episodeNumber = result.episode;
+
+        // Set episodeTitle for episodes
+        if ("episode".equalsIgnoreCase(result.mediaType) && result.title != null) {
+            video.episodeTitle = result.title;
+        }
+
+        // FALLBACK: Extract season number from seasonName if season is null
+        if (video.seasonNumber == null && video.seasonName != null && !video.seasonName.isEmpty()) {
+            Integer seasonFromName = extractSeasonFromSeasonName(video.seasonName);
+            if (seasonFromName != null) {
+                video.seasonNumber = seasonFromName;
+            }
+        }
+
         video.releaseYear = result.year;
         
         // Fallback for episode title (only if not manually edited)
@@ -76,6 +117,27 @@ public class UnifiedVideoEntityCreationService {
         }
         
         video.autoSelectSubtitles = true;
+        
+        // Restore preserved metadata (full scan mode)
+        if (preserveMetadata) {
+            if (preservedDescription != null) video.description = preservedDescription;
+            if (preservedTagline != null) video.tagline = preservedTagline;
+            if (preservedOverview != null) video.overview = preservedOverview;
+            if (preservedImdbRating != null && preservedImdbRating > 0) video.imdbRating = preservedImdbRating;
+            if (preservedMetacritic != null && preservedMetacritic > 0) video.metacriticRating = preservedMetacritic;
+            if (preservedMpaa != null) video.mpaaRating = preservedMpaa;
+            if (preservedGenres != null && !preservedGenres.isEmpty()) video.genres = preservedGenres;
+            if (preservedCast != null && !preservedCast.isEmpty()) video.cast = preservedCast;
+            if (preservedDirectors != null && !preservedDirectors.isEmpty()) video.directors = preservedDirectors;
+            if (preservedWriters != null && !preservedWriters.isEmpty()) video.writers = preservedWriters;
+            
+            // Preserve external IDs and artwork
+            if (preservedImdbId != null) video.imdbId = preservedImdbId;
+            if (preservedTmdbId != null) video.tmdbId = preservedTmdbId;
+            if (preservedTmdbRating != null && preservedTmdbRating > 0) video.tmdbRating = preservedTmdbRating;
+            if (preservedThumbnailPath != null) video.thumbnailPath = preservedThumbnailPath;
+            if (preservedPosterPath != null) video.posterPath = preservedPosterPath;
+        }
         
         return videoService.persist(video);
     }
@@ -114,6 +176,39 @@ public class UnifiedVideoEntityCreationService {
             return filename.substring(lastDot + 1).toLowerCase();
         }
         return "mp4";
+    }
+    
+    /**
+     * Extracts season number from seasonName as fallback
+     * "Libro 1 Agua" -> 1, "Season 2" -> 2, "Book 3 - Change" -> 3
+     */
+    private Integer extractSeasonFromSeasonName(String seasonName) {
+        if (seasonName == null || seasonName.isEmpty()) return null;
+        
+        // Try to match patterns like "Libro 1", "Season 2", "Book 3", "S01", etc.
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(?i)(?:season|libro|temporada|book|volume|chapter|episode|arco|saga|tome|series|s)\\s*[-_. ]?(\\d{1,3})");
+        java.util.regex.Matcher matcher = pattern.matcher(seasonName);
+        
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        
+        // Try bare number at start (e.g., "1 - Title")
+        java.util.regex.Pattern numPattern = java.util.regex.Pattern.compile("^(\\d{1,3})\\s*[-–—]");
+        java.util.regex.Matcher numMatcher = numPattern.matcher(seasonName);
+        if (numMatcher.find()) {
+            try {
+                return Integer.parseInt(numMatcher.group(1));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        
+        return null;
     }
     
     /**

@@ -54,8 +54,8 @@
                     {/if}
                 </div>
                 <div class="standard-card-info">
-                    <div class="standard-card-title">Season {season.seasonNumber}</div>
-                    <div class="standard-card-meta">Season</div>
+                    <div class="standard-card-title">{#if season.seasonName}{season.seasonName}{#else}Season {season.seasonNumber}{/if}</div>
+                    <div class="standard-card-meta">{#if season.seasonName}Season {season.seasonNumber}{/if}</div>
                 </div>
             </div>
         {/for}

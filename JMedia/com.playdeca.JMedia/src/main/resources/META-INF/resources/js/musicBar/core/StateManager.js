@@ -447,6 +447,28 @@
                         });
                     }
                 }
+                
+                // If DJ Mode was restored, tell server to SET it (not toggle!)
+                // Using the set endpoint so it explicitly activates regardless of current server state
+                if (restoredState.djModeActive === true) {
+                    window.Helpers.log('StateManager: Restored DJ Mode - setting on server');
+                    let pid = null;
+                    if (window.globalActiveProfileId) {
+                        pid = window.globalActiveProfileId;
+                    } else {
+                        pid = localStorage.getItem('activeProfileId');
+                    }
+                    if (pid) {
+                        fetch(`/api/music/playback/dj-mode-set/${pid}/true`, { 
+                            method: 'POST',
+                            credentials: 'include'
+                        }).then(() => {
+                            window.Helpers.log('StateManager: DJ Mode set to active on server');
+                        }).catch(e => {
+                            console.warn('StateManager: Failed to set DJ Mode on server:', e);
+                        });
+                    }
+                }
             } else {
                 window.Helpers.log('StateManager no restored state available');
             }

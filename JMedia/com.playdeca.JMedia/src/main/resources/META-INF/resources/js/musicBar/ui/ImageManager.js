@@ -54,6 +54,11 @@
         updateImages: function(currentSong, prevSong, nextSong) {
             const currentArtwork = this.getArtworkUrl(currentSong);
             
+            // Re-query elements in case they weren't ready during init
+            this.elements.songCoverImage = this.elements.songCoverImage || document.getElementById('songCoverImage');
+            this.elements.favicon = this.elements.favicon || document.getElementById('favicon');
+            this.elements.pageTitle = this.elements.pageTitle || document.getElementById('pageTitle');
+            
             // Update current song image and favicon synchronously
             if (this.elements.songCoverImage) {
                 this.elements.songCoverImage.src = currentArtwork;
@@ -100,8 +105,8 @@
          * @param {Object} song - Song data
          */
         updateSongImage: function(element, song) {
-            if (song && song.artworkBase64 && song.artworkBase64 !== '') {
-                element.src = `data:image/jpeg;base64,${song.artworkBase64}`;
+            if (song && song.id) {
+                element.src = `/api/music/cover/${song.id}`;
                 element.style.display = 'block';
             } else {
                 element.src = '/logo.png';
@@ -115,10 +120,10 @@
          * @returns {string} Artwork URL
          */
         getArtworkUrl: function(song) {
-            if (!song || !song.artworkBase64 || song.artworkBase64 === '') {
+            if (!song || !song.id) {
                 return '/logo.png';
             }
-            return `data:image/jpeg;base64,${song.artworkBase64}`;
+            return `/api/music/cover/${song.id}`;
         },
         
         /**
@@ -131,9 +136,9 @@
             }
             
             songs.forEach(song => {
-                if (song && song.artworkBase64 && song.artworkBase64 !== '') {
+                if (song && song.id) {
                     const img = new Image();
-                    img.src = `data:image/jpeg;base64,${song.artworkBase64}`;
+                    img.src = `/api/music/cover/${song.id}`;
                     // Preload without blocking
                 }
             });

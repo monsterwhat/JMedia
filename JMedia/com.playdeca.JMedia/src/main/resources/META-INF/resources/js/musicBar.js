@@ -74,13 +74,14 @@ function updateCoverImage() {
     const coverImg = document.getElementById('songCoverImage');
     const coverFallback = document.getElementById('songCoverFallback');
     if (coverImg && musicState.currentSongId) {
-        if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
-            coverImg.src = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
-        } else {
-            coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
-        }
+        // ALWAYS use the binary endpoint to avoid massive JSON payloads
+        coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
         coverImg.style.display = 'block';
         if (coverFallback) coverFallback.style.display = 'none';
+        
+        // Update favicon
+        const favicon = document.getElementById('favicon');
+        if (favicon) favicon.href = `/api/music/cover/${musicState.currentSongId}`;
     }
 }
 window.updateCoverImage = updateCoverImage;
@@ -142,15 +143,11 @@ function updateMusicBar() {
         }
     }
     
-    // Artwork - use stored artworkBase64 if available
+    // Artwork - use binary endpoint
     const coverImg = document.getElementById('songCoverImage');
     const coverFallback = document.getElementById('songCoverFallback');
     if (coverImg && musicState.currentSongId) {
-        if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
-            coverImg.src = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
-        } else {
-            coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
-        }
+        coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
         coverImg.style.display = 'block';
         if (coverFallback) coverFallback.style.display = 'none';
     }
@@ -501,7 +498,7 @@ function connectWS() {
                 musicState.songName = state.songName;
                 musicState.artist = state.artistName;
                 
-                // Fetch full song data including artworkBase64
+                // Fetch song metadata
                 const profileId = window.globalActiveProfileId || '1';
                 if (state.currentSongId) {
                     fetch(`/api/music/playback/current/${profileId}`, { credentials: 'same-origin' })
@@ -512,11 +509,8 @@ function connectWS() {
                                 musicState.hasLyrics = data.data.lyrics != null;
                                 updateCoverImage();
                                 
-                                // Update media session with artwork
-                                let artworkUrl = null;
-                                if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
-                                    artworkUrl = `data:image/jpeg;base64,${musicState.currentSongData.artworkBase64}`;
-                                }
+                                // Update media session with artwork URL (binary endpoint)
+                                const artworkUrl = `/api/music/cover/${state.currentSongId}`;
                                 
                                 if (window.updateMediaSessionMetadata) {
                                     window.updateMediaSessionMetadata(

@@ -574,4 +574,77 @@ public class SongService {
                 .setParameter("excludeId", excludeSongId)
                 .getResultList();
     }
+
+    /**
+     * Find multiple candidate songs by genre and BPM tolerance for enhanced smart shuffle.
+     * Returns up to maxCandidates songs matching the criteria, excluding specified songs.
+     */
+    @Transactional
+    public List<Song> findCandidatesByGenreAndBpm(String genre, int currentBpm, int bpmTolerance, 
+                                                   List<Long> excludeSongIds, List<Long> songPoolIds, int maxCandidates) {
+        if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        int minBpm = currentBpm - bpmTolerance;
+        int maxBpm = currentBpm + bpmTolerance;
+
+        // Build query dynamically based on whether we have exclusions
+        StringBuilder queryStr = new StringBuilder(
+            "SELECT s FROM Song s WHERE s.id IN :songPoolIds " +
+            "AND LOWER(s.genre) = :genre " +
+            "AND s.bpm >= :minBpm AND s.bpm <= :maxBpm"
+        );
+
+        if (excludeSongIds != null && !excludeSongIds.isEmpty()) {
+            queryStr.append(" AND s.id NOT IN :excludeSongIds");
+        }
+
+        queryStr.append(" ORDER BY FUNCTION('RAND')"); // Random ordering
+
+        var query = em.createQuery(queryStr.toString(), Song.class)
+                .setParameter("songPoolIds", songPoolIds)
+                .setParameter("genre", genre.toLowerCase())
+                .setParameter("minBpm", minBpm)
+                .setParameter("maxBpm", maxBpm);
+
+        if (excludeSongIds != null && !excludeSongIds.isEmpty()) {
+            query.setParameter("excludeSongIds", excludeSongIds);
+        }
+
+        return query.setMaxResults(maxCandidates).getResultList();
+    }
+
+    /**
+     * Find candidate songs by genre only (fallback when no BPM match).
+     * Returns up to maxCandidates songs matching the genre, excluding specified songs.
+     */
+    @Transactional
+    public List<Song> findCandidatesByGenre(String genre, List<Long> excludeSongIds, 
+                                            List<Long> songPoolIds, int maxCandidates) {
+        if (genre == null || genre.isBlank() || songPoolIds == null || songPoolIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        StringBuilder queryStr = new StringBuilder(
+            "SELECT s FROM Song s WHERE s.id IN :songPoolIds " +
+            "AND LOWER(s.genre) = :genre"
+        );
+
+        if (excludeSongIds != null && !excludeSongIds.isEmpty()) {
+            queryStr.append(" AND s.id NOT IN :excludeSongIds");
+        }
+
+        queryStr.append(" ORDER BY FUNCTION('RAND')");
+
+        var query = em.createQuery(queryStr.toString(), Song.class)
+                .setParameter("songPoolIds", songPoolIds)
+                .setParameter("genre", genre.toLowerCase());
+
+        if (excludeSongIds != null && !excludeSongIds.isEmpty()) {
+            query.setParameter("excludeSongIds", excludeSongIds);
+        }
+
+        return query.setMaxResults(maxCandidates).getResultList();
+    }
 }

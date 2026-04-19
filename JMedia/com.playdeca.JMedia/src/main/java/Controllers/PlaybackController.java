@@ -274,6 +274,10 @@ public class PlaybackController {
             }
 
             state.setPlaying(false);
+            // Default NULL djModeActive to false (existing DB rows have NULL)
+            if (state.getDjModeActive() == null) {
+                state.setDjModeActive(false);
+            }
             System.out.println("[PlaybackController] Initial state loaded for profile " + profileId + ": " + safeSummary(state, profileId));
             return state;
         });
@@ -327,15 +331,8 @@ public class PlaybackController {
         PlaybackState st = getState(profileId);
         Song current = getCurrentSong(profileId);
 
-        // Reset DJ Mode state only if NOT in Smart Shuffle
-        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
-            st.setDjModeActive(false);
-            Integer originalCrossfade = st.getOriginalCrossfadeDuration();
-            if (originalCrossfade != null && originalCrossfade > 0) {
-                st.setCrossfadeDuration(originalCrossfade);
-            }
-            st.setOriginalCrossfadeDuration(0);
-        }
+        // DJ Mode is now INDEPENDENT of Smart Shuffle - do NOT disable it when selecting songs
+        // DJ Mode stays in whatever state the user set it
         clearDjTransitionPlan(st);
 
         if (current != null && current.id.equals(id)) {
@@ -592,8 +589,8 @@ public class PlaybackController {
                 Double entryTime = st.getDjEntryTime();
                 st.setCurrentTime(entryTime != null ? entryTime : 0.0);
                 
-                // Plan DJ Mode transition if active
-                if (Boolean.TRUE.equals(st.getDjModeActive()) && st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+                // Plan DJ Mode transition if active (independent of Smart Shuffle)
+                if (Boolean.TRUE.equals(st.getDjModeActive())) {
                     // Ensure crossfade is set for DJ mode (default 8s)
                     if (st.getCrossfadeDuration() == null || st.getCrossfadeDuration() == 0) {
                         st.setCrossfadeDuration(8);
@@ -618,16 +615,8 @@ public class PlaybackController {
     }
 
     public synchronized void next(Long profileId) {
-        // Reset DJ Mode state only if NOT in Smart Shuffle
+        // DJ Mode is INDEPENDENT of Smart Shuffle - do NOT disable it on next
         PlaybackState st = getState(profileId);
-        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
-            st.setDjModeActive(false);
-            Integer originalCrossfade = st.getOriginalCrossfadeDuration();
-            if (originalCrossfade != null && originalCrossfade > 0) {
-                st.setCrossfadeDuration(originalCrossfade);
-            }
-            st.setOriginalCrossfadeDuration(0);
-        }
         clearDjTransitionPlan(st);
         
         currentSettings.addLog("Skipped to next song.");
@@ -635,16 +624,8 @@ public class PlaybackController {
     }
 
     public synchronized void previous(Long profileId) {
-        // Reset DJ Mode state only if NOT in Smart Shuffle
+        // DJ Mode is INDEPENDENT of Smart Shuffle - do NOT disable it on previous
         PlaybackState st = getState(profileId);
-        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
-            st.setDjModeActive(false);
-            Integer originalCrossfade = st.getOriginalCrossfadeDuration();
-            if (originalCrossfade != null && originalCrossfade > 0) {
-                st.setCrossfadeDuration(originalCrossfade);
-            }
-            st.setOriginalCrossfadeDuration(0);
-        }
         clearDjTransitionPlan(st);
         
         currentSettings.addLog("Skipped to previous song.");
@@ -695,6 +676,13 @@ public class PlaybackController {
                 }
                 
                 clearDjTransitionPlan(st);
+                
+                // Plan next DJ transition for the NEW current song (if DJ Mode still active)
+                if (Boolean.TRUE.equals(st.getDjModeActive())) {
+                    System.out.println("[DJ] Planning next transition for new song: " + nextSong.getTitle());
+                    planNextDjTransition(st, profileId);
+                }
+                
                 updateState(profileId, st, true);
                 System.out.println("[DJ] Server state advanced to " + nextSong.getTitle() + " at " + st.getCurrentTime() + "s");
             }
@@ -807,6 +795,47 @@ public class PlaybackController {
     }
 
     /**
+     * Sets DJ Mode to a specific state (not a toggle).
+     * Used by the frontend to restore DJ Mode on page reload without toggling.
+     */
+    public synchronized void setDjMode(Long profileId, boolean active) {
+        PlaybackState state = getState(profileId);
+        boolean wasActive = Boolean.TRUE.equals(state.getDjModeActive());
+        
+        if (wasActive == active) {
+            // Already in the desired state, no change needed - but still broadcast
+            // to ensure client is in sync
+            updateState(profileId, state, true);
+            return;
+        }
+        
+        state.setDjModeActive(active);
+        
+        if (active) {
+            // Activate DJ Mode
+            state.setOriginalCrossfadeDuration(state.getCrossfadeDuration());
+            if (state.getCrossfadeDuration() == null || state.getCrossfadeDuration() == 0) {
+                state.setCrossfadeDuration(8);
+            }
+            planNextDjTransition(state, profileId);
+            currentSettings.addLog("DJ Mode activated (set)");
+        } else {
+            // Deactivate DJ Mode
+            Integer originalCrossfade = state.getOriginalCrossfadeDuration();
+            if (originalCrossfade != null && originalCrossfade > 0) {
+                state.setCrossfadeDuration(originalCrossfade);
+            }
+            state.setOriginalCrossfadeDuration(0);
+            clearDjTransitionPlan(state);
+            currentSettings.addLog("DJ Mode deactivated (set)");
+        }
+        
+        // Force-persist immediately (don't rely on throttled maybePersist)
+        playbackPersistenceController.persist(profileId, state, true);
+        updateState(profileId, state, true);
+    }
+
+    /**
      * Toggles DJ Mode independently of shuffle mode.
      */
     public synchronized void toggleDjMode(Long profileId) {
@@ -836,6 +865,8 @@ public class PlaybackController {
             currentSettings.addLog("DJ Mode deactivated manually");
         }
         
+        // Force-persist immediately - DJ mode must survive page reloads
+        playbackPersistenceController.persist(profileId, state, true);
         updateState(profileId, state, true);
     }
 
@@ -1178,8 +1209,9 @@ public class PlaybackController {
      * Called after advanceSong when DJ Mode is active.
      */
     private void planNextDjTransition(PlaybackState st, Long profileId) {
-        if (st.getShuffleMode() != PlaybackState.ShuffleMode.SMART_SHUFFLE) {
-            System.out.println("[DJ] planNextDjTransition: Not Smart Shuffle, skipping");
+        // DJ Mode is INDEPENDENT of Smart Shuffle - plan transition if DJ Mode is active
+        if (!Boolean.TRUE.equals(st.getDjModeActive())) {
+            System.out.println("[DJ] planNextDjTransition: DJ Mode not active, skipping");
             return;
         }
 

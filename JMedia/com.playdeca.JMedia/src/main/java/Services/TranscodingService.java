@@ -73,9 +73,19 @@ public class TranscodingService {
                     LOG.info("HEVC detected - Firefox on Windows can likely play natively, using mkvmerge");
                     return false;
                 }
-                // Chrome on Windows with HEVC support (recent versions)
-                if (ua.contains("chrome") && ua.contains("windows") && !ua.contains("edg")) {
-                    LOG.info("HEVC detected - Chrome on Windows can likely play natively, using mkvmerge");
+                // Chrome and Edge on Windows with HEVC support (recent versions)
+                if (ua.contains("chrome") && ua.contains("windows")) {
+                    LOG.info("HEVC detected - Chrome/Edge on Windows can likely play natively, using mkvmerge");
+                    return false;
+                }
+                // Safari and Chrome on macOS
+                if (ua.contains("macintosh") && (ua.contains("safari") || ua.contains("chrome"))) {
+                    LOG.info("HEVC detected - macOS browser can likely play natively");
+                    return false;
+                }
+                // iOS devices support HEVC natively
+                if (isIOSClient(userAgent)) {
+                    LOG.info("HEVC detected - iOS device supports HEVC natively");
                     return false;
                 }
             }

@@ -1,6 +1,7 @@
 package Models;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.persistence.Transient;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -48,6 +49,16 @@ public class PlaybackState extends PanacheEntity {
 
     @ElementCollection(fetch = FetchType.EAGER)
     private List<Long> originalCue = new ArrayList<>();
+
+    // Enhanced Smart Shuffle tracking (transient - not persisted)
+    @Transient
+    private String lastPlayedAlbum;
+    @Transient
+    private String lastPlayedArtist;
+    @Transient
+    private int consecutiveAlbumPlays = 0;
+    @Transient
+    private int consecutiveArtistPlays = 0;
 
     @Enumerated(EnumType.STRING)
     private RepeatMode repeatMode = RepeatMode.OFF;

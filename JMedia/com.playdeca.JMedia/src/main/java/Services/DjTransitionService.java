@@ -205,12 +205,20 @@ public class DjTransitionService {
         double bpmPenalty = 1.0 - Math.min(bpmRatioDiff / (MAX_BPM_RATIO_DIFF * 2), 0.8);
         confidence *= bpmPenalty;
 
+        // DYNAMIC CROSSFADE: Adjust based on BPM
+        // Fast songs (EDM/Pop) mix better with tighter fades (6s)
+        // Slow songs (Ambient/Jazz) mix better with long fades (12s)
+        int adjustedCrossfade = crossfadeSeconds;
+        if (nextBpm > 120) adjustedCrossfade = 6;
+        else if (nextBpm < 90) adjustedCrossfade = 12;
+        else adjustedCrossfade = 8;
+
         String reason = buildReasonString(exitBeats, limitedNextBeats, bestCandidate, currentBpm, nextBpm);
 
         DjTransition transition = new DjTransition(
             bestCandidate.exitTime,
             bestCandidate.entryTime,
-            crossfadeSeconds,
+            adjustedCrossfade,
             confidence,
             reason
         );
@@ -263,6 +271,15 @@ private double scoreBeatAlignment(BeatInfo exitBeat, BeatInfo entryBeat) {
     if (exitBeat.getBeatInBar() == 1) score += 0.2;
     if (entryBeat.getBeatInBar() == 1) score += 0.2;
 
+    // PHRASE ALIGNMENT (Massive improvement for musicality)
+    // Bonus for starting/ending on 4-bar or 8-bar boundaries
+    // Assuming bars are 1-indexed and we want to mix on boundaries like 1, 5, 9, 13...
+    if ((exitBeat.getBarNumber() - 1) % 4 == 0) score += 0.15;
+    if ((exitBeat.getBarNumber() - 1) % 8 == 0) score += 0.1;
+
+    if ((entryBeat.getBarNumber() - 1) % 4 == 0) score += 0.15;
+    if ((entryBeat.getBarNumber() - 1) % 8 == 0) score += 0.1;
+
     // Bonus for matching relative position in bar
     if (exitBeat.getBeatInBar() == entryBeat.getBeatInBar()) score += 0.1;
 
@@ -274,10 +291,16 @@ private double scoreBeatAlignment(BeatInfo exitBeat, BeatInfo entryBeat) {
  */
 private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat, 
                                         SongAnalysis current, SongAnalysis next) {
-    // Simple energy continuity: prefer matching loudness levels
-    return 0.1; // Placeholder for future loudness matching
+    // Find average loudness near the exit and entry points
+    // This helps avoid mixing a loud drop into a quiet intro
+    try {
+        // We use the 'strength' (onset strength) as a proxy for local energy if full segments aren't compared
+        double energyDiff = Math.abs(exitBeat.getStrength() - entryBeat.getStrength());
+        return Math.max(0.0, 0.2 - (energyDiff * 0.2)); // Up to 0.2 bonus for similar energy
+    } catch (Exception e) {
+        return 0.1;
+    }
 }
-
     private double scorePosition(BeatInfo exitBeat, BeatInfo entryBeat, double currentDur, double nextDur) {
         double score = 0;
         double entryTime = entryBeat.getTime();

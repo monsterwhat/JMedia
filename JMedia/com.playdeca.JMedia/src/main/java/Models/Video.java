@@ -34,6 +34,7 @@ public class Video extends PanacheEntity {
     public String seriesTitle; // For episodes
     public String episodeTitle; // Episode-specific title
     public Integer seasonNumber;
+    public String seasonName; // e.g., "Saga de Piccolo Jr" - shared across season
     public Integer episodeNumber;
     public Integer releaseYear;
     public String description;

@@ -9,23 +9,28 @@
         /**
          * Initialize time controller
          */
-        init: function() {
+init: function() {
+            // Bind to a function that returns the currently active player
+            // This ensures we always track the correct player (swaps after crossfade)
+            this.bindToActivePlayer();
+            
+            // Also bind slider events
             this.bindTimeSlider();
-            this.bindAudioTimeUpdate();
-            window.Helpers.log('TimeController initialized');
+            
+            window.Helpers.log('TimeController: Initialized');
         },
         
         /**
-         * Bind audio element timeupdate - single source for visual time updates
+         * Bind timeupdate to the currently active player (dynamically resolved)
          */
-        bindAudioTimeUpdate: function() {
-            const audio = document.getElementById('audioPlayer');
-            if (!audio) {
-                window.Helpers.log('TimeController: Audio element not found');
-                return;
-            }
+        bindToActivePlayer: function() {
+            const self = this;
             
-            audio.ontimeupdate = () => {
+            // Create a wrapped handler that always gets the active player
+            const handleTimeUpdate = function() {
+                const audio = window.AudioEngine ? window.AudioEngine.getActivePlayer() : document.getElementById('audioPlayer');
+                if (!audio) return;
+                
                 if (!SynchronizationManager.getFlag('draggingSeconds')) {
                     const currentTime = audio.currentTime;
                     const duration = audio.duration || 0;
@@ -36,7 +41,7 @@
                     }
                     
                     // Update slider
-                    this.updateSliderFromState(currentTime, duration);
+                    self.updateSliderFromState(currentTime, duration);
                     
                     // Save state periodically (every 5 seconds)
                     window.dispatchEvent(new CustomEvent('requestStateSave', { 
@@ -45,7 +50,18 @@
                 }
             };
             
-            window.Helpers.log('TimeController: Audio timeupdate bound');
+            // Add to both audio elements
+            const audio1 = document.getElementById('audioPlayer');
+            const audio2 = document.getElementById('audioPlayerNext');
+            
+            if (audio1) {
+                audio1.ontimeupdate = handleTimeUpdate;
+            }
+            if (audio2) {
+                audio2.ontimeupdate = handleTimeUpdate;
+            }
+            
+            window.Helpers.log('TimeController: Timeupdate bound to active player');
         },
         
         /**

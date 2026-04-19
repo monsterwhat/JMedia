@@ -99,7 +99,8 @@ private PlaybackState createDefaultState(Profile profile) {
         existingState.setCueIndex(newState.getCueIndex());
         existingState.setSecondaryCueIndex(newState.getSecondaryCueIndex());
         existingState.setUsingSecondaryQueue(newState.isUsingSecondaryQueue());
-        existingState.setRepeatMode(newState.getRepeatMode());
+existingState.setRepeatMode(newState.getRepeatMode());
+        existingState.setDjModeActive(newState.getDjModeActive() != null ? newState.getDjModeActive() : false);
 
         em.merge(existingState);
         em.flush();
@@ -131,7 +132,8 @@ private PlaybackState createDefaultState(Profile profile) {
         state.setCueIndex(defaultState.getCueIndex());
         state.setSecondaryCueIndex(defaultState.getSecondaryCueIndex());
         state.setUsingSecondaryQueue(defaultState.isUsingSecondaryQueue());
-        state.setRepeatMode(defaultState.getRepeatMode());
+state.setRepeatMode(defaultState.getRepeatMode());
+        state.setDjModeActive(defaultState.getDjModeActive() != null ? defaultState.getDjModeActive() : false);
 
         em.merge(state);
         em.flush();

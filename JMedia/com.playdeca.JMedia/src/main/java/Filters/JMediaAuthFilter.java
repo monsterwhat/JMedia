@@ -41,7 +41,6 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     private static final List<String> STREAMING_ENDPOINTS = Arrays.asList(
             "/api/video/stream/",
             "/api/video/hls/",
-            "/api/video/subtitles/",
             "/api/video/progress/",
             "/api/video/storyboard/"
     );

@@ -487,85 +487,82 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
         List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
                 ? state.getOriginalCue() : cue;
 
-        // If skipped early (< 20% played), change to a different genre
-        // Otherwise, stay in the same genre with BPM matching
+        // ENHANCED SMART SHUFFLE: Multi-candidate scoring with artist/album awareness
         Song nextSong = null;
+        String targetGenre;
         
         if (skippedEarly && (currentSong.getGenre() != null && !currentSong.getGenre().isBlank())) {
             // User skipped early - pick a song from a DIFFERENT genre
-            // Get all genres in the pool and pick one that's not the current genre
             List<Song> allSongsInPool = songService.findByIds(songPool);
             java.util.Map<String, List<Song>> songsByGenre = allSongsInPool.stream()
                     .collect(java.util.stream.Collectors.groupingBy(song ->
                             song.getGenre() == null || song.getGenre().isBlank() ? "Unknown" : song.getGenre()
                     ));
             
-            // Remove current genre from options
             String currentGenre = currentSong.getGenre();
             List<String> otherGenres = songsByGenre.keySet().stream()
                     .filter(g -> !g.equalsIgnoreCase(currentGenre))
                     .collect(java.util.stream.Collectors.toList());
             
-            if (!otherGenres.isEmpty()) {
-                // Pick a random different genre
+            if (otherGenres.isEmpty()) {
+                targetGenre = currentGenre; // Fallback to current genre if no others
+            } else {
                 java.util.Collections.shuffle(otherGenres);
-                String newGenre = otherGenres.get(0);
-                
-                // Get BPM tolerance for the new genre
-                int bpmTolerance = 10;
-                if (settingsController != null) {
-                    bpmTolerance = settingsController.getOrCreateSettings().getBpmToleranceForGenre(newGenre);
-                }
-                
-                // Try to find a song with similar BPM in the new genre
-                if (currentSong.getBpm() > 0) {
-                    nextSong = songService.findRandomSongByGenreAndBpm(
-                            newGenre,
-                            currentSong.getBpm(),
-                            bpmTolerance,
-                            currentSong.id,
-                            songPool
-                    );
-                }
-                
-                // Fall back to random in new genre if no BPM match
-                if (nextSong == null) {
-                    nextSong = songService.findRandomSongByGenre(newGenre, currentSong.id, songPool);
-                }
+                targetGenre = otherGenres.get(0);
             }
         } else {
-            // Normal case (song ended naturally OR skipped after 20%) - stay in same genre with BPM matching
-            
-            if (currentSong.getGenre() == null || currentSong.getGenre().isBlank()) {
-                return; // No genre info, can't do smart shuffle
-            }
-            
-            // Get BPM tolerance from settings
-            int bpmTolerance = 10;
-            if (settingsController != null) {
-                bpmTolerance = settingsController.getOrCreateSettings().getBpmToleranceForGenre(currentSong.getGenre());
-            }
-
-            // Try to find a song with similar BPM in the same genre
-            if (currentSong.getBpm() > 0) {
-                nextSong = songService.findRandomSongByGenreAndBpm(
-                        currentSong.getGenre(), 
-                        currentSong.getBpm(), 
-                        bpmTolerance, 
-                        currentSong.id, 
-                        songPool
-                );
-            }
-
-            // Fall back to genre-only if no BPM match found
-            if (nextSong == null) {
-                nextSong = songService.findRandomSongByGenre(currentSong.getGenre(), currentSong.id, songPool);
-            }
+            // Normal case - stay in same genre
+            targetGenre = currentSong.getGenre();
         }
+
+        if (targetGenre == null || targetGenre.isBlank()) {
+            return; // No genre info, can't do smart shuffle
+        }
+
+        // Get BPM tolerance from settings
+        int bpmTolerance = 10;
+        if (settingsController != null) {
+            bpmTolerance = settingsController.getOrCreateSettings().getBpmToleranceForGenre(targetGenre);
+        }
+
+        // Get recently played songs (last 12) to exclude
+        List<Long> recentSongIds = playbackHistoryService.getRecentlyPlayedSongIds(12, profileId);
+        List<Long> exclusions = new ArrayList<>(recentSongIds);
+        exclusions.add(currentSong.id);
+
+        // PHASE 1: Get multiple candidates by Genre + BPM
+        List<Song> candidates;
+        if (currentSong.getBpm() > 0) {
+            candidates = songService.findCandidatesByGenreAndBpm(
+                    targetGenre,
+                    currentSong.getBpm(),
+                    bpmTolerance,
+                    exclusions,
+                    songPool,
+                    20 // Get up to 20 candidates for scoring
+            );
+        } else {
+            candidates = songService.findCandidatesByGenre(
+                    targetGenre,
+                    exclusions,
+                    songPool,
+                    20
+            );
+        }
+
+        if (candidates.isEmpty()) {
+            return; // No candidates found
+        }
+
+        // PHASE 2: Score candidates by Artist + Album
+        nextSong = selectBestCandidate(candidates, state, currentSong);
 
         if (nextSong == null) {
             return; // No smart match found, let the default (shuffled) order proceed
         }
+
+        // Update tracking for consecutive artist/album plays
+        updateConsecutiveTracking(state, currentSong, nextSong);
 
         Long nextSongId = nextSong.id;
 
@@ -579,6 +576,112 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
             cue.add(insertionPoint, songToMove);
         }
+    }
+
+    /**
+     * Score candidates and select the best one using weighted probability.
+     * Scoring system:
+     * +3 pts: Same album (if <4 consecutive from this album) - "deep dive" reward
+     * -2 pts: Same album (if >=4 consecutive from this album) - "fatigue" penalty  
+     * +2 pts: Same artist - artist consistency reward
+     * +1 pt:  Different album, same artist - variety bonus
+     * 0 pts:  Different artist, different album - neutral
+     */
+    private Song selectBestCandidate(List<Song> candidates, PlaybackState state, Song currentSong) {
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        if (candidates.size() == 1) {
+            return candidates.get(0);
+        }
+
+        // Score each candidate
+        java.util.Map<Song, Integer> songScores = new java.util.HashMap<>();
+        String lastAlbum = state.getLastPlayedAlbum();
+        String lastArtist = state.getLastPlayedArtist();
+        int consecutiveAlbums = state.getConsecutiveAlbumPlays();
+
+        for (Song candidate : candidates) {
+            int score = 0;
+            String candidateAlbum = candidate.getAlbum();
+            String candidateArtist = candidate.getArtist();
+
+            // Album scoring
+            if (candidateAlbum != null && !candidateAlbum.isBlank() && 
+                lastAlbum != null && candidateAlbum.equalsIgnoreCase(lastAlbum)) {
+                if (consecutiveAlbums < 4) {
+                    score += 3; // Deep dive reward
+                } else {
+                    score -= 2; // Fatigue penalty after 4 songs
+                }
+            }
+
+            // Artist scoring  
+            if (candidateArtist != null && !candidateArtist.isBlank() &&
+                lastArtist != null && candidateArtist.equalsIgnoreCase(lastArtist)) {
+                score += 2; // Same artist reward
+                
+                // Variety bonus if different album but same artist
+                if (candidateAlbum == null || lastAlbum == null || 
+                    !candidateAlbum.equalsIgnoreCase(lastAlbum)) {
+                    score += 1;
+                }
+            }
+
+            songScores.put(candidate, score);
+        }
+
+        // Sort by score descending and take top 5
+        List<java.util.Map.Entry<Song, Integer>> sorted = songScores.entrySet().stream()
+                .sorted(java.util.Map.Entry.<Song, Integer>comparingByValue().reversed())
+                .limit(5)
+                .toList();
+
+        if (sorted.isEmpty()) {
+            return candidates.get(0);
+        }
+
+        // Weighted random selection from top candidates
+        // Higher scores get higher probability
+        int totalWeight = sorted.stream().mapToInt(java.util.Map.Entry::getValue).map(s -> Math.max(s + 5, 1)).sum();
+        int randomWeight = new java.util.Random().nextInt(totalWeight);
+        int currentWeight = 0;
+
+        for (java.util.Map.Entry<Song, Integer> entry : sorted) {
+            int weight = Math.max(entry.getValue() + 5, 1); // +5 to ensure positive weights
+            currentWeight += weight;
+            if (randomWeight < currentWeight) {
+                return entry.getKey();
+            }
+        }
+
+        return sorted.get(0).getKey(); // Fallback to highest scored
+    }
+
+    /**
+     * Update consecutive artist/album tracking in playback state.
+     */
+    private void updateConsecutiveTracking(PlaybackState state, Song currentSong, Song nextSong) {
+        String currentAlbum = currentSong.getAlbum();
+        String currentArtist = currentSong.getArtist();
+        String nextAlbum = nextSong.getAlbum();
+        String nextArtist = nextSong.getArtist();
+
+        // Update album tracking
+        if (currentAlbum != null && nextAlbum != null && currentAlbum.equalsIgnoreCase(nextAlbum)) {
+            state.setConsecutiveAlbumPlays(state.getConsecutiveAlbumPlays() + 1);
+        } else {
+            state.setConsecutiveAlbumPlays(1);
+        }
+        state.setLastPlayedAlbum(nextAlbum);
+
+        // Update artist tracking
+        if (currentArtist != null && nextArtist != null && currentArtist.equalsIgnoreCase(nextArtist)) {
+            state.setConsecutiveArtistPlays(state.getConsecutiveArtistPlays() + 1);
+        } else {
+            state.setConsecutiveArtistPlays(1);
+        }
+        state.setLastPlayedArtist(nextArtist);
     }
 
     public void initSecondaryShuffle(PlaybackState state) {

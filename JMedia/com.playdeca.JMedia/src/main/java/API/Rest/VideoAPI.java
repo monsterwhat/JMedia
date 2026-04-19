@@ -431,10 +431,16 @@ public class VideoAPI {
 
     @POST
     @Path("/scan")
-    public Response scanVideoLibrary(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+    public Response scanVideoLibrary(@Context jakarta.ws.rs.core.HttpHeaders headers,
+            @jakarta.ws.rs.QueryParam("mode") String mode) {
         if (!checkAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
+        
+        // Determine scan mode: "full" = reload all, "update" (default) = only new videos
+        boolean forceFullScan = "full".equalsIgnoreCase(mode);
+        String scanModeDesc = forceFullScan ? "full" : "incremental";
+        
         executor.submit(() -> {
             ManagedContext requestContext = Arc.container().requestContext();
             if (!requestContext.isActive()) {
@@ -444,10 +450,10 @@ public class VideoAPI {
             try {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                    LOG.info("Starting per-video library scan: {}", videoLibraryPath);
-                    
-                    List<Models.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath));
-                    
+                    LOG.info("Starting per-video library scan ({}): {}", scanModeDesc, videoLibraryPath);
+
+                    List<Models.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), forceFullScan);
+
                     LOG.info("Scan and create completed. Created {} videos.", videos.size());
                     
                     // Queue metadata enrichment for background processing
@@ -468,7 +474,7 @@ public class VideoAPI {
             }
         });
 
-        return Response.ok(ApiResponse.success("Video library scan started.")).build();
+        return Response.ok(ApiResponse.success("Video library scan started (" + scanModeDesc + " mode).")).build();
     }
 
     @POST

@@ -52,7 +52,7 @@ public class SubtitleAPI {
     
     @Inject
     private Services.EnhancedSubtitleMatcher subtitleMatcher;
-    
+
     // ========== SUBTITLE ENDPOINTS ==========
     
     @POST
@@ -75,15 +75,16 @@ public class SubtitleAPI {
     
     @GET
     @Path("/{videoId}/search")
-    public Response searchSubtitle(@PathParam("videoId") Long videoId, 
-                                 @QueryParam("language") @DefaultValue("en") String language) {
+    public Response searchSubtitle(@PathParam("videoId") Long videoId,
+                                 @QueryParam("language") @DefaultValue("en") String language,
+                                 @QueryParam("query") String query) {
         Video video = Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
         }
-        
+
         try {
-            List<SubtitleSearchResult> results = downloadService.searchSubtitles(video, language);
+            List<SubtitleSearchResult> results = downloadService.searchSubtitles(video, language, query);
             return Response.ok(results).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

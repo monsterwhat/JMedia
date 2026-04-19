@@ -153,6 +153,15 @@ public class PlaybackAPI {
     }
 
     @POST
+    @Path("/dj-mode-set/{profileId}/{active}")
+    public Response setDjMode(@PathParam("profileId") Long profileId, @PathParam("active") boolean active, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.setDjMode(userProfile.id, active);
+        return Response.ok(ApiResponse.success("DJ Mode set to " + active)).build();
+    }
+
+    @POST
     @Path("/repeat/{profileId}")
     public Response toggleRepeat(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);

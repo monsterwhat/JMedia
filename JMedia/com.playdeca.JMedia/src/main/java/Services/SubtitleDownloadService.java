@@ -44,26 +44,34 @@ public class SubtitleDownloadService {
     private final HttpClient httpClient = HttpClient.newBuilder().build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public List<SubtitleSearchResult> searchSubtitles(Video video, String language) throws Exception {
+    public List<SubtitleSearchResult> searchSubtitles(Video video, String language, String userQuery) throws Exception {
         // OpenSubtitles requires 3-letter ISO 639-2 language codes (e.g., 'eng' instead of 'en')
         String osLanguage = mapToThreeLetterLanguage(language);
-        LOG.info("Searching OpenSubtitles.org for video: " + video.title + " in language: " + osLanguage);
-        
+
+        // Use user-provided query if available, otherwise fall back to video title
+        String searchQuery;
+        if (userQuery != null && !userQuery.isBlank()) {
+            searchQuery = userQuery;
+            LOG.info("Searching OpenSubtitles.org for user query: " + searchQuery + " in language: " + osLanguage);
+        } else {
+            searchQuery = video.type.equalsIgnoreCase("episode") ? video.seriesTitle : video.title;
+            LOG.info("Searching OpenSubtitles.org for video: " + video.title + " in language: " + osLanguage);
+        }
+
         // Build URL segments
         StringBuilder urlSegments = new StringBuilder();
-        
-        // 1. Add IMDb ID if available (strip 'tt' prefix)
-        if (video.imdbId != null && !video.imdbId.isBlank()) {
+
+        // 1. Add IMDb ID if available (strip 'tt' prefix) - only if not using custom query
+        if ((userQuery == null || userQuery.isBlank()) && video.imdbId != null && !video.imdbId.isBlank()) {
             String cleanImdbId = video.imdbId.replace("tt", "");
             urlSegments.append("/imdbid-").append(cleanImdbId);
         }
-        
+
         // 2. Add Language
         urlSegments.append("/sublanguageid-").append(osLanguage);
-        
-        // 3. Add Movie Name
-        String query = video.type.equalsIgnoreCase("episode") ? video.seriesTitle : video.title;
-        urlSegments.append("/moviename-").append(URLEncoder.encode(query, StandardCharsets.UTF_8));
+
+        // 3. Add Movie Name (user query or video title)
+        urlSegments.append("/moviename-").append(URLEncoder.encode(searchQuery, StandardCharsets.UTF_8));
 
         // Construct final URL with /xml suffix for parsing
         String searchUrl = "https://www.opensubtitles.org/en/search" + urlSegments.toString() + "/xml";

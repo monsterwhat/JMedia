@@ -70,6 +70,31 @@
                     currentSongId: stateToSave.currentSongId,
                     currentTime: stateToSave.currentTime
                 });
+                
+                // Also send currentTime to server so it persists across reloads
+                // Use sendBeacon for reliability during page unload
+                if (stateToSave.currentSongId && stateToSave.currentTime > 0) {
+                    const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
+                    if (profileId) {
+                        // Send position update via sendBeacon (reliable during page unload)
+                        try {
+                            navigator.sendBeacon('/api/music/playback/position/' + profileId + '/' + stateToSave.currentTime);
+                        } catch (beaconErr) {
+                            window.Helpers.log('StatePersistence: sendBeacon failed:', beaconErr);
+                        }
+                        // Also try WebSocket for immediate delivery
+                        if (window.SynchronizationManager && window.SynchronizationManager.sendWebSocketMessage) {
+                            try {
+                                window.SynchronizationManager.sendWebSocketMessage(JSON.stringify({
+                                    type: 'seek',
+                                    payload: { value: stateToSave.currentTime }
+                                }));
+                            } catch (wsErr) {
+                                window.Helpers.log('StatePersistence: WebSocket send failed:', wsErr);
+                            }
+                        }
+                    }
+                }
             } catch (e) {
                 window.Helpers.log('StatePersistence: Error saving state before unload:', e);
             }

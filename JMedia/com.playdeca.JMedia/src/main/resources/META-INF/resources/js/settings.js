@@ -48,6 +48,72 @@ window.clearSongsDB = async function () {
     }
 };
 
+// --- Video Scan Dialog ---
+window.showScanVideoDialog = function() {
+    const dialogHtml = `
+        <div class="modal is-active">
+            <div class="modal-background" onclick="window.closeScanVideoDialog()"></div>
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">Scan Videos</p>
+                    <button class="delete" aria-label="close" onclick="window.closeScanVideoDialog()"></button>
+                </header>
+                <section class="modal-card-body">
+                    <p class="mb-4">Choose scan mode:</p>
+                    <div class="content">
+                        <p><strong>Update Scan</strong> - Finds only new videos (keeps existing metadata)</p>
+                        <p class="has-text-grey is-size-7">Quick scan - only processes new files</p>
+                    </div>
+                    <div class="content mt-4">
+                        <p><strong>Full Scan</strong> - Reloads all videos (may update metadata)</p>
+                        <p class="has-text-grey is-size-7">Slower - re-processes all files, may update titles/descriptions</p>
+                    </div>
+                </section>
+                <footer class="modal-card-foot">
+                    <button class="button is-info" onclick="window.scanVideos('update')">Update Scan</button>
+                    <button class="button is-warning" onclick="window.scanVideos('full')">Full Scan</button>
+                    <button class="button" onclick="window.closeScanVideoDialog()">Cancel</button>
+                </footer>
+            </div>
+        </div>
+    `;
+    
+    // Remove existing dialog if any
+    const existing = document.getElementById('videoScanModal');
+    if (existing) existing.remove();
+    
+    // Add dialog to body
+    const div = document.createElement('div');
+    div.id = 'videoScanModal';
+    div.innerHTML = dialogHtml;
+    document.body.appendChild(div);
+};
+
+window.closeScanVideoDialog = function() {
+    const dialog = document.getElementById('videoScanModal');
+    if (dialog) dialog.remove();
+};
+
+window.scanVideos = async function(mode) {
+    window.closeScanVideoDialog();
+    
+    const btn = document.getElementById('scanVideoLibrary');
+    if (btn) btn.disabled = true;
+    
+    try {
+        const res = await fetch(`/api/video/scan?mode=${mode}`, {method: "POST"});
+        if (res.ok) {
+            if(window.showToast) window.showToast(`Video ${mode} scan started`, "success");
+        } else {
+            if(window.showToast) window.showToast("Failed to start scan", "error");
+        }
+    } catch (e) {
+        if(window.showToast) window.showToast("Error: " + e.message, "error");
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+};
+
 window.reloadMetadata = async function () {
     const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     const res = await fetch(`/api/settings/${profileId}/reloadMetadata`, {method: "POST"});

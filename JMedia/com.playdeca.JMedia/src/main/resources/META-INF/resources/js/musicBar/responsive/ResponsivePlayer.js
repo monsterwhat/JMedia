@@ -925,7 +925,7 @@
             }
         },
         /**
-         * Fetch current song data including artworkBase64
+         * Fetch current song data (Metadata only, avoid massive artworkBase64 in JSON)
          */
         fetchCurrentSongData: function(songId) {
             if (!songId) {
@@ -937,32 +937,26 @@
             
             const profileId = window.globalActiveProfileId || '1';
             fetch(`/api/music/playback/current/${profileId}`, { credentials: 'same-origin' })
-                .then(r => {
-                    window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData response status:', r.status);
-                    return r.json();
-                })
+                .then(r => r.json())
                 .then(data => {
-                    window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData response data:', data);
                     if (data && data.data) {
-                        // Store full song data including artworkBase64 in StateManager
+                        // Store metadata, but manually set artworkBase64 to null to save memory
+                        // and force the binary endpoint usage
+                        const songMetadata = { ...data.data, artworkBase64: null };
+                        
                         if (window.StateManager) {
-                            window.StateManager.updateState({ currentSongId: songId, currentSongData: data.data }, 'ResponsivePlayer');
+                            window.StateManager.updateState({ currentSongId: songId, currentSongData: songMetadata }, 'ResponsivePlayer');
                         }
                         
-                        window.Helpers.log('[ResponsivePlayer] Stored currentSongData, artworkBase64:', data.data.artworkBase64 ? 'present' : 'missing');
-                        // Update cover image with new data
+                        // Update cover image using binary endpoint
                         this.updateCoverImage(window.StateManager.getState());
                         
                         // Update media session metadata
-                        if (window.updateMediaSessionMetadata && data.data) {
-                            let artworkUrl = null;
-                            if (data.data.artworkBase64) {
-                                artworkUrl = `data:image/jpeg;base64,${data.data.artworkBase64}`;
-                            }
+                        if (window.updateMediaSessionMetadata) {
                             window.updateMediaSessionMetadata(
-                                data.data.title,
-                                data.data.artist,
-                                artworkUrl
+                                songMetadata.title,
+                                songMetadata.artist,
+                                `/api/music/cover/${songId}`
                             );
                         }
                     }
@@ -971,33 +965,28 @@
         },
         
         /**
-         * Update cover image display
+         * Update cover image display using binary endpoint
          */
         updateCoverImage: function(state) {
-            if (!this.elements.coverImage || !this.elements.coverFallback) return;
+            if (!this.elements.coverImage) return;
 
-            // Use passed state (currentSongData) which is now in StateManager
-            const currentSongData = state?.currentSongData;
-            const hasArtwork = currentSongData && currentSongData.artworkBase64;
+            const songId = state?.currentSongId;
 
-            if (hasArtwork) {
-                // Use stored base64 artwork
-                this.elements.coverImage.src = `data:image/jpeg;base64,${currentSongData.artworkBase64}`;
+            if (songId) {
+                // ALWAYS use the binary endpoint to avoid massive JSON parsing
+                this.elements.coverImage.src = `/api/music/cover/${songId}`;
                 this.elements.coverImage.style.display = 'block';
                 if (this.elements.coverFallback) {
                     this.elements.coverFallback.style.display = 'none';
                 }
             } else {
-                // No artwork available - show logo/fallback
-                if (this.elements.coverImage) {
-                    this.elements.coverImage.src = '/logo.png';
-                    this.elements.coverImage.style.display = 'block';
-                }
+                // No song - show logo/fallback
+                this.elements.coverImage.src = '/logo.png';
                 if (this.elements.coverFallback) {
                     this.elements.coverFallback.style.display = 'none';
                 }
             }
-        },        
+        },
         /**
          * Update playback state display
          */

@@ -323,12 +323,9 @@
             }
 
             // Update media session metadata
-            if (window.updateMediaSessionMetadata && state) {
-                let artworkUrl = null;
-                const songData = window.musicState?.currentSongData;
-                if (songData && songData.artworkBase64) {
-                    artworkUrl = `data:image/jpeg;base64,${songData.artworkBase64}`;
-                }
+            if (window.updateMediaSessionMetadata && state && state.currentSongId) {
+                // ALWAYS use binary endpoint for artwork
+                const artworkUrl = `/api/music/cover/${state.currentSongId}`;
                 window.updateMediaSessionMetadata(state.songName, state.artistName, artworkUrl);
             }
         });

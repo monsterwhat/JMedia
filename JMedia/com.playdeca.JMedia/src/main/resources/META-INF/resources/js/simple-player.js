@@ -591,40 +591,147 @@ if (typeof window.SimplePlayer === 'undefined') {
                 if (window.subtitleManager) window.subtitleManager.adjustCorrection(0.2);
             };
 
+            // CSS-based fullscreen toggle method
+            this.toggleCssFullscreen = () => {
+                const isCssFullscreen = this.container.classList.contains('is-css-fullscreen');
+                
+                if (isCssFullscreen) {
+                    // Exit CSS fullscreen
+                    this.container.classList.remove('is-css-fullscreen');
+                    document.body.style.overflow = '';
+                    this.isCssFullscreen = false;
+                    
+                    // Unlock orientation if it was locked
+                    if (screen.orientation && screen.orientation.unlock) {
+                        screen.orientation.unlock().catch(() => {});
+                    }
+                    
+                    console.log('[SimplePlayer] CSS fullscreen exited');
+                } else {
+                    // Enter CSS fullscreen
+                    this.container.classList.add('is-css-fullscreen');
+                    document.body.style.overflow = 'hidden';
+                    this.isCssFullscreen = true;
+                    
+                    // Scroll to top to ensure player fills viewport
+                    window.scrollTo(0, 0);
+                    
+                    // Try to lock to landscape on mobile
+                    if (screen.orientation && screen.orientation.lock) {
+                        screen.orientation.lock('landscape').catch(() => {});
+                    }
+                    
+                    console.log('[SimplePlayer] CSS fullscreen entered');
+                }
+                
+                // Update UI state
+                this.updateFullscreenButtonState(this.isCssFullscreen);
+            };
+            
+            // Update fullscreen button icon
+            this.updateFullscreenButtonState = (isFullscreen) => {
+                const fsIcon = this.fullscreenBtn.querySelector('i');
+                if (fsIcon) {
+                    fsIcon.className = isFullscreen ? 'pi pi-compress' : 'pi pi-expand';
+                }
+                
+                // Update container classes
+                this.container.classList.toggle('is-fullscreen', isFullscreen);
+                
+                // Re-trigger subtitle lift update if needed
+                if (this.controlsVisible) this.showControls();
+            };
+
             this.fullscreenBtn.onclick = (e) => {
                 e.stopPropagation();
+                e.preventDefault();
 
-                // Check if we're on iOS
-                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                // Check if we're on iOS (including iPadOS which reports as MacIntel with touch)
+                const isIOS = /iPad|iPhone|iPod|iPadOS/i.test(navigator.userAgent) ||
+                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+                              (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
+
+                // Check current fullscreen state
+                const isNativeFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
+                const isCssFullscreen = this.container.classList.contains('is-css-fullscreen');
+                
+                // If already in fullscreen, exit it
+                if (isNativeFullscreen || isCssFullscreen) {
+                    if (isNativeFullscreen) {
+                        // Exit native fullscreen
+                        if (document.exitFullscreen) {
+                            document.exitFullscreen().catch(() => {});
+                        } else if (document.webkitExitFullscreen) {
+                            document.webkitExitFullscreen();
+                        }
+                    }
+                    if (isCssFullscreen) {
+                        this.toggleCssFullscreen();
+                    }
+                    return;
+                }
 
                 if (isIOS) {
-                    // iOS Safari only supports fullscreen on the video element itself
-                    // and uses webkitEnterFullscreen (not the standard API)
+                    // iOS: First try native video fullscreen
+                    let nativeFullscreenAttempted = false;
+                    
+                    // Ensure playsinline is set (required for programmatic fullscreen on iOS)
+                    if (!this.video.hasAttribute('playsinline')) {
+                        this.video.setAttribute('playsinline', 'true');
+                        this.video.setAttribute('webkit-playsinline', 'true');
+                    }
+                    
+                    // Try native iOS fullscreen
                     if (this.video.webkitEnterFullscreen) {
-                        this.video.webkitEnterFullscreen();
-                    } else if (this.video.webkitSupportsFullscreen) {
-                        // Fallback for older iOS versions
-                        this.video.webkitEnterFullScreen();
+                        try {
+                            this.video.webkitEnterFullscreen();
+                            nativeFullscreenAttempted = true;
+                        } catch (err) {
+                            console.log('[SimplePlayer] webkitEnterFullscreen failed:', err);
+                        }
+                    } else if (this.video.webkitSupportsFullscreen && this.video.webkitEnterFullScreen) {
+                        try {
+                            this.video.webkitEnterFullScreen();
+                            nativeFullscreenAttempted = true;
+                        } catch (err) {
+                            console.log('[SimplePlayer] webkitEnterFullScreen failed:', err);
+                        }
+                    }
+                    
+                    // If native fullscreen failed, use CSS fallback
+                    if (!nativeFullscreenAttempted) {
+                        console.log('[SimplePlayer] Using CSS fullscreen fallback for iOS');
+                        this.toggleCssFullscreen();
                     }
                 } else {
                     // Standard fullscreen API for other browsers
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen();
-                    } else if (this.container.requestFullscreen) {
-                        this.container.requestFullscreen();
+                    if (this.container.requestFullscreen) {
+                        this.container.requestFullscreen().catch(err => {
+                            console.log('[SimplePlayer] Fullscreen error, using CSS fallback:', err);
+                            this.toggleCssFullscreen();
+                        });
                     } else if (this.container.webkitRequestFullscreen) {
                         // Safari on macOS
                         this.container.webkitRequestFullscreen();
+                    } else {
+                        // Fallback to CSS fullscreen
+                        this.toggleCssFullscreen();
                     }
                 }
             };
 
             // Listen for fullscreen changes to update UI classes
             const onFullscreenChange = () => {
-                const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
-                this.container.classList.toggle('is-fullscreen', isFullscreen);
-                console.log('[SimplePlayer] Fullscreen changed:', isFullscreen);
+                const isNativeFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
+                
+                // Only update if we're in native fullscreen (not CSS fullscreen)
+                if (!this.container.classList.contains('is-css-fullscreen')) {
+                    this.container.classList.toggle('is-fullscreen', isNativeFullscreen);
+                    this.updateFullscreenButtonState(isNativeFullscreen);
+                    console.log('[SimplePlayer] Native fullscreen changed:', isNativeFullscreen);
+                } else {
+                    console.log('[SimplePlayer] Native fullscreen changed, but CSS fullscreen is active');
+                }
 
                 // Re-trigger subtitle lift update if needed
                 if (this.controlsVisible) this.showControls();
@@ -632,6 +739,23 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             document.addEventListener('fullscreenchange', onFullscreenChange);
             document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+            
+            // Handle iOS-specific video fullscreen end event
+            this.video.addEventListener('webkitendfullscreen', () => {
+                console.log('[SimplePlayer] iOS video fullscreen ended');
+                this.container.classList.remove('is-fullscreen');
+                this.updateFullscreenButtonState(false);
+            });
+            
+            // Handle orientation changes for CSS fullscreen
+            if (screen.orientation) {
+                screen.orientation.addEventListener('change', () => {
+                    if (this.container.classList.contains('is-css-fullscreen')) {
+                        // Re-scroll to ensure player fills screen after orientation change
+                        window.scrollTo(0, 0);
+                    }
+                });
+            }
             // Markers - use server-side seek for transcoded streams
             this.container.querySelector('#skipIntroBtn').onclick = () => {
                 if (this.needsTranscode && !this.hlsSessionId) {

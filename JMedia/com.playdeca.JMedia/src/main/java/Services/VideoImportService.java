@@ -425,7 +425,7 @@ public class VideoImportService {
                 
                 Video existingVideo = ctx.videoByPath.get(filePathStr);
                 
-                if (!fileChanged && existingVideo != null && !metadataOnly) {
+                if (!fileChanged && existingVideo != null && !metadataOnly && !forceFullScan) {
                     if (skippedFiles != null) {
                         skippedFiles.incrementAndGet();
                     }
@@ -434,7 +434,7 @@ public class VideoImportService {
                 
                 String relativePath = rootPath.relativize(filePath).toString();
                 SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(existingFile, filename, relativePath, null, null, null, null, null, null);
-                return entityCreationService.createVideoFromNamingResult(existingFile, res);
+                return entityCreationService.createVideoFromNamingResult(existingFile, res, forceFullScan);
             }
 
             if (!metadataOnly) {

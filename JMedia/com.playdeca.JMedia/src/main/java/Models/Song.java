@@ -17,12 +17,15 @@ public class Song extends PanacheEntity {
     private String date;
     private String releaseDate;
     private String genre;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = Integer.MAX_VALUE)
     private String lyrics;
     private boolean explicit;
     private int bpm;
     private int durationSeconds;
     private String path;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = Integer.MAX_VALUE)
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;
@@ -30,6 +33,7 @@ public class Song extends PanacheEntity {
     private Long lastModified;
     private String musicbrainzId;
     
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true)
     private SongAnalysis analysis;
   

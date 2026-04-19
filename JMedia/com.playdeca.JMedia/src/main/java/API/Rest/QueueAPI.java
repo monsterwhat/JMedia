@@ -82,7 +82,12 @@ public class QueueAPI {
     public Response getSongCover(@PathParam("id") Long id) {
         Song song = playbackController.findSong(id);
         if (song == null || song.getArtworkBase64() == null || song.getArtworkBase64().isEmpty()) {
-            return Response.status(Response.Status.NOT_FOUND).build();
+            // Redirect to default logo if artwork is missing to prevent 404 errors in UI
+            try {
+                return Response.temporaryRedirect(new java.net.URI("/logo.png")).build();
+            } catch (Exception e) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
         }
 
         try {

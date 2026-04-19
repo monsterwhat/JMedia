@@ -21,8 +21,8 @@ function updatePlayerImages(currentSong, prevSong, nextSong) {
         initializePlayerDOMElements();
     }
 
-    const currentArtwork = currentSong && currentSong.artworkBase64 && currentSong.artworkBase64 !== ''
-            ? `data:image/jpeg;base64,${currentSong.artworkBase64}`
+    const currentArtwork = currentSong && currentSong.id
+            ? `/api/music/cover/${currentSong.id}`
             : '/logo.png';
 
     // Update current song image and favicon synchronously
@@ -36,8 +36,8 @@ function updatePlayerImages(currentSong, prevSong, nextSong) {
     // Update prev/next images asynchronously to avoid blocking
     requestAnimationFrame(() => {
         if (playerDOMElements.prevSongCoverImage) {
-            if (prevSong && prevSong.artworkBase64 && prevSong.artworkBase64 !== '') {
-                playerDOMElements.prevSongCoverImage.src = `data:image/jpeg;base64,${prevSong.artworkBase64}`;
+            if (prevSong && prevSong.id) {
+                playerDOMElements.prevSongCoverImage.src = `/api/music/cover/${prevSong.id}`;
                 playerDOMElements.prevSongCoverImage.style.display = 'block';
             } else {
                 playerDOMElements.prevSongCoverImage.src = '/logo.png';
@@ -46,8 +46,8 @@ function updatePlayerImages(currentSong, prevSong, nextSong) {
         }
 
         if (playerDOMElements.nextSongCoverImage) {
-            if (nextSong && nextSong.artworkBase64 && nextSong.artworkBase64 !== '') {
-                playerDOMElements.nextSongCoverImage.src = `data:image/jpeg;base64,${nextSong.artworkBase64}`;
+            if (nextSong && nextSong.id) {
+                playerDOMElements.nextSongCoverImage.src = `/api/music/cover/${nextSong.id}`;
                 playerDOMElements.nextSongCoverImage.style.display = 'block';
             } else {
                 playerDOMElements.nextSongCoverImage.src = '/logo.png';

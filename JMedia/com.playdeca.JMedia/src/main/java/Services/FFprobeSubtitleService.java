@@ -40,9 +40,15 @@ public class FFprobeSubtitleService {
     @Inject
     SettingsService settingsService;
     
-    // Supported subtitle codecs
-    private static final List<String> SUPPORTED_SUBTITLE_CODECS = List.of(
-        "subrip", "ass", "ssa", "webvtt", "mov_text", "dvd_subtitle", "pgssub"
+    // Text-based subtitle codecs that can be streamed/converted to WebVTT
+    private static final List<String> STREAMABLE_SUBTITLE_CODECS = List.of(
+        "subrip", "ass", "ssa", "webvtt", "mov_text"
+    );
+    
+    // Image-based subtitle codecs (PGS/DVD) - cannot be directly converted to WebVTT
+    // These require OCR processing and are excluded from player listings
+    private static final List<String> IMAGE_BASED_CODECS = List.of(
+        "dvd_subtitle", "pgssub", "hdmv_pgs_subtitle", "dvb_subtitle"
     );
     
     // Language name mapping (ISO 639-2 to full name)
@@ -112,6 +118,20 @@ public class FFprobeSubtitleService {
         String codec = stream.path("codec_name").asText();
         int index = stream.path("index").asInt();
         
+        // Skip image-based subtitles (PGS/DVD) - they cannot be streamed as WebVTT
+        // These would require OCR processing which is not currently supported
+        if (IMAGE_BASED_CODECS.contains(codec)) {
+            LOGGER.debug("Skipping image-based subtitle track {} with codec '{}' - not streamable", 
+                        index, codec);
+            return null;
+        }
+        
+        // Only process text-based subtitle codecs
+        if (!STREAMABLE_SUBTITLE_CODECS.contains(codec)) {
+            LOGGER.warn("Unknown subtitle codec '{}' for track {} - skipping", codec, index);
+            return null;
+        }
+        
         SubtitleTrack track = new SubtitleTrack();
         track.video = video;
         track.isEmbedded = true;
@@ -145,12 +165,18 @@ public class FFprobeSubtitleService {
         return track;
     }
 
-/**
+    /**
      * Extract an internal subtitle track and convert to WebVTT string on-the-fly
      */
     public String extractInternalSubtitleToVTT(SubtitleTrack track, double startOffset) throws IOException {
         if (!track.isEmbedded || track.trackIndex == null || track.video == null) {
             throw new IllegalArgumentException("Track is not an embedded subtitle track");
+        }
+        
+        // Check if this is an image-based subtitle that cannot be converted to WebVTT
+        if (track.codec != null && IMAGE_BASED_CODECS.contains(track.codec)) {
+            throw new IOException("Image-based subtitles (" + track.codec + ") cannot be converted to WebVTT. " +
+                                "OCR processing is required for PGS/DVD subtitle formats.");
         }
 
         String ffmpegPath = discoveryService.findFFmpegExecutable();

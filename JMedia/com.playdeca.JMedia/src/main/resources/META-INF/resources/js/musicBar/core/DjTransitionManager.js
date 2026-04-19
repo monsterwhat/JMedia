@@ -37,6 +37,33 @@
                     if (state && state.djModeActive) {
                         window.Helpers.log('[DJ] DJ mode already active on init, showing indicator');
                         this.updateDjIndicator('active');
+                        
+                        // IMPORTANT: Tell backend DJ Mode is active - restored state doesn't trigger backend
+                        // This ensures the server calculates transitions for this profile
+                        if (window.PlaybackController) {
+                            // Wait for profileId to be available
+                            const notifyBackend = () => {
+                                let profileId = window.StateManager.getProperty('profileId') || 
+                                              window.globalActiveProfileId || 
+                                              localStorage.getItem('activeProfileId');
+                                if (profileId && profileId !== 'undefined' && profileId !== 'null') {
+                                    const isActive = state.djModeActive === true;
+                                    console.log('[DJ] Restored DJ Mode - setting to', isActive, 'for profile', profileId);
+                                    // Use set endpoint to explicitly set On/Off (not toggle)
+                                    fetch(`/api/music/playback/dj-mode-set/${profileId}/${isActive}`, {
+                                        method: 'POST',
+                                        credentials: 'same-origin'
+                                    }).then(() => {
+                                        console.log('[DJ] Backend DJ mode set to', isActive);
+                                    }).catch(err => {
+                                        console.error('[DJ] Failed to set DJ mode:', err);
+                                    });
+                                } else {
+                                    setTimeout(notifyBackend, 100);
+                                }
+                            };
+                            setTimeout(notifyBackend, 200);
+                        }
                     }
                 } else {
                     setTimeout(checkInitialState, 50);
@@ -56,10 +83,13 @@
             // Check if djTransitionPlanned CHANGED to true
             const djPlannedChanged = (oldState.djTransitionPlanned !== newState.djTransitionPlanned);
             
-            if (djPlannedChanged && newState.djTransitionPlanned === true) {
+            // Only process transition if DJ Mode is actually active
+            if (djPlannedChanged && newState.djTransitionPlanned === true && newState.djModeActive === true) {
                 window.Helpers.log('[DJ] Transition planned, preparing');
                 console.log('[DJ] >>> Transition planned! Preparing...');
                 this.prepareTransition(newState);
+            } else if (djPlannedChanged && newState.djTransitionPlanned === true && newState.djModeActive !== true) {
+                console.log('[DJ] Transition planned but DJ Mode not active, ignoring');
             }
             
             if (djPlannedChanged && newState.djTransitionPlanned === false && this.transitionPrepared) {
@@ -196,6 +226,45 @@
                 window.SynchronizationManager.setFlag('isCrossfading', true);
             }
             
+            // IMMEDIATE UI UPDATE: Update song details in UI immediately so user knows what's coming
+            if (window.StateManager && this.transitionData.nextSongId) {
+                const nextId = this.transitionData.nextSongId;
+                const profileId = this.transitionData.profileId;
+                
+                // 1. Fetch the next song metadata to update Title/Artist/Cover
+                if (profileId) {
+                    fetch(`/api/music/playback/nextSong/${profileId}`, { credentials: 'same-origin' })
+                        .then(response => response.json())
+                        .then(res => {
+                            // res.data is the Song object in this API
+                            if (res.success && res.data && String(res.data.id) === String(nextId)) {
+                                // Store title/artist in transitionData for fallback use
+                                self.transitionData.nextSongTitle = res.data.title;
+                                self.transitionData.nextSongArtist = res.data.artist;
+                                
+                                // Update state FIRST
+                                window.StateManager.updateState({
+                                    currentSongId: res.data.id,
+                                    songName: res.data.title,
+                                    artist: res.data.artist,
+                                    currentSongData: { ...res.data, artworkBase64: null }
+                                }, 'djTransitionManager');
+                                
+                                // 2. Use ImageManager to update cover image, favicon, and page title
+                                if (window.ImageManager) {
+                                    window.ImageManager.updateImages(res.data, null, null);
+                                }
+                                
+                                // 3. Update Media Session API (for browser media controls, notifications, etc.)
+                                if (window.updateMediaSessionMetadata) {
+                                    const artworkUrl = `/api/music/cover/${res.data.id}`;
+                                    window.updateMediaSessionMetadata(res.data.title, res.data.artist, artworkUrl);
+                                }
+                            }
+                        }).catch(err => console.error('[DJ] Failed to pre-update song metadata', err));
+                }
+            }
+
             if (window.AudioEngine && window.AudioEngine.crossfadeTo) {
                 var nextSongId = this.transitionData.nextSongId;
                 var entryTime = this.transitionData.entryTime;
@@ -258,6 +327,16 @@
                         // Update UI indicator
                         self.updateDjIndicator('complete');
                         
+                        // Update Media Session API (fallback for single-player mode)
+                        if (window.updateMediaSessionMetadata && self.transitionData) {
+                            const artworkUrl = `/api/music/cover/${self.transitionData.nextSongId}`;
+                            window.updateMediaSessionMetadata(
+                                self.transitionData.nextSongTitle || 'Unknown',
+                                self.transitionData.nextSongArtist || 'Unknown Artist',
+                                artworkUrl
+                            );
+                        }
+                        
                         // Clean up
                         self.transitionPrepared = false;
                         self.isTransitioning = false;
@@ -267,11 +346,6 @@
                             clearInterval(self.monitorTimer);
                             self.monitorTimer = null;
                         }
-                        
-                        // Reset indicator after 2 seconds
-                        setTimeout(function() {
-                            self.updateDjIndicator('none');
-                        }, 2000);
                     }).catch(function(e) {
                         console.error('[DJ] Failed to play next song:', e);
                         window.Helpers.log('[DJ] Failed to play next song: ' + e.message);
@@ -310,210 +384,58 @@
             
             this.updateDjIndicator('none');
         },
-        
+
         /**
          * Update DJ Mode visual indicator in the UI
          */
         updateDjIndicator: function(state) {
             console.log('[DJ] updateDjIndicator called with state:', state);
             
-            var indicator = null;
-            var musicContent = document.getElementById('musicContentArea');
-            
-            // Debug: log what we find
-            console.log('[DJ] musicContent exists:', !!musicContent);
-            
-            // PRIORITY 1: Player container indicator (in persistent player - this is the main one)
-            indicator = document.getElementById('djModeIndicator');
-            console.log('[DJ] Found player indicator:', !!indicator);
-            
-            // PRIORITY 2: If not found, try inside musicContentArea (music view indicator)
-            if (!indicator && musicContent) {
-                indicator = musicContent.querySelector('#djModeIndicatorMusicView');
-                console.log('[DJ] Found music view indicator:', !!indicator);
+            // Try to find the indicator, with caching
+            if (!this._indicatorEl || !document.body.contains(this._indicatorEl)) {
+                this._indicatorEl = document.getElementById('djModeIndicator') || 
+                                   document.querySelector('.dj-indicator');
             }
             
-            // Last resort: any dj-indicator
+            const indicator = this._indicatorEl;
+            
             if (!indicator) {
-                indicator = document.querySelector('.dj-indicator');
-                console.log('[DJ] Found any dj-indicator:', !!indicator);
-            }
-            
-            // If we found indicator in musicContentArea but not in player, hide the music view one
-            if (musicContent) {
-                var musicViewIndicator = musicContent.querySelector('#djModeIndicatorMusicView');
-                if (musicViewIndicator) {
-                    console.log('[DJ] Hiding music view indicator, using player container');
-                    musicViewIndicator.style.display = 'none';
-                    musicViewIndicator.classList.add('is-hidden');
+                if (state !== 'none') {
+                    console.log('[DJ] Indicator not found, scheduling delayed update');
+                    setTimeout(() => this.updateDjIndicator(state), 200);
                 }
-            }
-            
-            // Still no indicator found - handle hiding or showing
-            if (!indicator) {
-                if (state === 'none') {
-                    // Trying to hide but no indicator found - find ALL indicators and hide them
-                    console.log('[DJ] No indicator found, hiding all dj-indicators');
-                    var allIndicators = document.querySelectorAll('.dj-indicator');
-                    console.log('[DJ] Found', allIndicators.length, 'indicators to hide');
-                    allIndicators.forEach(function(el) {
-                        console.log('[DJ] Hiding indicator:', el.id || 'no id');
-                        el.style.display = 'none';
-                        el.classList.add('is-hidden');
-                    });
-                    return;
-                } else {
-                    // Trying to show but indicator not ready yet - schedule delayed update
-                    console.log('[DJ] Indicator not found, scheduling delayed update for state:', state);
-                    var self = this;
-                    setTimeout(function() {
-                        self.updateDjIndicatorDelayed(state);
-                    }, 100);
-                    return;
-                }
+                return;
             }
 
-            console.log('[DJ] Using indicator:', indicator.id, 'with state:', state);
-            
-            // Remove hidden class first
+            // Remove hidden class and ensure visible
             indicator.classList.remove('is-hidden');
+            indicator.style.display = (state === 'none') ? 'none' : 'flex';
             
+            if (state === 'none') {
+                indicator.classList.add('is-hidden');
+                return;
+            }
+
+            // Update content based on state
             switch (state) {
                 case 'active':
-                    indicator.style.display = 'flex';
                     indicator.className = 'dj-indicator active';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
                     indicator.innerHTML = '<i class="pi pi-headphones" style="font-size:0.75rem"></i> <span class="ml-2">DJ Mode</span>';
                     break;
                 case 'preparing':
-                    indicator.style.display = 'flex';
                     indicator.className = 'dj-indicator preparing animate-pulse';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
                     indicator.innerHTML = '<i class="pi pi-spin pi-spinner" style="font-size:0.75rem"></i> <span class="ml-2">DJ Syncing...</span>';
                     break;
                 case 'switching':
                 case 'transitioning':
-                    indicator.style.display = 'flex';
                     indicator.className = 'dj-indicator crossfading';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
                     var reason = (this.transitionData && this.transitionData.reason) ? ': ' + this.transitionData.reason : '...';
                     indicator.innerHTML = '<i class="pi pi-compact-disc pi-spin" style="font-size:0.75rem"></i> <span class="ml-2"><b>DJ Mixing</b>' + reason + '</span>';
                     break;
                 case 'complete':
-                    indicator.style.display = 'flex';
                     indicator.className = 'dj-indicator complete';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
                     indicator.innerHTML = '<i class="pi pi-check-circle" style="font-size:0.75rem"></i> <span class="ml-2">Seamlessly Mixed!</span>';
-                    setTimeout(() => {
-                        this.updateDjIndicator('none');
-                    }, 3000);
-                    break;
-                default:
-                    console.log('[DJ] Hiding indicator via updateDjIndicator (state:', state, ')');
-                    indicator.style.display = 'none';
-                    indicator.classList.add('is-hidden');
-                    indicator.className = 'dj-indicator';
-                    indicator.innerHTML = '';
-                    break;
-            }
-        },
-        
-        /**
-         * Delayed update - try to find indicator after HTMX loads
-         * Uses same logic as updateDjIndicator for consistency
-         */
-        updateDjIndicatorDelayed: function(state) {
-            var indicator = null;
-            var musicContent = document.getElementById('musicContentArea');
-            
-            // PRIORITY 1: Player container indicator
-            indicator = document.getElementById('djModeIndicator');
-            
-            // PRIORITY 2: If not found, try inside musicContentArea
-            if (!indicator && musicContent) {
-                indicator = musicContent.querySelector('#djModeIndicatorMusicView');
-            }
-            
-            // Last resort: any dj-indicator
-            if (!indicator) {
-                indicator = document.querySelector('.dj-indicator');
-            }
-            
-            // If we found indicator in musicContentArea but not in player, hide the music view one
-            if (musicContent) {
-                var musicViewIndicator = musicContent.querySelector('#djModeIndicatorMusicView');
-                if (musicViewIndicator) {
-                    musicViewIndicator.style.display = 'none';
-                    musicViewIndicator.classList.add('is-hidden');
-                }
-            }
-            
-            if (!indicator) {
-                // Still not found - try again if not trying to hide
-                if (state !== 'none') {
-                    var self = this;
-                    setTimeout(function() {
-                        self.updateDjIndicatorDelayed(state);
-                    }, 200);
-                }
-                return;
-            }
-            
-            console.log('[DJ] Delayed update using indicator:', indicator.id, 'with state:', state);
-            
-            // Remove hidden class first
-            indicator.classList.remove('is-hidden');
-            
-            switch (state) {
-                case 'active':
-                    indicator.style.display = 'flex';
-                    indicator.className = 'dj-indicator active';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
-                    indicator.innerHTML = '<i class="pi pi-headphones" style="font-size:0.75rem"></i> <span class="ml-2">DJ Mode</span>';
-                    break;
-                case 'preparing':
-                    indicator.style.display = 'flex';
-                    indicator.className = 'dj-indicator preparing animate-pulse';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
-                    indicator.innerHTML = '<i class="pi pi-spin pi-spinner" style="font-size:0.75rem"></i> <span class="ml-2">DJ Syncing...</span>';
-                    break;
-                case 'switching':
-                case 'transitioning':
-                    indicator.style.display = 'flex';
-                    indicator.className = 'dj-indicator crossfading';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
-                    indicator.innerHTML = '<i class="pi pi-compact-disc pi-spin" style="font-size:0.75rem"></i> <span class="ml-2"><b>DJ Mixing</b></span>';
-                    break;
-                case 'complete':
-                    indicator.style.display = 'flex';
-                    indicator.className = 'dj-indicator complete';
-                    indicator.style.background = 'rgba(0,0,0,0.75)';
-                    indicator.style.borderRadius = '4px';
-                    indicator.style.padding = '4px 8px';
-                    indicator.innerHTML = '<i class="pi pi-check-circle" style="font-size:0.75rem"></i> <span class="ml-2">Seamlessly Mixed!</span>';
-                    setTimeout(() => {
-                        this.updateDjIndicatorDelayed('none');
-                    }, 3000);
-                    break;
-                default:
-                    indicator.style.display = 'none';
-                    indicator.classList.add('is-hidden');
-                    indicator.className = 'dj-indicator';
-                    indicator.innerHTML = '';
+                    setTimeout(() => this.updateDjIndicator('active'), 3000);
                     break;
             }
         }

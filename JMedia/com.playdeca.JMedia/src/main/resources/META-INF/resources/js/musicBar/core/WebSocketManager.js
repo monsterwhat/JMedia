@@ -273,7 +273,7 @@
                         repeatMode: state.repeatMode,
                         cue: state.cue,
                         // DJ Mode fields
-                        djModeActive: state.djModeActive,
+                        djModeActive: state.djModeActive === true, // coerce null/undefined to false
                         djNextSongId: state.djNextSongId,
                         djEntryTime: state.djEntryTime,
                         djExitTime: state.djExitTime,

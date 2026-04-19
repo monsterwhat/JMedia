@@ -261,7 +261,8 @@ public class VideoUiApi {
                         .filter(v -> (v.seasonNumber != null ? v.seasonNumber : 1) == sn)
                         .findFirst()
                         .orElse(null);
-                seasons.add(new SeasonEntry(sn, sample != null ? sample.id : null));
+                String seasonName = sample != null ? sample.seasonName : null;
+                seasons.add(new SeasonEntry(sn, sample != null ? sample.id : null, seasonName));
             }
 
             Models.Video sampleVideo = finalEpisodes.isEmpty() ? null : finalEpisodes.get(0);
@@ -364,7 +365,7 @@ public class VideoUiApi {
     @GET
     @Path("/playback-fragment")
     @Blocking
-    public String getPlaybackFragment(@QueryParam("videoId") Long videoId) {
+    public String getPlaybackFragment(@QueryParam("videoId") Long videoId, @HeaderParam("User-Agent") String userAgent) {
         Models.Video item = videoService.find(videoId);
         if (item == null) return "<div class='notification is-warning'>No video available for playback</div>";
         
@@ -389,7 +390,7 @@ public class VideoUiApi {
         Models.Video prevEpisode = videoService.findPreviousEpisode(item);
 
         boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
-        boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, null);
+        boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, userAgent);
 
         return playbackFragment
                 .data("item", item)
@@ -418,12 +419,16 @@ public class VideoUiApi {
 
     private String createSimpleCardHTML(Models.Video item) {
         String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Unknown");
+        boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type);
+        String dataAttrs = isEpisode && item.seriesTitle != null 
+            ? "data-video-id='" + item.id + "' data-series-title='" + escapeHtml(item.seriesTitle) + "' data-type='Episode'"
+            : "data-video-id='" + item.id + "' data-type='" + (item.type != null ? item.type : "Video") + "'";
         return String.format(
-            "<div class='streaming-card' onclick=\"window.selectItem(%d, 'details')\">" +
+            "<div class='streaming-card' %s onclick=\"window.selectItem(%d, 'details')\">" +
             "<div class='card-image-container'><img class='card-image' src='/api/video/thumbnail/%d' loading='lazy'>" +
             "<div class='card-play-overlay'><div class='card-play-btn' onclick=\"event.stopPropagation(); window.selectItem(%d, 'play')\"><i class='pi pi-play'></i></div></div>" +
             "</div><div class='card-content'><div class='card-title'>%s</div><div class='card-meta'>%s</div></div></div>",
-            item.id, item.id, item.id, escapeHtml(title), item.releaseYear != null ? item.releaseYear : ""
+            dataAttrs, item.id, item.id, item.id, escapeHtml(title), item.releaseYear != null ? item.releaseYear : ""
         );
     }
 
@@ -459,8 +464,20 @@ public class VideoUiApi {
     private Map<String, Object> getCarouselData() {
         List<Models.Video> all = Models.Video.list("isActive", true);
         Map<String, Object> data = new HashMap<>();
-        data.put("newReleases", all.stream().sorted((v1, v2) -> (v2.dateAdded != null ? v2.dateAdded : java.time.LocalDateTime.MIN).compareTo(v1.dateAdded != null ? v1.dateAdded : java.time.LocalDateTime.MIN)).limit(20).collect(Collectors.toList()));
+        
+        // New releases - dedupe by show/movie to avoid multiple episodes of same show
+        java.util.Set<String> seenNewReleases = new java.util.HashSet<>();
+        data.put("newReleases", all.stream()
+            .sorted((v1, v2) -> (v2.dateAdded != null ? v2.dateAdded : java.time.LocalDateTime.MIN).compareTo(v1.dateAdded != null ? v1.dateAdded : java.time.LocalDateTime.MIN))
+            .filter(v -> {
+                String key = getDedupeKey(v);
+                return seenNewReleases.add(key);
+            })
+            .limit(20).collect(Collectors.toList()));
+        
         data.put("movies", all.stream().filter(v -> v.type != null && "movie".equalsIgnoreCase(v.type)).limit(20).collect(Collectors.toList()));
+        
+        // TV Shows - dedupe by series title
         java.util.Set<String> seenShows = new java.util.HashSet<>();
         data.put("tvShows", all.stream()
             .filter(v -> v.type != null && "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null)
@@ -469,8 +486,24 @@ public class VideoUiApi {
                 return seenShows.add(normalized);
             })
             .limit(20).collect(Collectors.toList()));
-        data.put("trending", all.stream().skip(Math.min(10, all.size())).limit(15).collect(Collectors.toList()));
+        
+        // Trending - dedupe by show/movie
+        java.util.Set<String> seenTrending = new java.util.HashSet<>();
+        data.put("trending", all.stream()
+            .skip(Math.min(10, all.size()))
+            .filter(v -> {
+                String key = getDedupeKey(v);
+                return seenTrending.add(key);
+            })
+            .limit(15).collect(Collectors.toList()));
         return data;
+    }
+    
+    private String getDedupeKey(Models.Video v) {
+        if (v.type != null && "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
+            return "show:" + v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+        }
+        return "video:" + v.id;
     }
 
     private String formatDuration(Integer s) { return s == null ? "0:00" : String.format("%d:%02d", s / 60, s % 60); }
@@ -486,5 +519,5 @@ public class VideoUiApi {
 
     // Helper records for passing series and season info to templates
     public record SeriesTitleEntry(String rawTitle, String encodedTitle, String cssId, Long sampleVideoId) {}
-    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId) {}
+    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId, String seasonName) {}
 }
