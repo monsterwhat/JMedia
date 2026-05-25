@@ -1,10 +1,11 @@
-# 🎵🎬 JMedia  
+# 🎵🎬 JMedia v1.2.0  
 ### A Decentralized, Private, and Efficient Media Streaming Application  
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://openjdk.org/projects/jdk/17/)
 [![Quarkus](https://img.shields.io/badge/Powered%20by-Quarkus%203.34-red.svg)](https://quarkus.io/)
 [![Build with Maven](https://img.shields.io/badge/Build-Maven-blue.svg)](https://maven.apache.org/)
+[![GitHub Release](https://img.shields.io/github/v/release/monsterwhat/JMedia)](https://github.com/monsterwhat/JMedia/releases)
 
 ---
 
@@ -40,20 +41,28 @@ Unlike traditional streaming services, JMedia ensures that your data — from yo
 - Playback history and queue persistence across sessions.
 - **Genre-based browsing** with auto-seeded genre classification.
 - **Lyrics generation** powered by Whisper AI.
-- **Album art extraction** and artwork caching.
+- **Album art extraction** and artwork caching with circuit breaker protection.
+- **Audio Analysis**: Real BPM detection, beat tracking, onset detection, and spectral analysis via TarsosDSP.
+- **DJ Mode**: Beat-aligned crossfade transitions with intelligent song pairing and configurable crossfade duration.
 
 ### 🎬 **Full Video Management System**
 - **Smart Video Import**: Automatic library scanning with metadata extraction using `ffprobe`.
 - **Content Detection**: Intelligent detection of movies and TV series with episode/season parsing.
 - **Subtitle Support**: Automatic subtitle file matching (.srt, .vtt, .ass, .ssa) with OpenSubtitle integration and preference engine.
-- **Video Streaming**: HTTP-based streaming with range request support and transcoding.
+- **Subtitle Generation**: AI-powered subtitle generation via OpenAI Whisper.
+- **Video Streaming**: HTTP-based streaming with range request support and on-the-fly MKV-to-MP4 transcoding.
+- **HLS Streaming**: Adaptive bitrate streaming with FFmpeg segmenter, master/variant playlists, and media segments.
 - **Playback Controls**: Full video controls including speed adjustment, seeking, and fullscreen mode.
 - **Queue Management**: Video queue with add, remove, reorder, and persistence.
 - **Resume Playback**: Remembers and resumes video position across sessions.
 - **Thumbnail Generation**: Automatic thumbnail extraction and caching with background queue processing.
-- **Storyboard Service**: Video storyboard generation for preview.
-- **IMDb Metadata Enrichment**: External metadata fetching via IMDb API integration.
+- **Storyboard Service**: Video storyboard generation (10x10 tile grid) for preview.
+- **Metadata Enrichment**: External metadata fetching via IMDb, TMDb, OMDb, TVMaze, and IntroDB API integration.
 - **Smart Naming Service**: Intelligent video naming and organization.
+- **Audio Track Selection**: Multi-track audio stream support with per-video preferences.
+- **Video Collections**: User-curated media collections with watch progress tracking.
+- **Xtream Codes API Emulation**: IPTV-compatible API layer for VOD and series streaming.
+- **Video Suggestions**: User-submitted video suggestion system.
 
 ### 📥 **Flexible Media Import**
 - **Music Import**: Integrates with `Spot-dl` for Spotify downloads and `yt-dlp` for YouTube.
@@ -70,7 +79,13 @@ Unlike traditional streaming services, JMedia ensures that your data — from yo
 - Separate playback states, histories, and preferences for different users.
 - Profile-specific media libraries and settings.
 - User context filtering for multi-client scenarios.
-- Enhanced authentication support.
+
+### 🔐 **Authentication & Security**
+- **Session-based authentication** with login/logout and cookie-based sessions.
+- **Role-based access control** — admin and user roles with appropriate restrictions.
+- **Rate limiting** on auth endpoints (IP-based and per-username).
+- **jBCrypt password hashing** for secure credential storage.
+- **Admin user management** — create, update, delete users, manage roles.
 
 ### 🔧 **Comprehensive REST API**
 - Based on **Quarkus REST** and **Jackson**.  
@@ -117,24 +132,26 @@ This means:
 
 | Layer | Technology |
 |-------|-------------|
-| **Backend** | Java 17+, Quarkus 3.34 |
+| **Backend** | Java 17+, Quarkus 3.34.1 |
 | **Frontend** | HTML, CSS, JavaScript, HTMX, Alpine.js |
 | **Templating** | Qute |
-| **Database** | H2 |
+| **Database** | H2 (file-based, `~/.jmedia/jmedia`) |
 | **ORM** | Hibernate with Panache |
-| **Real-Time Communication** | WebSockets |
-| **Audio Processing** | jaudiotagger |
-| **Video Processing** | ffprobe, FFmpeg (transcoding) |
-| **Subtitle Processing** | FFprobe, OpenSubtitle integration |
-| **AI/ML** | Whisper (lyrics generation) |
-| **External APIs** | IMDb (metadata enrichment) |
+| **Real-Time Communication** | Jakarta WebSockets |
+| **Audio Processing** | jaudiotagger (metadata), TarsosDSP (BPM/beat detection) |
+| **Video Processing** | ffprobe, FFmpeg (transcoding, HLS segmenting) |
+| **Subtitle Processing** | FFprobe (embedded extraction), OpenSubtitle (search/download), JASSUB (ASS rendering in browser) |
+| **AI/ML** | Whisper (lyrics & subtitle generation) |
+| **External APIs** | IMDb, TMDb, OMDb, TVMaze (metadata enrichment), IntroDB (intro/credits detection) |
+| **HLS Client** | HLS.js |
 | **Build Tool** | Maven |
 | **CSS Framework** | Bulma CSS |
-| **Security** | Quarkus Security, Elytron, HTTPS/Certificates |
+| **Icons** | Font Awesome 6, PrimeIcons |
+| **Security** | Quarkus Security, Elytron, HTTPS/Certificates, jBCrypt |
 | **Resilience** | SmallRye Fault Tolerance, Circuit Breaker |
 | **Caching** | Quarkus Cache |
 | **Scheduling** | Quarkus Scheduler |
-| **Password Hashing** | jBCrypt |
+| **Async Execution** | Eclipse Microprofile Context Propagation (ManagedExecutor) |
 
 ---
 
@@ -145,40 +162,51 @@ JMedia provides comprehensive media management with separate interfaces for musi
 ### 🎵 **Music Features**
 - Full music library management with metadata extraction
 - Playlist creation and management (including shared playlists)
-- Playback queue with persistence
-- Search and filtering capabilities
+- Playback queue with persistence across sessions
+- Search and filtering with pagination
 - Playback history tracking
 - Import from online sources (Spotify, YouTube)
 - Genre-based browsing and carousels
-- Lyrics viewing and AI-powered generation
-- Album art display and extraction
+- Lyrics viewing and AI-powered generation (Whisper)
+- Album art display and extraction with caching
+- Audio analysis (BPM, beat detection, spectral analysis) via TarsosDSP
+- DJ Mode with beat-aligned crossfade transitions
+- Metadata write-back to audio files
 
 ### 🎬 **Video Features**
 - Movie and TV series library management
 - Episode/season organization with smart detection
 - Video streaming with subtitle support (multiple tracks)
+- HLS adaptive bitrate streaming
+- On-the-fly MKV-to-MP4 transcoding
 - Playback queue and history
-- Resume playback functionality
+- Resume playback functionality (per-profile)
 - Advanced video controls (speed, seeking, fullscreen)
-- Thumbnail generation and caching
-- Video storyboard previews
-- IMDb metadata enrichment
+- Thumbnail generation and caching (background queue)
+- Video storyboard previews (10x10 tile grid)
+- External metadata enrichment (IMDb, TMDb, OMDb, TVMaze)
+- Intro/credits detection via IntroDB
 - Smart video naming and organization
-- Video editing metadata (title, description, etc.)
+- Audio track selection with per-video preferences
+- User-curated collections with watch progress
+- Xtream Codes IPTV API emulation
+- Video suggestions system
 
 ### 🛠️ **System Features**
-- Multi-user profile support
-- Dark/light theme switching
-- Responsive web interface
-- Real-time WebSocket updates
-- Comprehensive REST API
-- Background service mode with tray icon
+- Multi-user authentication with role-based access (admin/user)
+- Multi-profile support with isolated playback state
+- Dark/light theme switching with system preference detection
+- Responsive web interface (desktop, tablet, mobile)
+- Real-time WebSocket updates (music state, video state, logs, import status)
+- Comprehensive REST API (28 endpoint classes)
+- Background service mode with tray icon (Windows)
 - Library maintenance tools (scan, reload, cleanup, duplicate removal)
-- Setup wizard for initial configuration
+- Setup wizard for initial configuration (4-step)
 - Automated dependency installation (Python, FFmpeg, SpotDL, Whisper)
-- Update checking and version management
+- Update checking via GitHub Releases API
+- Session-based authentication with rate limiting
 - HTTPS with certificate management
-- System logging and log streaming
+- System logging and live log streaming via WebSocket
 - Platform-specific optimizations (Windows, macOS, Linux)
 
 For a detailed breakdown of all features and their implementation status, see the [Features Overview](features.md).
@@ -225,6 +253,7 @@ These builds will run standalone without needing a separate Java installation.
    git clone https://github.com/monsterwhat/JMedia.git
    cd JMedia/JMedia/com.playdeca.JMedia
    ```
+   > Note: The repository is named `JMusic` locally; the project package is `com.playdeca.JMedia`.
 
 2. **Run in Development Mode**
    ```bash
@@ -245,20 +274,21 @@ These builds will run standalone without needing a separate Java installation.
 ```
 src/main/java/
 ├── API/                    # REST APIs, WebSockets, and Filters
-│   ├── Rest/               # REST endpoint controllers
+│   ├── Rest/               # REST endpoint controllers (28 classes)
 │   │   ├── PlaybackAPI     # Music playback control
 │   │   ├── SongAPI         # Song operations & lyrics
 │   │   ├── PlaylistAPI     # Playlist management
 │   │   ├── QueueAPI        # Music queue operations
 │   │   ├── MusicUiApi      # Music UI fragments (HTMX)
-│   │   ├── VideoAPI        # Video library & streaming
+│   │   ├── VideoAPI        # Video library, streaming, thumbnails, genres
 │   │   ├── VideoPlaybackAPI # Video playback control
-│   │   ├── VideoManagementApi # Video library management
+│   │   ├── VideoManagementApi # Video library management (HTMX)
 │   │   ├── VideoQueueAPI   # Video queue operations
 │   │   ├── VideoUiApi      # Video UI fragments (HTMX)
-│   │   ├── SubtitleAPI     # Subtitle management
+│   │   ├── VideoExternalAPI # External video sources
+│   │   ├── SubtitleAPI     # Subtitle management & generation
 │   │   ├── StreamAPI       # Media streaming
-│   │   ├── GenreAPI        # Genre browsing
+│   │   ├── GenreAPI        # Genre seeding & browsing
 │   │   ├── SettingsApi     # Configuration
 │   │   ├── ProfileAPI      # User profiles
 │   │   ├── ImportApi       # Media import
@@ -267,7 +297,12 @@ src/main/java/
 │   │   ├── UpdateAPI       # Update checking
 │   │   ├── MetadataEnrichmentApi # External metadata
 │   │   ├── EnhancedAuthAPI # Authentication
-│   │   └── UserManagementAPI # User management
+│   │   ├── UserManagementAPI # User management
+│   │   ├── CollectionApi   # Media collections
+│   │   ├── CollectionUiApi # Collection UI (HTMX)
+│   │   ├── CollectionPlaybackAPI # Collection playback
+│   │   ├── HlsResource     # HLS streaming
+│   │   └── XtreamCodesAPI  # IPTV API emulation
 │   ├── WS/                 # WebSocket endpoints
 │   │   ├── MusicSocket     # Music state sync
 │   │   ├── VideoSocket     # Video state sync
@@ -276,18 +311,21 @@ src/main/java/
 │   └── Filter/             # HTTP filters
 │       └── UserContextFilter
 ├── Controllers/            # Application controllers
-├── Services/               # Business logic services
-│   ├── Platform/           # OS-specific operations
-│   └── Thumbnail/          # Thumbnail processing
-├── Models/                 # Data models and entities
-│   └── DTOs/               # Data transfer objects
+├── Services/               # Business logic services (~60 classes)
+│   ├── Platform/           # OS-specific operations (Win/Mac/Linux)
+│   └── Thumbnail/          # Thumbnail processing queue
+├── Models/                 # Data models and entities (~30 classes)
+│   └── DTOs/               # Data transfer objects (~16 classes)
 ├── Detectors/              # Media content detection
-└── Utils/                  # Utility classes
+└── Util/                  # Utility classes
 
 src/main/resources/
-├── META-INF/resources/     # Static web assets (HTML, CSS, JS)
-├── templates/              # Qute HTML template fragments
-└── WEB-INF/pages/          # Full page templates
+├── META-INF/resources/     # Static web assets (HTML, CSS, JS, views/)
+│   ├── views/              # SPA view shells (music, video, settings, import)
+│   ├── js/                 # JavaScript modules (~45+ files)
+│   └── css/                # Stylesheets
+├── templates/              # Qute HTML template fragments (~55+ files)
+└── WEB-INF/pages/          # Full page templates (index, setup)
 ```
 
 ---
@@ -333,60 +371,57 @@ http://localhost:8080
 
 ## 📘 API Documentation
 
-The REST API endpoints are located in:
-
-```
-src/main/java/API/Rest
-```
+The REST API endpoints are located in `src/main/java/API/Rest`. JMedia exposes **28 API controller classes** covering music, video, subtitles, genres, collections, authentication, system, and IPTV emulation.
 
 ### 🎵 **Music API Endpoints**
-- **PlaybackAPI**: `/api/music/playback/` - Playback control and state management
-- **SongAPI**: `/api/song/` - Song library operations, lyrics, and lyrics generation
-- **PlaylistAPI**: `/api/music/playlists/` - Playlist management
-- **QueueAPI**: `/api/music/queue/` - Playback queue operations
-- **MusicUiApi**: `/api/music/ui/` - Music UI components (HTMX fragments)
+- **PlaybackAPI**: `/api/music/playback/` - Playback control (play/pause/next/previous/seek/volume/shuffle/repeat/DJ mode/crossfade)
+- **SongAPI**: `/api/song/` - Song library operations, lyrics viewing, Whisper lyrics generation, metadata write-back
+- **PlaylistAPI**: `/api/music/playlists/` - Playlist CRUD, song association, shared playlist toggle
+- **QueueAPI**: `/api/music/queue/` - Queue management (add/remove/skip-to/clear), history
+- **MusicUiApi**: `/api/music/ui/` - HTMX fragments for queue, playlists, search, history, album view
+- **StreamAPI**: `/api/music/stream` - Audio streaming with HTTP Range request support
 
 ### 🎬 **Video API Endpoints**
-- **VideoAPI**: `/api/video/` - Video library and streaming
-- **VideoPlaybackAPI**: `/api/video/playback/` - Video playback control
-- **VideoManagementApi**: `/api/video/manage` - Video library management (HTMX)
+- **VideoAPI**: `/api/video/` - Video library queries, streaming, scanning, thumbnail/storyboard generation, genre/carousel browsing, watchlist, progress tracking, metadata reload
+- **VideoPlaybackAPI**: `/api/video/playback/` - Video playback control (play/pause/seek/volume/next/previous/audio preference)
+- **VideoManagementApi**: `/api/video/manage` - Video library management HTMX fragments
 - **VideoQueueAPI**: `/api/video/queue/` - Video queue operations
-- **VideoUiApi**: `/api/video/ui/` - Video UI components (HTMX fragments)
+- **VideoUiApi**: `/api/video/ui/` - Video UI HTMX fragments (movies, shows, episodes, carousels, queue)
+- **VideoExternalAPI**: `/api/video/external` - External video sources management
 
 ### 🎭 **Subtitle API Endpoints**
-- **SubtitleAPI**: `/api/video/subtitles` - Subtitle track management, preferences, and Whisper generation
-- **StreamAPI**: `/api/music/stream` - Audio streaming with HTTP range request support
+- **SubtitleAPI**: `/api/video/subtitles` - Subtitle generation (Whisper), OpenSubtitles search/download, local file management, per-video preferences, track management
 
 ### 🎭 **Genre API Endpoints**
-- **GenreAPI**: `/api/genres` - Genre seeding, auto-assignment, and statistics
+- **GenreAPI**: `/api/genres` - Genre seeding, auto-assignment, rebuild, statistics, validation
+
+### 🗂️ **Collections API Endpoints**
+- **CollectionApi**: `/api/collections` - Media collection CRUD
+- **CollectionUiApi**: `/api/collections/ui` - Collection UI HTMX fragments
+- **CollectionPlaybackAPI**: `/api/collections/playback` - Collection playback management
+
+### 📺 **HLS Streaming API**
+- **HlsResource**: `/hls` - HLS session management, master playlist, variant playlists, media segments
+
+### 📡 **Xtream Codes API (IPTV Emulation)**
+- **XtreamCodesAPI**: `/player_api.php` - IPTV-compatible VOD/series categories, streams, info, and streaming redirects
 
 ### 🔧 **System API Endpoints**
-- **SettingsApi**: `/api/settings/` - Configuration and system settings
-- **ProfileAPI**: `/api/profiles/` - User profile management
-- **ImportApi**: `/api/import/` - Media import operations
+- **SettingsApi**: `/api/settings/` - Library paths, scan, logs, metadata reload, duplicate removal, requirements installation
+- **ProfileAPI**: `/api/profiles/` - Profile CRUD, switching, hidden playlists
+- **ImportApi**: `/api/import/` - Import status, dependency install/uninstall (Python, FFmpeg, SpotDL, Whisper)
 - **InstallationApi**: `/api/installation` - Dependency installation management
-- **SetupApi**: `/api/setup/` - Setup wizard
-- **UpdateAPI**: `/api/update/` - Update checking
-- **MetadataEnrichmentApi**: `/api/metadata` - External metadata fetching and album art enrichment
-- **EnhancedAuthAPI**: `/api/auth/` - Authentication endpoints
-- **UserManagementAPI**: `/api/users/` - User management
+- **SetupApi**: `/api/setup/` - 4-step setup wizard (status, validate paths, complete, reset)
+- **UpdateAPI**: `/api/update/` - GitHub release checking, latest version info
+- **MetadataEnrichmentApi**: `/api/metadata` - External metadata fetching, album art enrichment
+- **EnhancedAuthAPI**: `/api/auth/` - Login, logout, session status, current user, admin check
+- **UserManagementAPI**: `/api/users/` - User CRUD, role management
 
 ### 📡 **WebSocket Endpoints**
-- **MusicSocket**: `ws://localhost:8080/api/music/ws/{profileId}` - Real-time music state synchronization
-- **VideoSocket**: `ws://localhost:8080/api/video/ws` - Real-time video state synchronization
-- **LogSocket**: `ws://localhost:8080/api/logs/ws/{profileId}` - System logging and import status
-- **ImportStatusSocket**: `ws://localhost:8080/ws/import-status/{profileId}` - Import progress tracking
-
-These endpoints support operations for:
-- Playback control (music and video)  
-- Library management (music and video)  
-- Metadata operations  
-- Subtitle management  
-- Genre browsing
-- User profile management  
-- System configuration
-- Dependency installation
-- Update checking
+- **MusicSocket**: `ws://localhost:8080/api/music/ws/{profileId}` - Real-time music state synchronization (playback state, history updates)
+- **VideoSocket**: `ws://localhost:8080/api/video/ws` - Real-time video state synchronization (seek, volume, play/pause, next/previous)
+- **LogSocket**: `ws://localhost:8080/api/logs/ws/{profileId}` - System log streaming
+- **ImportStatusSocket**: `ws://localhost:8080/ws/import-status/{profileId}` - Import and installation progress tracking
 
 For complete API documentation with request/response examples, see [API.md](API.md).
 
