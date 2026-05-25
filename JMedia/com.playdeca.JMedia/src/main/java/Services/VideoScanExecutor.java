@@ -18,6 +18,10 @@ public class VideoScanExecutor {
         return t;
     });
 
+    public ExecutorService getExecutor() {
+        return executor;
+    }
+
     public void submit(Runnable task) {
         executor.submit(task);
     }

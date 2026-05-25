@@ -25,7 +25,6 @@ public class Song extends PanacheEntity {
     private int durationSeconds;
     private String path;
 
-    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(length = Integer.MAX_VALUE)
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;

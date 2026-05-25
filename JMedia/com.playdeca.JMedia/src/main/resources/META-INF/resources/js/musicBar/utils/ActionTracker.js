@@ -13,7 +13,7 @@
         
         // Configuration for action timeouts
         config: {
-            playPauseTimeout: 3000
+            playpauseTimeout: 3000
         },
         
         /**

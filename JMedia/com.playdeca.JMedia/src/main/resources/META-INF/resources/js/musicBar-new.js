@@ -322,12 +322,14 @@
                 window.AudioEngine.setSource(currentSong, null, null, state.playing, state.currentTime || 0);
             }
 
-            // Update media session metadata
-            if (window.updateMediaSessionMetadata && state && state.currentSongId) {
-                // ALWAYS use binary endpoint for artwork
-                const artworkUrl = `/api/music/cover/${state.currentSongId}`;
-                window.updateMediaSessionMetadata(state.songName, state.artistName, artworkUrl);
-            }
+             // Update media session metadata
+             if (window.updateMediaSessionMetadata && state && state.currentSongId) {
+              // Try to get artwork from current song data, fallback to default logo (avoiding cover endpoint)
+              const artworkUrl = state.currentSongData && state.currentSongData.artworkBase64 
+                  ? 'data:image/jpeg;base64,' + state.currentSongData.artworkBase64 
+                  : '/logo.png';
+                 window.updateMediaSessionMetadata(state.songName, state.artistName, artworkUrl);
+             }
         });
 
         // Listen for queue changes

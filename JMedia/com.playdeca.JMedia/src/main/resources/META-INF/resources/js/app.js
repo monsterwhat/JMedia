@@ -19,7 +19,22 @@ class App {
         }
         
         await this.applySidebarPreference();
+        await this.checkAdminStatus();
         this.handleRoute();
+    }
+    
+    async checkAdminStatus() {
+        try {
+            const res = await fetch('/api/auth/is-admin');
+            const json = await res.json();
+            const isAdmin = json.data && json.data.isAdmin;
+            document.querySelectorAll('.admin-only').forEach(el => {
+                el.style.display = isAdmin ? (el.classList.contains('nav-item') ? 'flex' : 'block') : 'none';
+            });
+        } catch (e) {
+            console.error('[App] Failed to check admin status:', e);
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+        }
     }
 
     async applySidebarPreference() {
@@ -97,10 +112,8 @@ class App {
             const musicPlayer = document.querySelector('.persistent-music-player') || 
                                document.querySelector('.mobile-player') ||
                                document.getElementById('musicPlayerContainer');
-            const audio = document.getElementById('audioPlayer');
             
             if (isVideoPage) {
-                // Navigating TO video page - hide music player and pause audio
                 console.log('[App] Navigating to video page - hiding music bar');
                 window.videoPlaying = true;
                 document.body.classList.add('video-active');
@@ -111,23 +124,20 @@ class App {
                     musicPlayer.classList.add('video-active');
                 }
                 
-                // Check if music was playing and save state before pausing
-                const wasPlaying = audio && !audio.paused;
+                // Check all audio elements (audioPlayer + audioPlayerNext for crossfade)
+                const audioElements = document.querySelectorAll('audio');
+                const wasPlaying = Array.from(audioElements).some(a => !a.paused);
                 window.musicWasPlayingBeforeVideo = wasPlaying;
                 console.log('[App] Music was playing before video:', wasPlaying);
                 
-                // Pause local audio immediately
-                if (audio && !audio.paused) {
-                    console.log('[App] Pausing audio');
-                    audio.pause();
-                }
+                // Pause ALL audio elements immediately (audioPlayerNext may be active after crossfade)
+                audioElements.forEach(a => a.pause());
                 
-                // Notify server to pause (silently)
+                // Notify server to pause
                 if (typeof window.apiPost === 'function') {
-                    window.apiPost('pause', null, true);
+                    await window.apiPost('pause', null, true);
                 }
             } else {
-                // Navigating AWAY from video page - show music player
                 console.log('[App] Navigating to', viewName, '- showing music bar');
                 window.videoPlaying = false;
                 document.body.classList.remove('video-active');
@@ -139,17 +149,18 @@ class App {
                     musicPlayer.classList.remove('video-active');
                 }
                 
-                // Resume music if it was playing before
                 if (window.musicWasPlayingBeforeVideo === true) {
                     console.log('[App] Resuming music (was playing before video)');
-                    // Resume via API to sync with server
                     if (typeof window.apiPost === 'function') {
-                        window.apiPost('play', null, true);
+                        await window.apiPost('play', null, true);
                     }
-                    // Also resume local audio immediately for faster response
-                    if (audio && audio.paused) {
-                        audio.play().catch(() => {});
-                    }
+                    // Wait for server state update via WebSocket to set correct source before playing
+                    // The state message handler will trigger the actual play
+                    setTimeout(() => {
+                        if (window.AudioEngine && typeof window.AudioEngine.play === 'function' && window.AudioEngine.isPaused()) {
+                            window.AudioEngine.play().catch(() => {});
+                        }
+                    }, 300);
                     window.musicWasPlayingBeforeVideo = false;
                 }
             }
@@ -159,7 +170,7 @@ class App {
             this.executeScripts(container);
             if (window.htmx) htmx.process(container);
 
-            if (viewName === 'video' && window.initVideoView) window.initVideoView();
+            if (viewName === 'video' && window.videoSPA) window.videoSPA.init();
             if (viewName === 'import' && window.initImportView) window.initImportView();
             if (viewName === 'music' && window.loadMobilePlaylists) {
                   window.loadMobilePlaylists();
@@ -261,8 +272,8 @@ class App {
         if (viewName === 'video') {
              const urlParams = new URLSearchParams(window.location.search);
              const section = urlParams.get('section') || 'home';
-             const sidebarItems = ['movies', 'shows', 'history', 'watchlist', 'manage'];
-             if (sidebarItems.includes(section)) {
+const sidebarItems = ['movies', 'shows', 'history', 'watchlist', 'manage', 'adminHistory'];
+              if (sidebarItems.includes(section)) {
                  const id = section === 'history' || section === 'watchlist' ? `nav-video-${section}` : `nav-${section}`;
                  document.getElementById(id)?.classList.add('active');
              } else if (section === 'home') {

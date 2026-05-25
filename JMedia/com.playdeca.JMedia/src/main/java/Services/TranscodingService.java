@@ -47,8 +47,6 @@ public class TranscodingService {
             return false;
         }
         String ua = userAgent.toLowerCase(Locale.ROOT);
-        // Modern iPads in desktop mode report as Macintosh but include Safari.
-        // We also check for mobile Safari indicators.
         return ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod") || 
                (ua.contains("macintosh") && ua.contains("safari") && !ua.contains("chrome") && !ua.contains("firefox"));
     }
@@ -59,31 +57,25 @@ public class TranscodingService {
         }
         String codec = video.videoCodec.toLowerCase(Locale.ROOT);
         
-        // H.264/AVC is the most compatible baseline for the web
         if (codec.contains("h264") || codec.contains("avc")) {
             return false;
         }
         
-        // HEVC/H.265 - check if browser can play it natively
         if (codec.contains("hevc") || codec.contains("h265")) {
             if (userAgent != null) {
                 String ua = userAgent.toLowerCase(Locale.ROOT);
-                // Firefox on Windows 10/11 can play HEVC with hardware support
                 if (ua.contains("firefox") && ua.contains("windows nt 10")) {
                     LOG.info("HEVC detected - Firefox on Windows can likely play natively, using mkvmerge");
                     return false;
                 }
-                // Chrome and Edge on Windows with HEVC support (recent versions)
                 if (ua.contains("chrome") && ua.contains("windows")) {
                     LOG.info("HEVC detected - Chrome/Edge on Windows can likely play natively, using mkvmerge");
                     return false;
                 }
-                // Safari and Chrome on macOS
                 if (ua.contains("macintosh") && (ua.contains("safari") || ua.contains("chrome"))) {
                     LOG.info("HEVC detected - macOS browser can likely play natively");
                     return false;
                 }
-                // iOS devices support HEVC natively
                 if (isIOSClient(userAgent)) {
                     LOG.info("HEVC detected - iOS device supports HEVC natively");
                     return false;
@@ -93,11 +85,10 @@ public class TranscodingService {
             return true;
         }
         
-        // For other codecs or unsupported browsers, transcode is needed
         return true;
     }
 
-    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output) throws IOException {
+    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output, int audioTrackIndex) throws IOException {
         if (!videoFile.exists() || !videoFile.canRead()) {
             throw new IOException("Video file not found or not readable: " + videoFile.getName());
         }
@@ -115,7 +106,6 @@ public class TranscodingService {
         boolean isIOS = isIOSClient(userAgent);
         LOG.info("Client request - iOS: {}, User-Agent: {}", isIOS, userAgent);
         
-        // Use the generalized web compatibility check (now with userAgent for browser detection)
         boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent);
 
         if (needsVideoTranscode) {
@@ -123,29 +113,24 @@ public class TranscodingService {
         }
 
         boolean canCopyAudio = canCopyAudio(video);
-        boolean needsAudioTranscode = !canCopyAudio;
 
-        // For MKV files that only need remuxing (not transcoding), use mkvmerge for instant seeking
-        // Only use mkvmerge when NOT transcoding video AND not seeking (startSeconds = 0)
-        // mkvmerge does NOT support seeking to a specific time, so we must use FFmpeg when seeking
-        if (!needsVideoTranscode && startSeconds == 0) {
+        if (!needsVideoTranscode && startSeconds ==0) {
             LOG.info("Using mkvmerge for instant remux of {}", videoFile.getName());
             String mkvmergePath = discoveryService.findMkvmerge();
             if (mkvmergePath != null) {
-                streamViaMkvmerge(mkvmergePath, videoFile, output);
+                streamViaMkvmerge(mkvmergePath, videoFile, output, audioTrackIndex);
                 return;
             } else {
                 LOG.warn("mkvmerge not found, falling back to FFmpeg for remux");
             }
-        } else if (!needsVideoTranscode && startSeconds > 0) {
+        } else if (!needsVideoTranscode && startSeconds >0) {
             LOG.info("Seeking to {}s requested - using FFmpeg instead of mkvmerge for accurate seeking", startSeconds);
         }
 
-        // Use FFmpeg for transcoding (HEVC->H264) or when mkvmerge not available
-        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output);
+        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output, audioTrackIndex);
     }
 
-    private void streamViaMkvmerge(String mkvmergePath, File videoFile, OutputStream output) throws IOException {
+    private void streamViaMkvmerge(String mkvmergePath, File videoFile, OutputStream output, int audioTrackIndex) throws IOException {
         LOG.info("Using mkvmerge for instant remux: {}", videoFile.getName());
         
         List<String> command = new ArrayList<>();
@@ -153,6 +138,11 @@ public class TranscodingService {
         command.add("-o");
         command.add("-");
         command.add("--no-attachments");
+        if (audioTrackIndex >= 0) {
+            command.add("--audio-tracks");
+            command.add(String.valueOf(audioTrackIndex));
+            LOG.info("mkvmerge: selecting audio track {}", audioTrackIndex);
+        }
         command.add(videoFile.getAbsolutePath());
 
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -167,7 +157,7 @@ public class TranscodingService {
             int read;
             while ((read = is.read(buffer)) != -1) {
                 try {
-                    output.write(buffer, 0, read);
+                    output.write(buffer,0, read);
                 } catch (IOException e) {
                     break;
                 }
@@ -186,25 +176,23 @@ public class TranscodingService {
     }
 
     private static final int AVERROR_EOF = -40;
-    private static final int EPIPE = -32; // Broken pipe (client disconnected)
+    private static final int EPIPE = -32;
     private static final int MAX_RETRIES = 1;
     private static final long RETRY_DELAY_MS = 500;
 
-    private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds, 
-                                  boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS, OutputStream output) throws IOException {
+    private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
+                                  boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS, OutputStream output, int audioTrackIndex) throws IOException {
         StringBuilder errorOutput = new StringBuilder();
-        int exitCode = 0;
+        int exitCode =0;
         
-        // Re-enable hardware acceleration for iOS but use more compatible settings
         boolean useHardware = true;
         
-        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        for (int attempt =0; attempt <= MAX_RETRIES; attempt++) {
             errorOutput.setLength(0);
             
-            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, useHardware, output, errorOutput);
+            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, useHardware, output, errorOutput, audioTrackIndex);
             
             if (exitCode == 0 || exitCode == EPIPE) {
-                // Success or client disconnected (normal during skipping)
                 return;
             }
 
@@ -215,8 +203,7 @@ public class TranscodingService {
                 continue;
             }
             
-            // Also fallback for any non-zero exit code when using hardware (except client disconnect)
-            if (useHardware && exitCode != 0 && exitCode != EPIPE) {
+            if (useHardware && exitCode !=0 && exitCode != EPIPE) {
                 LOG.warn("FFmpeg exited with code {} while using hardware acceleration for {}, falling back to software", exitCode, videoFile.getName());
                 useHardware = false;
                 continue;
@@ -236,15 +223,15 @@ public class TranscodingService {
         }
         
         if (exitCode != EPIPE) {
-            String errorMsg = errorOutput.length() > 0 ? errorOutput.toString() : "Unknown error";
+            String errorMsg = errorOutput.length() >0 ? errorOutput.toString() : "Unknown error";
             LOG.error("FFmpeg failed with exit code {} for {}. Error output: {}", exitCode, videoFile.getName(), errorMsg);
             throw new IOException("FFmpeg transcoding failed with code " + exitCode + " for " + videoFile.getName());
         }
     }
 
-    private int runFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds, 
-                          boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS, 
-                          boolean useHardware, OutputStream output, StringBuilder errorOutput) throws IOException {
+    private int runFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
+                          boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS,
+                          boolean useHardware, OutputStream output, StringBuilder errorOutput, int audioTrackIndex) throws IOException {
         String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
         String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
         
@@ -272,7 +259,6 @@ public class TranscodingService {
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
         
-        // Add hardware acceleration flags BEFORE the input file if a decoder is found
         if (useHardware && hardwareDecoder != null) {
             LOG.info("Using hardware-accelerated decoding: {} for codec: {}", hardwareDecoder, video.videoCodec);
             if (hardwareDecoder.contains("cuvid")) {
@@ -290,27 +276,23 @@ public class TranscodingService {
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
 
-        // For accurate seeking without choppiness/audio sync issues:
-        // When transcoding: use -ss after -i for frame-accurate seek
-        // When copying: use -ss before -i for fast keyframe seek (small offset acceptable)
-        if (startSeconds > 0 && !needsVideoTranscode) {
-            // Fast seek to keyframe before target (for stream copy mode)
-            // This may start a few seconds before the exact target, but browser can handle the offset
-            command.add("-ss");
-            command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
-        }
-
         command.add("-i"); command.add(videoFile.getAbsolutePath());
         
-        // When transcoding, do accurate seek after input
-        if (startSeconds > 0 && needsVideoTranscode) {
-            // Frame-accurate seek (slower but precise when re-encoding)
+        // Always place -ss after -i for accurate seeking (fixes subtitle sync issues)
+        if (startSeconds > 0) {
             command.add("-ss");
             command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
         }
 
         command.add("-map"); command.add("0:v:0");
-        command.add("-map"); command.add("0:a:0?");
+        if (audioTrackIndex >= 0) {
+            // audioTrackIndex is the absolute stream index from FFprobe
+            // Use -map 0:N to map the exact stream by its index
+            command.add("-map"); command.add("0:" + audioTrackIndex);
+            LOG.info("Mapping specific audio track by index: 0:{}", audioTrackIndex);
+        } else {
+            command.add("-map"); command.add("0:a:0?");
+        }
 
         if (needsVideoTranscode) {
             LOG.info("Transcoding video for {} (source codec: {}, encoder: {})", videoFile.getName(), video.videoCodec, videoEncoder);
@@ -318,7 +300,6 @@ public class TranscodingService {
             if (!videoEncoder.equals("copy")) {
                 command.add("-preset"); command.add(preset);
                 
-                // Encoder-specific rate control
                 if (videoEncoder.contains("nvenc") || videoEncoder.contains("amf")) {
                     command.add("-rc"); command.add("vbr");
                     command.add("-cq"); command.add("23");
@@ -345,55 +326,44 @@ public class TranscodingService {
             }
         }
 
-        if (canCopyAudio) {
-            LOG.info("Copying audio for {} (source codec: {})", videoFile.getName(), video.audioCodec);
-            command.add("-c:a"); command.add("copy");
-            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
-                command.add("-bsf:a"); command.add("aac_adtstoasc");
-            }
-        } else {
-            LOG.info("Transcoding audio for {} (source codec: {})", videoFile.getName(), video.audioCodec);
+        // When a specific audio track is selected, transcode to AAC for web compatibility
+        // (the selected track may have a different codec than the default track)
+        if (needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio) {
+            LOG.info("Transcoding audio for {} (selected track, ensuring AAC)", videoFile.getName());
             command.addAll(List.of(
                 "-c:a", "aac",
                 "-b:a", "192k",
                 "-ac", "2"
             ));
+        } else {
+            LOG.info("Copying audio for {} (source codec: {})", videoFile.getName(), video.audioCodec);
+            command.add("-c:a"); command.add("copy");
+            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
+                command.add("-bsf:a"); command.add("aac_adtstoasc");
+            }
         }
 
-        // Audio sync options for seeking
-        if (startSeconds > 0) {
+        if (startSeconds >0) {
             command.add("-async"); command.add("1");
-            // Use vfr (variable frame rate) instead of cfr to avoid frame duplication/dropping
-            // This fixes the "choppy video" issue while maintaining audio sync
             command.add("-vsync"); command.add("vfr");
-            // Drop frames if behind to maintain real-time playback (prevents buffering buildup)
             command.add("-fflags"); command.add("+discardcorrupt");
         }
 
-        // Use fragmented MP4 for streaming over pipe (non-seekable output)
-        // This is required for streaming - empty_moov allows immediate playback
         String movflags = "frag_keyframe+empty_moov+default_base_moof";
         
-        // Common output options for both transcoding and remuxing
-        command.add("-sn"); // Disable subtitles
+        command.add("-sn");
         command.add("-f"); command.add("mp4");
         command.add("-movflags"); command.add(movflags);
-        
-        // Keyframe interval for better seeking behavior
         command.add("-g"); command.add("48");
-        
-        // Handle negative timestamps after seeking (critical for audio sync)
         command.add("-avoid_negative_ts"); command.add("make_zero");
         
-        // Copyts preserves original timestamps (important for audio sync when seeking)
-        if (startSeconds > 0) {
+        if (startSeconds >0) {
             command.add("-copyts");
         }
         
         command.add("-ignore_unknown");
         command.add("pipe:1");
 
-        // Log the FFmpeg command for debugging
         LOG.info("FFmpeg command for {} (iOS={}): {}", videoFile.getName(), isIOS, String.join(" ", command));
 
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -426,7 +396,7 @@ public class TranscodingService {
             int read;
             while ((read = is.read(buffer)) != -1) {
                 try {
-                    output.write(buffer, 0, read);
+                    output.write(buffer,0, read);
                 } catch (IOException e) {
                     break;
                 }

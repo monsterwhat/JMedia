@@ -260,10 +260,7 @@
             
             // Mouse wheel volume control
             this.setupMouseWheelVolume(player);
-            
-            // Space bar play/pause
-            this.setupSpaceBarControl();
-            
+
             // Arrow key controls
             this.setupArrowKeyControls();
         },
@@ -303,21 +300,7 @@
                 }
             });
         },
-        
-        /**
-         * Setup space bar control
-         */
-        setupSpaceBarControl: function() {
-            document.addEventListener('keydown', (e) => {
-                if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-                    e.preventDefault();
-                    window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
-                        detail: { action: 'playPause' }
-                    }));
-                }
-            });
-        },
-        
+
         /**
          * Setup arrow key controls
          */
@@ -813,7 +796,6 @@
                     <div class="shortcuts-grid">
                         <div class="shortcut-group">
                             <h4>Playback</h4>
-                            <div><kbd>Space</kbd> - Play/Pause</div>
                             <div><kbd>Ctrl</kbd> + <kbd>←/→</kbd> - Previous/Next</div>
                             <div><kbd>Ctrl</kbd> + <kbd>↑/↓</kbd> - Volume Up/Down</div>
                             <div><kbd>Ctrl</kbd> + <kbd>R</kbd> - Repeat Mode</div>

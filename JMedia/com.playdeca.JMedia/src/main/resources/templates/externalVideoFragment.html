@@ -1,0 +1,115 @@
+<div class="external-video-page">
+    <div class="external-video-header">
+        <h2 class="title is-4 mb-2">
+            <i class="pi pi-external-link mr-2"></i>External Links
+            <span class="tag is-warning is-light ml-2">Beta</span>
+        </h2>
+        <p class="has-text-grey-light is-size-7">Add direct video URLs (m3u8, mp4, webm, etc.) and play them in the native player. Add multiple URLs for fallback or different qualities.</p>
+    </div>
+
+    <div class="external-video-grid">
+        <div class="external-video-form-card" id="externalVideoFormCard">
+            <h3 class="title is-6 mb-3">Add New Link</h3>
+            <div class="field">
+                <label class="label is-small">Entry Type</label>
+                <div class="control">
+                    <div class="select is-small is-fullwidth">
+                        <select id="externalEntryType" onchange="onEntryTypeChange()">
+                            <option value="">-- Select Type --</option>
+                            <option value="MOVIE">Movie</option>
+                            <option value="EPISODE">TV Show Episode</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div id="externalMovieFields" class="is-hidden">
+                <div class="field">
+                    <label class="label is-small">Movie Name</label>
+                    <div class="control">
+                        <input class="input" type="text" id="externalMovieNameInput" placeholder="e.g. My Movie" maxlength="500">
+                    </div>
+                </div>
+            </div>
+            <div id="externalEpisodeFields" class="is-hidden">
+                <div class="field">
+                    <label class="label is-small">Series Title</label>
+                    <div class="control">
+                        <input class="input" type="text" id="externalSeriesTitleInput" placeholder="e.g. Attack on Titan" maxlength="500">
+                    </div>
+                </div>
+                <div class="columns is-mobile">
+                    <div class="column">
+                        <div class="field">
+                            <label class="label is-small">Season</label>
+                            <div class="control">
+                                <input class="input" type="number" id="externalSeasonInput" placeholder="4" min="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="field">
+                            <label class="label is-small">Episode</label>
+                            <div class="control">
+                                <input class="input" type="number" id="externalEpisodeInput" placeholder="16" min="1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label is-small">Episode Title</label>
+                    <div class="control">
+                        <input class="input" type="text" id="externalEpisodeTitleInput" placeholder="e.g. Hero" maxlength="500">
+                    </div>
+                </div>
+            </div>
+            <div class="field">
+                <label class="label is-small">Title <span class="has-text-grey-light is-size-7">(display name)</span></label>
+                <div class="control">
+                    <input class="input" type="text" id="externalTitleInput" placeholder="e.g. Attack on Titan S04E16" maxlength="500">
+                </div>
+            </div>
+            <div class="field">
+                <label class="label is-small">Video URLs <span class="has-text-grey-light is-size-7">(primary + fallbacks)</span></label>
+                <div id="externalUrlFields">
+                    <div class="field has-addons mb-2 url-row">
+                        <div class="control is-expanded">
+                            <input class="input url-input" type="url" placeholder="https://example.com/stream/video.m3u8">
+                        </div>
+                        <div class="control">
+                            <input class="input url-label-input" type="text" placeholder="Label (e.g. 1080p)" style="width: 100px;">
+                        </div>
+                    </div>
+                </div>
+                <button class="button is-small is-ghost" id="addUrlBtn" onclick="addExternalUrlField()">
+                    <i class="pi pi-plus mr-1"></i> Add another URL
+                </button>
+            </div>
+            <div class="field is-grouped">
+                <div class="control">
+                    <button class="button is-success" id="saveExternalBtn" onclick="saveExternalVideo()">
+                        <i class="pi pi-save mr-1"></i> Save
+                    </button>
+                </div>
+                <div class="control">
+                    <button class="button is-ghost" onclick="resetExternalForm()">Clear</button>
+                </div>
+            </div>
+            <div id="externalSaveFeedback" class="mt-2" style="display: none;"></div>
+        </div>
+
+        <div class="external-video-list-card">
+            <h3 class="title is-6 mb-3">Saved Links</h3>
+            <div id="externalVideoList">
+                <div class="has-text-centered has-text-grey p-4">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
+                    <p class="mt-2">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    initExternalVideoView();
+</script>

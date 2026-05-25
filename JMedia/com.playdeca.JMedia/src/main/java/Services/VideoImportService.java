@@ -4,8 +4,11 @@ import Models.MediaFile;
 import Models.Video;
 import Models.VideoHistory;
 import Models.ScanState;
+import io.quarkus.runtime.Startup;
+import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
@@ -30,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@Startup
 @ApplicationScoped
 public class VideoImportService {
 
@@ -54,7 +58,7 @@ public class VideoImportService {
     MediaAnalysisService mediaAnalysisService;
 
     @Inject
-    org.eclipse.microprofile.context.ManagedExecutor managedExecutor;
+    VideoScanExecutor videoScanExecutor;
 
     @Inject
     VideoStateService videoStateService;
@@ -64,6 +68,29 @@ public class VideoImportService {
 
     @Inject
     VideoStoryboardService videoStoryboardService;
+
+    // TODO: Remove this method once stale column migration is complete
+    private static final String[] STALE_COLUMNS = {"WATCHED", "WATCHPROGRESSDOUBLE"};
+    private volatile boolean staleColumnsCleaned = false;
+
+    @Transactional
+    void onStart(@Observes StartupEvent ev) {
+        cleanStaleColumns();
+    }
+
+    @Transactional
+    void cleanStaleColumns() {
+        if (staleColumnsCleaned) return;
+        for (String column : STALE_COLUMNS) {
+            try {
+                em.createNativeQuery("ALTER TABLE video DROP COLUMN IF EXISTS " + column).executeUpdate();
+                LOGGER.info("Dropped stale column from video table if it existed: " + column);
+            } catch (Exception e) {
+                LOGGER.warn("Could not drop column " + column + ": " + e.getMessage());
+            }
+        }
+        staleColumnsCleaned = true;
+    }
 
     public static class ScanContext {
         public final Map<String, MediaFile> mediaFileByPath = new HashMap<>();
@@ -176,7 +203,7 @@ public class VideoImportService {
             isScanRunning = true;
             currentScanProgress.set(0);
             
-            ExecutorCompletionService<Video> completion = new ExecutorCompletionService<>(managedExecutor);
+            ExecutorCompletionService<Video> completion = new ExecutorCompletionService<>(videoScanExecutor.getExecutor());
             AtomicInteger submittedTasks = new AtomicInteger();
             AtomicInteger skippedFiles = new AtomicInteger();
             AtomicInteger processedCount = new AtomicInteger();
@@ -326,9 +353,16 @@ public class VideoImportService {
     public void resetVideoDatabase() {
         loggingService.addLog("Resetting video database...");
         try {
-            videoStateService.resetState();
+            // Clear per-profile video progress (video_progress table)
+            Models.VideoState.deleteAll();
         } catch (Exception e) {
-            loggingService.addLog("Warning: Could not reset video playback state: " + e.getMessage());
+            loggingService.addLog("Warning: Could not reset video progress: " + e.getMessage());
+        }
+        try {
+            // Clear profile session states
+            Models.ProfileSessionState.deleteAll();
+        } catch (Exception e) {
+            loggingService.addLog("Warning: Could not reset session states: " + e.getMessage());
         }
         VideoHistory.deleteAll();
         try {
@@ -340,11 +374,17 @@ public class VideoImportService {
             Models.SubtitleTrack.deleteAll();
         } catch (Exception ignored) {}
         try {
-            em.createNativeQuery("DELETE FROM PendingMedia").executeUpdate();
+            Models.AudioTrack.deleteAll();
         } catch (Exception ignored) {}
         Video.deleteAll();
         MediaFile.deleteAll();
         ScanState.deleteAll();
+
+        for (String column : STALE_COLUMNS) {
+            try {
+                em.createNativeQuery("ALTER TABLE video DROP COLUMN IF EXISTS " + column).executeUpdate();
+            } catch (Exception ignored) {}
+        }
 
         try {
             Path thumbnailDir = Paths.get("thumbnails");

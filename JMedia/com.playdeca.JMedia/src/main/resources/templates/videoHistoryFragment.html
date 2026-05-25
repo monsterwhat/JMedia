@@ -23,7 +23,7 @@
     </div>
 </div>
 
-{#if videos.empty}
+{#if videos.empty and externalHistory.empty}
     <div class="carousel-empty-state">
         {#if search}
             <i class="pi pi-search"></i>
@@ -59,6 +59,36 @@
                             S{video.seasonNumber}E{video.episodeNumber}
                         {#else}
                             {video.releaseYear ?: 'Movie'}
+                        {/if}
+                    </div>
+                </div>
+            </div>
+        {/for}
+        {#for ev in externalHistory}
+            <div class="standard-card is-external" onclick="playExternalEntry({ev.id})">
+                <div class="standard-card-poster">
+                    <div class="external-thumbnail-placeholder" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
+                        <i class="pi pi-external-link" style="font-size:2rem;opacity:0.4;"></i>
+                        <span class="tag is-warning is-light mt-2" style="font-size:0.65rem;">External</span>
+                    </div>
+                    <div class="standard-card-overlay">
+                        <div class="standard-play-btn" onclick="event.stopPropagation(); playExternalEntry({ev.id})">
+                            <i class="pi pi-play"></i>
+                        </div>
+                    </div>
+                    {#if ev.watchProgress and ev.watchProgress > 0 and ev.watchProgress < threshold}
+                    <div class="progress-container" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.2);">
+                        <div class="progress-bar" style="width: {ev.progressPercent}%; height: 100%; background: var(--standard-accent);"></div>
+                    </div>
+                    {/if}
+                </div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{ev.title}</div>
+                    <div class="standard-card-meta">
+                        {#if ev.entryType == 'EPISODE'}
+                            S{ev.seasonNumber ?: '?'}E{ev.episodeNumber ?: '?'}
+                        {#else}
+                            External
                         {/if}
                     </div>
                 </div>

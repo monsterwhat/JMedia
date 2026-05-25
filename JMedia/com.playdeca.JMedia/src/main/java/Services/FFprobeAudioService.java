@@ -90,6 +90,14 @@ public class FFprobeAudioService {
                 LOGGER.warn("FFprobe not found, cannot extract audio tracks");
                 return audioTracks;
             }
+
+            // Check if video file exists
+            java.io.File videoFile = new java.io.File(videoPath);
+            if (!videoFile.exists()) {
+                LOGGER.error("Video file not found for audio extraction: {}", videoPath);
+                return audioTracks;
+            }
+            LOGGER.info("FFprobe path: {}, Video file: {}", ffprobePath, videoFile.getAbsolutePath());
             
             ProcessBuilder pb = new ProcessBuilder(
                 ffprobePath,
@@ -102,6 +110,7 @@ public class FFprobeAudioService {
             Process process = pb.start();
             JsonNode root = objectMapper.readTree(process.getInputStream());
             JsonNode streams = root.path("streams");
+            LOGGER.info("FFprobe found {} streams for {}", streams.isArray() ? streams.size() : 0, videoPath);
             
             if (streams.isArray()) {
                 for (JsonNode stream : streams) {

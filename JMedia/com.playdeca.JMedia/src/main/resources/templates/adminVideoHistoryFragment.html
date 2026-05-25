@@ -1,0 +1,67 @@
+<div class="library-header is-flex is-justify-content-between is-align-items-center">
+    <div>
+        <h1 class="library-title">All Watch History</h1>
+        <p class="nav-label">Global History (Admin Only)</p>
+    </div>
+
+    <div class="field has-addons mb-0" style="width: 300px;">
+        <div class="control is-expanded has-icons-left">
+            <input class="input is-small is-rounded is-dark" type="text" placeholder="Search history..." 
+                   id="adminVideoSearchInput" value="{search ?: ''}" 
+                   oninput="window.handleAdminVideoSearch(this.value)">
+            <span class="icon is-small is-left">
+                <i class="pi pi-search"></i>
+            </span>
+        </div>
+        {#if search}
+        <div class="control">
+            <button class="button is-small is-info is-rounded" onclick="window.clearAdminVideoSearch()">
+                Clear
+            </button>
+        </div>
+        {/if}
+    </div>
+</div>
+
+{#if history.empty}
+    <div class="carousel-empty-state">
+        {#if search}
+            <i class="pi pi-search"></i>
+            <h3>No results for "{search}"</h3>
+            <p>Try a different search term</p>
+        {#else}
+            <i class="pi pi-history"></i>
+            <h3>No watch history yet</h3>
+            <p>When users watch videos, their history will appear here.</p>
+        {/if}
+    </div>
+{#else}
+    <div class="standard-grid">
+        {#for h in history}
+            <div class="standard-card" data-video-id="{h.video.id}" onclick="window.selectItem({h.video.id}, 'play')">
+                <div class="standard-card-poster">
+                    <img class="poster-img" src="/api/video/thumbnail/{h.video.id}" alt="{h.video.title}" loading="lazy">
+                    <div class="standard-card-overlay">
+                        <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({h.video.id}, 'play')">
+                            <i class="pi pi-play"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{h.video.title ?: h.video.seriesTitle}</div>
+                    <div class="standard-card-meta">
+                        {#if h.video.type == 'episode'}
+                            S{h.video.seasonNumber}E{h.video.episodeNumber}
+                        {#else}
+                            {h.video.releaseYear ?: 'Movie'}
+                        {/if}
+                    </div>
+                    <div class="admin-history-details">
+                        <span class="profile-avatar-small">{getProfileInitials.apply(h.profile.name)}</span>
+                        <span class="history-date" data-utc="{formatDateTimeISO.apply(h.history.playedAt)}">{formatDateTime.apply(h.history.playedAt)}</span>
+                    </div>
+                </div>
+            </div>
+        {/for}
+    </div>
+{/if}

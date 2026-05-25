@@ -1,0 +1,217 @@
+<div class="library-header is-flex is-justify-content-between is-align-items-center">
+    <div class="is-flex is-align-items-center">
+        <button class="button is-small is-rounded mr-3" onclick="window.videoSPA.goBack()">
+            <i class="pi pi-arrow-left"></i>
+        </button>
+        <div>
+            <h1 class="library-title">{collection.name}</h1>
+            {#if collection.description}
+                <p class="nav-label">{collection.description}</p>
+            {/if}
+        </div>
+    </div>
+    <div class="is-flex is-align-items-center" style="gap:8px;">
+        {#if entries.size > 0}
+        <button class="button is-success is-rounded is-small" onclick="playCollection({collection.id}, 0)">
+            <i class="pi pi-play"></i> <span>Play All</span>
+        </button>
+        {/if}
+        <button class="button is-primary is-rounded is-small admin-only" onclick="showAddEntryModal()">
+            <i class="pi pi-plus"></i> <span>Add Video</span>
+        </button>
+    </div>
+</div>
+
+<div id="collectionEntriesList">
+    {#if entries.empty}
+        <div class="carousel-empty-state">
+            <i class="pi pi-th-large"></i>
+            <h3>Collection is empty</h3>
+            <p>Click "Add Video" to start building your watch order.</p>
+        </div>
+    {#else}
+        <div class="collection-entries" id="sortableEntries">
+            {#for entry in entries}
+                <div class="collection-entry" data-entry-id="{entry.id}" data-video-id="{entry.video.id}">
+                    <div class="entry-order-handle" title="Drag to reorder">
+                        <i class="pi pi-bars"></i>
+                    </div>
+                    <div class="entry-order-badge">{entry.orderIndex}</div>
+                    <div class="entry-thumbnail" onclick="window.selectItem({entry.video.id}, 'details')">
+                        <img src="/api/video/thumbnail/{entry.video.id}" alt="{entry.video.title}" loading="lazy">
+                    </div>
+                    <div class="entry-info" onclick="window.selectItem({entry.video.id}, 'details')">
+                        <div class="entry-title">{entry.video.title ?: entry.video.seriesTitle}</div>
+                        <div class="entry-meta">
+                            {#if entry.video.type == 'episode'}
+                                {entry.video.seriesTitle} S{entry.video.seasonNumber}E{entry.video.episodeNumber}
+                            {#else}
+                                Movie {#if entry.video.releaseYear}({entry.video.releaseYear}){/if}
+                            {/if}
+                            {#if entry.notes}
+                                <span class="tag is-info is-light is-small ml-2">{entry.notes}</span>
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="entry-actions">
+                        <button class="button is-small is-rounded is-success" onclick="event.stopPropagation(); window.selectItem({entry.video.id}, 'play')" title="Play">
+                            <i class="pi pi-play"></i>
+                        </button>
+                        <button class="button is-small is-rounded admin-only" onclick="event.stopPropagation(); showEditEntryModal({entry.id}, '{entry.notes ?: ''}')" title="Edit">
+                            <i class="pi pi-pencil"></i>
+                        </button>
+                        <button class="button is-small is-rounded is-danger admin-only" onclick="event.stopPropagation(); removeEntry({entry.id})" title="Remove">
+                            <i class="pi pi-times"></i>
+                        </button>
+                    </div>
+                </div>
+            {/for}
+        </div>
+    {/if}
+</div>
+
+<div class="section mt-5 admin-only">
+    <h3 class="title is-4">Add Videos to Collection</h3>
+    <div class="field" style="max-width: 400px;">
+        <div class="control has-icons-left">
+            <input class="input is-dark is-rounded" type="text" id="addVideoSearchInput" placeholder="Search videos..." oninput="filterAddVideoList(this.value)">
+            <span class="icon is-left"><i class="pi pi-search"></i></span>
+        </div>
+    </div>
+    {#if movies}
+    <div class="mb-5">
+        <h4 class="title is-5 mb-3" onclick="toggleGroup(this)" style="cursor:pointer;">
+            <i class="pi pi-chevron-down" style="font-size:0.8rem;margin-right:8px;"></i> Movies
+        </h4>
+        <div class="standard-grid video-group-body">
+            {#for m in movies}
+            <div class="standard-card add-card" data-search="{m.title} movie" data-video-id="{m.id}" data-entry-id="{m.entryId}" data-in-collection="{m.inCollection}" onclick="toggleCollectionEntry({m.id}, {m.entryId}, {m.inCollection})">
+                <div class="standard-card-poster">
+                    <img class="poster-img" src="/api/video/thumbnail/{m.id}" alt="" loading="lazy">
+                    <div class="standard-card-overlay">
+                        {#if m.inCollection}
+                        <div class="standard-play-btn" style="background:#e74c3c;" onclick="event.stopPropagation(); removeEntry({m.entryId})"><i class="pi pi-times"></i></div>
+                        {#else}
+                        <div class="standard-play-btn" onclick="event.stopPropagation(); addEntry({m.id})"><i class="pi pi-plus"></i></div>
+                        {/if}
+                    </div>
+                </div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{m.title}{#if m.inCollection} <span class="tag is-warning is-light is-small">In Collection</span>{/if}</div>
+                    <div class="standard-card-meta">{#if m.releaseYear}({m.releaseYear}){/if} &middot; Movie</div>
+                </div>
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+    {#if seriesList}
+    <div class="mb-5">
+        <h4 class="title is-5 mb-3" onclick="toggleGroup(this)" style="cursor:pointer;">
+            <i class="pi pi-chevron-down" style="font-size:0.8rem;margin-right:8px;"></i> TV Shows
+        </h4>
+        <!-- Series Grid -->
+        <div id="tvSeriesGrid" class="standard-grid video-group-body">
+            {#for s in seriesList}
+            <div class="standard-card" onclick="tvShowSelectSeries({s_index})" data-index="{s_index}">
+                <div class="standard-card-poster">
+                    <img class="poster-img" src="/api/video/thumbnail/{s.thumbnailId}" alt="" loading="lazy">
+                </div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{s.seriesTitle}</div>
+                    <div class="standard-card-meta">{s.total} episodes</div>
+                </div>
+            </div>
+            {/for}
+        </div>
+        <!-- Season Lists (one per series) -->
+        {#for s in seriesList}
+        <div class="tv-season-list is-hidden" data-series-index="{s_index}">
+            <div class="is-flex is-align-items-center mb-3" style="gap:8px;">
+                <button class="button is-small is-rounded" onclick="tvShowBackToSeries()"><i class="pi pi-arrow-left"></i> Back</button>
+                <h4 class="title is-5 mb-0">{s.seriesTitle}</h4>
+            </div>
+            <div class="standard-grid">
+                {#for season in s.seasons}
+                <div class="standard-card" onclick="tvShowSelectSeason({s_index}, {season_index})" data-series-index="{s_index}" data-season-index="{season_index}">
+                    <div class="standard-card-poster">
+                        <img class="poster-img" src="/api/video/thumbnail/{season.thumbnailId}" alt="" loading="lazy">
+                    </div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title">Season {season.seasonNumber}</div>
+                        <div class="standard-card-meta">{season.total} episodes</div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+        {/for}
+        <!-- Episode Grids (one per season) -->
+        {#for s in seriesList}
+        {#for season in s.seasons}
+        <div class="tv-episode-grid is-hidden" data-series-index="{s_index}" data-season-index="{season_index}">
+            <div class="is-flex is-align-items-center mb-3" style="gap:8px;">
+                <button class="button is-small is-rounded" onclick="tvShowBackToSeasons({s_index})"><i class="pi pi-arrow-left"></i> Back</button>
+                <h5 class="title is-6 mb-0">{s.seriesTitle} — Season {season.seasonNumber}</h5>
+                <div class="is-flex" style="gap:4px;margin-left:auto;">
+                    <button class="button is-small is-rounded is-success" onclick="batchAddEpisodes({s_index}, {season_index})" title="Add all episodes in this season">
+                        <i class="pi pi-plus"></i> Add All
+                    </button>
+                    <button class="button is-small is-rounded is-danger" onclick="batchRemoveEpisodes({s_index}, {season_index})" title="Remove all episodes in this season from collection">
+                        <i class="pi pi-times"></i> Remove All
+                    </button>
+                </div>
+            </div>
+            <div class="standard-grid">
+                {#for ep in season.episodes}
+                <div class="standard-card add-card" data-search="{ep.title} {ep.seriesTitle} episode" data-video-id="{ep.id}" data-entry-id="{ep.entryId}" data-in-collection="{ep.inCollection}" onclick="toggleCollectionEntry({ep.id}, {ep.entryId}, {ep.inCollection})">
+                    <div class="standard-card-poster">
+                        <img class="poster-img" src="/api/video/thumbnail/{ep.id}" alt="" loading="lazy">
+                        <div class="standard-card-overlay">
+                            {#if ep.inCollection}
+                            <div class="standard-play-btn" style="background:#e74c3c;" onclick="event.stopPropagation(); removeEntry({ep.entryId})"><i class="pi pi-times"></i></div>
+                            {#else}
+                            <div class="standard-play-btn" onclick="event.stopPropagation(); addEntry({ep.id})"><i class="pi pi-plus"></i></div>
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title">{ep.title}{#if ep.inCollection} <span class="tag is-warning is-light is-small">In Collection</span>{/if}</div>
+                        <div class="standard-card-meta">S{ep.seasonNumber}E{ep.episodeNumber}</div>
+                    </div>
+                </div>
+                {/for}
+            </div>
+        </div>
+        {/for}
+        {/for}
+    </div>
+    {/if}
+</div>
+
+<div class="modal" id="editEntryModal">
+    <div class="modal-background" onclick="document.getElementById('editEntryModal').classList.remove('is-active')"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Edit Entry</p>
+            <button class="delete" onclick="document.getElementById('editEntryModal').classList.remove('is-active')"></button>
+        </header>
+        <section class="modal-card-body">
+            <div class="field">
+                <label class="label">Notes</label>
+                <div class="control">
+                    <input class="input is-dark" id="editEntryNotesInput" type="text" placeholder="e.g. Watch after Episode 54">
+                </div>
+            </div>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-primary" onclick="submitEditEntry()">Save</button>
+            <button class="button" onclick="document.getElementById('editEntryModal').classList.remove('is-active')">Cancel</button>
+        </footer>
+    </div>
+</div>
+
+<script>
+    if (window.initCollectionDragDrop) window.initCollectionDragDrop();
+    if (window.checkAdminStatus) window.checkAdminStatus();
+</script>

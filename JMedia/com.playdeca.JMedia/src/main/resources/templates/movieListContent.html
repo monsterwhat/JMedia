@@ -40,7 +40,7 @@
 </div>
 
 <div id="movieList">
-    {#if movies.empty}
+    {#if movies.empty and externalMovies.empty}
         <div class="carousel-empty-state">
             {#if search}
                 <i class="pi pi-search"></i>
@@ -67,6 +67,25 @@
                     <div class="standard-card-info">
                         <div class="standard-card-title">{movie.title}</div>
                         <div class="standard-card-meta">{movie.releaseYear}</div>
+                    </div>
+                </div>
+            {/for}
+            {#for ev in externalMovies}
+                <div class="standard-card is-external" onclick="playExternalEntry({ev.id})">
+                    <div class="standard-card-poster">
+                        <div class="external-thumbnail-placeholder" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
+                            <i class="pi pi-external-link" style="font-size:2rem;opacity:0.4;"></i>
+                            <span class="tag is-warning is-light mt-2" style="font-size:0.65rem;">External</span>
+                        </div>
+                        <div class="standard-card-overlay">
+                            <div class="standard-play-btn" onclick="event.stopPropagation(); playExternalEntry({ev.id})">
+                                <i class="pi pi-play"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title">{ev.title}</div>
+                        <div class="standard-card-meta">External</div>
                     </div>
                 </div>
             {/for}

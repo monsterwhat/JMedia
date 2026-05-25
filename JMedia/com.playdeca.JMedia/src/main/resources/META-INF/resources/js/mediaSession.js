@@ -75,16 +75,17 @@ if ('mediaSession' in navigator) {
      * Critical for iOS lock screen progress bar and remote controls
      */
     window.updateMediaSessionPositionState = () => {
-        if (!navigator.mediaSession.setPositionState || !window.audio) return;
+        const audioEl = window.AudioEngine ? window.AudioEngine.getAudioElement() : window.audio;
+        if (!navigator.mediaSession.setPositionState || !audioEl) return;
         
         try {
-            const duration = window.audio.duration;
-            const currentTime = window.audio.currentTime;
+            const duration = audioEl.duration;
+            const currentTime = audioEl.currentTime;
             
             if (isFinite(duration) && isFinite(currentTime) && duration > 0) {
                 navigator.mediaSession.setPositionState({
                     duration: duration,
-                    playbackRate: window.audio.playbackRate || 1,
+                    playbackRate: audioEl.playbackRate || 1,
                     position: currentTime
                 });
             }
@@ -169,21 +170,32 @@ if ('mediaSession' in navigator) {
         console.log("[mediaSession.js] Media Session handlers initialized.");
     };
 
-    // Initialize position state updates if audio element is ready
-    if (window.audio) {
-        window.audio.addEventListener('timeupdate', () => {
-            window.updateMediaSessionPositionState();
-        });
+    // Initialize position state updates - use AudioEngine when available
+    const getPlayerForPosition = () => {
+        return window.AudioEngine ? window.AudioEngine.getAudioElement() : window.audio;
+    };
+
+    const attachTimeUpdate = (el) => {
+        if (el) {
+            el.addEventListener('timeupdate', () => {
+                window.updateMediaSessionPositionState();
+            });
+        }
+    };
+
+    const player = getPlayerForPosition();
+    if (player) {
+        attachTimeUpdate(player);
     } else {
-        // Wait for audio element
         window.addEventListener('audioMetadataLoaded', () => {
-            if (window.audio) {
-                window.audio.addEventListener('timeupdate', () => {
-                    window.updateMediaSessionPositionState();
-                });
-            }
+            attachTimeUpdate(getPlayerForPosition());
         });
     }
+
+    // Re-attach when audio player changes (crossfade swap)
+    window.addEventListener('audioPlayerSwapped', () => {
+        attachTimeUpdate(getPlayerForPosition());
+    });
 
 } else {
     console.log("[mediaSession.js] Media Session API not supported in this browser.");

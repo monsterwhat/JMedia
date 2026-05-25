@@ -110,7 +110,7 @@ public class PlaybackController {
                 
                 // Check if we've reached the transition point
                 // DJ Mode: wait until djExitTime + crossfadeDuration to give frontend time to crossfade
-                if (Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjExitTime() != null && st.getDuration() > 0) {
+                if (Boolean.TRUE.equals(st.getDjModeActive()) && Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjExitTime() != null && st.getDuration() > 0) {
                     double djAdvanceTime = st.getDjExitTime() + crossfadeDuration;
                     if (newTime >= djAdvanceTime) {
                         System.out.println("[DJ] === Crossfade complete, advancing song (exit=" + st.getDjExitTime() + "s + " + crossfadeDuration + "s crossfade) ===");
@@ -372,8 +372,8 @@ public class PlaybackController {
                 st.setCueIndex(st.getCue().indexOf(id));
             }
             
-            // Plan DJ Mode transition immediately for the selected song
-            if (Boolean.TRUE.equals(st.getDjModeActive()) && st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            // Plan DJ Mode transition immediately for the selected song (independent of Smart Shuffle)
+            if (Boolean.TRUE.equals(st.getDjModeActive())) {
                 planNextDjTransition(st, profileId);
             }
             
@@ -822,9 +822,7 @@ public class PlaybackController {
         } else {
             // Deactivate DJ Mode
             Integer originalCrossfade = state.getOriginalCrossfadeDuration();
-            if (originalCrossfade != null && originalCrossfade > 0) {
-                state.setCrossfadeDuration(originalCrossfade);
-            }
+            state.setCrossfadeDuration(originalCrossfade != null ? originalCrossfade : 0);
             state.setOriginalCrossfadeDuration(0);
             clearDjTransitionPlan(state);
             currentSettings.addLog("DJ Mode deactivated (set)");
@@ -857,9 +855,7 @@ public class PlaybackController {
         } else {
             // Deactivate DJ Mode
             Integer originalCrossfade = state.getOriginalCrossfadeDuration();
-            if (originalCrossfade != null && originalCrossfade > 0) {
-                state.setCrossfadeDuration(originalCrossfade);
-            }
+            state.setCrossfadeDuration(originalCrossfade != null ? originalCrossfade : 0);
             state.setOriginalCrossfadeDuration(0);
             clearDjTransitionPlan(state);
             currentSettings.addLog("DJ Mode deactivated manually");

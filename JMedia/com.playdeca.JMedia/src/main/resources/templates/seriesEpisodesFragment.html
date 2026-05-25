@@ -15,6 +15,13 @@
                     hx-on::after-request="if(event.detail.successful) window.Toast.success('Rescan of series folder started!');">
                 <i class="pi pi-refresh mr-2"></i> Rescan Series
             </button>
+            <button class="button is-small mr-2 is-danger" 
+                    hx-post="/api/video/manage/series/force-refresh" 
+                    hx-vals='\{"seriesTitle": "{seriesTitle}"\}'
+                    hx-confirm="Are you sure you want to delete the series and re-import it? This will remove current metadata and start fresh."
+                    hx-on::after-request="if(event.detail.successful) window.Toast.success('Force reload completed!');">
+                <i class="pi pi-exclamation-triangle mr-2"></i> Force Reload
+            </button>
             <button class="button is-small mr-2" onclick="openSeriesSettingsModal()">
                 <i class="pi pi-cog mr-2"></i> Series Settings
             </button>

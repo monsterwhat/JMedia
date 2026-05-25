@@ -286,18 +286,8 @@
             
             if (playingChanged) {
                 if (newState.playing && window.AudioEngine.isPaused()) {
-                    const pauseDuration = this.pauseStartTime ? (Date.now() - this.pauseStartTime) : Infinity;
-                    
-                    if (pauseDuration < this.BUFFER_WARM_DURATION) {
-                        // Fast resume - buffer should still be warm
-                        if (window.AudioEngine.isPaused()) {
-                            window.AudioEngine.play().catch(console.error);
-                        }
-                    } else {
-                        // Buffer might be cold, go through normal resume
-                        if (window.AudioEngine.isPaused()) {
-                            window.AudioEngine.play().catch(console.error);
-                        }
+                    if (window.AudioEngine.isPaused()) {
+                        window.AudioEngine.play().catch(console.error);
                     }
                     this.pauseStartTime = null;
                 } else if (!newState.playing && !window.AudioEngine.isPaused()) {

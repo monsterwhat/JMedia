@@ -79,7 +79,10 @@ public class QueueAPI {
     @GET
     @Path("/cover/{id}")
     @Produces("image/jpeg")
-    public Response getSongCover(@PathParam("id") Long id) {
+    public Response getSongCover(@PathParam("id") Long id, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        
         Song song = playbackController.findSong(id);
         if (song == null || song.getArtworkBase64() == null || song.getArtworkBase64().isEmpty()) {
             // Redirect to default logo if artwork is missing to prevent 404 errors in UI

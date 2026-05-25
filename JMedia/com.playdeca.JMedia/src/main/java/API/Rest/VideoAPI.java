@@ -9,6 +9,7 @@ import Services.VideoImportService;
 import Services.VideoService;
 import Services.VideoScanExecutor;
 import Services.SubtitleDiscoveryQueueProcessor;
+import Services.ExternalVideoService;
 import jakarta.inject.Inject;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.ws.rs.GET;
@@ -20,10 +21,15 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.core.MediaType;
+import Models.Video;
 import jakarta.ws.rs.core.Response;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -36,11 +42,15 @@ import java.util.concurrent.ThreadFactory;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ManagedContext;
 import jakarta.ws.rs.core.Context;
+import jakarta.transaction.Transactional;
 
 @Path("/api/video")
+
 public class VideoAPI {
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoAPI.class);
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
     TranscodingService transcodingService;
@@ -67,6 +77,9 @@ public class VideoAPI {
     Services.VideoStateService videoStateService;
 
     @Inject
+    Services.ProfileSessionStateService profileSessionStateService;
+
+    @Inject
     Services.VideoMetadataService videoMetadataService;
 
     @Inject
@@ -74,6 +87,9 @@ public class VideoAPI {
 
     @Inject
     SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
+
+    @Inject
+    ExternalVideoService externalVideoService;
 
     private boolean checkAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
         String sessionId = null;
@@ -101,7 +117,22 @@ public class VideoAPI {
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(API.ApiResponse.error("Video not found")).build();
         }
-        return Response.ok(API.ApiResponse.success(new Models.DTOs.VideoMetadataDTO(video))).build();
+        Models.DTOs.VideoMetadataDTO dto = new Models.DTOs.VideoMetadataDTO(video);
+        // Populate per-profile resume time from VideoState
+        try {
+            Models.VideoState progress = videoStateService.getOrCreate(video);
+            if (progress != null && progress.currentTime > 0) {
+                dto.resumeTime = progress.currentTime;
+            } else if (progress != null && progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
+                dto.resumeTime = progress.watchProgress * (video.getDurationSeconds());
+            }
+            if (dto.resumeTime != null && video.getDurationSeconds() > 0 && (dto.resumeTime / video.getDurationSeconds()) >= 0.95) {
+                dto.resumeTime = 0.0;
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not load resumeTime for video {}: {}", videoId, e.getMessage());
+        }
+        return Response.ok(API.ApiResponse.success(dto)).build();
     }
 
     @GET
@@ -148,24 +179,18 @@ public class VideoAPI {
                 fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
             }
 
-            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
+            String thumbnailUrl = thumbnailService.getThumbnailPathWithFallback(fullPath, video);
 
-            if (thumbnailUrl != null && !thumbnailUrl.contains("picsum.photos")) {
-                String filename = videoId + "_" + video.type + ".jpg";
-                java.nio.file.Path thumbnailPath = thumbnailService.getThumbnailDirectory().resolve(filename);
-                File thumbnailFile = thumbnailPath.toFile();
-
-                if (thumbnailFile.exists()) {
-                    return Response.ok(thumbnailFile)
-                            .header("Content-Type", "image/webp")
-                            .header("Cache-Control", "public, max-age=86400")
-                            .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
-                            .build();
-                }
+            if (thumbnailUrl != null && Files.exists(java.nio.file.Paths.get(thumbnailUrl))) {
+                File thumbnailFile = java.nio.file.Paths.get(thumbnailUrl).toFile();
+                return Response.ok(thumbnailFile)
+                        .header("Content-Type", "image/webp")
+                        .header("Cache-Control", "public, max-age=86400")
+                        .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
+                        .build();
             }
 
-            String redirectUrl = "https://picsum.photos/seed/video" + videoId + "/300/450.jpg";
-            return Response.temporaryRedirect(java.net.URI.create(redirectUrl)).build();
+            return Response.temporaryRedirect(java.net.URI.create("/logo.png")).build();
 
         } catch (Exception e) {
             LOG.error("Error serving thumbnail for video ID: " + videoId, e);
@@ -229,16 +254,16 @@ public class VideoAPI {
                                 fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
                             }
 
-                            String thumbnailUrl = thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
-                            thumbnailUrls.add(thumbnailUrl != null ? thumbnailUrl : "https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
+                            String thumbnailUrl = thumbnailService.getThumbnailPathWithFallback(fullPath, video);
+                            thumbnailUrls.add(thumbnailUrl != null ? thumbnailUrl : "/logo.png");
                         } else {
-                            thumbnailUrls.add("https://picsum.photos/seed/video" + videoId + "/300/450.jpg");
+                            thumbnailUrls.add("/logo.png");
                         }
                     } else {
-                        thumbnailUrls.add("https://picsum.photos/seed/missing" + videoId + "/300/450.jpg");
+                        thumbnailUrls.add("/logo.png");
                     }
                 } catch (NumberFormatException e) {
-                    thumbnailUrls.add("https://picsum.photos/seed/error" + idStr + "/300/450.jpg");
+                    thumbnailUrls.add("/logo.png");
                 }
             }
 
@@ -272,7 +297,8 @@ public class VideoAPI {
     public Response streamVideo(@PathParam("videoId") Long videoId, 
                                @HeaderParam("Range") String rangeHeader,
                                @HeaderParam("User-Agent") String userAgent,
-                               @QueryParam("start") @DefaultValue("0") double startSeconds) {
+                               @QueryParam("start") @DefaultValue("0") double startSeconds,
+                               @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -309,23 +335,24 @@ public class VideoAPI {
 
         // Transcode if it's an MKV OR if the codec is not natively web-friendly (non-H.264)
         if (isMKV || transcodingService.isTranscodeNeededForWeb(video, userAgent)) {
-            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader);
+            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex);
         }
 
         return streamDirectFile(videoFile, rangeHeader);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader) {
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex) {
         final Long videoId = video.id;
         final double startPos = startSeconds;
+        final int audioTrack = audioTrackIndex;
         
-        LOG.info("Stream: Starting transcode/remux for video {} from {} seconds", videoId, startPos);
+        LOG.info("Stream: Starting transcode/remux for video {} from {} seconds, audio track {}", videoId, startPos, audioTrack >= 0 ? audioTrack : "default");
         
         StreamingOutput streamingOutput = output -> {
             try {
                 // Use TranscodingService - the old direct FFmpeg remux approach
                 // This is the same as what was in the JAR: streams MKV → MP4 on-the-fly via pipe
-                transcodingService.streamRemuxedMKV(video, videoFile, startPos, userAgent, output);
+                transcodingService.streamRemuxedMKV(video, videoFile, startPos, userAgent, output, audioTrack);
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
                     LOG.error("Transcoding error for {}: {}", videoFile.getName(), e.getMessage());
@@ -424,6 +451,21 @@ public class VideoAPI {
         }
 
         return responseBuilder.build();
+    }
+
+    @GET
+    @Path("/{videoId}/audio-tracks")
+    @Transactional
+    public Response getAudioTracks(@PathParam("videoId") Long videoId) {
+        Video video = videoService.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
+        }
+
+        List<Models.AudioTrack> tracks = Models.AudioTrack.list("video.id", videoId);
+        if (tracks == null) tracks = new ArrayList<>();
+        
+        return Response.ok(ApiResponse.success(tracks)).build();
     }
 
     @Inject
@@ -810,6 +852,14 @@ public class VideoAPI {
                 .distinct()
                 .sorted()
                 .collect(java.util.stream.Collectors.toList());
+        // Merge external series titles
+        List<String> externalTitles = externalVideoService.findAllSeriesTitles();
+        for (String ext : externalTitles) {
+            if (!seriesTitles.contains(ext)) {
+                seriesTitles.add(ext);
+            }
+        }
+        seriesTitles.sort(String.CASE_INSENSITIVE_ORDER);
         return Response.ok(seriesTitles).build();
     }
 
@@ -823,6 +873,14 @@ public class VideoAPI {
                 .distinct()
                 .sorted()
                 .collect(java.util.stream.Collectors.toList());
+        // Merge external season numbers
+        List<Integer> externalSeasonNumbers = externalVideoService.findSeasonNumbersForSeries(seriesTitle);
+        for (Integer extSn : externalSeasonNumbers) {
+            if (!seasonNumbers.contains(extSn)) {
+                seasonNumbers.add(extSn);
+            }
+        }
+        seasonNumbers.sort(Comparator.naturalOrder());
         return Response.ok(seasonNumbers).build();
     }
 
@@ -833,7 +891,11 @@ public class VideoAPI {
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
         List<Models.Video> episodes = Models.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", "episode", seriesTitle, seasonNumber);
-        return Response.ok(episodes).build();
+        List<Models.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(seriesTitle, seasonNumber);
+        com.fasterxml.jackson.databind.node.ObjectNode root = mapper.createObjectNode();
+        root.set("episodes", mapper.valueToTree(episodes));
+        root.set("externalEpisodes", mapper.valueToTree(externalEpisodes));
+        return Response.ok(root).build();
     }
 
     @GET
@@ -843,10 +905,13 @@ public class VideoAPI {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("50") int limit) {
         List<Models.Video> movies = Models.Video.<Models.Video>list("type = ?1", "movie");
-        long totalItems = movies.size();
+        List<Models.ExternalVideo> externalMovies = externalVideoService.findAllMovies();
+        long totalItems = movies.size() + externalMovies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) movies, page, limit, totalItems, totalPages);
-        return Response.ok(response).build();
+        com.fasterxml.jackson.databind.node.ObjectNode root = mapper.valueToTree(response).deepCopy();
+        root.set("externalMovies", mapper.valueToTree(externalMovies));
+        return Response.ok(root).build();
     }
 
     @GET
@@ -958,25 +1023,22 @@ public class VideoAPI {
     @jakarta.transaction.Transactional
     public Response reportProgress(@PathParam("videoId") Long videoId, @QueryParam("time") double timeSeconds) {
         try {
-            // Use unified service for progress updates to ensure consistency and correct transaction handling
-            videoService.updateProgress(videoId, timeSeconds);
+            // Update per-profile progress
+            Models.Video video = Models.Video.findById(videoId);
+            if (video != null) {
+                // Update per-profile VideoState progress
+                videoStateService.updateProgress(video, timeSeconds);
+            }
 
-            // Also update the ephemeral VideoState for real-time UI synchronization if needed
+            // Also update the ephemeral ProfileSessionState for real-time UI synchronization if needed
             try {
-                Models.VideoState state = videoStateService.getOrCreateState();
-                if (state != null) {
-                    state.setCurrentVideoId(videoId);
-                    state.setCurrentTime(timeSeconds);
-                    state.setLastUpdateTime(System.currentTimeMillis());
-                    
-                    Models.Video video = Models.Video.findById(videoId);
-                    if (video != null && video.duration != null) {
-                        state.setDuration(video.duration);
-                    }
-                    videoStateService.saveState(state);
+                Models.ProfileSessionState state = profileSessionStateService.getOrCreate();
+                if (state != null && videoId.equals(state.currentVideoId)) {
+                    state.currentTime = timeSeconds;
+                    state = profileSessionStateService.save(state);
                 }
             } catch (Exception e) {
-                LOG.warn("Could not sync VideoState for video {}: {}", videoId, e.getMessage());
+                LOG.warn("Could not sync ProfileSessionState for video {}: {}", videoId, e.getMessage());
             }
             
             return Response.ok(ApiResponse.success(null)).build();

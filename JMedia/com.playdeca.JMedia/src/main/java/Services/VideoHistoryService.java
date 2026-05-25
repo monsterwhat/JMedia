@@ -10,10 +10,13 @@ import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class VideoHistoryService {
+
+    private static final Logger LOGGER = Logger.getLogger(VideoHistoryService.class.getName());
 
     @Inject
     EntityManager em;
@@ -35,12 +38,26 @@ public class VideoHistoryService {
         if (mediaFile == null) {
             return;
         }
-        
+
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) {
             return;
         }
-        
+
+        // Deduplication: check if there's a recent history record (within 5 minutes) for the same mediaFile and profile
+        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+        VideoHistory existingHistory = VideoHistory.find(
+            "mediaFile = ?1 AND profile = ?2 AND playedAt >= ?3",
+            mediaFile, activeProfile, fiveMinutesAgo
+        ).firstResult();
+
+        if (existingHistory != null) {
+            // Update timestamp of existing record instead of creating new one
+            existingHistory.playedAt = LocalDateTime.now();
+            em.merge(existingHistory);
+            return;
+        }
+
         VideoHistory history = new VideoHistory();
         history.mediaFile = mediaFile;
         history.playedAt = LocalDateTime.now();
@@ -56,12 +73,20 @@ public class VideoHistoryService {
         if (videoId == null) return;
         
         Models.Video video = Models.Video.findById(videoId);
-        if (video == null || video.path == null) return;
+        if (video == null) {
+            LOGGER.warning("Cannot record history: Video not found for ID " + videoId);
+            return;
+        }
+        if (video.path == null) {
+            LOGGER.warning("Cannot record history: Video " + videoId + " has null path");
+            return;
+        }
         
-        // Find the media file associated with this video path
         MediaFile mediaFile = MediaFile.find("path", video.path).firstResult();
         if (mediaFile != null) {
             add(mediaFile.id);
+        } else {
+            LOGGER.warning("Cannot record history: No MediaFile found for path '" + video.path + "' (video ID " + videoId + ")");
         }
     }
 
@@ -99,68 +124,43 @@ public class VideoHistoryService {
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<VideoHistory> getHistory(int page, int pageSize) {
-        if (isMainProfileActive()) {
-            return em.createQuery("SELECT vh FROM VideoHistory vh ORDER BY vh.playedAt DESC", VideoHistory.class)
-                    .setFirstResult((page - 1) * pageSize)
-                    .setMaxResults(pageSize)
-                    .getResultList();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return List.of();
-            return em.createQuery("SELECT vh FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", VideoHistory.class)
-                    .setParameter("profile", activeProfile)
-                    .setFirstResult((page - 1) * pageSize)
-                    .setMaxResults(pageSize)
-                    .getResultList();
-        }
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return List.of();
+        return em.createQuery("SELECT vh FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", VideoHistory.class)
+                .setParameter("profile", activeProfile)
+                .setFirstResult((page - 1) * pageSize)
+                .setMaxResults(pageSize)
+                .getResultList();
     }
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Long> getRecentlyPlayedVideoIds(int count) {
-        if (isMainProfileActive()) {
-            return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh ORDER BY vh.playedAt DESC", Long.class)
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return List.of();
+        return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", Long.class)
+                .setParameter("profile", activeProfile)
                 .setMaxResults(count)
                 .getResultList();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return List.of();
-            return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", Long.class)
-                    .setParameter("profile", activeProfile)
-                    .setMaxResults(count)
-                    .getResultList();
-        }
     }
 
     // ==================== TRENDING ALGORITHM METHODS ====================
     
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<Long> getTrendingVideoIds(int daysBack, int count) {
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(daysBack);
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return List.of();
         
-        if (isMainProfileActive()) {
-            return em.createQuery(
-                "SELECT vh.mediaFile.id " +
-                "FROM VideoHistory vh " +
-                "WHERE vh.playedAt >= :cutoff " +
-                "GROUP BY vh.mediaFile.id " +
-                "ORDER BY COUNT(vh) DESC", Long.class)
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(daysBack);
+        return em.createQuery(
+            "SELECT vh.mediaFile.id " +
+            "FROM VideoHistory vh " +
+            "WHERE vh.profile = :profile AND vh.playedAt >= :cutoff " +
+            "GROUP BY vh.mediaFile.id " +
+            "ORDER BY COUNT(vh) DESC", Long.class)
+                .setParameter("profile", activeProfile)
                 .setParameter("cutoff", cutoff)
                 .setMaxResults(count)
                 .getResultList();
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return List.of();
-            return em.createQuery(
-                "SELECT vh.mediaFile.id " +
-                "FROM VideoHistory vh " +
-                "WHERE vh.profile = :profile AND vh.playedAt >= :cutoff " +
-                "GROUP BY vh.mediaFile.id " +
-                "ORDER BY COUNT(vh) DESC", Long.class)
-                    .setParameter("profile", activeProfile)
-                    .setParameter("cutoff", cutoff)
-                    .setMaxResults(count)
-                    .getResultList();
-        }
     }
     
     @Transactional(Transactional.TxType.REQUIRES_NEW)
@@ -169,41 +169,32 @@ public class VideoHistoryService {
             return Map.of();
         }
         
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(daysBack);
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return Map.of();
         
-        if (isMainProfileActive()) {
-            List<Object[]> results = em.createQuery(
-                "SELECT vh.mediaFile.id, COUNT(vh) as playCount " +
-                "FROM VideoHistory vh " +
-                "WHERE vh.playedAt >= :cutoff AND vh.mediaFile.id IN :videoIds " +
-                "GROUP BY vh.mediaFile.id", Object[].class)
-                    .setParameter("cutoff", cutoff)
-                    .setParameter("videoIds", videoIds)
-                    .getResultList();
-            
-            return results.stream()
-                    .collect(Collectors.toMap(
-                        row -> (Long) row[0],
-                        row -> ((Number) row[1]).intValue()
-                    ));
-        } else {
-            Profile activeProfile = settingsService.getActiveProfile();
-            if (activeProfile == null) return Map.of();
-            List<Object[]> results = em.createQuery(
-                "SELECT vh.mediaFile.id, COUNT(vh) as playCount " +
-                "FROM VideoHistory vh " +
-                "WHERE vh.profile = :profile AND vh.playedAt >= :cutoff AND vh.mediaFile.id IN :videoIds " +
-                "GROUP BY vh.mediaFile.id", Object[].class)
-                        .setParameter("profile", activeProfile)
-                        .setParameter("cutoff", cutoff)
-                        .setParameter("videoIds", videoIds)
-                        .getResultList();
-            
-            return results.stream()
-                    .collect(Collectors.toMap(
-                        row -> (Long) row[0],
-                        row -> ((Number) row[1]).intValue()
-                    ));
-        }
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(daysBack);
+        List<Object[]> results = em.createQuery(
+            "SELECT vh.mediaFile.id, COUNT(vh) as playCount " +
+            "FROM VideoHistory vh " +
+            "WHERE vh.profile = :profile AND vh.playedAt >= :cutoff AND vh.mediaFile.id IN :videoIds " +
+            "GROUP BY vh.mediaFile.id", Object[].class)
+                .setParameter("profile", activeProfile)
+                .setParameter("cutoff", cutoff)
+                .setParameter("videoIds", videoIds)
+                .getResultList();
+        
+        return results.stream()
+                .collect(Collectors.toMap(
+                    row -> (Long) row[0],
+                    row -> ((Number) row[1]).intValue()
+                ));
+    }
+    
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public List<VideoHistory> getAllHistory(int page, int pageSize) {
+        return em.createQuery("SELECT vh FROM VideoHistory vh ORDER BY vh.playedAt DESC", VideoHistory.class)
+                .setFirstResult((page - 1) * pageSize)
+                .setMaxResults(pageSize)
+                .getResultList();
     }
 }

@@ -416,6 +416,89 @@ public class ThumbnailService {
         }
     }
     
+    public String getThumbnailPathWithFallback(String fullPath, Video video) {
+        try {
+            Long id = video.id;
+            String cachedPath = thumbnailCache.get(id);
+            if (cachedPath != null && Files.exists(Paths.get(cachedPath))) {
+                return cachedPath;
+            }
+            
+            // Try to find on disk even if not in memory cache
+            String thumbnailFileName = "video_" + id + ".webp";
+            Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
+            if (Files.exists(diskPath)) {
+                thumbnailCache.put(id, diskPath.toString());
+                return diskPath.toString();
+            }
+            
+            // Generate on-demand if not found
+            String thumbnailPath = generateThumbnail(id, fullPath);
+            if (thumbnailPath != null) {
+                return thumbnailPath;
+            }
+            
+            // For episodes, try season/show thumbnail as fallback
+            if ("episode".equals(video.type) && video.seriesTitle != null) {
+                String fallback = getSeriesOrSeasonThumbnail(video.seriesTitle, video.seasonNumber, id);
+                if (fallback != null) {
+                    return fallback;
+                }
+            }
+            
+            // Fallback to app logo if all else fails
+            return "/logo.png";
+            
+        } catch (Exception e) {
+            LOGGER.error("Error getting thumbnail path with fallback: " + e.getMessage());
+            return "/logo.png";
+        }
+    }
+    
+    private String getSeriesOrSeasonThumbnail(String seriesTitle, Integer seasonNumber, Long currentVideoId) {
+        // First, try to find any episode from the same season with a thumbnail
+        if (seasonNumber != null) {
+            List<Video> seasonEpisodes = Video.list(
+                "seriesTitle = ?1 and seasonNumber = ?2 and type = ?3", 
+                seriesTitle, seasonNumber, "episode"
+            );
+            for (Video ep : seasonEpisodes) {
+                if (ep.id.equals(currentVideoId)) continue; // Skip the current video
+                String cached = thumbnailCache.get(ep.id);
+                if (cached != null && Files.exists(Paths.get(cached))) {
+                    return cached;
+                }
+                String filename = "video_" + ep.id + ".webp";
+                Path path = getThumbnailDirectory().resolve(filename);
+                if (Files.exists(path)) {
+                    thumbnailCache.put(ep.id, path.toString());
+                    return path.toString();
+                }
+            }
+        }
+        
+        // Try to find any episode from the series with a thumbnail
+        List<Video> seriesEpisodes = Video.list(
+            "seriesTitle = ?1 and type = ?2", 
+            seriesTitle, "episode"
+        );
+        for (Video ep : seriesEpisodes) {
+            if (ep.id.equals(currentVideoId)) continue;
+            String cached = thumbnailCache.get(ep.id);
+            if (cached != null && Files.exists(Paths.get(cached))) {
+                return cached;
+            }
+            String filename = "video_" + ep.id + ".webp";
+            Path path = getThumbnailDirectory().resolve(filename);
+            if (Files.exists(path)) {
+                thumbnailCache.put(ep.id, path.toString());
+                return path.toString();
+            }
+        }
+        
+        return null;
+    }
+    
     public Path getThumbnailDirectory() {
         try {
             Path dir = Paths.get(THUMBNAIL_DIR);

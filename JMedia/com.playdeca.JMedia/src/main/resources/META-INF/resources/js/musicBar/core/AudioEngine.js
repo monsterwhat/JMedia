@@ -217,7 +217,9 @@
                 nextPlayer.src = url;
                 nextPlayer.load(); // Start buffering
                 
+                const existingHandler = nextPlayer.onloadedmetadata;
                 nextPlayer.onloadedmetadata = () => {
+                    if (existingHandler) existingHandler.call(nextPlayer);
                     nextPlayer.currentTime = startTime;
                 };
             }
@@ -295,7 +297,9 @@
             if (nextPlayer.readyState > 0) {
                 nextPlayer.currentTime = seekTime;
             } else {
+                const existingHandler = nextPlayer.onloadedmetadata;
                 nextPlayer.onloadedmetadata = () => {
+                    if (existingHandler) existingHandler.call(nextPlayer);
                     nextPlayer.currentTime = seekTime;
                 };
             }
@@ -345,10 +349,6 @@
                 let currentStep = 0;
                 const fadeInterval = setInterval(() => {
                     currentStep++;
-                    if (currentStep >= steps) {
-                        clearInterval(fadeInterval);
-                        return;
-                    }
                     
                     // Simple linear crossfade to targetVolume
                     const progress = currentStep / steps;
@@ -356,6 +356,10 @@
                     // Both start at 0 - old player stays at 0, new fades in to targetVolume
                     currentPlayer.volume = 0;
                     nextPlayer.volume = targetVolume * progress;
+                    
+                    if (currentStep >= steps) {
+                        clearInterval(fadeInterval);
+                    }
                 }, interval);
             }
 
@@ -582,6 +586,13 @@
         },
 
         loadAudioSourceOnly: function(currentSong, seekTime) {
+            if (window.SynchronizationManager) {
+                const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+                window.SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
+                    return this.performSetSource(opId, currentSong, null, null, true, seekTime);
+                });
+                return;
+            }
             const player = this.getActivePlayer();
             const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
             player.src = url;

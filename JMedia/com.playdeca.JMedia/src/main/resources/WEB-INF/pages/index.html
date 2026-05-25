@@ -25,6 +25,7 @@
         <!-- CSS -->
         <link rel="stylesheet" href="/css/bulma.min.css"/>
         <link rel="stylesheet" href="/lib/primeicons.css">
+        <link rel="stylesheet" href="/css/video-cards.css">
         <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
@@ -70,11 +71,12 @@
         <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/playlist-creator.js" defer></script>
         <script src="/js/video-settings.js" defer></script>
+        <script src="/js/video-external.js" defer></script>
         <script src="/js/videoContextMenu.js" defer></script>
         <script src="/js/navbar.js" defer></script>
         <script src="/js/users.js" defer></script>
         <script src="/js/sessionManagement.js" defer></script>
-
+        <script src="/js/timezone-fix.js" defer></script>
 
     </head>
     <body class="music-page">
@@ -122,16 +124,26 @@
                             <a href="javascript:void(0)" class="nav-item" id="nav-shows" onclick="window.switchSection('shows')">
                                 <i class="pi pi-desktop"></i> <span>TV Shows</span>
                             </a>
+                             <a href="javascript:void(0)" class="nav-item" id="nav-collections" onclick="window.switchSection('collections')">
+                                 <i class="pi pi-th-large"></i> <span>Collections</span>
+                             </a>
                              <a href="javascript:void(0)" class="nav-item" id="nav-video-history" onclick="window.switchSection('history')">
                                 <i class="pi pi-clock"></i> <span>History</span>
                             </a>
                             <a href="javascript:void(0)" class="nav-item" id="nav-video-watchlist" onclick="window.switchSection('watchlist')">
                                 <i class="pi pi-bookmark"></i> <span>Watchlist</span>
                             </a>
-                            <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="window.switchSection('manage')">
-                                <i class="pi pi-cog"></i> <span>Manage Library</span>
+                            <a href="javascript:void(0)" class="nav-item admin-only" id="nav-admin-video-history" onclick="window.switchSection('adminHistory')">
+                                <i class="pi pi-shield"></i> <span>All History</span>
                             </a>
-                        </div>
+                             <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="window.switchSection('manage')">
+                                 <i class="pi pi-cog"></i> <span>Manage Library</span>
+                             </a>
+                             <a href="javascript:void(0)" class="nav-item admin-only" id="nav-external" onclick="window.switchSection('external')">
+                                  <i class="pi pi-external-link"></i> <span>External Link</span>
+                                  <span class="tag is-small is-warning" style="margin-left: auto;">Beta</span>
+                              </a>
+                         </div>
                     </div>
 
                     <!-- 3. Music Group (Primary for Music View) -->

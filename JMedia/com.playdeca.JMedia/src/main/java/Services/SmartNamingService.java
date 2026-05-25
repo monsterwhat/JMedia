@@ -25,7 +25,11 @@ public class SmartNamingService {
     private static final Pattern EPISODE_SXXEXX_PREFIX = Pattern.compile("(?i)(.*?)[sS](\\d{1,2})[\\s\\._-]*[eE](\\d{1,3})");
     private static final Pattern EPISODE_XXY = Pattern.compile("(?i)(.*?)(\\b[0-3]?\\d)[x×]([0-1]?\\d{1,2}\\b)(.*)");
     private static final Pattern EPISODE_ONLY = Pattern.compile("(?i)(.*?)[eE]pisode[\\s\\._-]*(\\d{1,3})(.*)");
-    private static final Pattern EPISODE_SIMPLE = Pattern.compile("(?i)(.*?)[\\s\\._-]+(\\d{1,3})(\\s*v\\d+)?\\.[^.]+$");
+    private static final Pattern EPISODE_SIMPLE = Pattern.compile("(?i)(.*?)[\\s\\._-]+(\\d{1,3})(v\\d+)?(.*)\\.[^.]+$");
+    // Matches "E02" style episodes (no season prefix, e.g., [Reaktor]... E02 [...].mkv)
+    private static final Pattern EPISODE_E_ONLY = Pattern.compile("(?i)(.*?)[\\s\\._\\[\\(-]+[eE](\\d{1,3})(.*)");
+    // Matches "SP01" style special episodes (sets season to 0)
+    private static final Pattern EPISODE_SP = Pattern.compile("(?i)(.*?)[\\s\\._-]*[sS][pP](\\d{1,3})(.*)");
     // NEW: Pattern for bare numbers at start like "1.mp4", "01.mkv", "123.avi" (files that are just episode numbers)
     private static final Pattern EPISODE_BARE_NUMBER = Pattern.compile("(?i)^(\\d{1,4})\\.[^.]+$");
     // Simple pattern for "1 - Title" format (unicode-safe)
@@ -64,7 +68,7 @@ public class SmartNamingService {
     );
     
     // Technical terms regex string (used in composite patterns)
-    private static final String RELEASE_TERMS = "720p|1080p|2160p|4k|480p|360p|576p|bluray|bdrip|dvdrip|web-dl|webrip|re-?webrip|hdtv|yts|imax|hybrid|remastered|extended|collector|ultimate|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|dual-audio|multi-audio|tri-audio|multi-subs|10bit|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|vostfr|amzn|galaxytv|tgx|rzerox|mazar|pahe\\.in|800mb|proper|uncut|unrated|directors?.cut|nf|galaxyty|complete|eztv\\.re|kontrast|elite|hodl|galaxyty|galaxy-tv|galaxy_tv|re-?enc|h264|h265|avc|hevc";
+    private static final String RELEASE_TERMS = "720p|1080p|2160p|4k|480p|360p|576p|bluray|bdrip|dvdrip|web-dl|webrip|re-?webrip|hdtv|yts|imax|hybrid|remastered|extended|collector|ultimate|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|dual-audio|multi-audio|tri-audio|multi-subs|10bit|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|vostfr|amzn|galaxytv|tgx|rzerox|mazar|pahe\\.in|800mb|proper|uncut|unrated|directors?.cut|nf|galaxyty|complete|eztv\\.re|kontrast|elite|hodl|galaxyty|galaxy-tv|galaxy_tv|re-?enc|h264|h265|avc1|avc|mp4a|hevc";
     
     // Compiled cleaning patterns
     private static final Pattern RELEASE_CLEAN_PATTERN = Pattern.compile("(?i)\\b(" + RELEASE_TERMS + ")($|[\\s\\._-])");
@@ -119,12 +123,13 @@ public class SmartNamingService {
         public final Integer season;
         public final Integer episode;
         public final String seasonName; // e.g., "Saga de Piccolo Jr"
+        public final String folder; // Sub-folder within a season (e.g., "Featurette")
         public final Integer year;
         public final double confidence;
         public final String reasoning;
 
         public NamingResult(String mediaType, String showName, String title, 
-                          Integer season, Integer episode, String seasonName,
+                          Integer season, Integer episode, String seasonName, String folder,
                           Integer year, double confidence, String reasoning) {
             this.mediaType = mediaType;
             this.showName = showName;
@@ -132,6 +137,7 @@ public class SmartNamingService {
             this.season = season;
             this.episode = episode;
             this.seasonName = seasonName;
+            this.folder = folder;
             this.year = year;
             this.confidence = confidence;
             this.reasoning = reasoning;
@@ -155,6 +161,17 @@ public class SmartNamingService {
 
         // Perform comprehensive episode detection
         EpisodeDetection episodeDetection = detectEpisodeInfo(filename, pathAnalysis);
+
+        // Apply season from path analysis if episode detection didn't provide one
+        // (patterns like EPISODE_SIMPLE, EPISODE_ONLY, EPISODE_E_ONLY return early with season=null)
+        if (episodeDetection.season == null && pathAnalysis.seasonFolder != null) {
+            Integer pathSeason = extractSeasonFromFolder(pathAnalysis.seasonFolder);
+            if (pathSeason != null) {
+                episodeDetection.season = pathSeason;
+                episodeDetection.detectionMethod = episodeDetection.detectionMethod + "+PathSeason";
+                episodeDetection.confidence = Math.max(episodeDetection.confidence, 0.7);
+            }
+        }
 
         // Determine media type with confidence scoring
         MediaTypeDecision mediaTypeDecision = determineMediaType(
@@ -200,6 +217,7 @@ public class SmartNamingService {
             episodeDetection.season,
             episodeDetection.episode,
             seasonNameFromPath,
+            pathAnalysis.subFolder,
             finalYear,
             finalConfidence,
             reasoning
@@ -324,6 +342,16 @@ public class SmartNamingService {
                     // Found a season folder in the path
                     analysis.seasonFolderIndex = foundSeasonIdx;
                     analysis.seasonFolder = foundSeasonFolder;
+                    
+                    // Check if there is a sub-folder after the season folder (e.g., Season 1/Featurette/episode.mp4)
+                    int subFolderIdx = foundSeasonIdx + 1;
+                    if (subFolderIdx < pathSegments.length) {
+                        String nextSegment = pathSegments[subFolderIdx];
+                        boolean looksLikeFile = nextSegment.matches("(?i).*\\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg)$");
+                        if (!looksLikeFile) {
+                            analysis.subFolder = nextSegment;
+                        }
+                    }
                 } else if (showFolderHasSeason) {
                     // Show folder itself contains season pattern (e.g., TV Shows/South Park s10/video.mp4)
                     analysis.seasonFolderIndex = showIdx;
@@ -442,6 +470,30 @@ public class SmartNamingService {
             return detection;
         }
 
+        // E only pattern (E02, e02) - no season prefix
+        Matcher mEOnly = EPISODE_E_ONLY.matcher(filename);
+        if (mEOnly.matches()) {
+            detection.season = null; // Season extracted from folder path later
+            detection.episode = Integer.parseInt(mEOnly.group(2));
+            detection.titleHint = mEOnly.group(3).trim().replaceFirst("\\.[^.]+$", "");
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "EOnly";
+            detection.confidence = 0.75;
+            return detection;
+        }
+
+        // SP pattern (SP01 for specials) - sets season to 0
+        Matcher mSP = EPISODE_SP.matcher(filename);
+        if (mSP.matches()) {
+            detection.season = 0; // Standard for specials
+            detection.episode = Integer.parseInt(mSP.group(2));
+            detection.titleHint = mSP.group(3).trim().replaceFirst("\\.[^.]+$", "");
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "SP";
+            detection.confidence = 0.75;
+            return detection;
+        }
+
         // Simple pattern for "1 - Title" format (unicode-safe) - check BEFORE EPISODE_SIMPLE
         // to avoid matching "3 - Guerra Civil, Parte 1" as episode 1
         Matcher mDash = EPISODE_DASH.matcher(filename);
@@ -492,6 +544,10 @@ public class SmartNamingService {
             if (num > 0 && num < 1000) {
                 detection.season = null;
                 detection.episode = num;
+                // Extract title hint from group(4) if present
+                if (m4.group(4) != null && !m4.group(4).trim().isEmpty()) {
+                    detection.titleHint = m4.group(4).trim().replaceFirst("\\.[^.]+$", "");
+                }
                 detection.hasEpisodePattern = true;
                 detection.detectionMethod = "SimpleNumber";
                 detection.confidence = 0.6;
@@ -814,6 +870,10 @@ public class SmartNamingService {
             System.out.println("DEBUG: matched SEASON_MOVIE_PATTERN");
             return true;
         }
+        if (SEASON_SXX_ONLY_PATTERN.matcher(name).find()) {
+            System.out.println("DEBUG: matched SEASON_SXX_ONLY_PATTERN");
+            return true;
+        }
         
         System.out.println("DEBUG: isSeasonFolderName '" + name + "' -> false");
         return false;
@@ -822,6 +882,10 @@ public class SmartNamingService {
     private String extractTitle(String rawTitle, String filename, EpisodeDetection episodeDetection, 
                                String mediaType, PathAnalysis pathAnalysis, String showName) {
         
+        if (pathAnalysis.subFolder != null) {
+            return filename.replaceFirst("\\.[^.]+$", "");
+        }
+
         if ("movie".equals(mediaType)) {
             String filenameTitle = cleanTitle(filename.replaceFirst("\\.[^.]+$", ""));
             if (isGenericName(filenameTitle) && !pathAnalysis.parentFolder.isEmpty()) {
@@ -1180,6 +1244,7 @@ public class SmartNamingService {
         public String libraryRootFolder;
         public String showFolder;
         public String seasonFolder;
+        public String subFolder; // Sub-folder within a season (e.g., "Featurette")
         public int showFolderIndex = -1;
         public int seasonFolderIndex = -1;
         public boolean isFlatStructure;

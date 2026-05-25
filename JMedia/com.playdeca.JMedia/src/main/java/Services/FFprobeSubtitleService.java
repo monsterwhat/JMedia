@@ -159,8 +159,13 @@ public class FFprobeSubtitleService {
         track.isForced = disposition.path("forced").asInt() == 1;
         track.isSDH = disposition.path("hearing_impaired").asInt() == 1;
         
-        track.format = "vtt"; // We will always convert to WebVTT for streaming
-        track.filename = String.format("internal_%d.vtt", index);
+        if ("ass".equals(codec) || "ssa".equals(codec)) {
+            track.format = codec;
+            track.filename = String.format("internal_%d.%s", index, codec);
+        } else {
+            track.format = "vtt";
+            track.filename = String.format("internal_%d.vtt", index);
+        }
         
         return track;
     }
@@ -226,5 +231,71 @@ public class FFprobeSubtitleService {
         }
 
         return output.toString();
+    }
+
+    /**
+     * Extract raw ASS/SSA subtitle content from an embedded track, preserving all styling.
+     * Uses a temporary file for extraction since FFmpeg's ASS muxer is not available in all builds.
+     */
+    public String extractRawSubtitle(SubtitleTrack track) throws IOException {
+        if (!track.isEmbedded || track.trackIndex == null || track.video == null) {
+            throw new IllegalArgumentException("Track is not an embedded subtitle track");
+        }
+
+        String codec = track.codec != null ? track.codec : track.format;
+        if (!"ass".equals(codec) && !"ssa".equals(codec)) {
+            throw new IOException("Track codec is not ASS/SSA: " + codec);
+        }
+
+        String ffmpegPath = discoveryService.findFFmpegExecutable();
+        if (ffmpegPath == null) {
+            throw new IOException("FFmpeg not found");
+        }
+
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        Path baseFilePath = Paths.get(track.video.path);
+        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.video.path);
+
+        // Write to a temp .ass file, then read it back
+        Path tempFile = Files.createTempFile("subs_", ".ass");
+        try {
+            List<String> command = new ArrayList<>();
+            command.add(ffmpegPath);
+            command.add("-v");
+            command.add("quiet");
+            command.add("-y");
+            command.add("-i");
+            command.add(filePath.toAbsolutePath().toString());
+            command.addAll(List.of(
+                "-map", "0:" + track.trackIndex,
+                "-c:s", "copy",
+                tempFile.toAbsolutePath().toString()
+            ));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            Process process = pb.start();
+
+            try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                String line;
+                while ((line = errorReader.readLine()) != null) {
+                    LOGGER.debug("FFmpeg: {}", line);
+                }
+            }
+
+            if (process.waitFor() != 0) {
+                throw new IOException("FFmpeg failed to extract raw subtitle track " + track.trackIndex);
+            }
+
+            return Files.readString(tempFile, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Extraction interrupted");
+        } finally {
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException e) {
+                LOGGER.warn("Failed to delete temp subtitle file: {}", tempFile);
+            }
+        }
     }
 }

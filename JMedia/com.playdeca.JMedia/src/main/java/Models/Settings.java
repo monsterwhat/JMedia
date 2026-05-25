@@ -18,8 +18,9 @@ public class Settings extends PanacheEntity {
     private String videoLibraryPath;
 
     private Boolean firstTimeSetup = true;
-    
-    private Long activeProfileId;
+
+    @Column(columnDefinition = "TEXT")
+    private String activeProfileIdsJson; // JSON map: {"userId1": profileId1, "userId2": profileId2}
     
     private Boolean runAsService = false;
       

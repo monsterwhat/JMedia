@@ -134,19 +134,23 @@
                 const currentSong = {
                     id: state.currentSongId,
                     title: state.songName || 'Unknown',
-                    artist: state.artistName || state.artist || 'Unknown Artist'
+                    artist: state.artistName || state.artist || 'Unknown Artist',
+                    artworkBase64: state.currentSongData?.artworkBase64
                 };
                 console.log('[UIUpdater] Song changed, updating images:', currentSong.title);
                 if (window.ImageManager) {
                     window.ImageManager.updateImages(currentSong, null, null);
                 } else {
-                    // Fallback: Update directly if ImageManager not ready
-                    const coverEl = document.getElementById('songCoverImage');
-                    const faviconEl = document.getElementById('favicon');
-                    const pageTitleEl = document.getElementById('pageTitle');
-                    if (coverEl) coverEl.src = `/api/music/cover/${currentSong.id}`;
-                    if (faviconEl) faviconEl.href = `/api/music/cover/${currentSong.id}`;
-                    if (pageTitleEl) pageTitleEl.innerText = `${currentSong.title} - ${currentSong.artist}`;
+                 // Fallback: Update directly if ImageManager not ready
+                 const coverEl = document.getElementById('songCoverImage');
+                 const faviconEl = document.getElementById('favicon');
+                 const pageTitleEl = document.getElementById('pageTitle');
+                 const artworkUrl = currentSong.artworkBase64 
+                     ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 
+                     : '/logo.png';
+                 if (coverEl) coverEl.src = artworkUrl;
+                 if (faviconEl) faviconEl.href = artworkUrl;
+                 if (!window.videoPlaying && pageTitleEl) pageTitleEl.innerText = `${currentSong.title} - ${currentSong.artist}`;
                 }
             }
         },

@@ -491,9 +491,16 @@ async function handleComponentAction(comp, btn) {
         const res = await fetch(`/api/import/${action}/${comp}/${profileId}`, { method: 'POST' });
         if (res.ok) {
             if(window.showToast) window.showToast(`${comp} ${action}ation started`, 'info');
-            if (!window.installationWebSocket) setupInstallationWebSocket();
+            if (!window.installationWebSocket || window.installationWebSocket.readyState > 1) {
+                if (window.installationWebSocket) window.installationWebSocket.close();
+                setupInstallationWebSocket();
+            }
+        } else {
+            if(window.showToast) window.showToast(`Failed to ${action} ${comp}`, 'error');
         }
-    } catch (e) { 
+    } catch (e) {
+        if(window.showToast) window.showToast(`Error: ${e.message}`, 'error');
+    } finally {
         btn.disabled = false;
         btn.classList.remove('is-loading');
     }

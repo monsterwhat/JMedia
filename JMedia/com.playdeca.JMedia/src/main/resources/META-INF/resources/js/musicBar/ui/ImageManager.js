@@ -5,9 +5,21 @@
 (function(window) {
     'use strict';
     
-    window.ImageManager = {
-        // DOM element cache
-        elements: {},
+     window.ImageManager = {
+         // DOM element cache
+         elements: {},
+         
+         /**
+          * Convert base64 artwork to data URL
+          * @param {string} artworkBase64 - Base64 encoded artwork
+          * @returns {string} Data URL or fallback
+          */
+         getArtworkDataUrl: function(artworkBase64) {
+             if (artworkBase64 && artworkBase64 !== '') {
+                 return 'data:image/jpeg;base64,' + artworkBase64;
+             }
+             return '/logo.png';
+         },
         
         /**
          * Initialize image manager
@@ -68,8 +80,8 @@
                 this.elements.favicon.href = currentArtwork;
             }
             
-            // Update page title
-            if (this.elements.pageTitle) {
+            // Update page title (skip when video is active)
+            if (!window.videoPlaying && this.elements.pageTitle) {
                 const title = currentSong ? `${currentSong.title} - ${currentSong.artist}` : 'JMedia';
                 this.elements.pageTitle.innerText = title;
                 this.elements.pageTitle.title = title;
@@ -105,8 +117,8 @@
          * @param {Object} song - Song data
          */
         updateSongImage: function(element, song) {
-            if (song && song.id) {
-                element.src = `/api/music/cover/${song.id}`;
+            if (song && song.artworkBase64) {
+                element.src = this.getArtworkDataUrl(song.artworkBase64);
                 element.style.display = 'block';
             } else {
                 element.src = '/logo.png';
@@ -120,10 +132,10 @@
          * @returns {string} Artwork URL
          */
         getArtworkUrl: function(song) {
-            if (!song || !song.id) {
+            if (!song || !song.artworkBase64) {
                 return '/logo.png';
             }
-            return `/api/music/cover/${song.id}`;
+            return this.getArtworkDataUrl(song.artworkBase64);
         },
         
         /**
@@ -136,9 +148,9 @@
             }
             
             songs.forEach(song => {
-                if (song && song.id) {
+                if (song && song.artworkBase64) {
                     const img = new Image();
-                    img.src = `/api/music/cover/${song.id}`;
+                    img.src = this.getArtworkDataUrl(song.artworkBase64);
                     // Preload without blocking
                 }
             });
