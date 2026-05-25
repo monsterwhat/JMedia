@@ -26,7 +26,8 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     private static final Logger LOG = LoggerFactory.getLogger(JMediaAuthFilter.class);
     private static final List<String> PUBLIC_ENDPOINTS = Arrays.asList(
             "/api/auth/login",
-            "/api/auth/logout"
+            "/api/auth/logout",
+            "/player_api.php"
     );
 
     private static final List<String> STATIC_RESOURCES = Arrays.asList(

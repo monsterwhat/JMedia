@@ -2,7 +2,7 @@
 {#if featured.size > 0}
 <div class="hero-container">
     <div class="hero is-fullheight">
-        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: '/images/placeholders/hero.jpg'});"></div>
+        <div class="hero-background" style="background-image: url({featured[0].thumbnailPath ?: '/logo.png'});"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">{featured[0].title ?: featured[0].seriesTitle}</h1>
@@ -33,7 +33,7 @@
 <!-- Debug: No featured content found -->
 <div class="hero-container">
     <div class="hero is-fullheight">
-        <div class="hero-background" style="background-image: url('/images/placeholders/hero.jpg');"></div>
+        <div class="hero-background" style="background-image: url('/logo.png');"></div>
         <div class="hero-gradient"></div>
         <div class="hero-content">
             <h1 class="hero-title">No Featured Content</h1>

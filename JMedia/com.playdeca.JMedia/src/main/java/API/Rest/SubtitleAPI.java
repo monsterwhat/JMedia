@@ -331,6 +331,58 @@ public class SubtitleAPI {
         }
     }
     
+    @GET
+    @Path("/track/{trackId}/raw")
+    @Produces("text/plain")
+    public Response streamRawSubtitle(@PathParam("trackId") Long trackId) {
+        SubtitleTrack track = SubtitleTrack.findById(trackId);
+        if (track == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("Subtitle track not found")
+                    .build();
+        }
+
+        String format = track.format != null ? track.format.toLowerCase() : "";
+        if (!"ass".equals(format) && !"ssa".equals(format)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Raw subtitle endpoint only supports ASS/SSA format, got: " + format)
+                    .build();
+        }
+
+        try {
+            String content;
+            if (track.isEmbedded) {
+                content = ffprobeSubtitleService.extractRawSubtitle(track);
+            } else {
+                java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
+                if (!java.nio.file.Files.exists(subtitlePath)) {
+                    return Response.status(Response.Status.NOT_FOUND)
+                            .entity("Subtitle file not found at: " + track.fullPath)
+                            .build();
+                }
+                content = java.nio.file.Files.readString(subtitlePath, java.nio.charset.StandardCharsets.UTF_8);
+            }
+
+            if (content == null || content.trim().isEmpty()) {
+                return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                        .entity("Empty subtitle content")
+                        .build();
+            }
+
+            return Response.ok(content)
+                    .header("Content-Type", "text/plain; charset=utf-8")
+                    .header("Cache-Control", "public, max-age=3600")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .build();
+
+        } catch (Exception e) {
+            LOGGER.error("Error streaming raw subtitle track {}: {}", trackId, e.getMessage(), e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("Failed to stream raw subtitle: " + e.getMessage())
+                    .build();
+        }
+    }
+
     @POST
     @Path("/preference")
     @Consumes(MediaType.APPLICATION_JSON)

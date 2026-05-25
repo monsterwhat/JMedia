@@ -29,7 +29,21 @@ public class PlaybackHistoryService {
         if (profile == null) {
             throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
-        
+
+        // Deduplication: check if there's a recent history record (within 5 minutes) for the same song and profile
+        LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
+        PlaybackHistory existingHistory = PlaybackHistory.find(
+            "song = ?1 AND profile = ?2 AND playedAt >= ?3",
+            song, profile, fiveMinutesAgo
+        ).firstResult();
+
+        if (existingHistory != null) {
+            // Update timestamp of existing record instead of creating new one
+            existingHistory.playedAt = LocalDateTime.now();
+            em.merge(existingHistory);
+            return;
+        }
+
         Song managedSong = em.merge(song);
         PlaybackHistory history = new PlaybackHistory();
         history.song = managedSong;

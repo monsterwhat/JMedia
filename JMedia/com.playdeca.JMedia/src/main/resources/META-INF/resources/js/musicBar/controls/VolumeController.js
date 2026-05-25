@@ -50,9 +50,24 @@
                 window.Helpers.log('VolumeController: Volume drag ended');
             };
             
-            // Input change
+            // Input change - local only (no server spam)
             slider.oninput = (e) => {
-                this.handleVolumeChange(parseInt(e.target.value, 10));
+                const sliderValue = parseInt(e.target.value, 10);
+                const vol = window.Helpers.volume.calculateExponentialVolume(sliderValue);
+
+                if (window.DeviceManager) {
+                    window.DeviceManager.saveDeviceVolume(vol);
+                }
+                if (window.StateManager) {
+                    window.StateManager.updateState({ volume: vol }, 'volumeController');
+                }
+                if (window.AudioEngine) {
+                    window.AudioEngine.setVolume(vol, 'volumeController');
+                }
+
+                const progress = (sliderValue / 100) * 100;
+                slider.style.setProperty('--slider-progress', `${progress}%`);
+                window.Helpers.log('VolumeController: Volume changed locally to', sliderValue, '(', vol, ')');
             };
             
             window.Helpers.log('VolumeController: Volume slider bound');

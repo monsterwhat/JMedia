@@ -1,8 +1,11 @@
 package API.Rest;
 
-import Controllers.VideoController; 
+import Controllers.VideoController;
+import Models.ProfileSessionState;
+import Models.Video;
 import Models.VideoState;
 import Services.VideoStateService;
+import Services.ProfileSessionStateService;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -23,6 +26,9 @@ public class VideoPlaybackAPI {
 
     @Inject
     private VideoStateService videoStateService;
+
+    @Inject
+    private ProfileSessionStateService profileSessionStateService;
     
     @Inject
     Services.VideoService videoService;
@@ -90,13 +96,13 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response play() {
         try {
-            var currentState = videoStateService.getOrCreateState();
-            if (currentState != null && currentState.getCurrentVideoId() != null) {
+            var currentState = profileSessionStateService.getOrCreate();
+            if (currentState != null && currentState.currentVideoId != null) {
                 videoController.togglePlay();
                 return Response.ok("{\"success\":true,\"message\":\"Resumed playback\"}").build();
             } else {
                 return Response.status(Response.Status.BAD_REQUEST)
-                           .entity("{\"success\":false,\"error\":\"No video selected\"}").build();
+                               .entity("{\"success\":false,\"error\":\"No video selected\"}").build();
             }
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -189,33 +195,24 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/progress")
     @Blocking
-    @jakarta.transaction.Transactional
     public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing) {
         try {
-            // 1. Update the specific video record for individual resume logic
             if (videoId != null) {
-                videoService.updateProgress(videoId, seconds);
-                
-                // 2. If this video is currently active in the controller, sync it there too
-                // This ensures WebSocket broadcasts and controller memory state are correct
-                VideoState currentState = videoController.getState();
-                if (videoId.equals(currentState.getCurrentVideoId())) {
-                    currentState.setCurrentTime(seconds);
-                    currentState.setPlaying(playing);
-                    videoController.updateState(currentState, true);
+                Video video = Video.findById(videoId);
+                if (video != null) {
+                    // Update per-profile progress (no global Video writes)
+                    videoStateService.updateProgress(video, seconds);
+
+                    // Update current session state if this video is active
+                    ProfileSessionState currentState = videoController.getState();
+                    if (videoId.equals(currentState.currentVideoId)) {
+                        currentState.currentTime = seconds;
+                        currentState.playing = playing;
+                        videoController.updateState(currentState, true);
+                    }
                 }
             }
-            
-            // 3. Update the persistent VideoState for the active profile
-            var state = videoStateService.getOrCreateState();
-            if (videoId != null) {
-                state.setCurrentVideoId(videoId);
-            }
-            state.setCurrentTime(seconds);
-            state.setPlaying(playing);
-            state.setLastUpdateTime(System.currentTimeMillis());
-            videoStateService.saveState(state);
-            
+
             return Response.ok("{\"success\":true}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -228,27 +225,33 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response getCurrentVideo() {
         try {
-            var currentState = videoStateService.getOrCreateState();
+            var currentState = profileSessionStateService.getOrCreate();
             if (currentState == null) {
                 return Response.ok("{\"success\":true,\"video\":null,\"message\":\"No current video\"}").build();
             }
             
-            Long currentVideoId = currentState.getCurrentVideoId();
+            Long currentVideoId = currentState.currentVideoId;
             if (currentVideoId == null) {
                 return Response.ok("{\"success\":true,\"video\":null,\"message\":\"No current video\"}").build();
             }
+            
+            Video video = Video.findById(currentVideoId);
+            String title = video != null ? video.title : "Unknown";
+            String seriesTitle = video != null ? video.seriesTitle : null;
+            String episodeTitle = video != null && "episode".equals(video.type) ? video.episodeTitle : title;
+            double duration = video != null && video.duration != null ? video.duration / 1000.0 : 0;
             
             StringBuilder response = new StringBuilder();
             response.append("{\"success\":true,")
                    .append("\"video\":{")
                    .append("\"id\":").append(currentVideoId).append(",")
-                   .append("\"title\":\"").append(safeString(currentState.getVideoTitle())).append("\",")
-                   .append("\"seriesTitle\":\"").append(safeString(currentState.getSeriesTitle())).append("\",")
-                   .append("\"episodeTitle\":\"").append(safeString(currentState.getEpisodeTitle())).append("\",")
-                   .append("\"currentTime\":").append(currentState.getCurrentTime()).append(",")
-                   .append("\"duration\":").append(currentState.getDuration()).append(",")
-                   .append("\"playing\":").append(currentState.isPlaying()).append(",")
-                   .append("\"volume\":").append(currentState.getVolume())
+                   .append("\"title\":\"").append(safeString(title)).append("\",")
+                   .append("\"seriesTitle\":\"").append(safeString(seriesTitle)).append("\",")
+                   .append("\"episodeTitle\":\"").append(safeString(episodeTitle)).append("\",")
+                   .append("\"currentTime\":").append(currentState.currentTime).append(",")
+                   .append("\"duration\":").append(duration).append(",")
+                   .append("\"playing\":").append(currentState.playing).append(",")
+                   .append("\"volume\":").append(currentState.volume)
                    .append("},")
                    .append("\"message\":\"Current video state retrieved\"")
                    .append("}");
@@ -262,6 +265,26 @@ public class VideoPlaybackAPI {
     
     private String safeString(String str) {
         return str != null ? str.replace("\"", "\\\"") : "";
+    }
+
+    @POST
+    @Path("/audio-preference")
+    @Blocking
+    public Response updateAudioPreference(@QueryParam("videoId") Long videoId, 
+                                          @QueryParam("trackId") Long trackId,
+                                          @QueryParam("language") String language) {
+        try {
+            if (videoId == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                           .entity("{\"success\":false,\"error\":\"videoId required\"}").build();
+            }
+            
+            videoService.updateAudioTrackPreference(videoId, trackId, language);
+            return Response.ok("{\"success\":true,\"message\":\"Audio preference updated\"}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+        }
     }
 
     @GET

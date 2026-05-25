@@ -1,12 +1,16 @@
 package Controllers;
 
 import API.WS.VideoSocket;
-import Models.VideoState;
+import Models.ProfileSessionState;
 import Models.Settings;
+import Models.Video;
 import Models.VideoHistory;
+import Models.VideoState;
+import Services.ProfileSessionStateService;
 import Services.VideoHistoryService;
 import Services.VideoService;
-import Models.Video;
+import Services.VideoStateService;
+import Services.CollectionWatchProgressService;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,13 +27,16 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class VideoController {
 
-    private VideoState memoryState;
+    private ProfileSessionState memoryState;
 
     @Inject VideoPersistenceController videoPersistenceController;
     @Inject VideoQueueController videoQueueController;
     @Inject SettingsController currentSettings;
     @Inject VideoService videoService;
-    @Inject VideoHistoryService videoHistoryService; // Assuming this service can now work with MediaFile IDs
+    @Inject VideoHistoryService videoHistoryService;
+    @Inject VideoStateService videoStateService;
+    @Inject ProfileSessionStateService profileSessionStateService;
+    @Inject CollectionWatchProgressService collectionWatchProgressService;
     @Inject VideoSocket ws;
 
     private ScheduledExecutorService scheduler;
@@ -45,26 +52,26 @@ public class VideoController {
         scheduler = Executors.newSingleThreadScheduledExecutor();
         memoryState = videoPersistenceController.loadState();
         if (memoryState == null) {
-            memoryState = new VideoState();
+            memoryState = new ProfileSessionState();
         }
 
-        if (memoryState.getCue().isEmpty()) {
+        if (memoryState.cue.isEmpty()) {
             List<Long> videoIds = videoService.findAllVideoIds();
             if (!videoIds.isEmpty()) {
-                memoryState.setCue(videoIds);
-                memoryState.setCueIndex(0);
-                memoryState.setCurrentVideoId(videoIds.get(0));
+                memoryState.cue = videoIds;
+                memoryState.cueIndex = 0;
+                memoryState.currentVideoId = videoIds.get(0);
             }
         }
 
-        if (memoryState.getCurrentVideoId() == null && !memoryState.getCue().isEmpty()) {
-            memoryState.setCurrentVideoId(memoryState.getCue().get(0));
-            memoryState.setCueIndex(0);
+        if (memoryState.currentVideoId == null && !memoryState.cue.isEmpty()) {
+            memoryState.currentVideoId = memoryState.cue.get(0);
+            memoryState.cueIndex = 0;
         }
 
-        memoryState.setPlaying(false);
+        memoryState.playing = false;
 
-        if (memoryState.isPlaying()) {
+        if (memoryState.playing) {
             startPlaybackTimer();
         }
     }
@@ -83,13 +90,15 @@ public class VideoController {
 
     @jakarta.transaction.Transactional
     protected void processPlaybackTick() {
-        VideoState st = getState();
-        if (st.isPlaying() && st.getCurrentVideoId() != null) {
-            double newTime = st.getCurrentTime() + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
-            if (newTime >= st.getDuration() && st.getDuration() > 0) {
+        ProfileSessionState st = getState();
+        if (st.playing && st.currentVideoId != null) {
+            double newTime = st.currentTime + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
+            Video currentVideo = findVideo(st.currentVideoId);
+            double duration = currentVideo != null && currentVideo.duration != null ? currentVideo.duration / 1000.0 : 0;
+            if (newTime >= duration && duration > 0) {
                 handleVideoEnded();
             } else {
-                st.setCurrentTime(newTime);
+                st.currentTime = newTime;
                 updateState(st, true);
             }
         }
@@ -101,33 +110,23 @@ public class VideoController {
         }
     }
 
-    public synchronized VideoState getState() {
+    public synchronized ProfileSessionState getState() {
         if (memoryState == null) {
             memoryState = videoPersistenceController.loadState();
-            if (memoryState == null) memoryState = new VideoState();
+            if (memoryState == null) memoryState = new ProfileSessionState();
         }
         return memoryState;
     }
 
-    public synchronized void updateState(VideoState newState, boolean shouldBroadcast) {
-        if (newState.getCurrentVideoId() != null) {
-            Video currentVideo = videoService.find(newState.getCurrentVideoId());
+    public synchronized void updateState(ProfileSessionState newState, boolean shouldBroadcast) {
+        if (newState.currentVideoId != null) {
+            Video currentVideo = videoService.find(newState.currentVideoId);
             if (currentVideo != null) {
-                newState.setVideoTitle(currentVideo.title);
-                newState.setSeriesTitle(currentVideo.seriesTitle);
-                newState.setEpisodeTitle(currentVideo.type.equals("episode") ? currentVideo.episodeTitle : currentVideo.title);
-                newState.setDuration(currentVideo.duration);
-            } else {
-                newState.setVideoTitle("Unknown Title");
-                newState.setSeriesTitle(null);
-                newState.setEpisodeTitle(null);
-                newState.setDuration(0);
+                newState.currentTime = newState.currentTime;
             }
         }
 
-        memoryState = newState;
-        newState.setLastUpdateTime(System.currentTimeMillis());
-        videoPersistenceController.maybePersist(memoryState);
+        memoryState = profileSessionStateService.save(newState);
 
         if (shouldBroadcast && ws != null) {
             ws.broadcastAll(newState);
@@ -139,81 +138,100 @@ public class VideoController {
     }
 
     public synchronized void selectVideo(Long id, Double startTime) {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         Video current = getCurrentVideo();
 
         if (current != null && current.id.equals(id)) {
-            st.setPlaying(!st.isPlaying());
-            if (st.isPlaying()) startPlaybackTimer();
+            st.playing = !st.playing;
+            if (st.playing) startPlaybackTimer();
             else stopPlaybackTimer();
         } else {
-            st.setCurrentVideoId(id);
+            st.currentVideoId = id;
             Video newVideo = findVideo(id);
             if (newVideo != null) {
-                st.setVideoTitle(newVideo.title);
-                st.setSeriesTitle(newVideo.seriesTitle);
-                st.setEpisodeTitle("episode".equals(newVideo.type) ? newVideo.episodeTitle : newVideo.title);
-                st.setDuration(newVideo.duration);
-                
                 // Record history when a new video is selected
                 videoHistoryService.addFromVideoId(id);
 
-                // Use provided startTime or the video's saved resume time
-                if (startTime != null) {
-                    st.setCurrentTime(startTime);
-                } else if (newVideo.resumeTime != null && newVideo.resumeTime > 0) {
-                    st.setCurrentTime(newVideo.resumeTime / 1000.0);
+                // Use provided startTime (> 0) or get per-profile resume time from VideoState
+                if (startTime != null && startTime > 0) {
+                    st.currentTime = startTime;
                 } else {
-                    st.setCurrentTime(0);
+                    // Get per-profile progress
+                    VideoState progress = videoStateService.getOrCreate(newVideo);
+                    if (progress != null && progress.currentTime > 0) {
+                        st.currentTime = progress.currentTime;
+                    } else {
+                        st.currentTime = 0;
+                    }
                 }
+                
+                // Include audio preferences for frontend to restore
+                st.preferredAudioLanguage = newVideo.preferredAudioLanguage;
+                st.defaultAudioTrackId = newVideo.defaultAudioTrackId;
             } else {
-                st.setCurrentTime(0);
+                st.currentTime = 0;
             }
-            st.setPlaying(true);
-            videoQueueController.videoSelected(id);
+            st.playing = true;
             addVideoToCueIfNotPresent(st, id);
-            if (st.getCue() != null) {
-                st.setCueIndex(st.getCue().indexOf(id));
+            if (st.cue != null) {
+                st.cueIndex = st.cue.indexOf(id);
             }
             startPlaybackTimer();
         }
         updateState(st, true);
     }
 
-    private void addVideoToCueIfNotPresent(VideoState st, Long videoId) {
-        if (st.getCue() == null || !st.getCue().contains(videoId)) {
+    private void addVideoToCueIfNotPresent(ProfileSessionState st, Long videoId) {
+        if (st.cue == null || !st.cue.contains(videoId)) {
             videoQueueController.addToQueue(st, List.of(videoId), false);
         }
     }
 
     private synchronized void stopPlayback() {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.clear(st);
+        st.collectionId = null;
         stopPlaybackTimer();
         updateState(st, true);
     }
     
     private synchronized void advanceVideo(boolean forward, boolean fromVideoEnd) {
-        VideoState st = getState();
-        if (st.getCue() == null || st.getCue().isEmpty()) {
-            stopPlayback();
-            return;
+        ProfileSessionState st = getState();
+
+        if (st.currentVideoId != null) {
+            videoHistoryService.addFromVideoId(st.currentVideoId);
         }
 
-        if (st.getCurrentVideoId() != null) {
-            // Record history when advancing
-            videoHistoryService.addFromVideoId(st.getCurrentVideoId());
+        if (st.cue == null || st.cue.isEmpty()) {
+            if (st.collectionId != null) {
+                collectionWatchProgressService.markCompleted(st.collectionId);
+                st.collectionId = null;
+            }
+            stopPlayback();
+            return;
         }
 
         Long nextVideoId = videoQueueController.advance(st, forward);
+
         if (nextVideoId == null) {
+            if (st.collectionId != null) {
+                collectionWatchProgressService.markCompleted(st.collectionId);
+                st.collectionId = null;
+            }
             stopPlayback();
             return;
         }
 
-        st.setCurrentVideoId(nextVideoId);
-        st.setCurrentTime(0);
-        st.setPlaying(true);
+        if (st.collectionId != null) {
+            collectionWatchProgressService.updateProgress(
+                st.collectionId, nextVideoId, st.cueIndex,
+                st.cue != null ? st.cue.size() : 0, st.cueIndex
+            );
+        }
+
+        st.currentVideoId = nextVideoId;
+        st.currentTime = 0;
+        st.playing = true;
         startPlaybackTimer();
         updateState(st, true);
     }
@@ -223,9 +241,9 @@ public class VideoController {
     }
 
     public synchronized void previous() {
-        VideoState st = getState();
-        if (st.getCurrentTime() > 3) {
-            st.setCurrentTime(0);
+        ProfileSessionState st = getState();
+        if (st.currentTime > 3) {
+            st.currentTime = 0;
             updateState(st, true);
             return;
         }
@@ -233,13 +251,24 @@ public class VideoController {
     }
 
     public synchronized void handleVideoEnded() {
-        advanceVideo(true, true);
+        ProfileSessionState st = getState();
+        stopPlaybackTimer();
+        st.playing = false;
+        updateState(st, true);
+
+        if (st.collectionId != null && st.cue != null && st.cueIndex + 1 < st.cue.size()) {
+            advanceVideo(true, true);
+        } else if (st.collectionId != null && st.cue != null && st.cueIndex + 1 >= st.cue.size()) {
+            collectionWatchProgressService.markCompleted(st.collectionId);
+            st.collectionId = null;
+            updateState(st, false);
+        }
     }
 
     public synchronized void togglePlay() {
-        VideoState state = getState();
+        ProfileSessionState state = getState();
         videoQueueController.togglePlay(state);
-        if (state.isPlaying()) startPlaybackTimer();
+        if (state.playing) startPlaybackTimer();
         else stopPlaybackTimer();
         updateState(state, true);
     }
@@ -257,24 +286,24 @@ public class VideoController {
     }
     
     public synchronized void changeVolume(float level) {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.changeVolume(st, level);
         updateState(st, true);
     }
 
     public synchronized void setSeconds(double seconds) {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.setSeconds(st, seconds);
         updateState(st, true);
     }
 
     public synchronized Video getCurrentVideo() {
-        VideoState st = getState();
-        Long currentId = st.getCurrentVideoId();
+        ProfileSessionState st = getState();
+        Long currentId = st.currentVideoId;
         if (currentId != null) {
             return findVideo(currentId);
         }
-        List<Long> cue = st.getCue();
+        List<Long> cue = st.cue;
         if (cue != null && !cue.isEmpty()) {
             return findVideo(cue.get(0));
         }
@@ -284,40 +313,40 @@ public class VideoController {
     
     public synchronized void addToQueue(List<Long> videoIds, boolean playNext) {
         if (videoIds == null || videoIds.isEmpty()) return;
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.addToQueue(st, videoIds, playNext);
         updateState(st, true);
     }
 
     public synchronized void removeFromQueue(Long videoId) {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.removeFromQueue(st, videoId);
         updateState(st, true);
     }
     
     public synchronized void clearQueue() {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.clear(st);
         updateState(st, true);
     }
     
     public synchronized void moveInQueue(int fromIndex, int toIndex) {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.moveInQueue(st, fromIndex, toIndex);
         updateState(st, true);
     }
 
     public synchronized void skipToQueueIndex(int index) {
-        VideoState st = getState();
+        ProfileSessionState st = getState();
         videoQueueController.skipToQueueIndex(st, index);
-        updateState(st, true); // updateState will fetch the new video details and broadcast
+        updateState(st, true);
     }
 
     public record PaginatedQueue(List<Video> videos, int totalSize) {}
 
     public PaginatedQueue getQueuePage(int page, int limit) {
-        VideoState st = getState();
-        List<Long> cueIds = st.getCue();
+        ProfileSessionState st = getState();
+        List<Long> cueIds = st.cue;
         if (cueIds == null || cueIds.isEmpty()) {
             return new PaginatedQueue(new ArrayList<>(), 0);
         }

@@ -1,12 +1,10 @@
 package Controllers;
  
-import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.Startup;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
@@ -62,7 +60,6 @@ public class DesktopController {
         checkForUpdatesOnStartup();
     }
     
-    @PostConstruct
     public void checkForUpdatesOnStartup() {
         try {
             scheduler.submit(() -> {

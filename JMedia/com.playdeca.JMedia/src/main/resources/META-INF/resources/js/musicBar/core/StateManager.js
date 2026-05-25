@@ -152,7 +152,7 @@
             }
             
             if (hasChanges) {
-                this.notifyStateChange(oldState, this.state, changes, source);
+                this.notifyStateChange(oldState, window.Helpers.deepClone(this.state), changes, source);
             }
         },
         

@@ -321,14 +321,30 @@ public class WindowsPlatformOperations implements PlatformOperations {
 @Override
     public void installSpotdl(Long profileId) throws Exception {
         broadcastInstallationProgress("spotdl", 0, true, profileId);
-        broadcast("Installing SpotDL via pip...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        String installScript = pythonExecutable + " -m pip install spotdl";
-        executeCommand(installScript, profileId);
         
-        broadcastInstallationProgress("spotdl", 100, false, profileId);
-        broadcast("SpotDL installation completed\n", profileId);
+        try {
+            broadcast("Installing SpotDL via pip...\n", profileId);
+            String installScript = pythonExecutable + " -m pip install --upgrade spotdl";
+            executeCommand(installScript, profileId);
+            broadcastInstallationProgress("spotdl", 100, false, profileId);
+            broadcast("SpotDL installation completed\n", profileId);
+        } catch (Exception e) {
+            broadcast("Standard installation failed, trying user install...\n", profileId);
+            broadcastInstallationProgress("spotdl", 50, true, profileId);
+            
+            try {
+                String userInstallScript = pythonExecutable + " -m pip install --user --upgrade spotdl";
+                executeCommand(userInstallScript, profileId);
+                broadcastInstallationProgress("spotdl", 100, false, profileId);
+                broadcast("SpotDL installation completed (user install)\n", profileId);
+            } catch (Exception e2) {
+                broadcast("User installation also failed. Please check logs for details.\n", profileId);
+                broadcast("You may need to install SpotDL manually: pip install spotdl\n", profileId);
+                throw new Exception("SpotDL installation failed: " + e2.getMessage(), e2);
+            }
+        }
     }
     
     @Override

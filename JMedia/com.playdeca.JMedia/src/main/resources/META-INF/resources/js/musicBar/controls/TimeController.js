@@ -42,11 +42,6 @@ init: function() {
                     
                     // Update slider
                     self.updateSliderFromState(currentTime, duration);
-                    
-                    // Save state periodically (every 5 seconds)
-                    window.dispatchEvent(new CustomEvent('requestStateSave', { 
-                        detail: { includeCurrentTime: true } 
-                    }));
                 }
             };
             
@@ -87,9 +82,16 @@ init: function() {
                 window.Helpers.log('TimeController: Time drag ended');
             };
             
-            // Input change
+            // Input change - local only (no server spam)
             slider.oninput = (e) => {
-                this.handleTimeChange(parseInt(e.target.value));
+                const newTime = parseInt(e.target.value);
+                if (window.StateManager) {
+                    window.StateManager.updateState({ currentTime: newTime }, 'timeController');
+                }
+                if (window.AudioEngine) {
+                    window.AudioEngine.setTime(newTime);
+                }
+                window.dispatchEvent(new CustomEvent('requestUIUpdate', { detail: { source: 'timeController' } }));
             };
             
             window.Helpers.log('TimeController: Time slider bound');
@@ -127,29 +129,12 @@ init: function() {
         },
         
         /**
-         * Handle seek operation
+         * Handle seek operation (delegates to handleTimeChange)
          * @param {number} newTime - New time in seconds
          * @param {number} timeout - Timeout for server sync
          */
         handleSeek: function(newTime, timeout = 0) {
-            // Immediate UI update
-            if (window.StateManager) {
-                window.StateManager.updateState({ currentTime: newTime }, 'timeController');
-            }
-            
-            // Request audio seek
-            if (window.AudioEngine) {
-                window.AudioEngine.setTime(newTime);
-            }
-            
-            // Request UI update
-            window.dispatchEvent(new CustomEvent('requestUIUpdate', { detail: { source: 'timeController' } }));
-            
-            // Send to server
-            setTimeout(() => {
-                this.sendSeekToServer(newTime);
-            }, timeout);
-            
+            this.handleTimeChange(newTime, timeout);
             window.Helpers.log('TimeController: Seeked to', newTime, 'seconds');
         },
         

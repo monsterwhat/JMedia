@@ -3,35 +3,43 @@
 <link rel="stylesheet" href="/css/subtitle-styling.css"/>
 
 {#include subtitleSettingsComponent}{/include}
+{#include audioTrackSelector}{/include}
 
 <div class="player-container paused" id="customPlayer"
-     data-video-id="{item.id}"
-     data-title="{item.title ?: item.seriesTitle}"
-     data-path="{item.path.replace('\\', '/')}"
-     data-duration="{item.duration}"
-     data-type="{item.type ?: 'movie'}"
-     data-series-title="{item.seriesTitle ?: ''}"
-     data-season-number="{item.seasonNumber ?: 1}"
-     data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
-     data-start-time="{resumeTime}"
-     data-next-id="{nextEpisodeId}"
-     data-prev-id="{prevEpisodeId}"
-     data-needs-transcode="{needsTranscoding}"
-     data-video-codec="{item.videoCodec ?: ''}"
-     data-intro-start="{item.introStart ?: 0}"
-     data-intro-end="{item.introEnd ?: 0}"
-     data-outro-start="{item.outroStart ?: 0}"
-     data-outro-end="{item.outroEnd ?: 0}"
-     data-recap-start="{item.recapStart ?: 0}"
-     data-recap-end="{item.recapEnd ?: 0}">
+      data-video-id="{item.id}"
+      data-title="{item.title ?: item.seriesTitle}"
+      data-path="{item.path.replace('\\', '/')}"
+      data-duration="{item.duration}"
+      data-type="{item.type ?: 'movie'}"
+      data-series-title="{item.seriesTitle ?: ''}"
+      data-season-number="{item.seasonNumber ?: 1}"
+      data-episode-number="{item.episodeNumber ?: 0}"
+      data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
+      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
+      data-start-time="{resumeTime}"
+      data-next-id="{nextEpisodeId}"
+      data-prev-id="{prevEpisodeId}"
+      data-needs-transcode="{needsTranscoding}"
+      data-video-codec="{item.videoCodec ?: ''}"
+      data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
+      data-intro-start="{item.introStart ?: 0}"
+      data-intro-end="{item.introEnd ?: 0}"
+      data-outro-start="{item.outroStart ?: 0}"
+      data-outro-end="{item.outroEnd ?: 0}"
+      data-recap-start="{item.recapStart ?: 0}"
+      data-recap-end="{item.recapEnd ?: 0}"
+      data-preferred-audio-language="{item.preferredAudioLanguage ?: ''}"
+      data-default-audio-track-id="{item.defaultAudioTrackId ?: ''}">
     
     <div class="video-wrapper">
         <video id="videoElement" crossorigin="anonymous" playsinline autoplay>
         </video>
+        <canvas id="assCanvas" class="ass-canvas"></canvas>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="/lib/jassub/jassub.bundle.js"></script>
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {

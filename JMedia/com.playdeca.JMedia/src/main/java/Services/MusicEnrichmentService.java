@@ -338,7 +338,7 @@ public class MusicEnrichmentService {
         );
     }
 
-    public MusicBrainzResult searchMusicBrainz(String artist, String title) {
+public MusicBrainzResult searchMusicBrainz(String artist, String title) {
         try {
             // Encode artist and title values - replace + with %20 after encoding
             String encodedArtist = URLEncoder.encode(artist, StandardCharsets.UTF_8).replace("+", "%20");
@@ -365,15 +365,51 @@ public class MusicEnrichmentService {
                     .GET()
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 200) {
-                return parseMusicBrainzResponse(response.body());
-            } else {
-                LOGGER.warn("MusicBrainz API returned status {} for {} - {}", response.statusCode(), artist, title);
+            int maxRetries = 3;
+            int retryCount = 0;
+            Exception lastException = null;
+            
+            while (retryCount < maxRetries) {
+                try {
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    
+                    if (response.statusCode() == 200) {
+                        return parseMusicBrainzResponse(response.body());
+                    } else if (response.statusCode() == 429) {
+                        retryCount++;
+                        if (retryCount < maxRetries) {
+                            long backoffMs = (long) (1000 * Math.pow(2, retryCount));
+                            LOGGER.warn("MusicBrainz rate limited, retrying in {}ms (attempt {}/{})", backoffMs, retryCount, maxRetries - 1);
+                            Thread.sleep(backoffMs);
+                            continue;
+                        }
+                    }
+                    LOGGER.warn("MusicBrainz API returned status {} for {} - {}", response.statusCode(), artist, title);
+                    break;
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("MusicBrainz request interrupted", ie);
+                } catch (Exception e) {
+                    lastException = e;
+                    retryCount++;
+                    if (retryCount < maxRetries) {
+                        long backoffMs = (long) (1000 * Math.pow(2, retryCount));
+                        LOGGER.warn("MusicBrainz request failed (attempt {}/{}), retrying in {}ms: {}", retryCount, maxRetries, backoffMs, e.getMessage());
+                        try {
+                            Thread.sleep(backoffMs);
+                        } catch (InterruptedException ie2) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("MusicBrainz request interrupted", ie2);
+                        }
+                    }
+                }
+            }
+            
+            if (lastException != null && retryCount >= maxRetries) {
+                LOGGER.debug("Error querying MusicBrainz for {} - {} after {} retries: {}", artist, title, maxRetries, lastException.getMessage());
             }
         } catch (Exception e) {
-            LOGGER.error("Error querying MusicBrainz for {} - {}", artist, title, e);
+            LOGGER.debug("Error querying MusicBrainz for {} - {}: {}", artist, title, e.getMessage());
         }
 
         return null;

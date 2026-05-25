@@ -20,10 +20,7 @@ class SubtitleManager {
         this.boundVideo = video;
         this.boundContainer = container;
         
-        const isFirefox = /Firefox/i.test(navigator.userAgent);
-        if (isFirefox) {
-            this.setupFirefoxSubtitlePositioning();
-        }
+        this.setupFirefoxSubtitlePositioning();
     }
 
     applySavedStyle() {
@@ -280,11 +277,9 @@ class SubtitleManager {
             }
             .firefox-subtitle-overlay.active { display: flex !important; }
             
-            @-moz-document url-prefix() {
-                video::cue {
-                    opacity: 0 !important;
-                    visibility: hidden !important;
-                }
+            video::cue {
+                opacity: 0 !important;
+                visibility: hidden !important;
             }
         `;
 
@@ -315,30 +310,106 @@ class SubtitleManager {
         const video = this.boundVideo || document.querySelector('video');
         if (!video || !video.textTracks) return;
 
-        const updateOverlay = () => {
-            if (!this.overlayElement) return;
-            let activeCue = null;
-            for (let i = 0; i < video.textTracks.length; i++) {
-                const track = video.textTracks[i];
-                if (track.mode === 'showing' && track.activeCues && track.activeCues.length > 0) {
-                    activeCue = track.activeCues[0];
+        const extractLanguagePart = (text) => {
+            const parts = [];
+            let pos = 0;
+            let defaultText = '';
+
+            while (pos < text.length) {
+                const open = text.indexOf('{', pos);
+                if (open === -1) {
+                    defaultText += text.substring(pos);
                     break;
                 }
+
+                if (open > pos) {
+                    defaultText += text.substring(pos, open);
+                }
+
+                const colon = text.indexOf(':', open + 1);
+                if (colon === -1 || colon - open > 10) {
+                    defaultText += text.substring(open);
+                    break;
+                }
+
+                const close = text.indexOf('}', colon);
+                if (close === -1) {
+                    defaultText += text.substring(open);
+                    break;
+                }
+
+                const lang = text.substring(open + 1, colon).trim().toLowerCase();
+                const content = text.substring(colon + 1, close).trim();
+                parts.push({ lang: lang, content: content });
+
+                pos = close + 1;
             }
-            if (activeCue) {
-                this.overlayElement.textContent = activeCue.text;
+
+            defaultText = defaultText.trim();
+
+            if (parts.length === 0) return text;
+
+            let currentLang = 'spa';
+            try {
+                const tracks = window.availableAudioTracks || [];
+                const currentTrack = tracks.find(t => t.isDefault) || tracks[0];
+                if (currentTrack && currentTrack.languageCode) {
+                    currentLang = currentTrack.languageCode.toLowerCase();
+                }
+            } catch (e) {}
+
+            let selectedPart = parts.find(p => p.lang === currentLang);
+            if (!selectedPart) {
+                const shortLang = currentLang.length >= 2 ? currentLang.substring(0, 2) : currentLang;
+                selectedPart = parts.find(p => p.lang.substring(0, 2) === shortLang);
+            }
+            if (!selectedPart && defaultText.length > 0) {
+                selectedPart = { content: defaultText };
+            }
+            if (!selectedPart && parts.length > 0) {
+                selectedPart = parts[0];
+            }
+
+            return selectedPart ? selectedPart.content : text;
+        };
+
+        const updateOverlay = () => {
+            if (!this.overlayElement) return;
+            const texts = [];
+            for (let i = 0; i < video.textTracks.length; i++) {
+                const track = video.textTracks[i];
+                if (track.mode === 'showing' && track.activeCues) {
+                    for (let j = 0; j < track.activeCues.length; j++) {
+                        const text = extractLanguagePart(track.activeCues[j].text);
+                        texts.push(text.trim());
+                    }
+                }
+            }
+            if (texts.length > 0) {
+                this.overlayElement.innerHTML = texts.join('\n');
                 this.overlayElement.classList.add('active');
             } else {
                 this.overlayElement.classList.remove('active');
             }
         };
 
-        // Remove old listeners if possible (though difficult with anonymous functions)
-        // For simplicity in this SPA, we just add them to the current video
-        video.textTracks.addEventListener('change', updateOverlay);
-        for (let i = 0; i < video.textTracks.length; i++) {
-            video.textTracks[i].addEventListener('cuechange', updateOverlay);
-        }
+        const trackedTracks = new WeakSet();
+
+        const attachTrackListeners = () => {
+            for (let i = 0; i < video.textTracks.length; i++) {
+                if (!trackedTracks.has(video.textTracks[i])) {
+                    trackedTracks.add(video.textTracks[i]);
+                    video.textTracks[i].addEventListener('cuechange', updateOverlay);
+                }
+            }
+        };
+
+        video.textTracks.addEventListener('change', () => {
+            attachTrackListeners();
+            updateOverlay();
+        });
+
+        attachTrackListeners();
     }
 
     applyOverlayStyles() {
@@ -367,10 +438,12 @@ class SubtitleManager {
         localStorage.setItem('jmedia_subtitle_correction', correction);
         
         const valEl = document.getElementById('subCorrectionVal');
-        if (valEl) valEl.textContent = correction.toFixed(1) + 's';
+        if (valEl) {
+            valEl.textContent = (correction >= 0 ? '+' : '') + correction.toFixed(1) + 's';
+        }
         
         if (window.currentPlayerInstance) {
-            window.currentPlayerInstance.loadSubtitles();
+            window.currentPlayerInstance.loadSubtitles(true); // true = keep menu open
         }
     }
 

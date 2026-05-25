@@ -3,14 +3,13 @@ package Services;
 import Models.GitHubRelease;
 import Models.Settings;
 import Utils.VersionComparator;
-import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.MediaType;
-import org.eclipse.microprofile.config.inject.ConfigProperty; 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
@@ -28,14 +27,9 @@ public class UpdateService {
     @Inject
     SettingsService settingsService;
     
-    @ConfigProperty(name = "github.api.url", defaultValue = "https://api.github.com")
-    String githubApiUrl;
-    
-    @ConfigProperty(name = "github.owner", defaultValue = "monsterwhat")
-    String githubOwner;
-    
-    @ConfigProperty(name = "github.repo", defaultValue = "JMusic")
-    String githubRepo;
+    private static final String GITHUB_API_URL = "https://api.github.com";
+    private static final String GITHUB_OWNER = "monsterwhat";
+    private static final String GITHUB_REPO = "JMusic";
     
     private static final Pattern SEMANTIC_VERSION_PATTERN = Pattern.compile("^\\d+\\.\\d+\\.\\d+$");
     private final Client client = ClientBuilder.newClient();
@@ -106,7 +100,7 @@ public class UpdateService {
     
     private List<GitHubRelease> fetchReleases() {
         try {
-            String url = String.format("%s/repos/%s/%s/releases", githubApiUrl, githubOwner, githubRepo);
+            String url = String.format("%s/repos/%s/%s/releases", GITHUB_API_URL, GITHUB_OWNER, GITHUB_REPO);
             
             List<GitHubRelease> releases = client.target(url)
                 .request(MediaType.APPLICATION_JSON)

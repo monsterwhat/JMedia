@@ -1,0 +1,177 @@
+<div class="library-header is-flex is-align-items-center">
+    <script>
+        (function() {
+            videoSPA.backDestination = { 
+                section: 'episodes', 
+                params: { seriesTitle: '{encodedSeriesTitle}', seasonNumber: {seasonNumber} } 
+            };
+        })();
+    </script>
+    <button class="back-btn mb-0 mr-5" onclick="videoSPA.goBack()">
+        <i class="pi pi-arrow-left"></i> Back
+    </button>
+    <div class="is-flex is-align-items-center">
+        <h1 class="library-title mb-0">{seriesTitle}</h1>
+        <span class="tag ml-4" style="background: var(--standard-accent); color: white; padding: 0.5rem 1rem; height: auto; border-radius: 8px; font-weight: bold;">SEASON {seasonNumber}</span>
+        <span class="tag ml-2" style="background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); padding: 0.5rem 1rem; height: auto; border-radius: 8px; font-weight: bold;">
+            <i class="pi pi-folder-open mr-1"></i> {folderName}
+        </span>
+    </div>
+</div>
+
+<div class="episodes-container p-4">
+{#if episodes.empty}
+    <div class="carousel-empty-state">
+        <i class="pi pi-folder-open"></i>
+        <h3>No videos found</h3>
+        <p>This folder is empty.</p>
+    </div>
+{#else}
+    <div class="episodes-list">
+        {#for episode in episodes}
+           {#include videoEntryFragment.html video=episode external=false /}
+        {/for}
+    </div>
+{/if}
+</div>
+
+<style>
+.episodes-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.episode-entry {
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: rgba(255,255,255,0.03);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.05);
+    height: 100%;
+    position: relative;
+}
+
+.episode-entry:hover {
+    background: rgba(255,255,255,0.08);
+    transform: translateY(-8px);
+    border-color: var(--standard-accent);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.episode-thumbnail {
+    width: 100%;
+    aspect-ratio: 16/9;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.episode-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+.episode-entry:hover .episode-thumbnail img {
+    transform: scale(1.05);
+}
+
+.episode-play-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.episode-entry:hover .episode-play-overlay {
+    opacity: 1;
+}
+
+.episode-play-overlay i {
+    color: white;
+    font-size: 2.5rem;
+    filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
+}
+
+.episode-details {
+    padding: 1.25rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.episode-header-row {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    gap: 0.75rem;
+}
+
+.episode-number-badge {
+    background: var(--standard-accent);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    margin-top: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.episode-title-text {
+    font-weight: 600;
+    font-size: 1.1rem;
+    line-height: 1.4;
+    color: #ffffff;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.episode-meta-row {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.5);
+    gap: 1rem;
+}
+
+.episode-meta-row span {
+    display: flex;
+    align-items: center;
+}
+
+.episode-meta-row i {
+    font-size: 0.75rem;
+    margin-right: 0.4rem;
+}
+
+@media (max-width: 768px) {
+    .episodes-list {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 1rem;
+    }
+
+    .episode-title-text {
+        font-size: 1rem;
+    }
+}
+</style>

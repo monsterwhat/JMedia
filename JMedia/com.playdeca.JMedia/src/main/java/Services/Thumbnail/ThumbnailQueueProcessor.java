@@ -289,7 +289,7 @@ public class ThumbnailQueueProcessor {
             
             // API-first approach
             String result = thumbnailService.processApiFirstThumbnail(job);
-            boolean success = result != null && !result.contains("picsum.photos");
+            boolean success = result != null && !result.equals("/logo.png") && !result.contains("picsum.photos");
             
             if (success) {
                 status.markApiSuccess();
@@ -325,7 +325,7 @@ public class ThumbnailQueueProcessor {
             logToSettings("Reading video file: " + job.videoPath);
             
             String result = thumbnailService.generateLocalThumbnail(job);
-            boolean success = result != null && !result.contains("picsum.photos");
+            boolean success = result != null && !result.equals("/logo.png") && !result.contains("picsum.photos");
             
             if (success) {
                 status.markLocalSuccess();

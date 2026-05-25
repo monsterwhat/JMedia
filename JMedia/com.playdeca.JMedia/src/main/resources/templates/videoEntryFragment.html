@@ -1,6 +1,28 @@
+{#if external}
+<div class="episode-entry is-external" data-external-id="{video.id}" onclick="playExternalEntry({video.id})">
+    <div class="episode-thumbnail">
+        <div class="external-thumbnail-placeholder">
+            <i class="pi pi-external-link" style="font-size: 2rem; opacity: 0.4;"></i>
+            <span class="tag is-warning is-light mt-2">External</span>
+        </div>
+        <div class="episode-play-overlay">
+            <i class="pi pi-play"></i>
+        </div>
+    </div>
+    <div class="episode-details">
+        <div class="episode-header-row">
+            <span class="episode-number-badge">E{video.episodeNumber ?: '0'}</span>
+            <span class="episode-title-text">{video.episodeTitle ?: video.title}</span>
+        </div>
+        <div class="episode-meta-row">
+            <span class="episode-duration"><i class="pi pi-external-link mr-1"></i> External Link</span>
+        </div>
+    </div>
+</div>
+{#else}
 <div class="episode-entry" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'play')">
     <div class="episode-thumbnail">
-        <img src="/api/video/thumbnail/{video.id}" alt="{video.episodeTitle ?: video.title}" onerror="this.src='/images/placeholders/video-small.jpg'">
+        <img src="/api/video/thumbnail/{video.id}" alt="{video.episodeTitle ?: video.title}" onerror="this.style.display='none'">
         <div class="episode-play-overlay">
             <i class="pi pi-play"></i>
         </div>
@@ -20,3 +42,4 @@
         </div>
     </div>
 </div>
+{/if}

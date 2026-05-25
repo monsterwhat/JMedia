@@ -139,6 +139,8 @@ public class SubtitleFormatConverter {
     }
 
     private String formatSecondsToVtt(double seconds) {
+        // Add small epsilon to avoid rounding down issues
+        seconds = Math.max(0, seconds + 0.0001);
         int h = (int) (seconds / 3600);
         int m = (int) ((seconds % 3600) / 60);
         double s = seconds % 60;

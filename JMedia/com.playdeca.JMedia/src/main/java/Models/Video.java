@@ -11,16 +11,15 @@ import java.util.List;
 @Entity
 @EqualsAndHashCode(callSuper = false)
 @Table(name = "video",
-       indexes = {
-           @Index(name = "idx_video_type", columnList = "type"),
-           @Index(name = "idx_video_title", columnList = "title"),
-           @Index(name = "idx_video_series", columnList = "seriesTitle"),
-           @Index(name = "idx_video_year", columnList = "releaseYear"),
-           @Index(name = "idx_video_active", columnList = "isActive"),
-           @Index(name = "idx_video_watch_progress", columnList = "watchProgress"),
-           @Index(name = "idx_video_favorite", columnList = "favorite"),
-           @Index(name = "idx_video_composite", columnList = "type, releaseYear, isActive")
-       })
+        indexes = {
+            @Index(name = "idx_video_type", columnList = "type"),
+            @Index(name = "idx_video_title", columnList = "title"),
+            @Index(name = "idx_video_series", columnList = "seriesTitle"),
+            @Index(name = "idx_video_year", columnList = "releaseYear"),
+            @Index(name = "idx_video_active", columnList = "isActive"),
+            @Index(name = "idx_video_favorite", columnList = "favorite"),
+            @Index(name = "idx_video_composite", columnList = "type, releaseYear, isActive")
+        })
 public class Video extends PanacheEntity {
 
     // Core Identification
@@ -36,6 +35,7 @@ public class Video extends PanacheEntity {
     public Integer seasonNumber;
     public String seasonName; // e.g., "Saga de Piccolo Jr" - shared across season
     public Integer episodeNumber;
+    public String folder; // Sub-folder within a season (e.g., "Featurette", "Behind the Scenes"). Null for episodes directly in season folder.
     public Integer releaseYear;
     public String description;
     public String tagline;
@@ -147,10 +147,6 @@ public class Video extends PanacheEntity {
     public Integer getDurationSeconds() {
         return duration != null ? (int) (duration / 1000) : 0;
     }
-
-    public Integer getWatchProgressPercent() {
-        return watchProgress != null ? (int) (watchProgress * 100) : 0;
-    }
     
     // Media Paths
     public String thumbnailPath;
@@ -179,14 +175,12 @@ public class Video extends PanacheEntity {
     public LocalDateTime dateAdded;
     public LocalDateTime lastWatched;
     public LocalDateTime dateModified;
-    public Long resumeTime = 0L; // Current playback position in milliseconds
-    public Double watchProgress = 0.0; // 0.0 to 1.0
-    public Double watchProgressDouble = 0.0; // Compatibility field
-    public boolean watched = false;
     public boolean favorite = false;
     public LocalDateTime favoritedAt;
-    public Integer watchCount = 0;
-    public Long totalWatchTime = 0L; // milliseconds
+
+    // Transient field for template display - populated from VideoState (not persisted to DB)
+    public transient Double watchProgress;
+    public transient Integer watchProgressPercent;
     
     // User Ratings and Preferences
     public Integer userRatingStars = 0; // 1-10 stars

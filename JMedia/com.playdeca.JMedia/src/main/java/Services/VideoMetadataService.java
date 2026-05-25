@@ -43,6 +43,9 @@ public class VideoMetadataService {
     @Inject
     VideoService videoService;
 
+    @Inject
+    FFprobeAudioService audioService;
+
     // TMDb
     private static final String TMDB_SEARCH_MOVIE = "https://api.themoviedb.org/3/search/movie?api_key=%s&query=%s";
     private static final String TMDB_SEARCH_TV = "https://api.themoviedb.org/3/search/tv?api_key=%s&query=%s";
@@ -279,6 +282,29 @@ public class VideoMetadataService {
             // 4. IntroDB Enrichment (Freshly sync intro/outro timestamps)
             if ("episode".equalsIgnoreCase(video.type)) {
                 enrichVideoWithIntroData(video);
+            }
+
+            // 5. Audio Track Extraction (Always attempt if path is available)
+            if (video.path != null && !video.path.isBlank()) {
+                try {
+                    // Build absolute path for ffprobe (video.path is stored relative to library)
+                    String fullPath;
+                    java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+                    if (vPath.isAbsolute()) {
+                        fullPath = video.path;
+                    } else {
+                        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                        fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
+                    }
+
+                    List<Models.AudioTrack> audioTracks = audioService.extractAudioTracks(video, fullPath);
+                    if (audioTracks != null && !audioTracks.isEmpty()) {
+                        videoService.updateAudioTracks(video.id, audioTracks);
+                        LOG.info("Extracted and saved {} audio tracks for: {}", audioTracks.size(), video.title);
+                    }
+                } catch (Exception e) {
+                    LOG.error("Failed to extract audio tracks for {}: {}", video.title, e.getMessage());
+                }
             }
 
             // Final safety check for title - aggressively fix technical names and prioritize official episode titles

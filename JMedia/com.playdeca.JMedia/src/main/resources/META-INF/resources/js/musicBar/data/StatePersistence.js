@@ -82,17 +82,7 @@
                         } catch (beaconErr) {
                             window.Helpers.log('StatePersistence: sendBeacon failed:', beaconErr);
                         }
-                        // Also try WebSocket for immediate delivery
-                        if (window.SynchronizationManager && window.SynchronizationManager.sendWebSocketMessage) {
-                            try {
-                                window.SynchronizationManager.sendWebSocketMessage(JSON.stringify({
-                                    type: 'seek',
-                                    payload: { value: stateToSave.currentTime }
-                                }));
-                            } catch (wsErr) {
-                                window.Helpers.log('StatePersistence: WebSocket send failed:', wsErr);
-                            }
-                        }
+
                     }
                 }
             } catch (e) {
@@ -152,7 +142,7 @@
                 // Only save time if offline or specifically requested
                 const isOffline = window.StateManager ? window.StateManager.isCurrentlyOffline() : false;
                 if (options.includeCurrentTime || isOffline) {
-                    stateToSave.currentTime = currentState.currentTime;
+                    stateToSave.currentTime = options.currentTime !== undefined ? options.currentTime : currentState.currentTime;
                     stateToSave.savedOffline = isOffline;
                 } else {
                     stateToSave.currentTime = null;

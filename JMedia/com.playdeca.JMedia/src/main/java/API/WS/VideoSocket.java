@@ -2,7 +2,7 @@ package API.WS;
 
 import Controllers.DesktopController;
 import Controllers.VideoController; // Inject VideoController
-import Models.VideoState;           // Use VideoState
+import Models.ProfileSessionState;           // Use ProfileSessionState
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -81,8 +81,8 @@ public class VideoSocket {
     }
 
     private void sendCurrentState(Session session) {
-        VideoState state = videoController.getState(); // Get VideoState
-        if (state != null && state.getCurrentVideoId() != null) {
+        ProfileSessionState state = videoController.getState(); // Get ProfileSessionState
+        if (state != null && state.currentVideoId != null) {
             try {
                 ObjectNode message = mapper.createObjectNode();
                 message.put("type", "state");
@@ -97,11 +97,11 @@ public class VideoSocket {
     public void broadcastLibraryUpdate() {
         // This might need to be more specific for video library updates,
         // but for now, we'll just broadcast the current video state.
-        VideoState state = videoController.getState();
+        ProfileSessionState state = videoController.getState();
         broadcastAll(state);
     }
 
-    public void broadcastAll(VideoState stateToBroadcast) { // Broadcast VideoState
+    public void broadcastAll(ProfileSessionState stateToBroadcast) { // Broadcast ProfileSessionState
         if (stateToBroadcast == null) {
             System.out.println("[VideoSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
             return;

@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video;
+import Models.MediaFile;
 import Services.SmartNamingService;
 import Models.Genre;
 import Models.VideoGenre;
@@ -91,33 +92,6 @@ public class VideoService {
     }
 
     @Transactional
-    public void updateProgress(Long videoId, double timeSeconds) {
-        Video video = Video.findById(videoId);
-        if (video != null) {
-            if (video.duration == null || video.duration <= 0) {
-                probeVideoDuration(video);
-            }
-
-            video.resumeTime = (long) (timeSeconds * 1000);
-            video.lastWatched = java.time.LocalDateTime.now();
-            video.dateModified = java.time.LocalDateTime.now();
-            
-            double durationSeconds = video.duration != null ? video.duration / 1000.0 : 0;
-            double progressRatio = (durationSeconds > 0) ? Math.min(1.0, timeSeconds / durationSeconds) : 0;
-            
-            video.watchProgress = progressRatio;
-            if (progressRatio >= 0.98) {
-                video.watched = true;
-                video.watchProgress = 1.0;
-            } else {
-                video.watched = false;
-            }
-            
-            video.persist();
-        }
-    }
-
-    @Transactional
     public void persistVideo(Video video) {
         video.persist();
     }
@@ -142,6 +116,8 @@ public class VideoService {
             org.hibernate.Hibernate.initialize(video.networks);
             org.hibernate.Hibernate.initialize(video.akas);
             org.hibernate.Hibernate.initialize(video.keywords);
+            org.hibernate.Hibernate.initialize(video.audioTracks);
+            org.hibernate.Hibernate.initialize(video.subtitleTracks);
         }
         
         if (video != null && (video.duration == null || video.duration <= 0)) {
@@ -215,6 +191,20 @@ public class VideoService {
         }
     }
 
+    @Transactional
+    public void deleteSeries(String seriesTitle) {
+        if (seriesTitle == null || seriesTitle.isBlank()) return;
+        List<Video> episodes = findEpisodesForSeries(seriesTitle);
+        for (Video v : episodes) {
+            MediaFile mf = MediaFile.find("path", v.path).firstResult();
+            if (mf != null) {
+                mf.delete();
+            }
+            v.delete();
+        }
+        LOGGER.info("Deleted all episodes and media files for series: {}", seriesTitle);
+    }
+
     // ========== TYPE-SPECIFIC QUERIES ==========
 
     @Transactional
@@ -274,14 +264,49 @@ public class VideoService {
     @Transactional
     public List<Video> findEpisodesForSeason(String seriesTitle, Integer seasonNumber) {
         if (seasonNumber == null || seasonNumber == 1) {
-            // If searching for season 1, also include episodes with null season number
-            return Video.list("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and isActive = ?4",
+            return Video.list("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and (folder is null or folder = '') and isActive = ?4",
                              Sort.by("episodeNumber", Sort.Direction.Ascending),
                              "episode", seriesTitle, 1, true);
         }
-        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and isActive = ?4",
+        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and (folder is null or folder = '') and isActive = ?4",
                          Sort.by("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, seasonNumber, true);
+    }
+
+    @Transactional
+    public List<String> findSubFoldersForSeason(String seriesTitle, Integer seasonNumber) {
+        String query = "SELECT DISTINCT v.folder FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = ?1 AND v.seasonNumber = ?2 AND v.folder is not null AND v.folder <> '' AND v.isActive = ?3 ORDER BY v.folder";
+        return em.createQuery(query, String.class)
+                .setParameter(1, seriesTitle)
+                .setParameter(2, seasonNumber)
+                .setParameter(3, true)
+                .getResultList();
+    }
+
+    @Transactional
+    public List<Video> findEpisodesForSeasonAndFolder(String seriesTitle, Integer seasonNumber, String folder) {
+        if (folder == null || folder.isEmpty()) {
+            return findEpisodesForSeason(seriesTitle, seasonNumber);
+        }
+        if (seasonNumber == null || seasonNumber == 1) {
+            return Video.list("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and folder = ?4 and isActive = ?5",
+                             Sort.by("episodeNumber", Sort.Direction.Ascending),
+                             "episode", seriesTitle, 1, folder, true);
+        }
+        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5",
+                         Sort.by("episodeNumber", Sort.Direction.Ascending),
+                         "episode", seriesTitle, seasonNumber, folder, true);
+    }
+
+    @Transactional
+    public long countEpisodesInFolder(String seriesTitle, Integer seasonNumber, String folder) {
+        if (folder == null || folder.isEmpty()) return 0;
+        if (seasonNumber == null || seasonNumber == 1) {
+            return Video.count("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and folder = ?4 and isActive = ?5",
+                              "episode", seriesTitle, 1, folder, true);
+        }
+        return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5",
+                          "episode", seriesTitle, seasonNumber, folder, true);
     }
 
     @Transactional
@@ -601,6 +626,33 @@ public class VideoService {
             video.persist();
         }
     }
+
+    @Transactional
+    public void updateAudioTracks(Long videoId, List<Models.AudioTrack> tracks) {
+        Video video = Video.findById(videoId);
+        if (video != null) {
+            // Clear existing audio tracks
+            if (video.audioTracks != null) {
+                video.audioTracks.clear();
+            } else {
+                video.audioTracks = new ArrayList<>();
+            }
+
+            // Add new tracks
+            if (tracks != null) {
+                for (Models.AudioTrack track : tracks) {
+                    track.video = video;
+                    video.audioTracks.add(track);
+                }
+            }
+            
+            // Mark if video has multiple audio tracks
+            video.hasMultipleAudioTrack = (tracks != null && tracks.size() > 1);
+            
+            video.dateModified = LocalDateTime.now();
+            video.persist();
+        }
+    }
     
     /**
      * Discover subtitle tracks for all videos that don't have any subtitle tracks.
@@ -663,7 +715,7 @@ public class VideoService {
     }
 
     @Transactional
-    public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type) {
+    public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type, String showImdbId) {
         Video video = Video.findById(id);
         if (video != null) {
             // Mark as manually edited when user explicitly sets these values
@@ -679,9 +731,12 @@ public class VideoService {
             video.seasonNumber = seasonNumber;
             video.episodeNumber = episodeNumber;
             video.type = type;
+            if (showImdbId != null && !showImdbId.isBlank()) {
+                video.showImdbId = showImdbId;
+            }
             video.dateModified = LocalDateTime.now();
             video.persist();
-            LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', type='{}'", id, title, seriesTitle, type);
+            LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', showImdbId='{}', type='{}'", id, title, seriesTitle, showImdbId, type);
         }
     }
 
@@ -729,7 +784,26 @@ public class VideoService {
     public void updateSeriesMetadata(String seriesTitle, String posterPath, String backdropPath) {
         updateSeriesMetadata(seriesTitle, posterPath, backdropPath, null);
     }
-    
+
+    @Transactional
+    public void forceReload(String seriesTitle) {
+        if (seriesTitle == null || seriesTitle.isBlank()) return;
+        List<Video> episodes = findEpisodesForSeries(seriesTitle);
+        for (Video v : episodes) {
+            // Delete dependent records before deleting video to avoid FK violations
+            Models.VideoHistory.delete("mediaFile.path = ?1", v.path);
+            MediaFile mf = MediaFile.find("path", v.path).firstResult();
+            if (mf != null) {
+                mf.delete();
+            }
+            Models.CollectionEntry.delete("video.id = ?1", v.id);
+            Models.VideoState.delete("video.id = ?1", v.id);
+            Models.VideoGenre.delete("video.id = ?1", v.id);
+            v.delete();
+        }
+        LOGGER.info("Force reloaded all episodes and media files for series: {}", seriesTitle);
+    }
+
     /**
      * Clears manual override flags for a video, allowing future scans to update those fields
      */
@@ -1035,6 +1109,36 @@ public class VideoService {
                     .setParameter("s", s)
                     .getResultList();
         }
+    }
+    
+    public record VideoHistoryEntry(Video video, Models.VideoHistory history, Models.Profile profile) {}
+    
+    @Transactional
+    public List<VideoHistoryEntry> findAllHistory(String search, int limit) {
+        String hql = "SELECT vh FROM VideoHistory vh JOIN Video v ON v.path = vh.mediaFile.path WHERE v.isActive = true";
+        if (search != null && !search.trim().isEmpty()) {
+            hql += " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
+        }
+        hql += " ORDER BY vh.playedAt DESC";
+        
+        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        if (search != null && !search.trim().isEmpty()) {
+            query.setParameter("s", "%" + search.toLowerCase() + "%");
+        }
+        query.setMaxResults(limit);
+        
+        List<Models.VideoHistory> historyList = query.getResultList();
+        List<VideoHistoryEntry> entries = new ArrayList<>();
+        
+        for (Models.VideoHistory vh : historyList) {
+            if (vh.mediaFile != null) {
+                Video video = Video.find("path", vh.mediaFile.path).firstResult();
+                if (video != null) {
+                    entries.add(new VideoHistoryEntry(video, vh, vh.profile));
+                }
+            }
+        }
+        return entries;
     }
 
     private static class SeriesSortData {

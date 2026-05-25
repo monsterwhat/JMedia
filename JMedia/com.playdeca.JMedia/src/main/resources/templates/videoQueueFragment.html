@@ -13,7 +13,7 @@
                     <img src="/api/video/thumbnail/{entry.video.id}" 
                          alt="{entry.video.title ?: entry.video.seriesTitle}"
                          loading="lazy"
-                         onerror="this.src='/images/placeholders/video-queue.jpg'">
+                         onerror="this.style.display='none'">
                     <div class="video-queue-play-btn" onclick="playVideo({entry.video.id})">
                         <i class="pi pi-play"></i>
                     </div>

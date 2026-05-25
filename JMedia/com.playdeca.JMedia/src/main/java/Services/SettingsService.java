@@ -9,6 +9,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.io.File;
 import java.util.concurrent.Executors;
@@ -277,7 +278,7 @@ public class SettingsService {
         if (userId == null) {
             return null;
         }
-        return getActiveProfile(userId);
+return getActiveProfile(userId);
     }
 
     @Transactional
@@ -285,26 +286,45 @@ public class SettingsService {
         if (userId == null) {
             return getActiveProfile();
         }
-        
+
         Profile userMainProfile = Profile.findMainProfileByUser(userId);
         if (userMainProfile == null) {
             return null;
         }
-        
+
         Settings settings = getOrCreateSettings();
-        Long activeProfileId = settings.getActiveProfileId();
-        
+        Long activeProfileId = getActiveProfileIdForUser(settings, userId);
+
         if (activeProfileId == null) {
             return userMainProfile;
         }
-        
+
         Profile activeProfile = em.find(Profile.class, activeProfileId);
-        
+
         if (activeProfile != null && activeProfile.userId != null && activeProfile.userId.equals(userId)) {
             return activeProfile;
         }
-        
+
         return userMainProfile;
+    }
+
+    private Long getActiveProfileIdForUser(Settings settings, Long userId) {
+        if (settings == null || userId == null) {
+            return null;
+        }
+        String json = settings.getActiveProfileIdsJson();
+        if (json == null || json.isEmpty() || json.equals("{}")) {
+            return null;
+        }
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Long> profileMap = mapper.readValue(json,
+                new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Long>>() {});
+            return profileMap.get(userId.toString());
+        } catch (Exception e) {
+            LOGGER.warning("Error parsing activeProfileIdsJson: " + e.getMessage());
+            return null;
+        }
     }
 
     @Transactional
@@ -343,16 +363,43 @@ public class SettingsService {
         if (profile == null) {
             throw new IllegalArgumentException("Profile cannot be null.");
         }
-        
+
         if (userId != null) {
             if (profile.userId != null && !profile.userId.equals(userId)) {
                 throw new IllegalArgumentException("Profile does not belong to user.");
             }
         }
-        
+
         Settings settings = getOrCreateSettings();
-        settings.setActiveProfileId(profile.id);
+        setActiveProfileIdForUser(settings, userId, profile.id);
         em.merge(settings);
+    }
+
+    private void setActiveProfileIdForUser(Settings settings, Long userId, Long profileId) {
+        if (settings == null || userId == null) {
+            return;
+        }
+        String json = settings.getActiveProfileIdsJson();
+        java.util.Map<String, Long> profileMap;
+        try {
+            if (json == null || json.isEmpty() || json.equals("{}")) {
+                profileMap = new java.util.HashMap<>();
+            } else {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                profileMap = mapper.readValue(json,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Long>>() {});
+            }
+        } catch (Exception e) {
+            LOGGER.warning("Error parsing activeProfileIdsJson: " + e.getMessage());
+            profileMap = new java.util.HashMap<>();
+        }
+        profileMap.put(userId.toString(), profileId);
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            settings.setActiveProfileIdsJson(mapper.writeValueAsString(profileMap));
+        } catch (Exception e) {
+            LOGGER.warning("Error serializing activeProfileIdsJson: " + e.getMessage());
+        }
     }
 
     public void shutdown() {

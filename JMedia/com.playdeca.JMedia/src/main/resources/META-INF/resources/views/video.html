@@ -4,18 +4,10 @@
     </div>
 
     <div id="spa-content" class="spa-content">
-        <!-- Hero Section (HTMX loaded) -->
-        <div id="hero-section" 
-             hx-get="/api/video/ui/hero-fragment"
-             hx-trigger="load"
-             hx-target="#hero-section"
-             hx-swap="innerHTML">
-        </div>
-        
         <!-- Main Video Content (HTMX loaded) -->
         <div id="carousels-section" 
              hx-get="/api/video/ui/optimized-carousels"
-             hx-trigger="load delay:100ms"
+             hx-trigger="load"
              hx-target="#carousels-section"
              hx-swap="innerHTML">
         </div>

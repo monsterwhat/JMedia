@@ -4,14 +4,12 @@ echo Building JMedia Uberjar
 echo ====================================
 echo.
 
-set MVND="E:\Downloads\maven-mvnd-1.0.3-windows-amd64\maven-mvnd-1.0.3-windows-amd64\bin\mvnd.cmd"
-
 echo Cleaning previous builds...
-call %MVND% clean
+call mvn clean
 
 echo.
 echo Building uberjar with Quarkus...
-call %MVND% package -Dquarkus.package.type=uber-jar -DskipTests
+call mvn package -Dquarkus.package.type=uber-jar -DskipTests
 
 echo.
 echo ====================================

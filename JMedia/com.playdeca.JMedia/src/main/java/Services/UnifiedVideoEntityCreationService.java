@@ -74,6 +74,7 @@ public class UnifiedVideoEntityCreationService {
         video.seasonNumber = result.season;
         video.seasonName = result.seasonName;
         video.episodeNumber = result.episode;
+        video.folder = result.folder;
 
         // Set episodeTitle for episodes
         if ("episode".equalsIgnoreCase(result.mediaType) && result.title != null) {

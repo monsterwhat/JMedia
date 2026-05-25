@@ -1,0 +1,48 @@
+<div class="suggestion-form">
+    <div class="field">
+        <label class="label has-text-white">Suggest a Movie or Show</label>
+        <div class="control">
+            <textarea class="textarea is-dark" placeholder="Enter a movie title, TV show, or episode suggestion..." 
+                      id="suggestionContent" rows="3"></textarea>
+        </div>
+    </div>
+    <div class="control">
+        <button class="button is-info is-rounded" onclick="window.submitSuggestion()">
+            Submit Suggestion
+        </button>
+    </div>
+</div>
+
+<script>
+    window.submitSuggestion = async function() {
+        const content = document.getElementById('suggestionContent').value;
+        if (!content.trim()) {
+            alert('Please enter a suggestion');
+            return;
+        }
+        
+        try {
+            const formData = new URLSearchParams();
+            formData.append('content', content);
+            
+            const response = await fetch('/api/video/suggestion', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: formData.toString()
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                document.getElementById('suggestionContent').value = '';
+                alert('Suggestion submitted! Thank you.');
+            } else {
+                alert(result.message || 'Failed to submit suggestion');
+            }
+        } catch (error) {
+            console.error('Error submitting suggestion:', error);
+            alert('Error submitting suggestion');
+        }
+    };
+</script>

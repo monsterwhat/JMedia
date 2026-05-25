@@ -1,0 +1,62 @@
+<div class="library-header is-flex is-justify-content-between is-align-items-center">
+    <div>
+        <h1 class="library-title">Video Suggestions</h1>
+        <p class="nav-label">Suggestions from users</p>
+    </div>
+</div>
+
+{#if suggestions.empty}
+    <div class="carousel-empty-state">
+        <i class="pi pi-lightbulb"></i>
+        <h3>No suggestions yet</h3>
+        <p>User suggestions will appear here.</p>
+    </div>
+{#else}
+    <div class="standard-grid">
+        {#for s in suggestions}
+            <div class="standard-card suggestion-card" data-suggestion-id="{s.id}">
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{s.content}</div>
+                    <div class="admin-history-details">
+                        <span class="profile-avatar-small">{getProfileInitials.apply(s.profile.name)}</span>
+                        <span class="history-date">{formatDateTime.apply(s.createdAt)}</span>
+                    </div>
+                </div>
+                <div class="suggestion-actions">
+                    <button class="button is-small is-danger is-rounded" onclick="window.deleteSuggestion({s.id})">
+                        <i class="pi pi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        {/for}
+    </div>
+{/if}
+
+<script>
+    window.deleteSuggestion = async function(id) {
+        if (!confirm('Delete this suggestion?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/video/suggestion/${id}`, {
+                method: 'DELETE'
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                window.loadAdminSuggestions();
+            } else {
+                alert(result.message || 'Failed to delete suggestion');
+            }
+        } catch (error) {
+            console.error('Error deleting suggestion:', error);
+            alert('Error deleting suggestion');
+        }
+    };
+    
+    window.loadAdminSuggestions = async function() {
+        const content = await fetch('/api/video/ui/admin-suggestions-fragment').then(r => r.text());
+        document.getElementById('content').innerHTML = content;
+    };
+</script>

@@ -73,15 +73,19 @@ function formatTime(s) {
 function updateCoverImage() {
     const coverImg = document.getElementById('songCoverImage');
     const coverFallback = document.getElementById('songCoverFallback');
-    if (coverImg && musicState.currentSongId) {
-        // ALWAYS use the binary endpoint to avoid massive JSON payloads
-        coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
-        coverImg.style.display = 'block';
-        if (coverFallback) coverFallback.style.display = 'none';
+    if (coverImg) {
+        let artworkUrl = '/logo.png';
+        if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
+            artworkUrl = 'data:image/jpeg;base64,' + musicState.currentSongData.artworkBase64;
+        }
+        // If we don't have artworkBase64, we stick with the default logo (avoiding the cover endpoint entirely)
+        coverImg.src = artworkUrl;
+        coverImg.style.display = (artworkUrl !== '/logo.png') ? 'block' : 'none';
+        if (coverFallback) coverFallback.style.display = (artworkUrl === '/logo.png') ? 'block' : 'none';
         
         // Update favicon
         const favicon = document.getElementById('favicon');
-        if (favicon) favicon.href = `/api/music/cover/${musicState.currentSongId}`;
+        if (favicon) favicon.href = artworkUrl;
     }
 }
 window.updateCoverImage = updateCoverImage;
@@ -143,18 +147,31 @@ function updateMusicBar() {
         }
     }
     
-    // Artwork - use binary endpoint
+    // Artwork - use song data or default logo (avoiding cover endpoint entirely)
     const coverImg = document.getElementById('songCoverImage');
     const coverFallback = document.getElementById('songCoverFallback');
-    if (coverImg && musicState.currentSongId) {
-        coverImg.src = `/api/music/cover/${musicState.currentSongId}`;
-        coverImg.style.display = 'block';
-        if (coverFallback) coverFallback.style.display = 'none';
+    if (coverImg) {
+        let artworkUrl = '/logo.png';
+        if (musicState.currentSongData && musicState.currentSongData.artworkBase64) {
+            artworkUrl = 'data:image/jpeg;base64,' + musicState.currentSongData.artworkBase64;
+        }
+        // If we don't have artworkBase64, we stick with the default logo (avoiding the cover endpoint entirely)
+        coverImg.src = artworkUrl;
+        coverImg.style.display = (artworkUrl !== '/logo.png') ? 'block' : 'none';
+        if (coverFallback) coverFallback.style.display = (artworkUrl === '/logo.png') ? 'block' : 'none';
     }
 }
 
 function updateAudioSource(songId, play = true) {
     if (!audioElementReady) return;
+    
+    // Delegate to AudioEngine if loaded to prevent dual management conflicts
+    if (window.AudioEngine && window.AudioEngine.setSource) {
+        const state = { songName: musicState.songName, artist: musicState.artist, duration: musicState.duration };
+        window.AudioEngine.setSource({ id: songId, title: state.songName, artist: state.artist, duration: state.duration }, null, null, play, musicState.currentTime || 0);
+        return;
+    }
+    
     isUpdatingAudioSource = true;
     const currentOp = ++audioOperationSequence;
     activeAudioOperation = currentOp;
@@ -509,8 +526,10 @@ function connectWS() {
                                 musicState.hasLyrics = data.data.lyrics != null;
                                 updateCoverImage();
                                 
-                                // Update media session with artwork URL (binary endpoint)
-                                const artworkUrl = `/api/music/cover/${state.currentSongId}`;
+                                  // Update media session with artwork URL (from song data or default logo)
+                                  const artworkUrl = musicState.currentSongData && musicState.currentSongData.artworkBase64 
+                                      ? 'data:image/jpeg;base64,' + musicState.currentSongData.artworkBase64 
+                                      : '/logo.png';
                                 
                                 if (window.updateMediaSessionMetadata) {
                                     window.updateMediaSessionMetadata(

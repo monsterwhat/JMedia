@@ -4,6 +4,7 @@ import API.ApiResponse;
 import Controllers.PlaybackController;
 import Models.Settings;
 import Models.Song;
+import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -25,6 +26,9 @@ public class StreamAPI {
     @Inject
     private PlaybackController playbackController;
 
+    @Inject
+    private SettingsService settingsService;
+
     private static final Logger LOGGER = Logger.getLogger(StreamAPI.class.getName());
 
     @GET
@@ -32,6 +36,13 @@ public class StreamAPI {
     @Produces({"audio/mpeg", "application/octet-stream"})
     public Response streamMusicById(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @HeaderParam("Range") String rangeHeader, @Context HttpHeaders headers) {
         try {
+            // Validate profileId matches the authenticated user
+            var userProfile = settingsService.getActiveProfileFromHeaders(headers);
+            if (userProfile == null || !userProfile.id.equals(profileId)) {
+                LOGGER.warning("Unauthorized stream attempt for profile " + profileId);
+                return Response.status(Response.Status.FORBIDDEN).build();
+            }
+
             Song song = playbackController.findSong(id);
             if (song == null) {
                 LOGGER.warning("Stream requested for missing song ID " + id);

@@ -184,6 +184,53 @@ public class VideoManagementApi {
         return Response.ok("Rescan completed. Created/updated " + totalCreated + " videos.").build();
     }
 
+    @POST
+    @Path("/series/force-refresh")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response forceRefreshSeries(@FormParam("seriesTitle") String seriesTitle) {
+        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+        if (episodes.isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Series not found").build();
+        }
+
+        // Check if video library path is configured
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("Video library path not configured").build();
+        }
+
+        // Collect parent directories of all episodes
+        Set<java.nio.file.Path> parentDirs = new HashSet<>();
+        for (Video v : episodes) {
+            if (v.path != null) {
+                try {
+                    java.nio.file.Path fullPath = java.nio.file.Paths.get(v.path);
+                    if (!fullPath.isAbsolute()) {
+                        fullPath = java.nio.file.Paths.get(videoLibraryPath, v.path);
+                    }
+                    if (fullPath.getParent() != null) {
+                        parentDirs.add(fullPath.getParent());
+                    }
+                } catch (Exception e) {
+                    LOG.error("Error determining parent path for video: " + v.path, e);
+                }
+            }
+        }
+
+        // Delete all existing records for this series to remove stale entries
+        videoService.forceReload(seriesTitle);
+
+        // Re-scan directories to import only current files
+        int totalCreated = 0;
+        for (java.nio.file.Path dir : parentDirs) {
+            List<Models.Video> videos = videoImportService.scanAndCreate(dir, true);
+            totalCreated += videos.size();
+        }
+
+        return Response.ok("Force refresh completed. Re-imported " + totalCreated + " videos.").build();
+    }
+
     @GET
     @Path("/edit/{id}")
     @Blocking
@@ -236,9 +283,10 @@ public class VideoManagementApi {
             @FormParam("episodeTitle") String episodeTitle,
             @FormParam("seasonNumber") Integer seasonNumber,
             @FormParam("episodeNumber") Integer episodeNumber,
-            @FormParam("type") String type) {
+            @FormParam("type") String type,
+            @FormParam("showImdbId") String showImdbId) {
         
-        videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type);
+        videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId);
         return Response.ok("Metadata updated successfully").build();
     }
 

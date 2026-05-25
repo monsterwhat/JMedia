@@ -1,7 +1,7 @@
 package Controllers;
 
-import Models.VideoState;
-import Services.VideoStateService;
+import Models.ProfileSessionState;
+import Services.ProfileSessionStateService;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -13,7 +13,7 @@ public class VideoPersistenceController {
     private long lastSaveTime = 0;
 
     @Inject
-    VideoStateService stateService;
+    ProfileSessionStateService stateService;
 
     public VideoPersistenceController() {
     }
@@ -21,28 +21,24 @@ public class VideoPersistenceController {
     @PreDestroy
     public void onShutdown() {
         System.out.println("[VideoPersistenceManager] Shutdown: forcing final persist...");
-        // TODO: Ensure any pending state is saved on shutdown if necessary
-        // This might involve getting the current VideoState and calling stateService.saveState(state)
-        // However, the main VideoController will handle state changes, and
-        // it's likely better to save there during shutdown events.
     }
 
-    public VideoState loadState() {
-        return stateService.getOrCreateState();
+    public ProfileSessionState loadState() {
+        return stateService.getOrCreate();
     }
 
-    public synchronized void persist(VideoState state, boolean force) {
+    public synchronized void persist(ProfileSessionState state, boolean force) {
         long now = System.currentTimeMillis();
 
         // If not forced, apply throttling
         if (!force && now - lastSaveTime < MIN_SAVE_INTERVAL_MS) {
             return;
         }
-        stateService.saveState(state);
+        stateService.save(state);
         lastSaveTime = now;
     }
 
-    public void maybePersist(VideoState state) {
+    public void maybePersist(ProfileSessionState state) {
         persist(state, false);
     }
 }

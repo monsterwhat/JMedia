@@ -40,24 +40,6 @@ public class UserInteractionService {
     
     // Video interaction methods
     @Transactional
-    public void updateWatchProgress(Long videoId, Long userId, double progress) {
-        Video video = Video.findById(videoId);
-        if (video != null) {
-            video.watchProgress = progress;
-            video.lastWatched = LocalDateTime.now();
-            // Mark as watched if over 95% complete
-            if (progress >= 0.95) {
-                video.watched = true;
-                video.watchProgress = 1.0;
-            } else {
-                video.watched = false;
-            }
-            video.dateModified = LocalDateTime.now();
-            video.persist();
-        }
-    }
-    
-    @Transactional
     public void markAsFavorite(Long videoId, Long userId) {
         Video video = Video.findById(videoId);
         if (video != null) {

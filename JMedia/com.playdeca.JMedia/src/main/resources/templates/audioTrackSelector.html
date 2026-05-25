@@ -1,7 +1,7 @@
 <!-- Audio Track Selector Component -->
 <div class="audio-track-selector" id="audioTrackSelector">
-    <div class="audio-track-button" onclick="window.toggleAudioTrackMenu()" title="Audio">
-        <i class="pi pi-volume"></i>
+    <div class="audio-track-button" onclick="window.toggleAudioTrackMenu()" title="Audio Language">
+        <i class="pi pi-volume-up"></i>
         <span class="current-track" id="currentAudioTrackDisplay">Default</span>
     </div>
     
@@ -25,22 +25,44 @@ window.initializeAudioTrackSelector = function() {
     if (window.player) {
         window.loadAvailableAudioTracks();
         window.updateCurrentAudioTrackDisplay();
+        
+        // Restore saved track preference
+        const videoId = window.currentVideoId || (window.player ? window.player.videoId : null);
+        if (videoId) {
+            const savedTrack = localStorage.getItem('jmedia_audio_track_' + videoId);
+            if (savedTrack && window.player && window.player.switchAudioTrack) {
+                setTimeout(() => {
+                    window.player.switchAudioTrack(parseInt(savedTrack));
+                    console.log('[AudioSelector] Restored track preference:', savedTrack);
+                }, 1000);
+            }
+        }
     }
 };
 
 // Load available audio tracks
 window.loadAvailableAudioTracks = async function() {
     try {
-        const videoId = window.currentVideoId;
+        const videoId = window.currentVideoId || (window.player ? window.player.videoId : null) || {item.id};
         if (!videoId) return;
         
-        const response = await fetch('/api/video/' + videoId + '/audio-tracks');
+        // First try to get tracks from the player instance (HLS/Native)
+        if (window.player && window.player.getAudioTracks) {
+            const playerTracks = window.player.getAudioTracks();
+            if (playerTracks && playerTracks.length > 0) {
+                console.log('[AudioSelector] Using player-detected tracks:', playerTracks);
+                availableAudioTracks = playerTracks;
+                window.populateAudioTrackMenu();
+                return;
+            }
+        }
         
+        // Fallback to database-known tracks via API
+        const response = await fetch('/api/video/' + videoId + '/audio-tracks');
         if (response.ok) {
             const data = await response.json();
             const payload = data.data || data;
-            availableAudioTracks = payload.tracks || [];
-            currentAudioTrackId = payload.preferredTrackId || 'default';
+            availableAudioTracks = payload || [];
             window.populateAudioTrackMenu();
         }
     } catch (error) {
@@ -51,6 +73,7 @@ window.loadAvailableAudioTracks = async function() {
 // Populate the track menu with available tracks
 window.populateAudioTrackMenu = function() {
     const trackList = document.getElementById('audioTrackList');
+    if (!trackList) return;
     
     // Clear existing tracks (keep "Default" option)
     while (trackList.children.length > 1) {
@@ -68,7 +91,7 @@ window.populateAudioTrackMenu = function() {
             const channelLabel = track.channels === 6 ? ' 5.1' : track.channels === 8 ? ' 7.1' : track.channels === 2 ? ' Stereo' : '';
             label += channelLabel;
         }
-        if (track.title) {
+        if (track.title && track.title !== label) {
             label += ' (' + track.title + ')';
         }
         
@@ -86,10 +109,14 @@ window.populateAudioTrackMenu = function() {
 // Toggle audio track menu visibility
 window.toggleAudioTrackMenu = function() {
     const menu = document.getElementById('audioTrackMenu');
+    if (!menu) return;
+    
     const isVisible = menu.style.display !== 'none';
     
     // Hide all other menus
-    document.querySelectorAll('.audio-track-menu, .subtitle-track-menu, .settings-menu').forEach(m => m.style.display = 'none');
+    document.querySelectorAll('.audio-track-menu, .subtitle-menu, .speed-menu').forEach(m => {
+        if (m !== menu) m.style.display = 'none';
+    });
     
     menu.style.display = isVisible ? 'none' : 'block';
     
@@ -99,65 +126,61 @@ window.toggleAudioTrackMenu = function() {
 };
 
 // Select an audio track
-window.selectAudioTrack = function(trackId) {
-    if (!window.player) return;
+        window.selectAudioTrack = function(trackId) {
+            console.log('[AudioSelector] Selecting track:', trackId);
 
-    if (trackId === 'default') {
-        // Reset to default - enable all audio tracks (browser default behavior)
-        const audioTracks = window.player.audioTracks();
-        if (audioTracks) {
-            for (let i = 0; i < audioTracks.length; i++) {
-                audioTracks[i].enabled = true;
-            }
-        }
-    } else {
-        // Find and enable the selected track
-        const audioTracks = window.player.audioTracks();
-        if (audioTracks) {
-            let trackFound = false;
-            
-            for (let i = 0; i < audioTracks.length; i++) {
-                const playerTrack = audioTracks[i];
-                // Match by language or by index
-                const match = availableAudioTracks.find(at => 
-                    at.id == trackId && (
-                        (playerTrack.language && playerTrack.language === at.languageCode) ||
-                        (playerTrack.label && playerTrack.label.includes(at.languageName))
-                    )
-                );
-                
-                if (match) {
-                    playerTrack.enabled = true;
-                    trackFound = true;
-                } else {
-                    playerTrack.enabled = false;
+            // Handle "default" track - use setAudioTrack which sends -1 to backend
+            if (trackId === 'default') {
+                if (window.player && window.player.setAudioTrack) {
+                    window.player.setAudioTrack('default');
                 }
-            }
-            
-            // If no match found in player's native tracks, try fallback
-            if (!trackFound) {
-                const trackInfo = availableAudioTracks.find(t => t.id == trackId);
-                if (trackInfo) {
-                    // Enable the first track as fallback and log warning
-                    if (audioTracks.length > 0) {
-                        audioTracks[0].enabled = true;
-                    }
-                    console.warn('Audio track not found in player, using default. Track info:', trackInfo);
+                // Still update UI and save preference
+                currentAudioTrackId = 'default';
+                window.updateAudioTrackSelection();
+                window.updateCurrentAudioTrackDisplay();
+                window.saveAudioTrackPreference(trackId);
+
+                // Persist to localStorage for cross-episode memory
+                const videoId = window.currentVideoId || (window.player ? window.player.videoId : null);
+                if (videoId) {
+                    localStorage.setItem('jmedia_audio_track_' + videoId, trackId);
+                    console.log('[AudioSelector] Saved track preference for video', videoId, ':', trackId);
                 }
+
+                const menu = document.getElementById('audioTrackMenu');
+                if (menu) menu.style.display = 'none';
+                return;
             }
-        }
-    }
-    
-    currentAudioTrackId = trackId;
-    window.updateAudioTrackSelection();
-    window.updateCurrentAudioTrackDisplay();
-    
-    // Save preference
-    window.saveAudioTrackPreference(trackId);
-    
-    // Close menu
-    document.getElementById('audioTrackMenu').style.display = 'none';
-};
+
+            // Convert trackId to numeric index for simple-player
+            let trackIndex = parseInt(trackId);
+            if (isNaN(trackIndex)) {
+                // If trackId is not a number, try to find the track index
+                const track = availableAudioTracks.find(t => t.id == trackId);
+                trackIndex = track ? (track.trackIndex ?? track.id ?? 0) : 0;
+            }
+
+            // Use simple-player's switchAudioTrack (restarts stream with new audio track)
+            if (window.player && window.player.switchAudioTrack) {
+                window.player.switchAudioTrack(trackIndex);
+            }
+
+            // Update UI and save preference
+            currentAudioTrackId = trackId;
+            window.updateAudioTrackSelection();
+            window.updateCurrentAudioTrackDisplay();
+            window.saveAudioTrackPreference(trackId);
+
+            // Persist to localStorage for cross-episode memory
+            const videoId = window.currentVideoId || (window.player ? window.player.videoId : null);
+            if (videoId) {
+                localStorage.setItem('jmedia_audio_track_' + videoId, trackId);
+                console.log('[AudioSelector] Saved track preference for video', videoId, ':', trackId);
+            }
+
+            const menu = document.getElementById('audioTrackMenu');
+            if (menu) menu.style.display = 'none';
+        };
 
 // Update track selection indicators
 window.updateAudioTrackSelection = function() {
@@ -166,10 +189,10 @@ window.updateAudioTrackSelection = function() {
         const checkIcon = item.querySelector('.track-selected');
         
         if (trackId === currentAudioTrackId.toString()) {
-            checkIcon.style.display = 'inline';
+            if (checkIcon) checkIcon.style.display = 'inline';
             item.classList.add('selected');
         } else {
-            checkIcon.style.display = 'none';
+            if (checkIcon) checkIcon.style.display = 'none';
             item.classList.remove('selected');
         }
     });
@@ -185,9 +208,9 @@ window.updateCurrentAudioTrackDisplay = function() {
     } else {
         const track = availableAudioTracks.find(t => t.id == currentAudioTrackId);
         if (track) {
-            display.textContent = track.languageName || track.languageCode || 'Audio';
+            display.textContent = track.languageName || track.displayName || track.languageCode || 'Audio';
         } else {
-            display.textContent = 'Default';
+            display.textContent = 'Track ' + currentAudioTrackId;
         }
     }
 };
@@ -195,22 +218,16 @@ window.updateCurrentAudioTrackDisplay = function() {
 // Save track preference
 window.saveAudioTrackPreference = async function(trackId) {
     try {
-        const videoId = window.currentVideoId;
+        const videoId = window.currentVideoId || (window.player ? window.player.videoId : null) || {item.id};
         if (!videoId) return;
         
         const trackInfo = availableAudioTracks.find(t => t.id == trackId);
         
-        await fetch('/api/video/audio-preference', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                videoId: videoId,
-                trackId: trackId !== 'default' ? trackId : null,
-                preferredLanguage: trackInfo ? trackInfo.languageCode : null
-            })
-        });
+        const url = '/api/video/playback/audio-preference?videoId=' + videoId + 
+                    '&trackId=' + (trackId !== 'default' ? trackId : '') + 
+                    '&language=' + (trackInfo ? encodeURIComponent(trackInfo.languageCode || '') : '');
+        
+        await fetch(url, { method: 'POST' });
     } catch (error) {
         console.error('Error saving audio track preference:', error);
     }
@@ -225,46 +242,39 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Initialize immediately if loaded after DOMContentLoaded
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(window.initializeAudioTrackSelector, 500);
-} else {
-    document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(window.initializeAudioTrackSelector, 1000);
-    });
-}
+// Initialize
+setTimeout(window.initializeAudioTrackSelector, 1000);
 </script>
 
 <style>
 .audio-track-selector {
     position: relative;
     display: inline-block;
+    z-index: 100;
+    margin-right: 10px;
 }
 
 .audio-track-button {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
+    gap: 8px;
+    padding: 6px 12px;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
+    border-radius: 4px;
     color: white;
     cursor: pointer;
-    font-size: 0.9em;
+    font-size: 0.85rem;
     transition: all 0.2s;
-    backdrop-filter: blur(10px);
+    height: 36px;
 }
 
 .audio-track-button:hover {
     background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.3);
 }
 
 .audio-track-button .current-track {
-    font-size: 0.8em;
-    opacity: 0.9;
-    max-width: 100px;
+    max-width: 80px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -273,28 +283,27 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
 .audio-track-menu {
     position: absolute;
     bottom: 100%;
-    left: 0;
-    margin-bottom: 8px;
-    background: rgba(30, 30, 30, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    min-width: 200px;
-    max-width: 300px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(20px);
-    z-index: 1000;
+    right: 0;
+    margin-bottom: 10px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    min-width: 180px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    z-index: 1001;
 }
 
 .audio-track-menu .track-list-header {
-    padding: 12px 16px 8px;
-    font-size: 0.9em;
-    font-weight: 600;
-    color: #ccc;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 15px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #888;
+    text-transform: uppercase;
+    border-bottom: 1px solid #333;
 }
 
 .audio-track-menu .track-list {
-    max-height: 200px;
+    max-height: 250px;
     overflow-y: auto;
 }
 
@@ -302,59 +311,21 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 16px;
+    padding: 10px 15px;
     cursor: pointer;
-    transition: background-color 0.2s;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: #eee;
+    font-size: 0.9rem;
 }
 
 .audio-track-menu .track-item:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: #333;
 }
 
 .audio-track-menu .track-item.selected {
-    background: rgba(50, 115, 220, 0.2);
-}
-
-.audio-track-menu .track-name {
-    flex: 1;
-    color: white;
-    font-size: 0.9em;
+    color: #48c774;
 }
 
 .audio-track-menu .track-selected {
-    color: #3273dc;
-    font-size: 0.8em;
-}
-
-/* Scrollbar styling */
-.audio-track-menu .track-list::-webkit-scrollbar {
-    width: 4px;
-}
-
-.audio-track-menu .track-list::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.audio-track-menu .track-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
-}
-
-.audio-track-menu .track-list::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .audio-track-menu {
-        right: 0;
-        left: auto;
-        min-width: 180px;
-    }
-    
-    .audio-track-button .current-track {
-        max-width: 60px;
-    }
+    font-size: 0.8rem;
 }
 </style>

@@ -1,0 +1,86 @@
+<div class="library-header is-flex is-justify-content-between is-align-items-center">
+    <div>
+        <h1 class="library-title">Collections</h1>
+        <p class="nav-label">{collections.size()} Collections</p>
+    </div>
+    <button class="button is-primary is-rounded admin-only" onclick="showCreateCollectionModal()">
+        <i class="pi pi-plus"></i> <span>New Collection</span>
+    </button>
+</div>
+
+{#if collections.empty}
+    <div class="carousel-empty-state">
+        <i class="pi pi-th-large"></i>
+        <h3>No collections yet</h3>
+        <p>Create a collection to group movies and episodes in custom watch order.</p>
+        <button class="button is-primary is-rounded mt-3 admin-only" onclick='showCreateCollectionModal()'>
+            <i class="pi pi-plus"></i> <span>Create Collection</span>
+        </button>
+    </div>
+{#else}
+    <div class="standard-grid">
+        {#for c in collections}
+            <div class="standard-card" onclick="window.switchSection('collectionEntries', \{collectionId: {c.id}\})">
+                <div class="standard-card-poster">
+                    {#if c.coverVideoId}
+                        <img class="poster-img" src="/api/video/thumbnail/{c.coverVideoId}" alt="{c.name}" loading="lazy">
+                    {#else}
+                        <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
+                            <i class="pi pi-th-large" style="font-size:2.5rem;opacity:0.4;"></i>
+                        </div>
+                    {/if}
+                    <div class="standard-card-overlay">
+                        <div class="standard-play-btn" onclick="event.stopPropagation(); window.switchSection('collectionEntries', \{collectionId: {c.id}\})">
+                            <i class="pi pi-eye"></i>
+                        </div>
+                        <div class="standard-watchlist-btn remove-btn admin-only" onclick="event.stopPropagation(); window.deleteCollection({c.id}, '{c.name}')" title="Delete Collection">
+                            <i class="pi pi-trash"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{c.name}</div>
+                    <div class="standard-card-meta">
+                        {#if c.description}
+                            {c.description}
+                        {#else}
+                            No description
+                        {/if}
+                    </div>
+                </div>
+            </div>
+        {/for}
+    </div>
+{/if}
+
+<div class="modal" id="createCollectionModal">
+    <div class="modal-background" onclick="document.getElementById('createCollectionModal').classList.remove('is-active')"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title">New Collection</p>
+            <button class="delete" onclick="document.getElementById('createCollectionModal').classList.remove('is-active')"></button>
+        </header>
+        <section class="modal-card-body">
+            <div class="field">
+                <label class="label">Name</label>
+                <div class="control">
+                    <input class="input is-dark" id="collectionNameInput" type="text" placeholder="e.g. Marvel Chronological Order">
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Description</label>
+                <div class="control">
+                    <textarea class="textarea is-dark" id="collectionDescInput" placeholder="Optional description"></textarea>
+                </div>
+            </div>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-primary" onclick="submitCreateCollection()">Create</button>
+            <button class="button" onclick="document.getElementById('createCollectionModal').classList.remove('is-active')">Cancel</button>
+        </footer>
+    </div>
+</div>
+
+<script>
+    if (window.checkAdminStatus) window.checkAdminStatus();
+</script>

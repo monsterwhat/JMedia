@@ -101,14 +101,31 @@ window.toggleSubtitleTrackMenu = function() \{
 window.selectTrack = function(trackId) \{
     if (!window.player) return;
 
+    // Find track info to check format
+    const trackInfo = availableTracks.find(t => t.id == trackId);
+    const isAss = trackInfo && (trackInfo.format === 'ass' || trackInfo.format === 'ssa');
+
     if (trackId === 'off') \{
-        // Turn off all subtitles
+        // Turn off all subtitles (ASS or native)
+        if (window.currentPlayerInstance && window.currentPlayerInstance.destroyAssSubtitle) \{
+            window.currentPlayerInstance.destroyAssSubtitle();
+        \}
         const tracks = window.player.textTracks();
         for (let i = 0; i < tracks.length; i++) \{
             if (tracks[i].kind === 'subtitles') \{
                 tracks[i].mode = 'hidden';
             \}
         \}
+    \} else if (isAss && window.currentPlayerInstance) \{
+        // ASS subtitle - delegate to player's ASS renderer
+        // First destroy any native tracks
+        const tracks = window.player.textTracks();
+        for (let i = 0; i < tracks.length; i++) \{
+            if (tracks[i].kind === 'subtitles') \{
+                tracks[i].mode = 'hidden';
+            \}
+        \}
+        window.currentPlayerInstance.initAssSubtitle(trackId);
     \} else \{
         // Find and enable the selected track
         const tracks = window.player.textTracks();
@@ -128,7 +145,6 @@ window.selectTrack = function(trackId) \{
         
         if (!trackFound) \{
             // If track not found in player, try to add it dynamically
-            const trackInfo = availableTracks.find(t => t.id == trackId);
             if (trackInfo) \{
                 const startOffset = window.currentPlayerInstance ? (window.currentPlayerInstance.streamStartOffset || 0) : 0;
                 const correction = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || 0);

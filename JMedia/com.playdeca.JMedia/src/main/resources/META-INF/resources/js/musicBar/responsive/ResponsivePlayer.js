@@ -939,51 +939,62 @@
             fetch(`/api/music/playback/current/${profileId}`, { credentials: 'same-origin' })
                 .then(r => r.json())
                 .then(data => {
-                    if (data && data.data) {
-                        // Store metadata, but manually set artworkBase64 to null to save memory
-                        // and force the binary endpoint usage
-                        const songMetadata = { ...data.data, artworkBase64: null };
+                     if (data && data.data) {
+                         // Store metadata with artworkBase64 (now included in JSON response)
+                         const songMetadata = { ...data.data };
                         
                         if (window.StateManager) {
                             window.StateManager.updateState({ currentSongId: songId, currentSongData: songMetadata }, 'ResponsivePlayer');
                         }
                         
-                        // Update cover image using binary endpoint
-                        this.updateCoverImage(window.StateManager.getState());
+                         // Update cover image
+                         this.updateCoverImage(window.StateManager.getState());
                         
-                        // Update media session metadata
-                        if (window.updateMediaSessionMetadata) {
-                            window.updateMediaSessionMetadata(
-                                songMetadata.title,
-                                songMetadata.artist,
-                                `/api/music/cover/${songId}`
-                            );
-                        }
+                         // Update media session metadata
+                         if (window.updateMediaSessionMetadata) {
+                              const artworkUrl = songMetadata.artworkBase64 
+                                  ? 'data:image/jpeg;base64,' + songMetadata.artworkBase64 
+                                  : '/logo.png';
+                              window.updateMediaSessionMetadata(
+                                  songMetadata.title,
+                                  songMetadata.artist,
+                                  artworkUrl
+                              );
+                         }
                     }
                 })
                 .catch(err => console.error('[ResponsivePlayer] Failed to fetch song data:', err));
         },
         
         /**
-         * Update cover image display using binary endpoint
+         * Update cover image display using song data or fallback to binary endpoint
          */
         updateCoverImage: function(state) {
             if (!this.elements.coverImage) return;
 
             const songId = state?.currentSongId;
+            const songData = state?.currentSongData;
 
-            if (songId) {
-                // ALWAYS use the binary endpoint to avoid massive JSON parsing
-                this.elements.coverImage.src = `/api/music/cover/${songId}`;
+            if (songData && songData.artworkBase64) {
+                // Use artworkBase64 from song data (authenticated request)
+                this.elements.coverImage.src = 'data:image/jpeg;base64,' + songData.artworkBase64;
                 this.elements.coverImage.style.display = 'block';
                 if (this.elements.coverFallback) {
                     this.elements.coverFallback.style.display = 'none';
                 }
+             } else if (songId) {
+                 // No artworkBase64 available, use default logo (avoiding cover endpoint entirely)
+                 this.elements.coverImage.src = '/logo.png';
+                 this.elements.coverImage.style.display = 'block';
+                 if (this.elements.coverFallback) {
+                     this.elements.coverFallback.style.display = 'none';
+                 }
             } else {
                 // No song - show logo/fallback
                 this.elements.coverImage.src = '/logo.png';
+                this.elements.coverImage.style.display = 'none';
                 if (this.elements.coverFallback) {
-                    this.elements.coverFallback.style.display = 'none';
+                    this.elements.coverFallback.style.display = 'block';
                 }
             }
         },
