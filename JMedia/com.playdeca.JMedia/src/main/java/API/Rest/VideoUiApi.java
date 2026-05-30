@@ -243,6 +243,17 @@ public class VideoUiApi {
         long totalItems = paginatedVideos.totalCount + externalMovies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
 
+        // Enrich movies with per-profile progress (batch)
+        Map<Long, Models.VideoState> movieStates = videoStateService.getOrCreateBatch(paginatedVideos.videos);
+        for (Models.Video movie : paginatedVideos.videos) {
+            Models.VideoState vs = movieStates.get(movie.id);
+            if (vs != null) {
+                movie.watchProgress = vs.watchProgress;
+                movie.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
+                movie.watched = vs.watched;
+            }
+        }
+
         return movieListContent
                 .data("movies", paginatedVideos.videos)
                 .data("externalMovies", externalMovies)
@@ -323,8 +334,29 @@ public class VideoUiApi {
             ));
         }
 
+        // Compute per-show watch progress using batch state loading
+        Map<String, SeriesProgress> showProgress = new HashMap<>();
+        Map<String, List<Models.Video>> episodesBySeries = allEpisodes.stream()
+                .filter(v -> v.seriesTitle != null)
+                .collect(Collectors.groupingBy(v -> v.seriesTitle.toLowerCase()));
+        Map<Long, Models.VideoState> allStates = videoStateService.getOrCreateBatch(allEpisodes);
+        for (SeriesTitleEntry entry : entries) {
+            String key = entry.rawTitle().toLowerCase();
+            List<Models.Video> seriesEps = episodesBySeries.getOrDefault(key, Collections.emptyList());
+            int total = seriesEps.size();
+            int watched = 0;
+            for (Models.Video ep : seriesEps) {
+                Models.VideoState vs = allStates.get(ep.id);
+                if (vs != null && Boolean.TRUE.equals(vs.watched)) {
+                    watched++;
+                }
+            }
+            showProgress.put(entry.rawTitle(), new SeriesProgress(watched, total));
+        }
+
         return seriesListContent
                 .data("series", entries)
+                .data("showProgress", showProgress)
                 .data("currentPage", page)
                 .data("limit", limit)
                 .data("sortBy", sortBy)
@@ -393,10 +425,30 @@ public class VideoUiApi {
                     .findFirst()
                     .orElse(sampleVideo);
 
+            // Compute per-season watch progress (batch)
+            Map<Long, Models.VideoState> seasonStates = videoStateService.getOrCreateBatch(finalEpisodes);
+            Map<Integer, SeasonProgress> seasonProgress = new HashMap<>();
+            for (SeasonEntry entry : seasons) {
+                int total = 0;
+                int watched = 0;
+                for (Models.Video ep : finalEpisodes) {
+                    int sn = ep.seasonNumber != null ? ep.seasonNumber : 1;
+                    if (sn == entry.seasonNumber()) {
+                        total++;
+                        Models.VideoState vs = seasonStates.get(ep.id);
+                        if (vs != null && Boolean.TRUE.equals(vs.watched)) {
+                            watched++;
+                        }
+                    }
+                }
+                seasonProgress.put(entry.seasonNumber(), new SeasonProgress(watched, total));
+            }
+
             return seasonListContent
                     .data("seriesTitle", decodedTitle)
                     .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
                     .data("seasons", seasons)
+                    .data("seasonProgress", seasonProgress)
                     .data("sampleVideo", sampleVideo)
                     .data("lastPlayedVideo", lastPlayedVideo)
                     .render();
@@ -427,6 +479,17 @@ public class VideoUiApi {
                             (v.folder == null || v.folder.isEmpty()))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
                     .collect(Collectors.toList());
+            }
+
+            // Enrich episodes with per-profile progress (batch)
+            Map<Long, Models.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video ep : episodes) {
+                Models.VideoState vs = epStates.get(ep.id);
+                if (vs != null) {
+                    ep.watchProgress = vs.watchProgress;
+                    ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
+                    ep.watched = vs.watched;
+                }
             }
 
             // Get sub-folders within this season
@@ -470,6 +533,17 @@ public class VideoUiApi {
             LOG.info("Loading episodes for series: {}, season: {}, folder: {}", decodedTitle, seasonNumber, decodedFolder);
             
             List<Models.Video> episodes = videoService.findEpisodesForSeasonAndFolder(decodedTitle, seasonNumber, decodedFolder);
+
+            // Enrich episodes with per-profile progress (batch)
+            Map<Long, Models.VideoState> folderEpStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video ep : episodes) {
+                Models.VideoState vs = folderEpStates.get(ep.id);
+                if (vs != null) {
+                    ep.watchProgress = vs.watchProgress;
+                    ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
+                    ep.watched = vs.watched;
+                }
+            }
 
             return folderEpisodesContent
                     .data("seriesTitle", decodedTitle)
@@ -642,12 +716,21 @@ public class VideoUiApi {
         boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
         boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, userAgent);
 
+        // Load auto-skip settings
+        Models.Settings settings = settingsService.getOrCreateSettings();
+        boolean autoSkipIntro = settings.getAutoSkipIntro();
+        boolean autoSkipRecap = settings.getAutoSkipRecap();
+        boolean autoSkipOutro = settings.getAutoSkipOutro();
+
         return playbackFragment
                 .data("item", item)
                 .data("resumeTime", resumeTime)
                 .data("needsTranscoding", needsTranscoding)
                 .data("nextEpisodeId", nextEpisode != null ? nextEpisode.id : null)
                 .data("prevEpisodeId", prevEpisode != null ? prevEpisode.id : null)
+                .data("autoSkipIntro", autoSkipIntro)
+                .data("autoSkipRecap", autoSkipRecap)
+                .data("autoSkipOutro", autoSkipOutro)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .data("json", (ValueResolver) (ctx) -> {
                     try { return java.util.concurrent.CompletableFuture.completedFuture(objectMapper.writeValueAsString(ctx.getBase())); }
@@ -884,6 +967,26 @@ public class VideoUiApi {
     // Helper records for passing series and season info to templates
     public record SeriesTitleEntry(String rawTitle, String encodedTitle, String cssId, Long sampleVideoId) {}
     public record SeasonEntry(Integer seasonNumber, Long sampleVideoId, String seasonName) {}
+    public static class SeasonProgress {
+        public int watched;
+        public int total;
+        public int percent;
+        public SeasonProgress(int watched, int total) {
+            this.watched = watched;
+            this.total = total;
+            this.percent = total > 0 ? watched * 100 / total : 0;
+        }
+    }
+    public static class SeriesProgress {
+        public int watched;
+        public int total;
+        public int percent;
+        public SeriesProgress(int watched, int total) {
+            this.watched = watched;
+            this.total = total;
+            this.percent = total > 0 ? watched * 100 / total : 0;
+        }
+    }
     
     private String getProfileInitials(String name) {
         if (name == null || name.isEmpty()) return "?";

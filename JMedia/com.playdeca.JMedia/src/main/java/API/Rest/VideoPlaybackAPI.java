@@ -299,14 +299,14 @@ public class VideoPlaybackAPI {
 
             // Find next episode in the same series
             Models.Video next = Models.Video.find(
-                "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber > ?3 and type = 'episode' order by episodeNumber asc",
+                "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber > ?3 and type = 'episode' and (folder is null or folder = '') order by episodeNumber asc",
                 current.seriesTitle, current.seasonNumber, current.episodeNumber
             ).firstResult();
 
             if (next == null && current.seasonNumber != null) {
                 // Try next season
                 next = Models.Video.find(
-                    "seriesTitle = ?1 and seasonNumber > ?2 and type = 'episode' order by seasonNumber asc, episodeNumber asc",
+                    "seriesTitle = ?1 and seasonNumber > ?2 and type = 'episode' and (folder is null or folder = '') order by seasonNumber asc, episodeNumber asc",
                     current.seriesTitle, current.seasonNumber
                 ).firstResult();
             }
@@ -329,14 +329,14 @@ public class VideoPlaybackAPI {
 
             // Find previous episode in the same series
             Models.Video prev = Models.Video.find(
-                "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber < ?3 and type = 'episode' order by episodeNumber desc",
+                "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber < ?3 and type = 'episode' and (folder is null or folder = '') order by episodeNumber desc",
                 current.seriesTitle, current.seasonNumber, current.episodeNumber
             ).firstResult();
 
             if (prev == null && current.seasonNumber != null && current.seasonNumber > 1) {
                 // Try previous season - get last episode
                 prev = Models.Video.find(
-                    "seriesTitle = ?1 and seasonNumber < ?2 and type = 'episode' order by seasonNumber desc, episodeNumber desc",
+                    "seriesTitle = ?1 and seasonNumber < ?2 and type = 'episode' and (folder is null or folder = '') order by seasonNumber desc, episodeNumber desc",
                     current.seriesTitle, current.seasonNumber
                 ).firstResult();
             }

@@ -38,6 +38,11 @@
         </div>
     </div>
 </div>
+<style>
+.standard-card-info {
+    text-align: center;
+}
+</style>
 
 <div id="seriesList">
     {#if series.empty}
@@ -55,9 +60,12 @@
     {#else}
         <div class="standard-grid">
             {#for entry in series}
+                {#let sp = showProgress.get(entry.rawTitle)}
                 <div class="standard-card" 
                      data-series-title="{entry.rawTitle}"
                      data-sample-video-id="{entry.sampleVideoId}"
+                     data-watched-count="{sp.watched}"
+                     data-total-episodes="{sp.total}"
                      onclick="window.switchSection('seasons', \{encodedTitle: '{entry.encodedTitle}'\})">
                     <div class="standard-card-poster">
                         {#if entry.sampleVideoId}
@@ -67,12 +75,18 @@
                                 <i class="pi pi-image"></i>
                             </div>
                         {/if}
+                        {#if sp.total > 0}
+                        <div class="card-progress-container">
+                            <div class="card-progress-bar" style="width: {sp.percent}%;"></div>
+                        </div>
+                        {/if}
                     </div>
                     <div class="standard-card-info">
                         <div class="standard-card-title">{entry.rawTitle}</div>
-                        <div class="standard-card-meta">Series</div>
+                        <div class="standard-card-meta">{#if sp.total > 0}{sp.watched}/{sp.total} episodes{#else}Series{/if}</div>
                     </div>
                 </div>
+                {/let}
             {/for}
         </div>
 

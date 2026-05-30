@@ -80,7 +80,7 @@ class SubtitleManager {
     }
 
     switchTab(tab) {
-        const tabs = ['search', 'manual', 'ai', 'style'];
+        const tabs = ['search', 'manual', 'ai', 'style', 'upload'];
         tabs.forEach(t => {
             const btn = document.getElementById(`${t}-tab-btn`);
             const content = document.getElementById(`${t}-tab-content`);
@@ -90,6 +90,72 @@ class SubtitleManager {
 
         if (tab === 'manual') this.scanLocal();
         else if (tab === 'style') this.loadStyle();
+    }
+
+    onFileSelected(event) {
+        const file = event.target.files[0];
+        const nameEl = document.getElementById('subtitleUploadFileName');
+        const btn = document.getElementById('uploadSubtitleBtn');
+        if (file) {
+            nameEl.textContent = file.name;
+            btn.disabled = false;
+        } else {
+            nameEl.textContent = 'No file selected';
+            btn.disabled = true;
+        }
+    }
+
+    async uploadSubtitle() {
+        const fileInput = document.getElementById('subtitleFileInput');
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const btn = document.getElementById('uploadSubtitleBtn');
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+
+        try {
+            const content = await this.readFileAsBase64(file);
+            const language = document.getElementById('subtitleUploadLanguage').value;
+            const displayName = document.getElementById('subtitleUploadName').value.trim();
+
+            const res = await fetch(`/api/video/subtitles/${this.currentVideoId}/upload`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: content,
+                    filename: file.name,
+                    language: language,
+                    languageName: displayName || file.name
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                if (window.showToast) window.showToast('Subtitle uploaded!', 'success');
+                this.refreshSubtitleList();
+                fileInput.value = '';
+                document.getElementById('subtitleUploadFileName').textContent = 'No file selected';
+                document.getElementById('subtitleUploadName').value = '';
+            } else {
+                if (window.showToast) window.showToast(data.error || 'Upload failed', 'error');
+            }
+        } catch (e) {
+            console.error('Upload error:', e);
+            if (window.showToast) window.showToast('Upload error: ' + e.message, 'error');
+        } finally {
+            btn.classList.remove('is-loading');
+            btn.disabled = true;
+        }
+    }
+
+    readFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
     }
 
     loadStyle() {

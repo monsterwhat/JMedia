@@ -35,6 +35,33 @@
 {/if}
 </div>
 
+<script>
+function toggleEpisodeWatched(videoId, el) {
+    fetch('/api/video/progress/' + videoId + '/toggle-watched', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const icon = el.querySelector('i');
+                const entry = el.closest('.episode-entry');
+                if (data.data.watched) {
+                    icon.className = 'pi pi-check-circle';
+                    entry.classList.add('is-watched');
+                    if (window.showToast) window.showToast('Marked as watched', 'success');
+                } else {
+                    icon.className = 'pi pi-circle';
+                    entry.classList.remove('is-watched');
+                    if (window.showToast) window.showToast('Marked as unwatched', 'info');
+                }
+            } else {
+                if (window.showToast) window.showToast(data.error || 'Failed to toggle', 'danger');
+            }
+        })
+        .catch(err => {
+            console.error('Error toggling watched:', err);
+            if (window.showToast) window.showToast('Error toggling watched status', 'danger');
+        });
+}
+</script>
 <style>
 .episodes-list {
     display: grid;
@@ -162,6 +189,63 @@
 .episode-meta-row i {
     font-size: 0.75rem;
     margin-right: 0.4rem;
+}
+
+/* Progress bar on episode thumbnails */
+.episode-progress-track {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: rgba(0,0,0,0.5);
+    z-index: 5;
+}
+.episode-progress-bar {
+    height: 100%;
+    background: var(--standard-accent, #48c774);
+    transition: width 0.3s ease;
+}
+
+/* Watched toggle overlay */
+.episode-watched-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.5);
+    transition: all 0.2s ease;
+}
+.episode-watched-toggle:hover {
+    transform: scale(1.2);
+    background: rgba(0,0,0,0.8);
+}
+.episode-watched-toggle i {
+    font-size: 1rem;
+    color: rgba(255,255,255,0.6);
+}
+.episode-watched-toggle i.pi-check-circle {
+    color: var(--standard-accent, #48c774);
+}
+.episode-watched-toggle i.pi-circle {
+    color: rgba(255,255,255,0.4);
+}
+
+.episode-entry.is-watched {
+    opacity: 0.75;
+}
+.episode-entry.is-watched .episode-thumbnail img {
+    filter: saturate(0.6);
+}
+.episode-entry.is-watched .episode-title-text {
+    color: rgba(255,255,255,0.6);
 }
 
 @media (max-width: 768px) {

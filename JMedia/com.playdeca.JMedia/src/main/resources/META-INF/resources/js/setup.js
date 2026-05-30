@@ -102,7 +102,7 @@ document.addEventListener('alpine:init', () => {
         installPython() { this.installComponent('python'); },
         installFfmpeg() { this.installComponent('ffmpeg'); },
         installSpotdl() { this.installComponent('spotdl'); },
-        installWhisper() { this.installComponent('whisper'); },
+        installParakeet() { this.installComponent('parakeet'); },
 
         updateComponentStatus(component, status) {
             const el = document.getElementById(component + 'Status');
@@ -150,7 +150,7 @@ document.addEventListener('alpine:init', () => {
                 const result = await response.json();
                 const status = result.data || result;
                 
-                ['choco', 'python', 'ffmpeg', 'spotdl', 'whisper'].forEach(c => {
+                ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet'].forEach(c => {
                     const isInst = status[`${c}Installed`];
                     this.updateComponentStatus(c, isInst ? '✅ Installed' : '❌ Not installed');
                 });

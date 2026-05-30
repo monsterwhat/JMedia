@@ -93,7 +93,7 @@ public class SubtitleDownloadService {
         return parseWebSearchResults(response.body(), osLanguage);
     }
 
-    private String mapToThreeLetterLanguage(String lang) {
+    public String mapToThreeLetterLanguage(String lang) {
         if (lang == null || lang.isBlank()) return "all";
         
         // Handle explicit SPL request from user

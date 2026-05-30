@@ -861,4 +861,26 @@ public class SettingsApi {
         }
         return Response.ok(ApiResponse.success(dir)).build();
     }
+
+    @POST
+    @Path("/{profileId}/auto-skip")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response updateAutoSkip(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        Settings settings = settingsController.getOrCreateSettings();
+
+        if (data.containsKey("autoSkipIntro")) {
+            settings.setAutoSkipIntro(Boolean.TRUE.equals(data.get("autoSkipIntro")));
+        }
+        if (data.containsKey("autoSkipRecap")) {
+            settings.setAutoSkipRecap(Boolean.TRUE.equals(data.get("autoSkipRecap")));
+        }
+        if (data.containsKey("autoSkipOutro")) {
+            settings.setAutoSkipOutro(Boolean.TRUE.equals(data.get("autoSkipOutro")));
+        }
+
+        settingsService.save(settings);
+        settingsController.addLog("Auto-skip settings updated");
+        return Response.ok(ApiResponse.success("Auto-skip settings updated")).build();
+    }
 }

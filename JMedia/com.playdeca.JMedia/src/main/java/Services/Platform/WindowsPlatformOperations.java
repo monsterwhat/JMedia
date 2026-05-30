@@ -74,43 +74,12 @@ public class WindowsPlatformOperations implements PlatformOperations {
         }
     }
 
-    private boolean isWhisperModuleAvailable(String pythonExecutable) {
+    private boolean isParakeetDepsAvailable(String pythonExecutable) {
         try {
-            // Try multiple approaches to detect whisper
-            ProcessBuilder pb = new ProcessBuilder(pythonExecutable, "-c", "import whisper; print('whisper_available')");
+            ProcessBuilder pb = new ProcessBuilder(pythonExecutable, "-c", "import torch; import librosa; from transformers import AutoModelForTDT; print('parakeet_available')");
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            
-            int exitCode = process.waitFor();
-            
-            // If direct import works, whisper is available
-            if (exitCode == 0) {
-                return true;
-            }
-            
-            // Fallback to help command check
-            pb = new ProcessBuilder(pythonExecutable, "-m", "whisper", "--help");
-            pb.redirectErrorStream(true);
-            process = pb.start();
-            
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append(System.lineSeparator());
-                }
-            }
-            
-            String outputStr = output.toString().toLowerCase();
-            exitCode = process.waitFor();
-            
-            // Check for multiple indicators that whisper is installed
-            return exitCode == 0 && (
-                outputStr.contains("usage:") || 
-                outputStr.contains("whisper") || 
-                outputStr.contains("openai-whisper") ||
-                outputStr.contains("transcribe")
-            );
+            return process.waitFor() == 0;
         } catch (Exception e) {
             return false;
         }
@@ -184,12 +153,11 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public boolean isWhisperInstalled() {
+    public boolean isParakeetInstalled() {
         try {
-            // Try as Python module with each Python variant
             String[] pythonExecutables = getPythonExecutableVariants();
             for (String pythonExecutable : pythonExecutables) {
-                if (isWhisperModuleAvailable(pythonExecutable)) {
+                if (isParakeetDepsAvailable(pythonExecutable)) {
                     return true;
                 }
             }
@@ -412,16 +380,21 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public void installWhisper(Long profileId) throws Exception {
-        broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Installing Whisper via pip...\n", profileId);
+    public void installParakeet(Long profileId) throws Exception {
+        broadcastInstallationProgress("parakeet", 0, true, profileId);
+        broadcast("Installing Parakeet dependencies (transformers, torch, librosa)...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        String installScript = pythonExecutable + " -m pip install openai-whisper";
-        executeCommand(installScript, profileId);
+        broadcast("Step 1/3: Installing torch...\n", profileId);
+        executePipCommand(pythonExecutable + " -m pip install torch", profileId);
+        broadcast("Step 2/3: Installing librosa...\n", profileId);
+        executePipCommand(pythonExecutable + " -m pip install librosa", profileId);
+        broadcast("Step 3/3: Installing transformers from source (Parakeet TDT)...\n", profileId);
+        executePipCommand(pythonExecutable + " -m pip install git+https://github.com/huggingface/transformers", profileId);
         
-        broadcastInstallationProgress("whisper", 100, false, profileId);
-        broadcast("Whisper installation completed\n", profileId);
+        broadcastInstallationProgress("parakeet", 100, false, profileId);
+        broadcast("Parakeet dependencies installation completed\n", profileId);
+        broadcast("[PARAKEET_INSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -488,16 +461,16 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public void uninstallWhisper(Long profileId) throws Exception {
-        broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Uninstalling Whisper...\n", profileId);
+    public void uninstallParakeet(Long profileId) throws Exception {
+        broadcastInstallationProgress("parakeet", 0, true, profileId);
+        broadcast("Uninstalling Parakeet dependencies...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        String uninstallScript = pythonExecutable + " -m pip uninstall openai-whisper -y";
-        executeCommand(uninstallScript, profileId);
+        executePipCommand(pythonExecutable + " -m pip uninstall transformers librosa torch -y", profileId);
         
-        broadcastInstallationProgress("whisper", 100, false, profileId);
-        broadcast("Whisper uninstallation completed\n", profileId);
+        broadcastInstallationProgress("parakeet", 100, false, profileId);
+        broadcast("Parakeet dependencies uninstallation completed\n", profileId);
+        broadcast("[PARAKEET_UNINSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -529,6 +502,42 @@ public class WindowsPlatformOperations implements PlatformOperations {
             int exitCode = process.exitValue();
             if (exitCode != 0) {
                 throw new Exception("Command failed with exit code: " + exitCode + ": " + command);
+            }
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    private void executePipCommand(String command, Long profileId) throws Exception {
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command.split(" "));
+            pb.redirectErrorStream(true);
+
+            process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        broadcast(line.trim() + "\n", profileId);
+                    }
+                }
+            }
+
+            // Use 30-minute timeout for pip installs (torch is ~2GB)
+            boolean finished = process.waitFor(30, TimeUnit.MINUTES);
+            if (!finished) {
+                LOGGER.warn("Pip command timed out after 30 min: " + command);
+                process.destroyForcibly();
+                throw new Exception("Pip command timed out: " + command);
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                throw new Exception("Pip command failed with exit code: " + exitCode + ": " + command);
             }
         } finally {
             if (process != null && process.isAlive()) {
@@ -602,8 +611,8 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public String getWhisperInstallMessage() {
-        return "Whisper is not installed or not found in PATH. Please install OpenAI's Whisper (pip install openai-whisper).";
+    public String getParakeetInstallMessage() {
+        return "Parakeet TDT dependencies not installed. Please install torch, librosa, and transformers from source.";
     }
     
     @Override
@@ -632,8 +641,8 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public String getWhisperCommand() {
-        return "whisper";
+    public String getParakeetScriptCommand() {
+        return "run_parakeet.py";
     }
     
     @Override

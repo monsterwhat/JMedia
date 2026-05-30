@@ -12,7 +12,7 @@ public interface PlatformOperations {
     boolean isSpotdlInstalled();
     boolean isYtdlpInstalled();
     boolean isFFmpegInstalled();
-    boolean isWhisperInstalled();
+    boolean isParakeetInstalled();
     
 // Installation methods
     void installPackageManger(Long profileId) throws Exception;
@@ -21,7 +21,7 @@ public interface PlatformOperations {
     void installSpotdl(Long profileId) throws Exception;
     void installYtdlp(Long profileId) throws Exception;
     void installFFmpeg(Long profileId) throws Exception;
-    void installWhisper(Long profileId) throws Exception;
+    void installParakeet(Long profileId) throws Exception;
     
 // Uninstallation methods
     void uninstallPython(Long profileId) throws Exception;
@@ -29,7 +29,7 @@ public interface PlatformOperations {
     void uninstallSpotdl(Long profileId) throws Exception;
     void uninstallYtdlp(Long profileId) throws Exception;
     void uninstallFFmpeg(Long profileId) throws Exception;
-    void uninstallWhisper(Long profileId) throws Exception;
+    void uninstallParakeet(Long profileId) throws Exception;
     
     // Command execution
     void executeCommand(String command, Long profileId) throws Exception;
@@ -47,7 +47,7 @@ public interface PlatformOperations {
     String getSpotdlInstallMessage();
     String getYtdlpInstallMessage();
     String getFFmpegInstallMessage();
-    String getWhisperInstallMessage();
+    String getParakeetInstallMessage();
     
     // Platform-specific paths and configurations
     String getSystemPythonCommand();
@@ -55,7 +55,7 @@ public interface PlatformOperations {
     String getSpotdlCommand();
     String getYtdlpCommand();
     String getFFmpegCommand();
-    String getWhisperCommand();
+    String getParakeetScriptCommand();
     String getNodeCommand();
     
     // Execution method detection

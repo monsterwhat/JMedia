@@ -58,6 +58,15 @@ if (typeof window.SimplePlayer === 'undefined') {
                  recapEnd: 'FILE'
              };
             
+            // Auto-skip settings
+            this.autoSkipIntro = this.container.dataset.autoSkipIntro === 'true';
+            this.autoSkipRecap = this.container.dataset.autoSkipRecap === 'true';
+            this.autoSkipOutro = this.container.dataset.autoSkipOutro === 'true';
+            this._autoSkipUndoTime = 0;
+            this._autoSkipSection = null;
+            this._autoSkipTimer = null;
+            this._isUndoing = false;
+            
             this.storyboard = { metadata: null, loaded: false };
             const videoTrack = localStorage.getItem('jmedia_last_track_' + this.videoId);
             const globalTrack = sessionStorage.getItem('jmedia_global_subtitle_track');
@@ -198,8 +207,11 @@ if (typeof window.SimplePlayer === 'undefined') {
 
                 if (supportsNativeHls) {
                 console.log('[SimplePlayer] Using native HLS (Safari/iOS) with master playlist');
+                this._hlsRetryCount = 0;
+                this._hlsMaxRetries = 3;
                 this.video.src = masterPlaylistUrl;
                 this.video.addEventListener('loadedmetadata', () => {
+                    this._hlsRetryCount = 0;
                     if (savedTime > 0) this.video.currentTime = savedTime;
                     this.applyInitialState();
                     setTimeout(() => this.loadSubtitles(), 500);
@@ -207,14 +219,22 @@ if (typeof window.SimplePlayer === 'undefined') {
                     // Apply saved audio track preference for native HLS
                     this.applyAudioPreference();
                 }, { once: true });
-                this.video.addEventListener('error', () => {
-                    console.error('[SimplePlayer] Native HLS error:', this.video.error);
+                this._hlsErrorHandler = () => {
+                    this._hlsRetryCount = (this._hlsRetryCount || 0) + 1;
+                    console.error('[SimplePlayer] Native HLS error (attempt ' + this._hlsRetryCount + '/' + this._hlsMaxRetries + '):', this.video.error);
+                    if (this._hlsRetryCount >= this._hlsMaxRetries) {
+                        console.log('[SimplePlayer] HLS failed, falling back to direct stream');
+                        this._showLoading('Switching to direct playback...');
+                        this.fallbackToDirectStream(savedTime);
+                        return;
+                    }
                     this._showLoading('Playback error - retrying...');
                     setTimeout(() => {
                         this.video.load();
                         this.video.play().catch(() => {});
                     }, 2000);
-                }, { once: true });
+                };
+                this.video.addEventListener('error', this._hlsErrorHandler);
                 this.video.play().catch(() => console.log('[SimplePlayer] User gesture required'));
             } else if (useHlsJs) {
                 console.log('[SimplePlayer] Using hls.js with multi-audio support');
@@ -312,6 +332,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.buildUI();
             this.attachEvents();
             this.applyInitialState();
+            this.updateSubtitle();
             
             // Bind and attach keydown event listener for debugging shortcuts
             this._boundKeydown = this.handleKeydown.bind(this);
@@ -390,6 +411,17 @@ this.loadStoryboard();
                 pageTitleEl.title = title;
             }
             document.title = title;
+        }
+
+        updateSubtitle() {
+            const subtitleEl = this.container.querySelector('#videoSubtitle');
+            if (!subtitleEl) return;
+            if (this.videoType === 'episode' || this.videoType === 'Episode') {
+                const series = this.container.dataset.seriesTitle || '';
+                const season = this.container.dataset.seasonNumber || '';
+                const episode = this.container.dataset.episodeNumber || '';
+                subtitleEl.textContent = `${series} • S${season}E${episode}`;
+            }
         }
 
 async refreshMarkers(retries = 3) {
@@ -584,6 +616,35 @@ async refreshMarkers(retries = 3) {
             this.startProgressReporting();
         }
 
+        fallbackToDirectStream(savedTime) {
+            if (this._fallbackInProgress) return;
+            this._fallbackInProgress = true;
+            console.log('[SimplePlayer] Falling back to direct stream, removing HLS error handler');
+
+            if (this._hlsErrorHandler) {
+                this.video.removeEventListener('error', this._hlsErrorHandler);
+                this._hlsErrorHandler = null;
+            }
+
+            this.streamStartOffset = savedTime > 0 ? savedTime : 0;
+            this.video.src = `/api/video/stream/${this.videoId}${savedTime > 0 ? '?start=' + savedTime : ''}`;
+            this.video.load();
+            this.video.addEventListener('loadedmetadata', () => {
+                this._fallbackInProgress = false;
+                if (savedTime > 0 && !this.streamStartOffset) this.video.currentTime = savedTime;
+                this.applyInitialState();
+                setTimeout(() => this.loadSubtitles(), 500);
+            }, { once: true });
+            this.video.addEventListener('playing', () => {
+                this._fallbackInProgress = false;
+                this._hideLoading();
+            }, { once: true });
+            this.video.addEventListener('error', () => {
+                this._fallbackInProgress = false;
+            }, { once: true });
+            this.video.play().catch(() => {});
+        }
+
         async loadAudioTrackSelector() {
             const selector = document.getElementById('audioTrackSelector');
             if (!selector) return;
@@ -655,13 +716,37 @@ buildUI() {
                  <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
 
                  
-                 <div class="skip-recap-container" id="skipRecapBtn" style="display: none;"><button class="button is-info is-rounded"><i class="pi pi-history mr-2"></i> Skip Recap</button></div>
-                 <div class="skip-intro-container" id="skipIntroBtn" style="display: none;"><button class="button is-info is-rounded"><i class="pi pi-fast-forward mr-2"></i> Skip Intro</button></div>
-                 <div class="skip-outro-container" id="skipOutroBtn" style="display: none;"><button class="button is-info is-rounded"><i class="pi pi-step-forward mr-2"></i> Skip Outro</button></div>
+                 <div class="skip-recap-container" id="skipRecapBtn" style="display: none;">
+                     <button class="button is-info is-rounded"><i class="pi pi-history mr-2"></i> Skip Recap</button>
+                     <label class="skip-auto-toggle ${this.autoSkipRecap ? 'active' : ''}" data-section="recap">
+                         <input type="checkbox" ${this.autoSkipRecap ? 'checked' : ''}> Auto
+                     </label>
+                 </div>
+                 <div class="skip-intro-container" id="skipIntroBtn" style="display: none;">
+                     <button class="button is-info is-rounded"><i class="pi pi-fast-forward mr-2"></i> Skip Intro</button>
+                     <label class="skip-auto-toggle ${this.autoSkipIntro ? 'active' : ''}" data-section="intro">
+                         <input type="checkbox" ${this.autoSkipIntro ? 'checked' : ''}> Auto
+                     </label>
+                 </div>
+                 <div class="skip-outro-container" id="skipOutroBtn" style="display: none;">
+                     <button class="button is-info is-rounded"><i class="pi pi-step-forward mr-2"></i> Skip Outro</button>
+                     <label class="skip-auto-toggle ${this.autoSkipOutro ? 'active' : ''}" data-section="outro">
+                         <input type="checkbox" ${this.autoSkipOutro ? 'checked' : ''}> Auto
+                     </label>
+                  </div>
+
+                 <div class="auto-skip-notice" id="autoSkipNotice" style="display: none;">
+                     <span id="autoSkipNoticeText">Intro skipped</span>
+                     <button class="button is-small is-light" id="autoSkipUndoBtn"><i class="pi pi-undo mr-1"></i>Undo</button>
+                     <button class="button is-small is-light" id="autoSkipToggleBtn"><i class="pi pi-times mr-1"></i>Auto</button>
+                 </div>
 
                 <div class="media-info">
                     <div class="back-button-container"><button class="back-btn" id="videoBackBtn"><i class="pi pi-arrow-left"></i></button></div>
-                    <div class="info-title" id="videoTitleLink">${this.container.dataset.title || 'Video'}</div>
+                    <div class="info-text">
+                        <div class="info-title" id="videoTitleLink">${this.container.dataset.title || 'Video'}</div>
+                        <div class="info-subtitle" id="videoSubtitle"></div>
+                    </div>
                 </div>
 
                 <div class="controls-container">
@@ -921,6 +1006,10 @@ buildUI() {
                 const pct = (displayTime / dur) * 100;
                 this.progressBar.style.width = Math.min(100, pct) + '%';
                 this.timeCurrent.innerText = this.formatTime(displayTime);
+
+                // Auto-skip checks
+                this._checkAutoSkip(displayTime);
+
                 this.checkMarkers();
             });
 
@@ -1285,21 +1374,53 @@ buildUI() {
                 });
             }
             // Markers - use server-side seek for transcoded streams
-            this.container.querySelector('#skipIntroBtn').onclick = () => {
-                if (this.needsTranscode && !this.hlsSessionId) {
-                    this.performServerSeek(this.markers.introEnd);
+            const handleSkipClick = (e, section) => {
+                if (e.target.closest('.skip-auto-toggle')) return;
+                if (section === 'outro') {
+                    this.playNextEpisode();
                 } else {
-                    this.video.currentTime = this.markers.introEnd;
+                    const endKey = section + 'End';
+                    const end = this.markers[endKey];
+                    if (this.needsTranscode && !this.hlsSessionId) {
+                        this.performServerSeek(end);
+                    } else {
+                        this.video.currentTime = end;
+                    }
                 }
             };
-            this.container.querySelector('#skipRecapBtn').onclick = () => {
-                if (this.needsTranscode && !this.hlsSessionId) {
-                    this.performServerSeek(this.markers.recapEnd);
-                } else {
-                    this.video.currentTime = this.markers.recapEnd;
-                }
-            };
-            this.container.querySelector('#skipOutroBtn').onclick = () => this.playNextEpisode();
+            this.container.querySelector('#skipIntroBtn').onclick = (e) => handleSkipClick(e, 'intro');
+            this.container.querySelector('#skipRecapBtn').onclick = (e) => handleSkipClick(e, 'recap');
+            this.container.querySelector('#skipOutroBtn').onclick = (e) => handleSkipClick(e, 'outro');
+
+            // Auto-skip toggle click handlers
+            this.container.querySelectorAll('.skip-auto-toggle').forEach(toggle => {
+                toggle.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const section = toggle.dataset.section;
+                    const newState = !toggle.classList.contains('active');
+                    toggle.classList.toggle('active', newState);
+                    this['autoSkip' + section.charAt(0).toUpperCase() + section.slice(1)] = newState;
+                    this._postAutoSkipSetting(section, newState);
+                };
+            });
+
+            // Auto-skip notice button handlers
+            this.autoSkipUndoBtn = document.getElementById('autoSkipUndoBtn');
+            this.autoSkipToggleBtn = document.getElementById('autoSkipToggleBtn');
+            this.autoSkipNotice = document.getElementById('autoSkipNotice');
+            this.autoSkipNoticeText = document.getElementById('autoSkipNoticeText');
+
+            if (this.autoSkipUndoBtn) {
+                this.autoSkipUndoBtn.onclick = () => this._undoAutoSkip();
+            }
+            if (this.autoSkipToggleBtn) {
+                this.autoSkipToggleBtn.onclick = () => {
+                    if (this._autoSkipSection) {
+                        this._disableAutoSkip(this._autoSkipSection);
+                    }
+                };
+            }
 
             // Auto-hide controls
             this.container.onmousemove = () => this.showControls();
@@ -1598,11 +1719,111 @@ formatTime(s) {
             const t = this.video.currentTime + (this.streamStartOffset || 0);
             const show = (id, visible) => {
                 const el = document.getElementById(id);
-                if (el) el.style.display = visible ? 'block' : 'none';
+                if (el) el.style.display = visible ? 'flex' : 'none';
             };
             show('skipIntroBtn', t >= this.markers.introStart && t < this.markers.introEnd);
             show('skipRecapBtn', t >= this.markers.recapStart && t < this.markers.recapEnd);
             show('skipOutroBtn', t >= this.markers.outroStart && this.markers.outroStart > 0);
+        }
+
+        _checkAutoSkip(t) {
+            if (this._isUndoing) return;
+
+            if (this.autoSkipIntro && t >= this.markers.introStart && t < this.markers.introEnd) {
+                this._performAutoSkip('intro', this.markers.introStart, this.markers.introEnd);
+                return;
+            }
+            if (this.autoSkipRecap && t >= this.markers.recapStart && t < this.markers.recapEnd) {
+                this._performAutoSkip('recap', this.markers.recapStart, this.markers.recapEnd);
+                return;
+            }
+            if (this.autoSkipOutro && t >= this.markers.outroStart && this.markers.outroStart > 0) {
+                this._performAutoSkip('outro', this.markers.outroStart, this.markers.outroEnd);
+                return;
+            }
+        }
+
+        _performAutoSkip(section, start, end) {
+            this._autoSkipUndoTime = start;
+            this._autoSkipSection = section;
+
+            if (section === 'outro') {
+                this.playNextEpisode();
+                return;
+            }
+
+            if (this.needsTranscode && !this.hlsSessionId) {
+                this.performServerSeek(end);
+            } else {
+                this.video.currentTime = end;
+            }
+
+            this._showAutoSkipNotice(section);
+        }
+
+        _showAutoSkipNotice(section) {
+            if (!this.autoSkipNotice || !this.autoSkipNoticeText) return;
+
+            const labels = { intro: 'Intro skipped', recap: 'Recap skipped', outro: 'Outro skipped' };
+            this.autoSkipNoticeText.textContent = labels[section] || 'Section skipped';
+            this.autoSkipNotice.style.display = 'flex';
+
+            if (this._autoSkipTimer) {
+                clearTimeout(this._autoSkipTimer);
+            }
+            this._autoSkipTimer = setTimeout(() => {
+                if (this.autoSkipNotice) {
+                    this.autoSkipNotice.style.display = 'none';
+                }
+            }, 5000);
+        }
+
+        _undoAutoSkip() {
+            if (this._autoSkipUndoTime > 0) {
+                this._isUndoing = true;
+                if (this.needsTranscode && !this.hlsSessionId) {
+                    this.performServerSeek(this._autoSkipUndoTime);
+                } else {
+                    this.video.currentTime = this._autoSkipUndoTime;
+                }
+                if (this.autoSkipNotice) {
+                    this.autoSkipNotice.style.display = 'none';
+                }
+                if (this._autoSkipTimer) {
+                    clearTimeout(this._autoSkipTimer);
+                    this._autoSkipTimer = null;
+                }
+                setTimeout(() => { this._isUndoing = false; }, 1000);
+            }
+        }
+
+        _disableAutoSkip(section) {
+            this['autoSkip' + section.charAt(0).toUpperCase() + section.slice(1)] = false;
+            this._postAutoSkipSetting(section, false);
+            if (this.autoSkipNotice) {
+                this.autoSkipNotice.style.display = 'none';
+            }
+            if (this._autoSkipTimer) {
+                clearTimeout(this._autoSkipTimer);
+                this._autoSkipTimer = null;
+            }
+            const toggle = this.container.querySelector(`.skip-auto-toggle[data-section="${section}"]`);
+            if (toggle) {
+                toggle.classList.remove('active');
+                toggle.querySelector('input[type="checkbox"]').checked = false;
+            }
+        }
+
+        _postAutoSkipSetting(section, enabled) {
+            const profileId = localStorage.getItem('activeProfileId') || '1';
+            const key = 'autoSkip' + section.charAt(0).toUpperCase() + section.slice(1);
+            const body = {};
+            body[key] = enabled;
+            fetch(`/api/settings/${profileId}/auto-skip`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).catch(err => console.error('[SimplePlayer] Failed to save auto-skip setting:', err));
         }
 
         turnOffSubtitles() {

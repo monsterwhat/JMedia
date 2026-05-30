@@ -114,7 +114,7 @@ public class TranscodingService {
 
         boolean canCopyAudio = canCopyAudio(video);
 
-        if (!needsVideoTranscode && startSeconds ==0) {
+        if (!needsVideoTranscode && startSeconds ==0 && !isIOS) {
             LOG.info("Using mkvmerge for instant remux of {}", videoFile.getName());
             String mkvmergePath = discoveryService.findMkvmerge();
             if (mkvmergePath != null) {

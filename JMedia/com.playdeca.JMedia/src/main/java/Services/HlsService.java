@@ -58,26 +58,36 @@ public class HlsService {
 
     private void startVariantEncoder(HlsSession session, String variantName, Long profileId) {
         try {
+            String resolvedPath = resolveVideoPath(session.video.path);
+
             List<String> command = new ArrayList<>();
             command.add(ffmpegDiscoveryService.findFFmpegExecutable());
             command.add("-ss");
             command.add(String.valueOf(session.startSeconds));
             command.add("-i");
-            command.add(session.video.path);
+            command.add(resolvedPath);
             if (session.audioTracks.isEmpty()) {
                 command.add("-map");
                 command.add("0:a?");
                 command.add("-c:a");
-                command.add("copy");
+                command.add("aac");
+                command.add("-b:a");
+                command.add("128k");
+                command.add("-ac");
+                command.add("2");
             } else if (session.audioTracks.size() == 1) {
                 AudioTrack track = session.audioTracks.get(0);
                 command.add("-map");
                 command.add("0:a:" + track.trackIndex);
                 command.add("-c:a");
-                command.add(isCopyableCodec(track.codec) ? "copy" : "aac");
-                if (!isCopyableCodec(track.codec)) {
+                if (isCopyableCodec(track.codec)) {
+                    command.add("copy");
+                } else {
+                    command.add("aac");
                     command.add("-b:a");
                     command.add("128k");
+                    command.add("-ac");
+                    command.add("2");
                 }
             } else {
                 command.add("-an");
@@ -86,7 +96,6 @@ public class HlsService {
             command.add("-map");
             command.add("0:v:0");
             command.add("-c:v");
-            // Check for hardware acceleration
             String hardwareEncoder = ffmpegDiscoveryService.detectHardwareEncoder();
             if (!"libx264".equals(hardwareEncoder)) {
                 LOG.info("Using hardware encoder for HLS: {}", hardwareEncoder);
@@ -94,7 +103,13 @@ public class HlsService {
                 command.add("-preset");
                 command.add("fast");
             } else {
-                command.add("copy"); // Fall back to copy if no hardware encoder
+                command.add("libx264");
+                command.add("-preset");
+                command.add("ultrafast");
+                command.add("-crf");
+                command.add("23");
+                command.add("-pix_fmt");
+                command.add("yuv420p");
             }
             command.add("-f");
             command.add("hls");
@@ -129,6 +144,7 @@ public class HlsService {
     }
 
     private void createAudioStreams(HlsSession session) {
+        String resolvedPath = resolveVideoPath(session.video.path);
         for (AudioTrack track : session.audioTracks) {
             try {
                 String audioName = "audio_" + track.trackIndex;
@@ -137,7 +153,7 @@ public class HlsService {
                 command.add("-ss");
                 command.add(String.valueOf(session.startSeconds));
                 command.add("-i");
-                command.add(session.video.path);
+                command.add(resolvedPath);
                 command.add("-map");
                 command.add("0:a:" + track.trackIndex);
                 command.add("-c:a");
@@ -147,6 +163,8 @@ public class HlsService {
                     command.add("aac");
                     command.add("-b:a");
                     command.add("128k");
+                    command.add("-ac");
+                    command.add("2");
                 }
                 command.add("-f");
                 command.add("hls");
@@ -186,6 +204,22 @@ public class HlsService {
         if (codec == null) return false;
         String lower = codec.toLowerCase();
         return lower.contains("aac") || lower.contains("mp3") || lower.contains("opus") == false && lower.contains("vorbis") == false;
+    }
+
+    private String resolveVideoPath(String videoPath) {
+        java.nio.file.Path vPath = java.nio.file.Paths.get(videoPath);
+        if (vPath.isAbsolute()) {
+            return vPath.toString();
+        }
+        try {
+            String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            if (libraryPath != null && !libraryPath.isEmpty()) {
+                return java.nio.file.Paths.get(libraryPath, videoPath).toString();
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not resolve video library path for {}: {}", videoPath, e.getMessage());
+        }
+        return videoPath;
     }
 
     public String getMasterPlaylist(String sessionId) {

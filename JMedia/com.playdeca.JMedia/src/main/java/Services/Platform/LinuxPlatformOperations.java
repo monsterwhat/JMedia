@@ -123,36 +123,18 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public boolean isWhisperInstalled() {
+    public boolean isParakeetInstalled() {
         try {
-            LOGGER.debug("Checking if Whisper is installed...");
-            
-            // Check pipx installation location (Ubuntu: ~/.local/bin/whisper)
-            String userHome = System.getProperty("user.home");
-            String pipxWhisperPath = userHome + "/.local/bin/whisper";
-            boolean pipxCheck = java.nio.file.Files.exists(java.nio.file.Paths.get(pipxWhisperPath));
-            LOGGER.debug("Pipx Whisper path exists: {}", pipxCheck);
-            if (pipxCheck) {
-                LOGGER.info("Whisper found via pipx installation: {}", pipxWhisperPath);
-                return true;
-            }
-            
-            // Try as Python module with each variant
             String[] pythonExecutables = getPythonExecutableVariants();
             for (String pythonExecutable : pythonExecutables) {
                 if (isCommandAvailable(pythonExecutable)) {
-                    boolean moduleCheck = executeCommandForCheck(pythonExecutable + " -m whisper -h");
-                    LOGGER.debug("Python module check for {} -m whisper: {}", pythonExecutable, moduleCheck);
-                    if (moduleCheck) {
-                        LOGGER.info("Whisper found via Python module: {} -m whisper", pythonExecutable);
+                    boolean depsCheck = executeCommandForCheck(pythonExecutable + " -c \"import torch; import librosa; from transformers import AutoModelForTDT; print('available')\"");
+                    if (depsCheck) {
                         return true;
                     }
                 }
             }
-            
-            LOGGER.debug("Whisper not found through any detection method");
         } catch (Exception e) {
-            LOGGER.error("Error checking Whisper installation", e);
             return false;
         }
         return false;
@@ -423,22 +405,26 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public void installWhisper(Long profileId) throws Exception {
-        broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Installing Whisper...\n", profileId);
+    public void installParakeet(Long profileId) throws Exception {
+        broadcastInstallationProgress("parakeet", 0, true, profileId);
+        broadcast("Installing Parakeet dependencies (transformers, torch, librosa)...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
         
-        // Try user installation with --user flag
         try {
-            broadcast("Installing with pip --user...\n", profileId);
-            executeCommand(pythonExecutable + " -m pip install --user openai-whisper", profileId);
+            broadcast("Step 1/3: Installing torch...\n", profileId);
+            executeCommand(pythonExecutable + " -m pip install --user torch", profileId);
+            broadcast("Step 2/3: Installing librosa...\n", profileId);
+            executeCommand(pythonExecutable + " -m pip install --user librosa", profileId);
+            broadcast("Step 3/3: Installing transformers from source (Parakeet TDT)...\n", profileId);
+            executeCommand(pythonExecutable + " -m pip install --user git+https://github.com/huggingface/transformers", profileId);
         } catch (Exception e) {
-            throw new Exception("Failed to install Whisper. Please ensure user directory permissions are correct.");
+            throw new Exception("Failed to install Parakeet dependencies. Please ensure user directory permissions are correct.");
         }
         
-        broadcastInstallationProgress("whisper", 100, false, profileId);
-        broadcast("Whisper installation completed\n", profileId);
+        broadcastInstallationProgress("parakeet", 100, false, profileId);
+        broadcast("Parakeet dependencies installation completed\n", profileId);
+        broadcast("[PARAKEET_INSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -533,15 +519,16 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public void uninstallWhisper(Long profileId) throws Exception {
-        broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Uninstalling Whisper...\n", profileId);
+    public void uninstallParakeet(Long profileId) throws Exception {
+        broadcastInstallationProgress("parakeet", 0, true, profileId);
+        broadcast("Uninstalling Parakeet dependencies...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        executeCommand(pythonExecutable + " -m pip uninstall openai-whisper -y", profileId);
+        executeCommand(pythonExecutable + " -m pip uninstall --user transformers librosa torch -y", profileId);
         
-        broadcastInstallationProgress("whisper", 100, false, profileId);
-        broadcast("Whisper uninstallation completed\n", profileId);
+        broadcastInstallationProgress("parakeet", 100, false, profileId);
+        broadcast("Parakeet dependencies uninstallation completed\n", profileId);
+        broadcast("[PARAKEET_UNINSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -628,8 +615,8 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public String getWhisperInstallMessage() {
-        return "Whisper is not installed. Please install Whisper using pip: pip install openai-whisper";
+    public String getParakeetInstallMessage() {
+        return "Parakeet TDT dependencies not installed. Please install torch, librosa, and transformers from source.";
     }
     
     @Override
@@ -674,8 +661,8 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public String getWhisperCommand() {
-        return "whisper";
+    public String getParakeetScriptCommand() {
+        return "run_parakeet.py";
     }
     
     @Override

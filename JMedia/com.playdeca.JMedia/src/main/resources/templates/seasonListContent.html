@@ -55,7 +55,14 @@
                 </div>
                 <div class="standard-card-info">
                     <div class="standard-card-title">{#if season.seasonName}{season.seasonName}{#else}Season {season.seasonNumber}{/if}</div>
-                    <div class="standard-card-meta">{#if season.seasonName}Season {season.seasonNumber}{/if}</div>
+                    {#let sp = seasonProgress.get(season.seasonNumber)}
+                    <div class="standard-card-meta">{#if season.seasonName}Season {season.seasonNumber} · {/if}{sp.watched}/{sp.total} watched</div>
+                    {#if sp.total > 0}
+                    <div class="season-progress-track">
+                        <div class="season-progress-bar" style="width: {sp.percent}%;"></div>
+                    </div>
+                    {/if}
+                    {/let}
                 </div>
             </div>
         {/for}
@@ -106,6 +113,26 @@
     display: flex;
     align-items: center;
     color: white;
+}
+
+/* Season card progress bar */
+.season-progress-track {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+.season-progress-bar {
+    height: 100%;
+    background: var(--standard-accent, #48c774);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+}
+.standard-card-meta {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.5);
 }
 
 @media (max-width: 768px) {

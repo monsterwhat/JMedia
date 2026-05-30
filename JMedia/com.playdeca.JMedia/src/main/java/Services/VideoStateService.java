@@ -7,7 +7,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.*;
 
 @ApplicationScoped
 public class VideoStateService {
@@ -30,6 +30,32 @@ public class VideoStateService {
             state.persist();
         }
         return state;
+    }
+
+    @Transactional
+    public Map<Long, VideoState> getOrCreateBatch(List<Video> videos) {
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null || videos == null || videos.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<VideoState> existing = VideoState.list("profile = ?1 AND video IN ?2", activeProfile, videos);
+        Map<Long, VideoState> result = new HashMap<>();
+        for (VideoState vs : existing) {
+            result.put(vs.video.id, vs);
+        }
+
+        for (Video video : videos) {
+            if (!result.containsKey(video.id)) {
+                VideoState newState = new VideoState();
+                newState.profile = activeProfile;
+                newState.video = video;
+                newState.persist();
+                result.put(video.id, newState);
+            }
+        }
+
+        return result;
     }
 
     @Transactional

@@ -78,6 +78,27 @@
         </div>
     </div>
 
+    <div class="columns">
+        <div class="column">
+            <div class="field">
+                <label class="label">IMDb ID</label>
+                <div class="control">
+                    <input class="input" type="text" name="imdbId" value="{video.imdbId ?: ''}" placeholder="e.g. tt0111161">
+                </div>
+                <p class="help has-text-grey">The IMDb ID of this video/movie</p>
+            </div>
+        </div>
+        <div class="column series-only-field" {#if video.type != 'episode'}style="display:none"{/if}>
+            <div class="field">
+                <label class="label">Series IMDb ID</label>
+                <div class="control">
+                    <input class="input" type="text" name="showImdbId" value="{video.showImdbId ?: ''}" placeholder="e.g. tt0096697">
+                </div>
+                <p class="help has-text-grey">The IMDb ID of the TV series</p>
+            </div>
+        </div>
+    </div>
+
     <div class="field mt-5">
         <div class="control">
             <button class="button is-info is-fullwidth" type="submit">

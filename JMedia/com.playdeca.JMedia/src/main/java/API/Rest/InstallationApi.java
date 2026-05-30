@@ -100,17 +100,17 @@ public class InstallationApi {
     }
 
     @POST
-    @Path("/install/whisper/{profileId}")
+    @Path("/install/parakeet/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response installWhisper(@PathParam("profileId") Long profileId) {
+    public Response installParakeet(@PathParam("profileId") Long profileId) {
         try {
-            installationController.installWhisper(profileId);
-            return Response.ok(ApiResponse.success("Whisper installation started")).build();
+            installationController.installParakeet(profileId);
+            return Response.ok(ApiResponse.success("Parakeet installation started")).build();
         } catch (Exception e) {
-            System.err.println("[ERROR] Error installing Whisper: " + e.getMessage());
+            System.err.println("[ERROR] Error installing Parakeet: " + e.getMessage());
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Error installing Whisper: " + e.getMessage()))
+                    .entity(ApiResponse.error("Error installing Parakeet: " + e.getMessage()))
                     .build();
         }
     }
@@ -180,17 +180,17 @@ public class InstallationApi {
     }
 
     @POST
-    @Path("/uninstall/whisper/{profileId}")
+    @Path("/uninstall/parakeet/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response uninstallWhisper(@PathParam("profileId") Long profileId) {
+    public Response uninstallParakeet(@PathParam("profileId") Long profileId) {
         try {
-            installationController.uninstallWhisper(profileId);
-            return Response.ok(ApiResponse.success("Whisper uninstallation started")).build();
+            installationController.uninstallParakeet(profileId);
+            return Response.ok(ApiResponse.success("Parakeet uninstallation started")).build();
         } catch (Exception e) {
-            System.err.println("[ERROR] Error uninstalling Whisper: " + e.getMessage());
+            System.err.println("[ERROR] Error uninstalling Parakeet: " + e.getMessage());
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Error uninstalling Whisper: " + e.getMessage()))
+                    .entity(ApiResponse.error("Error uninstalling Parakeet: " + e.getMessage()))
                     .build();
         }
     }

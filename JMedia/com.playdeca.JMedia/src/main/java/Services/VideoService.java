@@ -6,6 +6,7 @@ import Services.SmartNamingService;
 import Models.Genre;
 import Models.VideoGenre;
 import Models.SubtitleTrack;
+import Models.Profile;
 import Models.UserSubtitlePreferences;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
@@ -40,6 +41,9 @@ public class VideoService {
 
     @Inject
     SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
+
+    @Inject
+    SettingsService settingsService;
 
     // ========== CORE VIDEO OPERATIONS ==========
     
@@ -100,6 +104,157 @@ public class VideoService {
     public List<Long> findAllVideoIds() {
         return em.createQuery("SELECT v.id FROM Video v ORDER BY v.id", Long.class)
                 .getResultList();
+    }
+
+    // ========== AI SUBTITLE QUERIES ==========
+
+    @Transactional
+    public List<Video> findVideosWithAiSubtitles(int page, int limit) {
+        return Video.find("SELECT DISTINCT v FROM Video v JOIN v.subtitleTracks st WHERE st.isAiGenerated = true ORDER BY v.dateAdded DESC")
+                .page(Page.of(page, limit))
+                .list();
+    }
+
+    @Transactional
+    public long countVideosWithAiSubtitles() {
+        return Video.count("SELECT COUNT(DISTINCT v) FROM Video v JOIN v.subtitleTracks st WHERE st.isAiGenerated = true");
+    }
+
+    @Transactional
+    public List<Video> findAllPaginated(int page, int limit, String search, String filter) {
+        StringBuilder query = new StringBuilder("SELECT v FROM Video v");
+        java.util.List<String> conditions = new java.util.ArrayList<>();
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+
+        if (filter != null) {
+            switch (filter) {
+                case "no-ai":
+                    query.append(" WHERE v.id NOT IN (SELECT DISTINCT st.video.id FROM SubtitleTrack st WHERE st.isAiGenerated = true)");
+                    break;
+                case "no-subs":
+                    query.append(" WHERE v.hasSubtitles = false OR v.hasSubtitles IS NULL");
+                    break;
+            }
+        }
+
+        if (search != null && !search.trim().isEmpty()) {
+            String hasWhere = query.toString().toUpperCase().contains("WHERE") ? " AND" : " WHERE";
+            query.append(hasWhere).append(" (LOWER(v.title) LIKE :search OR LOWER(v.filename) LIKE :search)");
+            params.put("search", "%" + search.toLowerCase() + "%");
+        }
+
+        query.append(" ORDER BY v.dateAdded DESC");
+
+        jakarta.persistence.Query q = em.createQuery(query.toString(), Video.class);
+        for (java.util.Map.Entry<String, Object> entry : params.entrySet()) {
+            q.setParameter(entry.getKey(), entry.getValue());
+        }
+        q.setFirstResult(page * limit);
+        q.setMaxResults(limit);
+        return q.getResultList();
+    }
+
+    @Transactional
+    public long countAllPaginated(String search, String filter) {
+        StringBuilder query = new StringBuilder("SELECT COUNT(v) FROM Video v");
+        if (filter != null) {
+            switch (filter) {
+                case "no-ai":
+                    query.append(" WHERE v.id NOT IN (SELECT DISTINCT st.video.id FROM SubtitleTrack st WHERE st.isAiGenerated = true)");
+                    break;
+                case "no-subs":
+                    query.append(" WHERE v.hasSubtitles = false OR v.hasSubtitles IS NULL");
+                    break;
+            }
+        }
+        if (search != null && !search.trim().isEmpty()) {
+            String hasWhere = query.toString().toUpperCase().contains("WHERE") ? " AND" : " WHERE";
+            query.append(hasWhere).append(" (LOWER(v.title) LIKE :search OR LOWER(v.filename) LIKE :search)");
+            jakarta.persistence.Query q = em.createQuery(query.toString());
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
+            return (long) q.getSingleResult();
+        }
+        return (long) em.createQuery(query.toString()).getSingleResult();
+    }
+
+    // ========== SHOW/SERIES QUERIES FOR AI SUBTITLES ==========
+
+    @Transactional
+    public List<Object[]> findAllShowsWithAiStats(String search, String filter) {
+        // Returns [seriesTitle, totalEpisodes, episodesWithAiSubtitles, episodesWithAnySubtitles]
+        StringBuilder query = new StringBuilder(
+            "SELECT v.seriesTitle, COUNT(v), " +
+            "(SELECT COUNT(DISTINCT st2.video.id) FROM SubtitleTrack st2 WHERE st2.video.seriesTitle = v.seriesTitle AND st2.isAiGenerated = true), " +
+            "SUM(CASE WHEN v.hasSubtitles = true THEN 1 ELSE 0 END) " +
+            "FROM Video v WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL");
+
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+
+        if (search != null && !search.trim().isEmpty()) {
+            query.append(" AND LOWER(v.seriesTitle) LIKE :search");
+            params.put("search", "%" + search.toLowerCase() + "%");
+        }
+
+        if ("no-ai".equals(filter)) {
+            query.append(" AND v.id NOT IN (SELECT DISTINCT st.video.id FROM SubtitleTrack st WHERE st.isAiGenerated = true)");
+        } else if ("no-subs".equals(filter)) {
+            query.append(" AND (v.hasSubtitles = false OR v.hasSubtitles IS NULL)");
+        }
+
+        query.append(" GROUP BY v.seriesTitle ORDER BY v.seriesTitle");
+
+        jakarta.persistence.Query q = em.createQuery(query.toString());
+        for (java.util.Map.Entry<String, Object> entry : params.entrySet()) {
+            q.setParameter(entry.getKey(), entry.getValue());
+        }
+        return q.getResultList();
+    }
+
+    @Transactional
+    public List<Video> findEpisodesForShow(String seriesTitle, int page, int limit, String search, String filter) {
+        StringBuilder query = new StringBuilder("SELECT v FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = :seriesTitle");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("seriesTitle", seriesTitle);
+
+        if (search != null && !search.trim().isEmpty()) {
+            query.append(" AND (LOWER(v.title) LIKE :search OR LOWER(v.episodeTitle) LIKE :search OR LOWER(v.filename) LIKE :search)");
+            params.put("search", "%" + search.toLowerCase() + "%");
+        }
+
+        if ("no-ai".equals(filter)) {
+            query.append(" AND v.id NOT IN (SELECT DISTINCT st.video.id FROM SubtitleTrack st WHERE st.isAiGenerated = true)");
+        } else if ("no-subs".equals(filter)) {
+            query.append(" AND (v.hasSubtitles = false OR v.hasSubtitles IS NULL)");
+        }
+
+        query.append(" ORDER BY v.seasonNumber, v.episodeNumber");
+
+        jakarta.persistence.Query q = em.createQuery(query.toString(), Video.class);
+        for (java.util.Map.Entry<String, Object> entry : params.entrySet()) {
+            q.setParameter(entry.getKey(), entry.getValue());
+        }
+        q.setFirstResult(page * limit);
+        q.setMaxResults(limit);
+        return q.getResultList();
+    }
+
+    @Transactional
+    public long countEpisodesForShow(String seriesTitle, String search, String filter) {
+        StringBuilder query = new StringBuilder("SELECT COUNT(v) FROM Video v WHERE v.type = 'episode' AND v.seriesTitle = :seriesTitle");
+
+        if (search != null && !search.trim().isEmpty()) {
+            query.append(" AND (LOWER(v.title) LIKE :search OR LOWER(v.episodeTitle) LIKE :search OR LOWER(v.filename) LIKE :search)");
+        }
+
+        if ("no-ai".equals(filter)) {
+            query.append(" AND v.id NOT IN (SELECT DISTINCT st.video.id FROM SubtitleTrack st WHERE st.isAiGenerated = true)");
+        } else if ("no-subs".equals(filter)) {
+            query.append(" AND (v.hasSubtitles = false OR v.hasSubtitles IS NULL)");
+        }
+
+        jakarta.persistence.Query q = em.createQuery(query.toString());
+        q.setParameter("seriesTitle", seriesTitle);
+        return (long) q.getSingleResult();
     }
 
     @Transactional
@@ -471,14 +626,14 @@ public class VideoService {
         }
 
         // Try to find next episode in same season
-        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND isActive = true",
+        Video next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber > ?3 AND (folder is null or folder = '') AND isActive = true",
                 Sort.by("episodeNumber", Sort.Direction.Ascending),
                 current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
 
         if (next != null) return next;
 
         // If no more episodes in current season, try first episode of next season
-        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND isActive = true",
+        next = Video.<Video>find("seriesTitle = ?1 AND seasonNumber > ?2 AND (folder is null or folder = '') AND isActive = true",
                 Sort.by("seasonNumber", Sort.Direction.Ascending).and("episodeNumber", Sort.Direction.Ascending),
                 current.seriesTitle, current.seasonNumber).firstResult();
 
@@ -492,14 +647,14 @@ public class VideoService {
         }
 
         // Try to find previous episode in same season
-        Video prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber < ?3 AND isActive = true",
+        Video prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber = ?2 AND episodeNumber < ?3 AND (folder is null or folder = '') AND isActive = true",
                 Sort.by("episodeNumber", Sort.Direction.Descending),
                 current.seriesTitle, current.seasonNumber, current.episodeNumber).firstResult();
 
         if (prev != null) return prev;
 
         // If no more episodes in current season, try last episode of previous season
-        prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber < ?2 AND isActive = true",
+        prev = Video.<Video>find("seriesTitle = ?1 AND seasonNumber < ?2 AND (folder is null or folder = '') AND isActive = true",
                 Sort.by("seasonNumber", Sort.Direction.Descending).and("episodeNumber", Sort.Direction.Descending),
                 current.seriesTitle, current.seasonNumber).firstResult();
 
@@ -715,7 +870,7 @@ public class VideoService {
     }
 
     @Transactional
-    public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type, String showImdbId) {
+    public void updateMetadata(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type, String showImdbId, String imdbId) {
         Video video = Video.findById(id);
         if (video != null) {
             // Mark as manually edited when user explicitly sets these values
@@ -734,9 +889,12 @@ public class VideoService {
             if (showImdbId != null && !showImdbId.isBlank()) {
                 video.showImdbId = showImdbId;
             }
+            if (imdbId != null && !imdbId.isBlank()) {
+                video.imdbId = imdbId;
+            }
             video.dateModified = LocalDateTime.now();
             video.persist();
-            LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', showImdbId='{}', type='{}'", id, title, seriesTitle, showImdbId, type);
+            LOGGER.info("Updated metadata for video ID {}: title='{}', series='{}', imdbId='{}', showImdbId='{}', type='{}'", id, title, seriesTitle, imdbId, showImdbId, type);
         }
     }
 
@@ -1070,22 +1228,26 @@ public class VideoService {
 
     @Transactional
     public List<Video> findHistory(String search, int limit) {
-        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true";
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return List.of();
+
+        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true AND h.profile = :profile";
         if (search != null && !search.trim().isEmpty()) {
             hql += " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
         }
         hql += " ORDER BY h.playedAt DESC";
-        
+
         TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        query.setParameter("profile", activeProfile);
         if (search != null && !search.trim().isEmpty()) {
             query.setParameter("s", "%" + search.toLowerCase() + "%");
         }
-        
+
         List<Models.VideoHistory> history = query.getResultList();
-        
+
         java.util.Set<String> seenPaths = new java.util.HashSet<>();
         List<Models.Video> videos = new ArrayList<>();
-        
+
         for (Models.VideoHistory h : history) {
             if (h.mediaFile != null && seenPaths.add(h.mediaFile.path)) {
                 Models.Video v = Video.find("path", h.mediaFile.path).firstResult();

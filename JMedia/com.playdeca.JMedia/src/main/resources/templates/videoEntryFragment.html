@@ -20,11 +20,23 @@
     </div>
 </div>
 {#else}
-<div class="episode-entry" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'play')">
+<div class="episode-entry{#if video.watched} is-watched{/if}" data-video-id="{video.id}" data-series-title="{video.seriesTitle}" data-season-number="{video.seasonNumber}" data-episode-number="{video.episodeNumber}" data-watch-progress="{video.watchProgressPercent ?: 0}" data-watched="{video.watched ?: false}" onclick="window.selectItem({video.id}, 'play')">
     <div class="episode-thumbnail">
         <img src="/api/video/thumbnail/{video.id}" alt="{video.episodeTitle ?: video.title}" onerror="this.style.display='none'">
         <div class="episode-play-overlay">
             <i class="pi pi-play"></i>
+        </div>
+        {#if video.watchProgressPercent != null && video.watchProgressPercent > 0 && video.watchProgressPercent < 95}
+        <div class="episode-progress-track">
+            <div class="episode-progress-bar" style="width: {video.watchProgressPercent}%;"></div>
+        </div>
+        {/if}
+        <div class="episode-watched-toggle" onclick="event.stopPropagation(); toggleEpisodeWatched({video.id}, this)">
+            {#if video.watched}
+            <i class="pi pi-check-circle"></i>
+            {#else}
+            <i class="pi pi-circle"></i>
+            {/if}
         </div>
     </div>
     <div class="episode-details">
