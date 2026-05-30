@@ -76,13 +76,12 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public boolean isWhisperInstalled() {
+    public boolean isParakeetInstalled() {
         try {
-            // Try as Python module with each variant
             String[] pythonExecutables = getPythonExecutableVariants();
             for (String pythonExecutable : pythonExecutables) {
                 if (isCommandAvailable(pythonExecutable)) {
-                    return executeCommandForCheck(pythonExecutable + " -m whisper -h");
+                    return executeCommandForCheck(pythonExecutable + " -c \"import torch; import librosa; from transformers import AutoModelForTDT; print('available')\"");
                 }
             }
         } catch (Exception e) {
@@ -250,15 +249,21 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public void installWhisper(Long profileId) throws Exception {
-        broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Installing Whisper via pip...\n", profileId);
+    public void installParakeet(Long profileId) throws Exception {
+        broadcastInstallationProgress("parakeet", 0, true, profileId);
+        broadcast("Installing Parakeet dependencies (transformers, torch, librosa)...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        executeCommand(pythonExecutable + " -m pip install openai-whisper", profileId);
+        broadcast("Step 1/3: Installing torch...\n", profileId);
+        executeCommand(pythonExecutable + " -m pip install torch", profileId);
+        broadcast("Step 2/3: Installing librosa...\n", profileId);
+        executeCommand(pythonExecutable + " -m pip install librosa", profileId);
+        broadcast("Step 3/3: Installing transformers from source (Parakeet TDT)...\n", profileId);
+        executeCommand(pythonExecutable + " -m pip install git+https://github.com/huggingface/transformers", profileId);
         
-        broadcastInstallationProgress("whisper", 100, false, profileId);
-        broadcast("Whisper installation completed\n", profileId);
+        broadcastInstallationProgress("parakeet", 100, false, profileId);
+        broadcast("Parakeet dependencies installation completed\n", profileId);
+        broadcast("[PARAKEET_INSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -337,15 +342,16 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public void uninstallWhisper(Long profileId) throws Exception {
-        broadcastInstallationProgress("whisper", 0, true, profileId);
-        broadcast("Uninstalling Whisper...\n", profileId);
+    public void uninstallParakeet(Long profileId) throws Exception {
+        broadcastInstallationProgress("parakeet", 0, true, profileId);
+        broadcast("Uninstalling Parakeet dependencies...\n", profileId);
         
         String pythonExecutable = findPythonExecutable();
-        executeCommand(pythonExecutable + " -m pip uninstall openai-whisper -y", profileId);
+        executeCommand(pythonExecutable + " -m pip uninstall transformers librosa torch -y", profileId);
         
-        broadcastInstallationProgress("whisper", 100, false, profileId);
-        broadcast("Whisper uninstallation completed\n", profileId);
+        broadcastInstallationProgress("parakeet", 100, false, profileId);
+        broadcast("Parakeet dependencies uninstallation completed\n", profileId);
+        broadcast("[PARAKEET_UNINSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -440,8 +446,8 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public String getWhisperInstallMessage() {
-        return "Whisper is not installed. Please install Whisper using pip: pip install openai-whisper";
+    public String getParakeetInstallMessage() {
+        return "Parakeet TDT dependencies not installed. Please install torch, librosa, and transformers from source.";
     }
     
     @Override
@@ -470,8 +476,8 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public String getWhisperCommand() {
-        return "whisper";
+    public String getParakeetScriptCommand() {
+        return "run_parakeet.py";
     }
     
     @Override

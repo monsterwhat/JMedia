@@ -9,6 +9,7 @@
                 <input class="input" type="text" name="search" placeholder="Search title, file..." 
                        value="{search ?: ''}"
                        hx-get="/api/video/manage" 
+                       hx-include="[name='type']"
                        hx-trigger="keyup changed delay:500ms" 
                        hx-target="#spa-content"
                        style="width: 250px;">
@@ -34,8 +35,8 @@
         {#for show in shows}
         <div class="column is-12-mobile is-6-tablet is-4-desktop is-3-widescreen">
             <div class="manage-grid-card clickable-card" 
-                 hx-get="/api/video/manage/series/{show.seriesTitle}"
-                 hx-target="#spa-content"
+                 data-series-title="{show.seriesTitle}"
+                 onclick="window.videoSPA.switchSection('manageSeries', &#123;seriesTitle: this.dataset.seriesTitle})"
                  style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden; cursor: pointer;">
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">

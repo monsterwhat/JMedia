@@ -181,6 +181,7 @@ public class Video extends PanacheEntity {
     // Transient field for template display - populated from VideoState (not persisted to DB)
     public transient Double watchProgress;
     public transient Integer watchProgressPercent;
+    public transient Boolean watched;
     
     // User Ratings and Preferences
     public Integer userRatingStars = 0; // 1-10 stars

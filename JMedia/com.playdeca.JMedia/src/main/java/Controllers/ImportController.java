@@ -99,10 +99,10 @@ public class ImportController {
     }
 
     /**
-     * Installs Whisper.
+     * Installs Parakeet.
      */
-    public void installWhisper(Long profileId) throws Exception {
-        importService.installWhisper(profileId);
+    public void installParakeet(Long profileId) throws Exception {
+        importService.installParakeet(profileId);
     }
 
     /**
@@ -134,9 +134,9 @@ public class ImportController {
     }
 
     /**
-     * Uninstalls Whisper.
+     * Uninstalls Parakeet.
      */
-    public void uninstallWhisper(Long profileId) throws Exception {
-        importService.uninstallWhisper(profileId);
+    public void uninstallParakeet(Long profileId) throws Exception {
+        importService.uninstallParakeet(profileId);
     }
 }

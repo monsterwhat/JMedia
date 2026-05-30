@@ -55,7 +55,7 @@ public class InstallationService {
             boolean spotdlInstalled = platformOps.isSpotdlInstalled();
             boolean ytdlpInstalled = platformOps.isYtdlpInstalled();
             boolean ffmpegInstalled = platformOps.isFFmpegInstalled();
-            boolean whisperInstalled = platformOps.isWhisperInstalled();
+            boolean parakeetInstalled = platformOps.isParakeetInstalled();
             
             String packageManagerMessage = packageManagerInstalled ? 
                 platformOps.getPackageManagerName() + " found" : 
@@ -75,9 +75,9 @@ public class InstallationService {
             String ffmpegMessage = ffmpegInstalled ? 
                 "FFmpeg found" : 
                 platformOps.getFFmpegInstallMessage();
-            String whisperMessage = whisperInstalled ? 
-                "Whisper found" : 
-                platformOps.getWhisperInstallMessage();
+            String parakeetMessage = parakeetInstalled ? 
+                "Parakeet found" : 
+                platformOps.getParakeetInstallMessage();
             
             // Log final detection results
             LOGGER.info("Library installation status detection completed:");
@@ -87,10 +87,10 @@ public class InstallationService {
             LOGGER.info("  SpotDL: {} - {}", spotdlInstalled ? "INSTALLED" : "NOT INSTALLED", spotdlMessage);
             LOGGER.info("  yt-dlp: {} - {}", ytdlpInstalled ? "INSTALLED" : "NOT INSTALLED", ytdlpMessage);
             LOGGER.info("  FFmpeg: {} - {}", ffmpegInstalled ? "INSTALLED" : "NOT INSTALLED", ffmpegMessage);
-            LOGGER.info("  Whisper: {} - {}", whisperInstalled ? "INSTALLED" : "NOT INSTALLED", whisperMessage);
+            LOGGER.info("  Parakeet: {} - {}", parakeetInstalled ? "INSTALLED" : "NOT INSTALLED", parakeetMessage);
             
-            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, whisperInstalled, 
-                    packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, whisperMessage);
+            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, parakeetInstalled, 
+                    packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, parakeetMessage);
             
             // Update cache
             statusCache.set(new CachedStatus(now, status));
@@ -106,7 +106,7 @@ public class InstallationService {
                     "Error checking SpotDL: " + e.getMessage(),
                     "Error checking yt-dlp: " + e.getMessage(),
                     "Error checking FFmpeg: " + e.getMessage(),
-                    "Error checking Whisper: " + e.getMessage()
+                    "Error checking Parakeet: " + e.getMessage()
             );
         }
     }
@@ -336,14 +336,14 @@ public class InstallationService {
     }
 
     /**
-     * Installs Whisper.
+     * Installs Parakeet.
      *
      * @param profileId The profile ID for broadcasting status updates
      * @throws Exception If installation fails
      */
-    public void installWhisper(Long profileId) throws Exception {
+    public void installParakeet(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
-        platformOps.installWhisper(profileId);
+        platformOps.installParakeet(profileId);
         clearCache();
     }
     
@@ -408,14 +408,14 @@ public class InstallationService {
     }
 
     /**
-     * Uninstalls Whisper.
+     * Uninstalls Parakeet.
      *
      * @param profileId The profile ID for broadcasting status updates
      * @throws Exception If uninstallation fails
      */
-    public void uninstallWhisper(Long profileId) throws Exception {
+    public void uninstallParakeet(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
-        platformOps.uninstallWhisper(profileId);
+        platformOps.uninstallParakeet(profileId);
         clearCache();
     }
     
@@ -444,8 +444,8 @@ public class InstallationService {
             if (!status.ffmpegInstalled) {
                 errorMessage.append("- FFmpeg: ").append(status.ffmpegMessage).append("\n");
             }
-            if (!status.whisperInstalled) {
-                errorMessage.append("- Whisper: ").append(status.whisperMessage).append("\n");
+            if (!status.parakeetInstalled) {
+                errorMessage.append("- Parakeet: ").append(status.parakeetMessage).append("\n");
             }
             throw new Exception(errorMessage.toString());
         }

@@ -457,8 +457,8 @@ public class ImportService {
         }
     }
 
-    public void installWhisper(Long profileId) throws Exception {
-        installationService.installWhisper(profileId);
+    public void installParakeet(Long profileId) throws Exception {
+        installationService.installParakeet(profileId);
     }
 
     public void uninstallPython(Long profileId) throws Exception {
@@ -477,8 +477,8 @@ public class ImportService {
         installationService.uninstallSpotdl(profileId);
     }
 
-    public void uninstallWhisper(Long profileId) throws Exception {
-        installationService.uninstallWhisper(profileId);
+    public void uninstallParakeet(Long profileId) throws Exception {
+        installationService.uninstallParakeet(profileId);
     }
 
     // Delegate metadata methods to MetadataService

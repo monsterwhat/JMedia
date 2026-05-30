@@ -77,6 +77,11 @@ public class Settings extends PanacheEntity {
     private Boolean enableMetadataEnrichment = true; // Enrich missing metadata from external APIs during reload
     private Boolean enableBpmExtraction = true; // Extract BPM using FFmpeg during reload
     
+    // Video auto-skip settings
+    private Boolean autoSkipIntro = false;
+    private Boolean autoSkipRecap = false;
+    private Boolean autoSkipOutro = false;
+
     // YouTube (yt-dlp) advanced options
     private Boolean youtubeForceIpv4 = false;
     private Boolean youtubeForceIpv6 = false;
@@ -339,6 +344,31 @@ public class Settings extends PanacheEntity {
         return bpmTolerance != null ? bpmTolerance : 10;
     }
     
+    // Video auto-skip getters and setters
+    public Boolean getAutoSkipIntro() {
+        return autoSkipIntro != null ? autoSkipIntro : false;
+    }
+
+    public void setAutoSkipIntro(Boolean autoSkipIntro) {
+        this.autoSkipIntro = autoSkipIntro;
+    }
+
+    public Boolean getAutoSkipRecap() {
+        return autoSkipRecap != null ? autoSkipRecap : false;
+    }
+
+    public void setAutoSkipRecap(Boolean autoSkipRecap) {
+        this.autoSkipRecap = autoSkipRecap;
+    }
+
+    public Boolean getAutoSkipOutro() {
+        return autoSkipOutro != null ? autoSkipOutro : false;
+    }
+
+    public void setAutoSkipOutro(Boolean autoSkipOutro) {
+        this.autoSkipOutro = autoSkipOutro;
+    }
+
     // YouTube advanced options getters and setters
     public Boolean getYoutubeForceIpv4() {
         return youtubeForceIpv4 != null ? youtubeForceIpv4 : false;

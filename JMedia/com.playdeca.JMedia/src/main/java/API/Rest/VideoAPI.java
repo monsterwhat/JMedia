@@ -31,6 +31,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.microprofile.context.ManagedExecutor;
@@ -346,6 +347,22 @@ public class VideoAPI {
         final double startPos = startSeconds;
         final int audioTrack = audioTrackIndex;
         
+        // If client sends a Range probe (bytes=0-1), return 2 empty bytes — don't start transcoding.
+        // iOS/Safari sends this to verify server supports Range requests.
+        // Starting a full transcode for a 2-byte probe wastes resources and triggers "Broken pipe"
+        // when the client closes. The body must actually contain 2 bytes or the browser retries indefinitely.
+        if (rangeHeader != null && rangeHeader.contains("bytes=0-1")) {
+            LOG.info("Stream: Range probe (bytes=0-1) for video {}, returning 2-byte response", videoId);
+            return Response.status(Response.Status.PARTIAL_CONTENT)
+                    .entity(new byte[]{0, 0})
+                    .header("Content-Type", "video/mp4")
+                    .header("Accept-Ranges", "bytes")
+                    .header("Content-Range", "bytes 0-1/*")
+                    .header("Content-Length", "2")
+                    .header("Cache-Control", "no-cache")
+                    .build();
+        }
+        
         LOG.info("Stream: Starting transcode/remux for video {} from {} seconds, audio track {}", videoId, startPos, audioTrack >= 0 ? audioTrack : "default");
         
         StreamingOutput streamingOutput = output -> {
@@ -360,18 +377,11 @@ public class VideoAPI {
             }
         };
 
-        Response.ResponseBuilder responseBuilder = Response.ok(streamingOutput)
+        return Response.ok(streamingOutput)
                 .header("Content-Type", "video/mp4")
                 .header("Accept-Ranges", "bytes")
-                .header("Cache-Control", "no-cache");
-
-        // If client sends a Range probe (common in iOS/Safari/Firefox), return 206 Partial Content.
-        if (rangeHeader != null && rangeHeader.contains("bytes=0-1")) {
-            responseBuilder.status(Response.Status.PARTIAL_CONTENT);
-            responseBuilder.header("Content-Range", "bytes 0-1/*");
-        }
-        
-        return responseBuilder.build();
+                .header("Cache-Control", "no-cache")
+                .build();
     }
 
     private Response streamDirectFile(File videoFile, String rangeHeader) {
@@ -1015,6 +1025,45 @@ public class VideoAPI {
 
     @Inject
     Services.VideoStoryboardService storyboardService;
+
+    @POST
+    @Path("/progress/{videoId}/toggle-watched")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    @Transactional
+    public Response toggleWatched(@PathParam("videoId") Long videoId) {
+        try {
+            Models.Video video = Models.Video.findById(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Video not found")).build();
+            }
+
+            Models.Profile activeProfile = settingsService.getActiveProfile();
+            if (activeProfile == null) {
+                return Response.status(Response.Status.UNAUTHORIZED)
+                        .entity(ApiResponse.error("No active profile")).build();
+            }
+
+            Models.VideoState state = videoStateService.getOrCreate(video);
+            state.watched = !Boolean.TRUE.equals(state.watched);
+            if (Boolean.TRUE.equals(state.watched)) {
+                state.watchProgress = 1.0;
+            } else {
+                state.watchProgress = 0.0;
+                state.currentTime = 0.0;
+            }
+            state.persist();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("watched", state.watched);
+            result.put("watchProgress", state.watchProgress);
+            return Response.ok(ApiResponse.success(result)).build();
+        } catch (Exception e) {
+            LOG.error("Error toggling watched for video {}: {}", videoId, e.getMessage());
+            return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
+        }
+    }
 
     @POST
     @Path("/progress/{videoId}")

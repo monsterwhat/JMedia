@@ -76,6 +76,7 @@
         <script src="/js/navbar.js" defer></script>
         <script src="/js/users.js" defer></script>
         <script src="/js/sessionManagement.js" defer></script>
+        <script src="/js/ai-subtitle-generator.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
 
     </head>
@@ -215,6 +216,9 @@
                         <a href="javascript:void(0)" class="nav-item admin-only" data-tab="session-management">
                             <i class="pi pi-id-card"></i> <span>Sessions</span>
                         </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="ai-subtitle-generator">
+                            <i class="pi pi-magic"></i> <span>AI Subtitles</span>
+                        </a>
                     </div>
 
                     <div class="nav-group mt-auto">
@@ -338,6 +342,7 @@
                             <li id="manual-tab-btn"><a onclick="subtitleManager.switchTab('manual')">Manual Find</a></li>
                             <li id="ai-tab-btn"><a onclick="subtitleManager.switchTab('ai')">AI Generation</a></li>
                             <li id="style-tab-btn"><a onclick="subtitleManager.switchTab('style')">Style</a></li>
+                            <li id="upload-tab-btn"><a onclick="subtitleManager.switchTab('upload')">Upload</a></li>
                         </ul>
                     </div>
 
@@ -430,8 +435,8 @@
                     <div id="ai-tab-content" style="display: none;">
                         <div class="content has-text-centered py-4">
                             <i class="pi pi-bolt" style="font-size: 3rem; color: #ffa502;"></i>
-                            <h3 class="title is-5 mt-3">Whisper AI Generation</h3>
-                            <p class="mb-3">Generate high-quality subtitles using OpenAI Whisper directly from the video audio.</p>
+                            <h3 class="title is-5 mt-3">Parakeet AI Generation</h3>
+                            <p class="mb-3">Generate high-quality subtitles using NVIDIA Parakeet TDT directly from the video audio.</p>
                             <p class="help mb-3">This process runs in the background and may take several minutes depending on video length and server hardware.</p>
                             
                             <button class="button is-warning is-rounded is-medium" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
@@ -534,6 +539,66 @@
                                 <i class="pi pi-save mr-2"></i> Save Settings
                             </button>
                             <button class="button is-ghost" onclick="subtitleManager.resetStyle()">Reset to Default</button>
+                        </div>
+                    </div>
+
+                    <!-- Upload Tab -->
+                    <div id="upload-tab-content" style="display: none;">
+                        <div class="field">
+                            <label class="label">Upload Subtitle File</label>
+                            <p class="help mb-4">Select a subtitle file from your computer to upload for this video. Supported formats: SRT, VTT, ASS, SSA, SUB.</p>
+                            <div class="file has-name is-fullwidth is-boxed" id="subtitleFileUpload">
+                                <label class="file-label">
+                                    <input class="file-input" type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa,.sub,.idx" onchange="subtitleManager.onFileSelected(event)">
+                                    <span class="file-cta">
+                                        <span class="file-icon">
+                                            <i class="pi pi-upload"></i>
+                                        </span>
+                                        <span class="file-label">Choose file</span>
+                                    </span>
+                                    <span class="file-name" id="subtitleUploadFileName">No file selected</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="columns">
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Language</label>
+                                    <div class="control">
+                                        <span class="select is-fullwidth is-rounded">
+                                            <select id="subtitleUploadLanguage">
+                                                <option value="en">English</option>
+                                                <option value="es">Español</option>
+                                                <option value="spl">Español (Latinoamérica)</option>
+                                                <option value="fr">Français</option>
+                                                <option value="de">Deutsch</option>
+                                                <option value="it">Italiano</option>
+                                                <option value="pt">Português</option>
+                                                <option value="ru">Русский</option>
+                                                <option value="ja">日本語</option>
+                                                <option value="ko">한국어</option>
+                                                <option value="zh">中文</option>
+                                            </select>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Display Name</label>
+                                    <div class="control">
+                                        <input class="input is-rounded" type="text" id="subtitleUploadName" placeholder="e.g. English (Forced)">
+                                    </div>
+                                    <p class="help">Optional. Leave empty to use the filename.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <div class="control">
+                                <button class="button is-success is-rounded is-medium" id="uploadSubtitleBtn" onclick="subtitleManager.uploadSubtitle()" disabled>
+                                    <i class="pi pi-upload"></i>&nbsp;Upload Subtitle
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </section>

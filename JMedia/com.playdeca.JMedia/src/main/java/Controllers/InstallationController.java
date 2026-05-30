@@ -48,10 +48,10 @@ public class InstallationController {
     }
 
     /**
-     * Installs Whisper.
+     * Installs Parakeet.
      */
-    public void installWhisper(Long profileId) throws Exception {
-        installationService.installWhisper(profileId);
+    public void installParakeet(Long profileId) throws Exception {
+        installationService.installParakeet(profileId);
     }
 
     /**
@@ -83,9 +83,9 @@ public class InstallationController {
     }
 
     /**
-     * Uninstalls Whisper.
+     * Uninstalls Parakeet.
      */
-    public void uninstallWhisper(Long profileId) throws Exception {
-        installationService.uninstallWhisper(profileId);
+    public void uninstallParakeet(Long profileId) throws Exception {
+        installationService.uninstallParakeet(profileId);
     }
 }

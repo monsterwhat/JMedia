@@ -29,6 +29,7 @@ class VideoContextMenu {
     updateMenuContent() {
         const isShow = this.currentVideoData && (this.currentVideoData.type === 'Show' || this.currentVideoData.type === 'Series');
         const isSeason = this.currentVideoData && this.currentVideoData.type === 'Season';
+        const isEpisode = this.currentVideoData && (this.currentVideoData.type === 'episode' || this.currentVideoData.type === 'Episode');
         
         this.contextMenu.innerHTML = `
             <div class="context-menu-item" data-action="play">
@@ -67,6 +68,12 @@ class VideoContextMenu {
                 <i class="pi pi-refresh"></i>
                 <span>Reload Metadata</span>
             </div>
+            ${isEpisode ? `
+            <div class="context-menu-item" data-action="reload-episode">
+                <i class="pi pi-refresh"></i>
+                <span>Force Reload Episode</span>
+            </div>
+            ` : ''}
         `;
     }
 
@@ -184,6 +191,9 @@ class VideoContextMenu {
             case 'reload-metadata':
                 this.reloadMetadata();
                 break;
+            case 'reload-episode':
+                this.reloadEpisode();
+                break;
         }
     }
 
@@ -252,6 +262,23 @@ class VideoContextMenu {
             }
         } catch (error) {
             console.error('Error reloading metadata:', error);
+        }
+    }
+
+    async reloadEpisode() {
+        try {
+            this.showNotification('Reloading episode metadata...', 'info');
+            const response = await fetch(`/api/video/metadata/${this.currentVideoId}/reload`, {
+                method: 'POST'
+            });
+            if (response.ok) {
+                this.showNotification('Episode metadata reload started', 'success');
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                this.showNotification('Failed to reload episode metadata', 'danger');
+            }
+        } catch (error) {
+            console.error('Error reloading episode metadata:', error);
         }
     }
 
@@ -393,7 +420,11 @@ function extractVideoData(el) {
             sampleVideoId: target.dataset.sampleVideoId
         };
 
-        if (target.dataset.seriesTitle && target.dataset.seasonNumber) {
+        if (data.type === 'episode' || data.type === 'Episode') {
+            data.seriesTitle = target.dataset.seriesTitle || '';
+            data.seasonNumber = target.dataset.seasonNumber || '';
+            data.episodeNumber = target.dataset.episodeNumber || '';
+        } else if (target.dataset.seriesTitle && target.dataset.seasonNumber) {
             data.type = 'Season';
             data.seriesTitle = target.dataset.seriesTitle;
             data.seasonNumber = target.dataset.seasonNumber;

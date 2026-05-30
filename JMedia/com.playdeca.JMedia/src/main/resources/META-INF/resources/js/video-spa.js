@@ -13,6 +13,7 @@ class VideoSPA {
             suggestion: '/api/video/ui/suggestion-fragment',
             adminSuggestions: '/api/video/ui/admin-suggestions-fragment',
             manage: '/api/video/manage',
+            manageSeries: '/api/video/manage/series/{seriesTitle}',
             seasons: '/api/video/ui/shows/{encodedTitle}/seasons-fragment',
             episodes: '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/episodes-fragment',
             'folder-episodes': '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/folders/{folderName}/episodes-fragment',
@@ -88,6 +89,8 @@ class VideoSPA {
             const dest = this.backDestination;
             this.backDestination = null;
             this.switchSection(dest.section, dest.params || {}, true);
+            const spaUrl = this.buildSpaUrl(dest.section, dest.params || {});
+            history.replaceState({ section: dest.section, params: dest.params, view: 'video' }, '', spaUrl);
             return;
         }
         
@@ -101,14 +104,15 @@ class VideoSPA {
 
             if (type === 'episode' && seriesTitle) {
                 console.log('[VideoSPA] Inferring back to episodes list');
-                this.switchSection('episodes', { 
-                    seriesTitle: seriesTitle, 
-                    seasonNumber: seasonNumber || 1 
-                }, true);
+                const params = { seriesTitle: seriesTitle, seasonNumber: seasonNumber || 1 };
+                this.switchSection('episodes', params, true);
+                history.replaceState({ section: 'episodes', params, view: 'video' }, '', this.buildSpaUrl('episodes', params));
                 return;
             } else if (videoId) {
                 console.log('[VideoSPA] Inferring back to details page');
-                this.switchSection('details', { videoId: videoId }, true);
+                const params = { videoId: videoId };
+                this.switchSection('details', params, true);
+                history.replaceState({ section: 'details', params, view: 'video' }, '', this.buildSpaUrl('details', params));
                 return;
             }
         }
@@ -420,6 +424,7 @@ class VideoSPA {
         this.applySidebarPreference();
         this.initKeyboardNavigation();
         this.initSearchClear();
+        this.initWatchedToggleDelegate();
         
         const urlParams = new URLSearchParams(window.location.search);
         const section = urlParams.get('section');
@@ -461,9 +466,48 @@ class VideoSPA {
         };
         document.addEventListener('click', this.handleClick);
     }
+
+    initWatchedToggleDelegate() {
+        document.addEventListener('click', (e) => {
+            const toggle = e.target.closest('.standard-watched-toggle');
+            if (!toggle) return;
+            e.stopPropagation();
+            const card = toggle.closest('[data-video-id]');
+            if (!card) return;
+            const videoId = parseInt(card.getAttribute('data-video-id'));
+            if (!videoId) return;
+            window.toggleWatched(videoId, toggle);
+        }, true);
+    }
 }
 
 window.videoSPA = new VideoSPA();
+
+window.toggleWatched = function(videoId, el) {
+    fetch('/api/video/progress/' + videoId + '/toggle-watched', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const icon = el.querySelector('i');
+                const entry = el.closest('[data-video-id]');
+                if (data.data.watched) {
+                    if (icon) icon.className = 'pi pi-check-circle';
+                    if (entry) entry.classList.add('is-watched');
+                    if (window.showToast) window.showToast('Marked as watched', 'success');
+                } else {
+                    if (icon) icon.className = 'pi pi-circle';
+                    if (entry) entry.classList.remove('is-watched');
+                    if (window.showToast) window.showToast('Marked as unwatched', 'info');
+                }
+            } else {
+                if (window.showToast) window.showToast(data.error || 'Failed to toggle', 'danger');
+            }
+        })
+        .catch(err => {
+            console.error('Error toggling watched:', err);
+            if (window.showToast) window.showToast('Error toggling watched status', 'danger');
+        });
+};
 
 window.videoSearchTimeout = null;
 window.handleVideoSearch = function(section, query) {

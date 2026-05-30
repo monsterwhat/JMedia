@@ -1,5 +1,5 @@
 // Global state tracking
-window.componentStates = { choco: false, python: false, ffmpeg: false, spotdl: false, whisper: false };
+window.componentStates = { choco: false, python: false, ffmpeg: false, spotdl: false, parakeet: false };
 
 document.body.addEventListener('htmx:configRequest', function(evt) {
     const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
@@ -348,7 +348,7 @@ window.initSettingsView = async function() {
         };
     }
 
-    ['choco', 'python', 'ffmpeg', 'spotdl', 'whisper'].forEach(c => {
+    ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet'].forEach(c => {
         const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
         if (btn) btn.onclick = () => handleComponentAction(c, btn);
     });
@@ -400,12 +400,24 @@ window.initSettingsView = async function() {
                 }
             }
             if (target === 'logs') window.setupLogWebSocket();
+            if (target === 'ai-subtitle-generator') {
+                if (window.loadAiSubtitleVideos) {
+                    window.loadAiSubtitleVideos(0);
+                }
+                if (window.loadCompletedAiSubtitles) {
+                    window.loadCompletedAiSubtitles(0);
+                }
+                if (window.resumeIfJobRunning) {
+                    window.resumeIfJobRunning();
+                }
+            }
         };
     });
 
     window.loadProfiles();
     window.loadPlaybackSettings();
     window.loadUiSettings();
+    window.loadAutoSkipSettings();
     window.refreshSettingsUI();
     window.setupLogWebSocket();
 };
@@ -460,6 +472,42 @@ window.savePlaybackSettings = async function () {
     } catch (e) {}
 };
 
+window.loadAutoSkipSettings = async function () {
+    const profileId = window.globalActiveProfileId || '1';
+    try {
+        const res = await fetch(`/api/settings/${profileId}`);
+        const json = await res.json();
+        if (res.ok && json.data) {
+            const d = json.data;
+            const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val === true; };
+            setCheck('autoSkipIntro', d.autoSkipIntro);
+            setCheck('autoSkipRecap', d.autoSkipRecap);
+            setCheck('autoSkipOutro', d.autoSkipOutro);
+        }
+    } catch (e) {}
+};
+
+window.saveAutoSkipSettings = async function () {
+    const profileId = window.globalActiveProfileId || '1';
+    const data = {
+        autoSkipIntro: document.getElementById('autoSkipIntro')?.checked || false,
+        autoSkipRecap: document.getElementById('autoSkipRecap')?.checked || false,
+        autoSkipOutro: document.getElementById('autoSkipOutro')?.checked || false
+    };
+    try {
+        const res = await fetch(`/api/settings/${profileId}/auto-skip`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (res.ok && window.showToast) {
+            window.showToast('Auto-skip settings saved', 'success');
+        }
+    } catch (e) {
+        if (window.showToast) window.showToast('Failed to save auto-skip settings', 'error');
+    }
+};
+
 window.loadProfiles = async function () {
     const list = document.getElementById('profileList');
     if (!list) return;
@@ -512,7 +560,7 @@ function setupInstallationWebSocket() {
     window.installationWebSocket = new WebSocket(`${protocol}${location.host}/ws/import-status/${profileId}`);
     window.installationWebSocket.onmessage = (e) => {
         const msg = e.data;
-        ['CHOCO', 'PYTHON', 'FFMPEG', 'SPOTDL', 'WHISPER'].forEach(c => {
+        ['CHOCO', 'PYTHON', 'FFMPEG', 'SPOTDL', 'PARAKEET'].forEach(c => {
             if (msg.includes(`[${c}_INSTALLATION_FINISHED]`) || msg.includes(`[${c}_UNINSTALLATION_FINISHED]`)) window.loadInstallationStatus();
         });
     };
@@ -525,7 +573,7 @@ window.loadInstallationStatus = async function () {
         const json = await res.json();
         const status = json.data || json;
         if (status) {
-            ['choco', 'python', 'ffmpeg', 'spotdl', 'whisper'].forEach(c => {
+    ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet'].forEach(c => {
                 const isInst = status[`${c}Installed`];
                 window.componentStates[c] = isInst;
                 const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);

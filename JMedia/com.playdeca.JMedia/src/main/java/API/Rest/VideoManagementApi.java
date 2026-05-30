@@ -8,6 +8,7 @@ import Models.DTOs.TvShowDTO;
 import io.quarkus.qute.Template;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -101,28 +102,34 @@ public class VideoManagementApi {
     @GET
     @Path("/series/{seriesTitle}")
     @Blocking
+    @Transactional
     public String getSeriesEpisodes(@PathParam("seriesTitle") String seriesTitle) {
-        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
-        if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
-        
-        Video representative = episodes.get(0);
-        String jsonEpisodes = "[]";
         try {
-            List<Models.DTOs.SimpleEpisodeDTO> simpleEpisodes = episodes.stream()
-                    .map(Models.DTOs.SimpleEpisodeDTO::new)
-                    .collect(Collectors.toList());
-            jsonEpisodes = objectMapper.writeValueAsString(simpleEpisodes);
-        } catch (Exception e) {
-            LOG.error("Failed to serialize episodes", e);
-        }
+            List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+            if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
+            
+            Video representative = episodes.get(0);
+            String jsonEpisodes = "[]";
+            try {
+                List<Models.DTOs.SimpleEpisodeDTO> simpleEpisodes = episodes.stream()
+                        .map(Models.DTOs.SimpleEpisodeDTO::new)
+                        .collect(Collectors.toList());
+                jsonEpisodes = objectMapper.writeValueAsString(simpleEpisodes);
+            } catch (Exception e) {
+                LOG.error("Failed to serialize episodes", e);
+            }
 
-        return seriesEpisodesFragment
-                .data("seriesTitle", seriesTitle)
-                .data("episodes", episodes)
-                .data("jsonEpisodes", jsonEpisodes)
-                .data("posterPath", representative.posterPath)
-                .data("backdropPath", representative.backdropPath)
-                .render();
+            return seriesEpisodesFragment
+                    .data("seriesTitle", seriesTitle)
+                    .data("episodes", episodes)
+                    .data("jsonEpisodes", jsonEpisodes)
+                    .data("posterPath", representative.posterPath)
+                    .data("backdropPath", representative.backdropPath)
+                    .render();
+        } catch (Exception e) {
+            LOG.error("Error loading series episodes for '{}'", seriesTitle, e);
+            return "<div class='notification is-danger'><strong>Error loading series:</strong> " + e.getMessage() + "</div>";
+        }
     }
 
     @POST
@@ -133,14 +140,15 @@ public class VideoManagementApi {
             @FormParam("seriesTitle") String seriesTitle,
             @FormParam("newTitle") String newTitle,
             @FormParam("posterPath") String posterPath,
-            @FormParam("backdropPath") String backdropPath) {
+            @FormParam("backdropPath") String backdropPath,
+            @FormParam("showImdbId") String showImdbId) {
         
         if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
             videoService.updateSeriesTitle(seriesTitle, newTitle);
             seriesTitle = newTitle; // Use new title for metadata update
         }
         
-        videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath);
+        videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId);
         return Response.ok("Series updated successfully").build();
     }
 
@@ -249,27 +257,32 @@ public class VideoManagementApi {
     @GET
     @Path("/edit-series/{seriesTitle}")
     @Blocking
+    @Transactional
     public String getEditSeriesFragment(@PathParam("seriesTitle") String seriesTitle) {
         List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
         if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
         
         Video representative = episodes.get(0);
         
-        return " <form hx-post='/api/video/manage/series/update' hx-swap='none' class='p-2'>" +
-               " <input type='hidden' name='seriesTitle' value='" + seriesTitle + "'>" +
-               " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Series Name (Rename All)</label>" +
-               " <div class='control'><input class='input is-dark' type='text' name='newTitle' value='" + seriesTitle + "' " +
-               " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div>" +
-               " <p class='help has-text-grey'>Renaming here will update all " + episodes.size() + " episodes.</p></div>" +
-               " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Poster Path</label>" +
-               " <div class='control'><input class='input is-dark' type='text' name='posterPath' value='" + (representative.posterPath != null ? representative.posterPath : "") + "' " +
-               " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div></div>" +
-               " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Backdrop Path</label>" +
-               " <div class='control'><input class='input is-dark' type='text' name='backdropPath' value='" + (representative.backdropPath != null ? representative.backdropPath : "") + "' " +
-               " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div></div>" +
-               " <div class='field mt-5'><div class='control'><button class='button is-info is-fullwidth' type='submit'>" +
-               " <i class='pi pi-save mr-2'></i> Save Series Changes</button></div></div>" +
-               " </form>";
+         return " <form hx-post='/api/video/manage/series/update' hx-swap='none' class='p-2'>" +
+                " <input type='hidden' name='seriesTitle' value='" + seriesTitle + "'>" +
+                " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Series Name (Rename All)</label>" +
+                " <div class='control'><input class='input is-dark' type='text' name='newTitle' value='" + seriesTitle + "' " +
+                " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div>" +
+                " <p class='help has-text-grey'>Renaming here will update all " + episodes.size() + " episodes.</p></div>" +
+                " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Poster Path</label>" +
+                " <div class='control'><input class='input is-dark' type='text' name='posterPath' value='" + (representative.posterPath != null ? representative.posterPath : "") + "' " +
+                " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div></div>" +
+                " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Backdrop Path</label>" +
+                " <div class='control'><input class='input is-dark' type='text' name='backdropPath' value='" + (representative.backdropPath != null ? representative.backdropPath : "") + "' " +
+                " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;'></div></div>" +
+                " <div class='field'><label class='label' style='color: rgba(255,255,255,0.7);'>Series IMDb ID</label>" +
+                " <div class='control'><input class='input is-dark' type='text' name='showImdbId' value='" + (representative.showImdbId != null ? representative.showImdbId : "") + "' " +
+                " style='background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: white;' placeholder='e.g. tt0096697'></div>" +
+                " <p class='help has-text-grey'>The IMDb ID of this TV series (e.g. tt0096697 for The Simpsons)</p></div>" +
+                " <div class='field mt-5'><div class='control'><button class='button is-info is-fullwidth' type='submit'>" +
+                " <i class='pi pi-save mr-2'></i> Save Series Changes</button></div></div>" +
+                " </form>";
     }
 
     @POST
@@ -284,9 +297,10 @@ public class VideoManagementApi {
             @FormParam("seasonNumber") Integer seasonNumber,
             @FormParam("episodeNumber") Integer episodeNumber,
             @FormParam("type") String type,
-            @FormParam("showImdbId") String showImdbId) {
+            @FormParam("showImdbId") String showImdbId,
+            @FormParam("imdbId") String imdbId) {
         
-        videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId);
+        videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId, imdbId);
         return Response.ok("Metadata updated successfully").build();
     }
 

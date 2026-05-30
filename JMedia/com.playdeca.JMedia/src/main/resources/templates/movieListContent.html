@@ -55,13 +55,25 @@
     {#else}
         <div class="standard-grid">
             {#for movie in movies}
-                <div class="standard-card" data-video-id="{movie.id}" onclick="window.selectItem({movie.id}, 'details')">
+                <div class="standard-card{#if movie.watched} is-watched{/if}" data-video-id="{movie.id}" data-watch-progress="{movie.watchProgressPercent ?: 0}" data-watched="{movie.watched ?: false}" onclick="window.selectItem({movie.id}, 'details')">
                     <div class="standard-card-poster">
                         <img class="poster-img" src="/api/video/thumbnail/{movie.id}" alt="{movie.title}" loading="lazy">
                         <div class="standard-card-overlay">
                             <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({movie.id}, 'play')">
                                 <i class="pi pi-play"></i>
                             </div>
+                        </div>
+                        {#if movie.watchProgressPercent != null && movie.watchProgressPercent > 0 && movie.watchProgressPercent < 95}
+                        <div class="card-progress-container">
+                            <div class="card-progress-bar" style="width: {movie.watchProgressPercent}%;"></div>
+                        </div>
+                        {/if}
+                        <div class="standard-watched-toggle">
+                            {#if movie.watched}
+                            <i class="pi pi-check-circle"></i>
+                            {#else}
+                            <i class="pi pi-circle"></i>
+                            {/if}
                         </div>
                     </div>
                     <div class="standard-card-info">
@@ -116,3 +128,48 @@
         {/if}
     {/if}
 </div>
+
+<style>
+.standard-card.is-watched {
+    opacity: 0.75;
+}
+.standard-card.is-watched .poster-img {
+    filter: saturate(0.6);
+}
+.standard-card.is-watched .standard-card-title {
+    color: rgba(255,255,255,0.6);
+}
+.standard-card-info {
+    text-align: center;
+}
+/* Watched toggle on standard cards */
+.standard-watched-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.5);
+    transition: all 0.2s ease;
+}
+.standard-watched-toggle:hover {
+    transform: scale(1.2);
+    background: rgba(0,0,0,0.8);
+}
+.standard-watched-toggle i {
+    font-size: 1rem;
+    color: rgba(255,255,255,0.6);
+}
+.standard-watched-toggle i.pi-check-circle {
+    color: var(--standard-accent, #48c774);
+}
+.standard-watched-toggle i.pi-circle {
+    color: rgba(255,255,255,0.4);
+}
+</style>

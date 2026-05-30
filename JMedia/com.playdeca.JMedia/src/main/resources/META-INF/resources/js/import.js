@@ -52,13 +52,13 @@ const connectWebSocket = () => {
         if (event.data.startsWith('{') && event.data.endsWith('}')) {
             try {
                 const status = JSON.parse(event.data);
-                window.whisperInstalled = status.whisperInstalled;
+                window.parakeetInstalled = status.parakeetInstalled;
                 if (!status.allInstalled) {
                     let warningText = "External tools not fully installed: ";
                     if (!status.pythonInstalled) warningText += "Python (" + status.pythonMessage + ") ";
                     if (!status.spotdlInstalled) warningText += "SpotDL (" + status.spotdlMessage + ") ";
                     if (!status.ffmpegInstalled) warningText += "FFmpeg (" + status.ffmpegMessage + ") ";
-                    if (!status.whisperInstalled) warningText += "Whisper (" + status.whisperMessage + ") ";
+                    if (!status.parakeetInstalled) warningText += "Parakeet (" + status.parakeetMessage + ") ";
                     displayWarning(warningText);
                 } else {
                     clearWarning();
