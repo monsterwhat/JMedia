@@ -5,13 +5,18 @@ import Models.SubtitleTrack;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -63,10 +68,14 @@ public class ParakeetService {
 
     private static final Path SCRIPT_PATH = Paths.get("src", "main", "resources", "scripts", "run_parakeet.py");
 
+    private static final ExecutorService PARKEET_EXECUTOR = Executors.newThreadPerTaskExecutor(
+        Thread.ofVirtual().name("parakeet-").factory()
+    );
+
     public boolean isParakeetAvailable() {
         try {
             Services.Platform.PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
-            String python = platformOps.findPythonExecutable();
+            String python = platformOps.getParakeetPythonExecutable();
 
             ProcessBuilder pb = new ProcessBuilder(
                 python, "-c",
@@ -131,17 +140,30 @@ public class ParakeetService {
                 LOG.info("Starting Parakeet transcription for: {} (language: {})", video.filename, languageName);
 
                 Services.Platform.PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
-                String pythonExec = platformOps.findPythonExecutable();
+                String pythonExec = platformOps.getParakeetPythonExecutable();
 
-                // Resolve script path
+                // Resolve script path (filesystem or extract from JAR)
                 Path scriptPath;
                 if (SCRIPT_PATH.toFile().exists()) {
                     scriptPath = SCRIPT_PATH;
-                } else {
+                } else if (Paths.get("resources", "scripts", "run_parakeet.py").toFile().exists()) {
                     scriptPath = Paths.get("resources", "scripts", "run_parakeet.py");
-                }
-                if (!scriptPath.toFile().exists()) {
+                } else if (Paths.get(System.getProperty("user.dir"), "src", "main", "resources", "scripts", "run_parakeet.py").toFile().exists()) {
                     scriptPath = Paths.get(System.getProperty("user.dir"), "src", "main", "resources", "scripts", "run_parakeet.py");
+                } else {
+                    // Extract from JAR to persistent location once
+                    Path jmediaDir = Paths.get(System.getProperty("user.home"), ".jmedia", "scripts");
+                    Files.createDirectories(jmediaDir);
+                    scriptPath = jmediaDir.resolve("run_parakeet.py");
+                    if (!scriptPath.toFile().exists()) {
+                        try (InputStream is = getClass().getClassLoader().getResourceAsStream("scripts/run_parakeet.py")) {
+                            if (is == null) {
+                                throw new RuntimeException("Script 'scripts/run_parakeet.py' not found in classpath");
+                            }
+                            Files.copy(is, scriptPath);
+                            LOG.info("Extracted Parakeet script from JAR to: {}", scriptPath);
+                        }
+                    }
                 }
 
                 java.util.List<String> command = new java.util.ArrayList<>();
@@ -199,16 +221,16 @@ public class ParakeetService {
                     }
                 }
 
-                boolean finished = process.waitFor(60, TimeUnit.MINUTES);
-                currentProcess.set(null);
-                if (cancelled.get()) {
-                    if (process.isAlive()) process.destroyForcibly();
-                    throw new InterruptedException("Generation cancelled");
-                }
-                if (!finished) {
+                try {
+                    process.onExit().get(60, TimeUnit.MINUTES);
+                } catch (TimeoutException e) {
                     process.destroyForcibly();
                     LOG.error("Parakeet process timed out after 60 minutes for: {}", video.filename);
                     throw new RuntimeException("Parakeet process timed out after 60 minutes");
+                }
+                currentProcess.set(null);
+                if (cancelled.get()) {
+                    throw new InterruptedException("Generation cancelled");
                 }
 
                 int exitCode = process.exitValue();
@@ -239,10 +261,17 @@ public class ParakeetService {
             } catch (InterruptedException e) {
                 LOG.info("Parakeet transcription cancelled for: {}", video.filename);
                 throw new RuntimeException("Generation cancelled");
+            } catch (IOException e) {
+                if (cancelled.get()) {
+                    LOG.info("Parakeet transcription cancelled for: {}", video.filename);
+                    throw new RuntimeException("Generation cancelled");
+                }
+                LOG.error("Error transcribing with Parakeet", e);
+                throw new RuntimeException("Error transcribing with Parakeet: " + e.getMessage());
             } catch (Exception e) {
                 LOG.error("Error transcribing with Parakeet", e);
                 throw new RuntimeException("Error transcribing with Parakeet: " + e.getMessage());
             }
-        });
+        }, PARKEET_EXECUTOR);
     }
 }

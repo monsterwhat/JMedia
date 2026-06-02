@@ -215,9 +215,16 @@
                 <div class="step-content" x-show="$store.setup.currentStep === 3" x-transition x-cloak>
                     <div class="glass-box">
                         <h2 class="title is-3 mb-5">Features</h2>
-                        <p class="has-text-grey mb-6">Install optional components for advanced features like Spotify importing and AI transcriptions.</p>
-
-                        <div class="space-y-4">
+                         <p class="has-text-grey mb-6">Install optional components for advanced features like Spotify importing and AI transcriptions.</p>
+                         
+                         <div class="notification is-warning is-light mb-6 p-4" style="border-radius: 12px; border: 1px solid var(--glass-border);">
+                             <div class="is-flex">
+                                 <i class="pi pi-exclamation-triangle mr-3 mt-1"></i>
+                                 <p class="is-size-7"><strong>Linux Users:</strong> Some components (like Parakeet or FFmpeg) require root privileges to install. If installation fails, please try running JMedia with <code>sudo</code> once to complete the setup.</p>
+                             </div>
+                         </div>
+ 
+                         <div class="space-y-4">
                             <template x-for="c in ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet']">
                                 <div class="p-4 mb-3" style="border-radius: 12px; border: 1px solid var(--glass-border);">
                                     <div class="level is-mobile">

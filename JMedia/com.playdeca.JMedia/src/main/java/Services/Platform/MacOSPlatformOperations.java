@@ -22,6 +22,11 @@ public class MacOSPlatformOperations implements PlatformOperations {
     public boolean isPackageMangerInstalled() {
         return isCommandAvailable("brew") || isCommandAvailable("port");
     }
+
+    @Override
+    public String getParakeetPythonExecutable() throws Exception {
+        return findPythonExecutable();
+    }
     
     @Override
     public boolean isPythonInstalled() {

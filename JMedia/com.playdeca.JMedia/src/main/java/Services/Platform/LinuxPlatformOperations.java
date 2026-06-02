@@ -118,26 +118,39 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
-    public boolean isFFmpegInstalled() {
-        return isCommandAvailable("ffmpeg");
-    }
-    
-    @Override
     public boolean isParakeetInstalled() {
         try {
+            // First, try the Parakeet-specific Python executable (from venv)
+            String parakeetPython = getParakeetPythonExecutable();
+            if (isCommandAvailable(parakeetPython)) {
+                boolean depsCheck = executeCommandForCheck(parakeetPython + " -c \"import torch; import librosa; from transformers import AutoModelForTDT; print('available')\"");
+                if (depsCheck) {
+                    LOGGER.debug("Parakeet dependencies found via venv python: {}", parakeetPython);
+                    return true;
+                }
+            }
+            
+            // Fallback to checking common python executables (for edge cases where venv might not be set up but system has deps)
             String[] pythonExecutables = getPythonExecutableVariants();
             for (String pythonExecutable : pythonExecutables) {
                 if (isCommandAvailable(pythonExecutable)) {
                     boolean depsCheck = executeCommandForCheck(pythonExecutable + " -c \"import torch; import librosa; from transformers import AutoModelForTDT; print('available')\"");
                     if (depsCheck) {
+                        LOGGER.debug("Parakeet dependencies found via system python: {}", pythonExecutable);
                         return true;
                     }
                 }
             }
         } catch (Exception e) {
+            LOGGER.debug("Error checking Parakeet installation: {}", e.getMessage());
             return false;
         }
         return false;
+    }
+
+    @Override
+    public boolean isFFmpegInstalled() {
+        return isCommandAvailable("ffmpeg");
     }
     
     @Override
@@ -404,28 +417,7 @@ public class LinuxPlatformOperations implements PlatformOperations {
         broadcast("FFmpeg installation completed\n", profileId);
     }
     
-    @Override
-    public void installParakeet(Long profileId) throws Exception {
-        broadcastInstallationProgress("parakeet", 0, true, profileId);
-        broadcast("Installing Parakeet dependencies (transformers, torch, librosa)...\n", profileId);
-        
-        String pythonExecutable = findPythonExecutable();
-        
-        try {
-            broadcast("Step 1/3: Installing torch...\n", profileId);
-            executeCommand(pythonExecutable + " -m pip install --user torch", profileId);
-            broadcast("Step 2/3: Installing librosa...\n", profileId);
-            executeCommand(pythonExecutable + " -m pip install --user librosa", profileId);
-            broadcast("Step 3/3: Installing transformers from source (Parakeet TDT)...\n", profileId);
-            executeCommand(pythonExecutable + " -m pip install --user git+https://github.com/huggingface/transformers", profileId);
-        } catch (Exception e) {
-            throw new Exception("Failed to install Parakeet dependencies. Please ensure user directory permissions are correct.");
-        }
-        
-        broadcastInstallationProgress("parakeet", 100, false, profileId);
-        broadcast("Parakeet dependencies installation completed\n", profileId);
-        broadcast("[PARAKEET_INSTALLATION_FINISHED]", profileId);
-    }
+
     
     @Override
     public void uninstallPython(Long profileId) throws Exception {
@@ -516,53 +508,65 @@ public class LinuxPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("ffmpeg", 100, false, profileId);
         broadcast("FFmpeg uninstallation completed\n", profileId);
-    }
-    
-    @Override
-    public void uninstallParakeet(Long profileId) throws Exception {
+     }
+     
+     @Override
+     public void uninstallParakeet(Long profileId) throws Exception {
+         broadcastInstallationProgress("parakeet", 0, true, profileId);
+         broadcast("Uninstalling Parakeet dependencies (removing venv)...\n", profileId);
+         
+         String venvPath = getParakeetVenvPath();
+         executeCommand("rm -rf " + venvPath, profileId);
+         
+         broadcastInstallationProgress("parakeet", 100, false, profileId);
+         broadcast("Parakeet dependencies uninstallation completed\n", profileId);
+         broadcast("[PARAKEET_UNINSTALLATION_FINISHED]", profileId);
+     }
+     
+     @Override
+     public void installParakeet(Long profileId) throws Exception {
+        LOGGER.info("Starting Parakeet installation for profile: {}", profileId);
         broadcastInstallationProgress("parakeet", 0, true, profileId);
-        broadcast("Uninstalling Parakeet dependencies...\n", profileId);
+        broadcast("Installing Parakeet dependencies (transformers, torch, librosa)...\n", profileId);
         
-        String pythonExecutable = findPythonExecutable();
-        executeCommand(pythonExecutable + " -m pip uninstall --user transformers librosa torch -y", profileId);
+        if (isCommandAvailable("apt")) {
+            LOGGER.info("Installing system dependencies via apt...");
+            broadcast("Installing system dependencies for Parakeet (git, libsndfile1, build-essential)...\n", profileId);
+            executeCommandAsRoot("apt update && apt install -y git libsndfile1 build-essential", profileId);
+        } else if (!isCommandAvailable("git")) {
+            LOGGER.error("Git is not installed and apt is not available.");
+            throw new Exception("Git is not installed. Parakeet requires Git to install transformers from source. Please install git manually.");
+        }
+
+        String systemPython = findPythonExecutable();
+        String venvPath = getParakeetVenvPath();
+        String venvPython = getParakeetPythonPath();
+
+        try {
+            LOGGER.info("Creating virtual environment at: {}", venvPath);
+            broadcast("Step 1/4: Creating virtual environment...\n", profileId);
+            executeCommand(systemPython + " -m venv " + venvPath, profileId);
+            
+            LOGGER.info("Installing torch in venv...");
+            broadcast("Step 2/4: Installing torch in venv...\n", profileId);
+            executeCommand(venvPython + " -m pip install torch", profileId);
+            
+            LOGGER.info("Installing librosa in venv...");
+            broadcast("Step 3/4: Installing librosa in venv...\n", profileId);
+            executeCommand(venvPython + " -m pip install librosa", profileId);
+            
+            LOGGER.info("Installing transformers from source in venv...");
+            broadcast("Step 4/4: Installing transformers from source in venv (Parakeet TDT)...\n", profileId);
+            executeCommand(venvPython + " -m pip install git+https://github.com/huggingface/transformers", profileId);
+        } catch (Exception e) {
+            LOGGER.error("Parakeet installation failed: {}", e.getMessage(), e);
+            throw new Exception("Failed to install Parakeet dependencies in venv: " + e.getMessage());
+        }
         
+        LOGGER.info("Parakeet installation completed successfully for profile: {}", profileId);
         broadcastInstallationProgress("parakeet", 100, false, profileId);
-        broadcast("Parakeet dependencies uninstallation completed\n", profileId);
-        broadcast("[PARAKEET_UNINSTALLATION_FINISHED]", profileId);
-    }
-    
-    @Override
-    public void executeCommand(String command, Long profileId) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
-        pb.redirectErrorStream(true);
-        
-        Process process = pb.start();
-        
-        StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.trim().isEmpty()) {
-                    String lineContent = line.trim() + "\n";
-                    broadcast(lineContent, profileId);
-                    output.append(lineContent);
-                }
-            }
-        }
-        
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            String errorMsg = "Command failed with exit code: " + exitCode + ": " + command;
-            if (output.length() > 0) {
-                errorMsg += "\nOutput: " + output.toString();
-            }
-            throw new Exception(errorMsg);
-        }
-    }
-    
-    @Override
-    public void executeCommandAsAdmin(String command, Long profileId) throws Exception {
-        executeCommandAsRoot(command, profileId);
+        broadcast("Parakeet dependencies installation completed\n", profileId);
+        broadcast("[PARAKEET_INSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -580,6 +584,23 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public String getParakeetPythonExecutable() throws Exception {
+        String venvPython = getParakeetPythonPath();
+        if (java.nio.file.Files.exists(java.nio.file.Paths.get(venvPython))) {
+            return venvPython;
+        }
+        return findPythonExecutable();
+    }
+
+    private String getParakeetVenvPath() {
+        return System.getProperty("user.home") + "/.jmedia/parakeet_venv";
+    }
+
+    private String getParakeetPythonPath() {
+        return getParakeetVenvPath() + "/bin/python";
+    }
+    
+    @Override
     public String getPackageManagerName() {
         if (isCommandAvailable("apt")) return "APT (Debian/Ubuntu)";
         if (isCommandAvailable("yum")) return "YUM (RHEL/CentOS)";
@@ -588,21 +609,23 @@ public class LinuxPlatformOperations implements PlatformOperations {
         if (isCommandAvailable("zypper")) return "Zypper (openSUSE)";
         return "Unknown";
     }
-    
+
     @Override
     public String getPackageManagerInstallMessage() {
-        return "No supported package manager found. Please install apt, yum, dnf, pacman, or zypper for your distribution.";
+        return "A package manager (like apt, yum, dnf) is required to install dependencies. Please install one using your distribution's method.";
     }
-    
+
+
     @Override
     public String getPythonInstallMessage() {
         return "Python is not installed. Please install Python 3 using your system package manager.";
     }
-    
-@Override
+
+    @Override
     public String getSpotdlInstallMessage() {
         return "SpotDL is not installed. Please install SpotDL using pip: pip install spotdl";
     }
+
     
     @Override
     public String getYtdlpInstallMessage() {
@@ -771,6 +794,34 @@ public class LinuxPlatformOperations implements PlatformOperations {
         int exitCode = process.waitFor();
         if (exitCode != 0) {
             throw new Exception("Sudo command failed with exit code: " + exitCode + ": " + command);
+        }
+    }
+
+    @Override
+    public void executeCommandAsAdmin(String command, Long profileId) throws Exception {
+        executeCommandAsRoot(command, profileId);
+    }
+
+    @Override
+    public void executeCommand(String command, Long profileId) throws Exception {
+        broadcast("Executing: " + command + "\n", profileId);
+        ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
+        pb.redirectErrorStream(true);
+        
+        Process process = pb.start();
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    broadcast(line.trim() + "\n", profileId);
+                }
+            }
+        }
+        
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new Exception("Command failed with exit code: " + exitCode + ": " + command);
         }
     }
     

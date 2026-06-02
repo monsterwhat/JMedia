@@ -30,6 +30,11 @@ public class WindowsPlatformOperations implements PlatformOperations {
             return false;
         }
     }
+
+    @Override
+    public String getParakeetPythonExecutable() throws Exception {
+        return findPythonExecutable();
+    }
     
     @Override
     public boolean isPythonInstalled() {

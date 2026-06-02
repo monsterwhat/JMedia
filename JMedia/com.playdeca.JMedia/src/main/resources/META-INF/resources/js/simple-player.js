@@ -121,6 +121,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                    (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
         }
 
+        _isMac() {
+            return navigator.platform === 'MacIntel' && navigator.maxTouchPoints <= 1;
+        }
+
         applyAudioPreference() {
             // Apply saved audio track preference from container data attributes or localStorage
             const videoId = this.videoId;
@@ -202,10 +206,53 @@ if (typeof window.SimplePlayer === 'undefined') {
             
             // Only native HLS on Safari (desktop) and iOS
             const supportsNativeHls = (isSafari || isIOS);
+            this._isNativeHls = supportsNativeHls;
 
             this._showLoading('Preparing video...');
 
-                if (supportsNativeHls) {
+            // Pre-load all subtitle tracks before attaching HLS source,
+            // so Safari picks up the <track> elements (must exist before source is set)
+            let subtitleTracks = [];
+            try {
+                const tracksRes = await fetch(`/api/video/subtitles/${this.videoId}`);
+                if (tracksRes.ok) {
+                    const tracksData = await tracksRes.json();
+                    subtitleTracks = tracksData.tracks || tracksData.data || [];
+                    console.log('[SimplePlayer] Pre-loaded', subtitleTracks.length, 'subtitle tracks for HLS');
+                }
+            } catch (e) {
+                console.warn('[SimplePlayer] Failed to pre-load subtitles:', e);
+            }
+
+            const loadSubtitles = tracks => {
+                this.video.querySelectorAll('track').forEach(el => el.remove());
+                let activeFound = false;
+                tracks.forEach(t => {
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    const startOffset = 0;
+                    let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                    track.src = src;
+                    track.srclang = t.language || 'en';
+                    track.label = t.displayName || 'Subtitle';
+                    track.id = 'subtitle-track-' + t.id;
+                    const isActive = this.lastSelectedTrackId == t.id;
+                    if (isActive) {
+                        track.default = true;
+                        activeFound = true;
+                    }
+                    this.video.appendChild(track);
+                });
+                if (!activeFound && tracks.length > 0) {
+                    const first = this.video.querySelector('track');
+                    if (first) first.default = true;
+                }
+            };
+            if (subtitleTracks.length > 0) {
+                loadSubtitles(subtitleTracks);
+            }
+
+            if (supportsNativeHls) {
                 console.log('[SimplePlayer] Using native HLS (Safari/iOS) with master playlist');
                 this._hlsRetryCount = 0;
                 this._hlsMaxRetries = 3;
@@ -214,7 +261,6 @@ if (typeof window.SimplePlayer === 'undefined') {
                     this._hlsRetryCount = 0;
                     if (savedTime > 0) this.video.currentTime = savedTime;
                     this.applyInitialState();
-                    setTimeout(() => this.loadSubtitles(), 500);
                     
                     // Apply saved audio track preference for native HLS
                     this.applyAudioPreference();
@@ -261,7 +307,6 @@ if (typeof window.SimplePlayer === 'undefined') {
                     setTimeout(() => {
                         if (savedTime > 0) this.video.currentTime = savedTime;
                         this.video.play().catch(console.error);
-                        setTimeout(() => this.loadSubtitles(), 500);
                         
                         // Apply saved audio track preference
                         this.applyAudioPreference();
@@ -290,6 +335,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                 console.error('[SimplePlayer] No HLS support - cannot play video');
                 this._showLoading('HLS not supported on this browser');
             }
+
+            // Populate subtitle menu (tracks already pre-created for native HLS)
+            this.loadSubtitles().catch(e => console.warn('[SimplePlayer] Subtitle menu failed:', e));
 
             this.video.addEventListener('playing', () => this._hideLoading(), { once: true });
         }
@@ -350,18 +398,18 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
 
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
-            const isIOS = this._isIOS();
             
-            // Use HLS only for iOS + transcode
-            // Direct stream for everything else (including multi-audio, faster)
+            // Use HLS only on macOS/iOS when transcoding is needed (MKV, non-H.264 codecs)
+            // Windows/Linux use direct stream with server-side transcoding
+            const isIOS = this._isIOS();
+            const isMac = this._isMac();
             const hasMultipleAudio = this.container.dataset.hasMultipleAudio === 'true';
-            if (isIOS && this.needsTranscode) {
-                console.log('[SimplePlayer] iOS + transcode detected → using HLS');
+            if ((isIOS || isMac) && this.needsTranscode) {
+                console.log('[SimplePlayer] macOS/iOS + transcode needed → using HLS');
                 this.initHlsStream(savedTime);
             } else {
-                // Direct stream - with start param if needsTranscode and resuming
+                // Direct stream — server-side seek if transcoding needed and resuming
                 if (this.needsTranscode && savedTime > 0) {
-                    console.log(`[SimplePlayer] Transcode needed, resuming from ${savedTime}s via server-side seek`);
                     this.streamStartOffset = savedTime;
                     this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
                 } else {
@@ -375,7 +423,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 }
             }
 
-this.loadStoryboard();
+            this.loadStoryboard();
             this.setMusicSuspended(true);
             this.startProgressReporting();
             this.updateMarkers();
@@ -619,6 +667,7 @@ async refreshMarkers(retries = 3) {
         fallbackToDirectStream(savedTime) {
             if (this._fallbackInProgress) return;
             this._fallbackInProgress = true;
+            this._isNativeHls = false;
             console.log('[SimplePlayer] Falling back to direct stream, removing HLS error handler');
 
             if (this._hlsErrorHandler) {
@@ -1829,15 +1878,22 @@ formatTime(s) {
         turnOffSubtitles() {
             console.log('[SimplePlayer] Turning off subtitles');
             this.destroyAssSubtitle();
-            // Disable ALL existing tracks first
-            this.video.querySelectorAll('track').forEach(el => {
-                el.track.mode = 'hidden';
-                el.remove();
-            });
-            // Also clear textTracks
-            if (this.video.textTracks) {
-                for (let i = 0; i < this.video.textTracks.length; i++) {
-                    this.video.textTracks[i].mode = 'hidden';
+            if (this._isNativeHls) {
+                // Native HLS: don't remove <track> elements (can't be re-added after source loads)
+                if (this.video.textTracks) {
+                    for (let i = 0; i < this.video.textTracks.length; i++) {
+                        this.video.textTracks[i].mode = 'hidden';
+                    }
+                }
+            } else {
+                this.video.querySelectorAll('track').forEach(el => {
+                    el.track.mode = 'hidden';
+                    el.remove();
+                });
+                if (this.video.textTracks) {
+                    for (let i = 0; i < this.video.textTracks.length; i++) {
+                        this.video.textTracks[i].mode = 'hidden';
+                    }
                 }
             }
         }
@@ -1940,108 +1996,116 @@ formatTime(s) {
                         e.stopPropagation();
                         console.log('[SimplePlayer] Selecting subtitle:', t);
                         
-                        // Destroy any existing ASS renderer first
                         this.destroyAssSubtitle();
                         
-                        // Disable ALL existing tracks first
-                        this.video.querySelectorAll('track').forEach(el => {
-                            if (el.track) el.track.mode = 'hidden';
-                            el.remove();
-                        });
-                        // Also clear textTracks
-                        if (this.video.textTracks) {
-                            for (let i = 0; i < this.video.textTracks.length; i++) {
-                                this.video.textTracks[i].mode = 'hidden';
+                        if (this._isNativeHls) {
+                            // Native HLS: can't add/remove <track> elements dynamically.
+                            // Toggle modes on pre-created textTracks instead.
+                            if (t.id !== 'off' && this.video.textTracks) {
+                                for (let i = 0; i < this.video.textTracks.length; i++) {
+                                    const tr = this.video.textTracks[i];
+                                    const trackEl = this.video.querySelector(`track[id="subtitle-track-${t.id}"]`);
+                                    const isSelected = trackEl && (tr.label === trackEl.label);
+                                    tr.mode = isSelected ? 'showing' : 'hidden';
+                                }
+                            } else if (this.video.textTracks) {
+                                for (let i = 0; i < this.video.textTracks.length; i++) {
+                                    this.video.textTracks[i].mode = 'hidden';
+                                }
                             }
-                        }
-                        
-                        if (t.id !== 'off') {
-                            // Subtitle via native <track> element
-                            const track = document.createElement('track');
-                            track.kind = 'subtitles';
-                            
-                            // Get correction from localStorage
-                            const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
-                            
-                            // Build URL with start offset for server-side seek
-                            // When resuming from a saved position via server-side seek, video.currentTime
-                            // starts at 0 (beginning of stream), but display time is adjusted via
-                            // streamStartOffset. We must shift subtitle timestamps to match.
-                            const startOffset = this.streamStartOffset || 0;
-                            let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
-                            if (parseFloat(correction) !== 0) {
-                                src += `&correction=${correction}`;
+                        } else {
+                            // Non-HLS: freely create/destroy <track> elements
+                            this.video.querySelectorAll('track').forEach(el => {
+                                if (el.track) el.track.mode = 'hidden';
+                                el.remove();
+                            });
+                            if (this.video.textTracks) {
+                                for (let i = 0; i < this.video.textTracks.length; i++) {
+                                    this.video.textTracks[i].mode = 'hidden';
+                                }
                             }
                             
-                            track.src = src;
-                            track.srclang = t.language || 'en';
-                            track.label = t.displayName || 'Subtitle';
-                            track.default = true;
-                            track.id = 'subtitle-track-' + t.id;
-                            this.video.appendChild(track);
-                        
-                            // Wait for track to be ready in textTracks
-                            const setupTrack = () => {
-                                const tracks = Array.from(this.video.textTracks || []);
-                                console.log('[SimplePlayer] Available textTracks:', tracks.map(t => ({ label: t.label, mode: t.mode, kind: t.kind })));
+                            if (t.id !== 'off') {
+                                // Subtitle via native <track> element
+                                const track = document.createElement('track');
+                                track.kind = 'subtitles';
                                 
-                                // Find by matching label or by finding the newly added track
-                                let textTrack = tracks.find(tr => tr.label === (t.displayName || 'Subtitle'));
+                                // Get correction from localStorage
+                                const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
                                 
-                                // Also try to find by matching src if available
-                                if (!textTrack) {
-                                    textTrack = tracks.find(tr => tr.kind === 'subtitles' && tr.mode !== 'disabled');
+                                // Build URL with start offset for server-side seek
+                                const startOffset = this.streamStartOffset || 0;
+                                let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                                if (parseFloat(correction) !== 0) {
+                                    src += `&correction=${correction}`;
                                 }
                                 
-                                if (textTrack) {
-                                    console.log('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
-                                    textTrack.mode = 'showing';
+                                track.src = src;
+                                track.srclang = t.language || 'en';
+                                track.label = t.displayName || 'Subtitle';
+                                track.default = true;
+                                track.id = 'subtitle-track-' + t.id;
+                                this.video.appendChild(track);
+                            
+                                // Wait for track to be ready in textTracks
+                                const setupTrack = () => {
+                                    const tracks = Array.from(this.video.textTracks || []);
+                                    console.log('[SimplePlayer] Available textTracks:', tracks.map(t => ({ label: t.label, mode: t.mode, kind: t.kind })));
                                     
-                                    // Firefox specific overlay update
-                                    const updateFF = () => {
-                                        if (window.subtitleManager && /Firefox/i.test(navigator.userAgent)) {
-                                            const activeCues = textTrack.activeCues;
-                                            const overlay = document.getElementById('firefox-subtitle-overlay');
-                                            if (overlay) {
-                                                if (activeCues && activeCues.length > 0) {
-                                                    overlay.innerHTML = Array.from(activeCues).map(c => c.text).join('\n');
-                                                    overlay.classList.add('active');
-                                                } else {
-                                                    overlay.classList.remove('active');
+                                    let textTrack = tracks.find(tr => tr.label === (t.displayName || 'Subtitle'));
+                                    
+                                    if (!textTrack) {
+                                        textTrack = tracks.find(tr => tr.kind === 'subtitles' && tr.mode !== 'disabled');
+                                    }
+                                    
+                                    if (textTrack) {
+                                        console.log('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
+                                        textTrack.mode = 'showing';
+                                        
+                                        // Firefox specific overlay update
+                                        const updateFF = () => {
+                                            if (window.subtitleManager && /Firefox/i.test(navigator.userAgent)) {
+                                                const activeCues = textTrack.activeCues;
+                                                const overlay = document.getElementById('firefox-subtitle-overlay');
+                                                if (overlay) {
+                                                    if (activeCues && activeCues.length > 0) {
+                                                        overlay.innerHTML = Array.from(activeCues).map(c => c.text).join('\n');
+                                                        overlay.classList.add('active');
+                                                    } else {
+                                                        overlay.classList.remove('active');
+                                                    }
                                                 }
                                             }
-                                        }
-                                    };
+                                        };
 
-                                    textTrack.oncuechange = (e) => {
+                                        textTrack.oncuechange = (e) => {
+                                            updateFF();
+                                            if (textTrack.activeCues && textTrack.activeCues.length > 0) {
+                                                console.log('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
+                                            }
+                                        };
+                                        
+                                        // Initial update
                                         updateFF();
-                                        if (textTrack.activeCues && textTrack.activeCues.length > 0) {
-                                            console.log('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
-                                        }
-                                    };
-                                    
-                                    // Initial update
-                                    updateFF();
-                                } else {
-                                    console.log('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracks.length);
-                                    setTimeout(setupTrack, 200);
-                                }
-                            };
-                            
-                            // Also handle load/error events on the track element
-                            track.addEventListener('load', () => {
-                                console.log('[SimplePlayer] Track element loaded');
-                                setTimeout(setupTrack, 100);
-                            });
-                            
-                            track.addEventListener('error', (e) => {
-                                console.error('[SimplePlayer] Track load error:', e);
-                            });
-                            
-                            // Initial attempt after a delay
-                            setTimeout(setupTrack, 500);
-                        } else {
-                            console.log('[SimplePlayer] Subtitles turned OFF');
+                                    } else {
+                                        console.log('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracks.length);
+                                        setTimeout(setupTrack, 200);
+                                    }
+                                };
+                                
+                                track.addEventListener('load', () => {
+                                    console.log('[SimplePlayer] Track element loaded');
+                                    setTimeout(setupTrack, 100);
+                                });
+                                
+                                track.addEventListener('error', (e) => {
+                                    console.error('[SimplePlayer] Track load error:', e);
+                                });
+                                
+                                setTimeout(setupTrack, 500);
+                            } else {
+                                console.log('[SimplePlayer] Subtitles turned OFF');
+                            }
                         }
                         
                         this.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));

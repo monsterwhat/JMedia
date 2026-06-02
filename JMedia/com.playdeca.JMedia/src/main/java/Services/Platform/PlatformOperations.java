@@ -37,6 +37,7 @@ public interface PlatformOperations {
     
     // Executable detection
     String findPythonExecutable() throws Exception;
+    String getParakeetPythonExecutable() throws Exception;
     String findNodeExecutable() throws Exception;
     
 // Installation status messages
