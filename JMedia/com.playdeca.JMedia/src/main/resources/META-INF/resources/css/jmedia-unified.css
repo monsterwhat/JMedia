@@ -1158,6 +1158,26 @@ body {
     min-height: min-content;
 }
 
+.loading-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+
+.loading-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
 .standard-content::-webkit-scrollbar {
     width: 8px;
 }
@@ -2252,6 +2272,51 @@ input[type="range"]::-webkit-slider-thumb {
         opacity: 1;
         transform: scale(1) translateY(0);
     }
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes slideOutLeft {
+    from { transform: translateX(0);    opacity: 1; }
+    to   { transform: translateX(-100%); opacity: 0; }
+}
+
+@keyframes slideInLeft {
+    from { transform: translateX(-100%); opacity: 0; }
+    to   { transform: translateX(0);     opacity: 1; }
+}
+
+@keyframes slideOutRight {
+    from { transform: translateX(0);    opacity: 1; }
+    to   { transform: translateX(100%); opacity: 0; }
+}
+
+.spa-content.entering-forward {
+    animation: slideInRight 0.5s ease-out;
+}
+
+.spa-content.entering-backward {
+    animation: slideInLeft 0.5s ease-out;
+}
+
+.spa-content-exit.exiting-forward {
+    animation: slideOutLeft 0.5s ease-out;
+}
+
+.spa-content-exit.exiting-backward {
+    animation: slideOutRight 0.5s ease-out;
+}
+
+@keyframes contentFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.spa-content.crossfade-enter {
+    animation: contentFadeIn 0.6s ease;
 }
 
 @media (max-width: 1200px) {

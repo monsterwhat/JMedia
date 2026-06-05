@@ -134,27 +134,24 @@ public class WindowsPlatformOperations implements PlatformOperations {
     
     @Override
     public boolean isFFmpegInstalled() {
-        Process process = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
-            pb.redirectErrorStream(true);
-            process = pb.start();
-            
-            // Wait with timeout
-            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                return false;
+            if (isCommandAvailable("ffmpeg")) {
+                return true;
             }
-            
-            return process.exitValue() == 0;
+
+            String[] chocolateyPaths = {
+                "C:\\ProgramData\\chocolatey\\lib\\ffmpeg\\tools\\ffmpeg.exe",
+                "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe"
+            };
+            for (String p : chocolateyPaths) {
+                if (new File(p).exists()) {
+                    return true;
+                }
+            }
         } catch (Exception e) {
             return false;
-        } finally {
-            if (process != null && process.isAlive()) {
-                process.destroyForcibly();
-            }
         }
+        return false;
     }
     
     @Override
