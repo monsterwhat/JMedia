@@ -2,7 +2,8 @@ class VideoSPA {
     constructor() {
         this.currentSection = 'home';
         this.currentParams = {};
-        this.backDestination = null; 
+        this.backDestination = null;
+        this.transitionType = 'slide-forward';
         this.sections = {
             home: 'home',
             movies: '/api/video/ui/movies-fragment',
@@ -40,6 +41,14 @@ class VideoSPA {
     async switchSection(section, params = {}, bypassHistory = false) {
         console.log(`[VideoSPA] Switching to section: ${section}`, params);
         this.showLoading();
+        
+        if (!bypassHistory) {
+            if (section === 'playback') {
+                this.transitionType = 'crossfade';
+            } else if (section !== 'home') {
+                this.transitionType = 'slide-forward';
+            }
+        }
         
         if (!bypassHistory) {
             if (section === 'playback' || section === 'details' || section === 'episodes' || section === 'seasons' || section === 'folder-episodes' || section === 'collectionEntries') {
@@ -85,6 +94,12 @@ class VideoSPA {
     goBack() {
         console.log('[VideoSPA] goBack called. Saved Destination:', this.backDestination);
         
+        if (this.currentSection === 'playback') {
+            this.transitionType = 'crossfade';
+        } else {
+            this.transitionType = 'slide-backward';
+        }
+        
         if (this.backDestination) {
             const dest = this.backDestination;
             this.backDestination = null;
@@ -117,16 +132,13 @@ class VideoSPA {
             }
         }
         
-        if (window.history.length > 1) {
-            window.history.back();
-        } else {
-            this.goHome(true);
-        }
+        this.goHome(true);
     }
     
     goHome(bypassHistory = false) {
         this.backDestination = null;
         this.updateNavState('home');
+        this.transitionType = 'slide-backward';
         this.updateContent(`
             <div id="carousels-section" 
                  hx-get="/api/video/ui/optimized-carousels"
@@ -333,7 +345,66 @@ class VideoSPA {
                 }
             });
 
-            contentDiv.innerHTML = html;
+            contentDiv.classList.remove('entering-forward', 'entering-backward', 'crossfade-enter');
+            const isSlide = this.transitionType === 'slide-forward' || this.transitionType === 'slide-backward';
+
+            if (this.transitionType === 'crossfade') {
+                contentDiv.innerHTML = html;
+                contentDiv.classList.add('crossfade-enter');
+                contentDiv.addEventListener('animationend', () => {
+                    contentDiv.classList.remove('crossfade-enter');
+                }, { once: true });
+            } else if (isSlide) {
+                const oldHtml = contentDiv.innerHTML;
+                const parent = contentDiv.parentElement;
+                const overlay = document.getElementById('loading-state');
+
+                parent.querySelectorAll('.spa-content-exit').forEach(el => el.remove());
+                parent.style.removeProperty('overflow');
+
+                if (overlay) {
+                    overlay.style.transition = 'opacity 0s';
+                    overlay.classList.remove('active');
+                    overlay.style.opacity = '0';
+                }
+
+                contentDiv.innerHTML = html;
+
+                let oldClone = null;
+                if (oldHtml && oldHtml.trim().length > 0) {
+                    oldClone = document.createElement('div');
+                    oldClone.className = 'spa-content spa-content-exit';
+                    oldClone.innerHTML = oldHtml.replace(/\s+hx-\w+(=(["']).*?\2)?/gi, '');
+                    oldClone.style.position = 'absolute';
+                    oldClone.style.top = '0';
+                    oldClone.style.left = '0';
+                    oldClone.style.width = '100%';
+                    oldClone.style.height = '100%';
+                    parent.appendChild(oldClone);
+                }
+
+                parent.style.setProperty('overflow', 'visible', 'important');
+
+                requestAnimationFrame(() => {
+                    if (overlay) {
+                        overlay.style.transition = '';
+                        overlay.style.opacity = '';
+                    }
+
+                    if (oldClone) {
+                        oldClone.classList.add(this.transitionType === 'slide-forward' ? 'exiting-forward' : 'exiting-backward');
+                        oldClone.addEventListener('animationend', () => {
+                            if (oldClone.parentNode) oldClone.parentNode.removeChild(oldClone);
+                        }, { once: true });
+                    }
+
+                    contentDiv.classList.add(this.transitionType === 'slide-forward' ? 'entering-forward' : 'entering-backward');
+                    contentDiv.addEventListener('animationend', () => {
+                        contentDiv.classList.remove('entering-forward', 'entering-backward');
+                        parent.style.removeProperty('overflow');
+                    }, { once: true });
+                });
+            }
             if (window.htmx) {
                 htmx.process(contentDiv);
             }
@@ -353,12 +424,34 @@ class VideoSPA {
     
     showLoading() {
         const el = document.getElementById('loading-state');
-        if (el) el.style.display = 'flex';
+        if (el) el.classList.add('active');
+        this._loadingStartTime = Date.now();
+        if (this._loadingTimer) {
+            clearTimeout(this._loadingTimer);
+            this._loadingTimer = null;
+        }
     }
     
     hideLoading() {
         const el = document.getElementById('loading-state');
-        if (el) el.style.display = 'none';
+        if (!el) return;
+        const elapsed = Date.now() - (this._loadingStartTime || 0);
+        const minTime = 500;
+        if (elapsed < minTime) {
+            if (this._loadingTimer) {
+                clearTimeout(this._loadingTimer);
+            }
+            this._loadingTimer = setTimeout(() => {
+                el.classList.remove('active');
+                this._loadingTimer = null;
+            }, minTime - elapsed);
+        } else {
+            if (this._loadingTimer) {
+                clearTimeout(this._loadingTimer);
+                this._loadingTimer = null;
+            }
+            el.classList.remove('active');
+        }
     }
     
     handleError(error) {
@@ -435,8 +528,13 @@ class VideoSPA {
             });
             this.switchSection(section, params, true); 
         } else {
-            // Try auto-resume last playing video first
-            const resumed = await this.checkResumePlayback();
+            // Only auto-resume if user didn't explicitly leave the video section
+            const suppressResume = sessionStorage.getItem('videoSuppressAutoResume') === 'true';
+            sessionStorage.removeItem('videoSuppressAutoResume');
+            let resumed = false;
+            if (!suppressResume) {
+                resumed = await this.checkResumePlayback();
+            }
             if (!resumed) {
                 const content = document.getElementById('spa-content');
                 if (content && !content.innerHTML.trim()) {

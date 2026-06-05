@@ -95,6 +95,10 @@ class App {
             return;
         }
 
+        if (this.currentView === 'video' && viewName !== 'video') {
+            sessionStorage.setItem('videoSuppressAutoResume', 'true');
+        }
+
         const container = document.getElementById('app-content');
         container.innerHTML = '<div class="has-text-centered p-6" style="margin-top: 100px;"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>';
 

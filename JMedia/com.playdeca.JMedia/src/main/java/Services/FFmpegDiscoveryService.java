@@ -1,72 +1,211 @@
 package Services;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.io.IOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class FFmpegDiscoveryService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FFmpegDiscoveryService.class);
 
     private String ffmpegPath;
     private String ffprobePath;
     private String mkvmergePath;
     private String hardwareEncoder;
 
+    private boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
+
+    private String resolveViaWhere(String tool) {
+        if (!isWindows()) return null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder("where", tool);
+            Process process = pb.start();
+            if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line = reader.readLine();
+                    if (line != null && !line.isBlank()) {
+                        return line.trim();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("where.exe {} failed: {}", tool, e.getMessage());
+        }
+        return null;
+    }
+
+    private List<String> findInDirectory(File dir, String targetFileName) {
+        List<String> results = new ArrayList<>();
+        if (dir == null || !dir.isDirectory()) return results;
+        try (Stream<Path> stream = Files.walk(dir.toPath(), 6, FileVisitOption.FOLLOW_LINKS)) {
+            stream.filter(p -> p.getFileName().toString().equalsIgnoreCase(targetFileName))
+                  .filter(p -> p.toFile().isFile())
+                  .map(Path::toString)
+                  .forEach(results::add);
+        } catch (Exception e) {
+            LOG.warn("Error searching {} for {}: {}", dir, targetFileName, e.getMessage());
+        }
+        return results;
+    }
+
+    private boolean probeExecutable(String path, String... args) {
+        try {
+            String[] cmd = new String[1 + args.length];
+            cmd[0] = path;
+            System.arraycopy(args, 0, cmd, 1, args.length);
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            Process process = pb.start();
+            boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                LOG.debug("Probe timed out for: {}", path);
+                return false;
+            }
+            return process.exitValue() == 0;
+        } catch (Exception e) {
+            LOG.debug("Probe failed for {}: {}", path, e.getMessage());
+            return false;
+        }
+    }
+
     public synchronized String findFFmpegExecutable() {
         if (ffmpegPath != null) {
             return ffmpegPath;
         }
 
-        String[] paths = {
-            "ffmpeg", 
-            "ffmpeg.exe", 
-            "C:\\ffmpeg\\bin\\ffmpeg.exe", 
+        // 1. bare name PATH lookups
+        if (probeExecutable("ffmpeg", "-version")) {
+            ffmpegPath = "ffmpeg";
+            return ffmpegPath;
+        }
+        if (probeExecutable("ffmpeg.exe", "-version")) {
+            ffmpegPath = "ffmpeg.exe";
+            return ffmpegPath;
+        }
+
+        // 2. Windows: use where.exe to resolve from system PATH
+        String wherePath = resolveViaWhere("ffmpeg");
+        if (wherePath != null && probeExecutable(wherePath, "-version")) {
+            ffmpegPath = wherePath;
+            return ffmpegPath;
+        }
+
+        // 3. hardcoded common install paths
+        String[] hardcoded = {
+            "C:\\ProgramData\\chocolatey\\lib\\ffmpeg\\tools\\ffmpeg.exe",
+            "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe",
+            "C:\\ffmpeg\\bin\\ffmpeg.exe",
             "C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe",
-            "/usr/bin/ffmpeg", 
+            "/usr/bin/ffmpeg",
             "/usr/local/bin/ffmpeg",
             "/opt/homebrew/bin/ffmpeg"
         };
-
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) {
-                    ffmpegPath = p;
-                    return p;
-                }
-            } catch (Exception ignored) {}
+        for (String p : hardcoded) {
+            if (new File(p).exists() && probeExecutable(p, "-version")) {
+                ffmpegPath = p;
+                return ffmpegPath;
+            }
         }
+
+        // 4. Windows: scan chocolatey lib directory for actual ffmpeg binary
+        if (isWindows()) {
+            File chocoLib = new File("C:\\ProgramData\\chocolatey\\lib\\ffmpeg");
+            if (chocoLib.isDirectory()) {
+                List<String> found = findInDirectory(chocoLib, "ffmpeg.exe");
+                for (String candidate : found) {
+                    if (probeExecutable(candidate, "-version")) {
+                        ffmpegPath = candidate;
+                        return ffmpegPath;
+                    }
+                }
+            }
+        }
+
+        LOG.warn("FFmpeg not found after all detection attempts");
         return null;
     }
 
     public synchronized String findFFprobeExecutable() {
-        String ffmpeg = findFFmpegExecutable();
-        if (ffmpeg == null) return null;
-        
-        if (ffmpeg.endsWith(".exe")) {
-            String probe = ffmpeg.replace("ffmpeg.exe", "ffprobe.exe");
-            if (new File(probe).exists()) return probe;
-        } else {
-            String probe = ffmpeg.replace("ffmpeg", "ffprobe");
-            if (new File(probe).exists()) return probe;
+        if (ffprobePath != null) {
+            return ffprobePath;
         }
-        
-        // Fallback search
-        String[] paths = {
-            "ffprobe", 
-            "ffprobe.exe", 
-            "C:\\ffmpeg\\bin\\ffprobe.exe", 
+
+        // derive from ffmpeg path if already cached
+        if (ffmpegPath != null) {
+            String derived = ffmpegPath.endsWith(".exe")
+                ? ffmpegPath.replace("ffmpeg.exe", "ffprobe.exe")
+                : ffmpegPath.replace("ffmpeg", "ffprobe");
+            if (new File(derived).exists() && probeExecutable(derived, "-version")) {
+                ffprobePath = derived;
+                return ffprobePath;
+            }
+        }
+
+        // 1. bare name PATH lookups
+        if (probeExecutable("ffprobe", "-version")) {
+            ffprobePath = "ffprobe";
+            return ffprobePath;
+        }
+        if (probeExecutable("ffprobe.exe", "-version")) {
+            ffprobePath = "ffprobe.exe";
+            return ffprobePath;
+        }
+
+        // 2. Windows: use where.exe to resolve from system PATH
+        String wherePath = resolveViaWhere("ffprobe");
+        if (wherePath != null && probeExecutable(wherePath, "-version")) {
+            ffprobePath = wherePath;
+            return ffprobePath;
+        }
+
+        // 3. hardcoded common install paths
+        String[] hardcoded = {
+            "C:\\ProgramData\\chocolatey\\lib\\ffmpeg\\tools\\ffprobe.exe",
+            "C:\\ProgramData\\chocolatey\\bin\\ffprobe.exe",
+            "C:\\ffmpeg\\bin\\ffprobe.exe",
             "C:\\Program Files\\FFmpeg\\bin\\ffprobe.exe",
-            "/usr/bin/ffprobe", 
+            "/usr/bin/ffprobe",
             "/usr/local/bin/ffprobe",
             "/opt/homebrew/bin/ffprobe"
         };
-        for (String p : paths) {
-            try {
-                if (new ProcessBuilder(p, "-version").start().waitFor() == 0) return p;
-            } catch (Exception ignored) {}
+        for (String p : hardcoded) {
+            if (new File(p).exists() && probeExecutable(p, "-version")) {
+                ffprobePath = p;
+                return ffprobePath;
+            }
         }
+
+        // 4. Windows: scan chocolatey lib directory for actual ffprobe binary
+        if (isWindows()) {
+            File chocoLib = new File("C:\\ProgramData\\chocolatey\\lib\\ffmpeg");
+            if (chocoLib.isDirectory()) {
+                List<String> found = findInDirectory(chocoLib, "ffprobe.exe");
+                for (String candidate : found) {
+                    if (probeExecutable(candidate, "-version")) {
+                        ffprobePath = candidate;
+                        return ffprobePath;
+                    }
+                }
+            }
+        }
+
+        LOG.warn("FFprobe not found after all detection attempts");
         return null;
     }
 
@@ -75,26 +214,55 @@ public class FFmpegDiscoveryService {
             return mkvmergePath;
         }
 
-        String[] paths = {
-            "mkvmerge",
-            "mkvmerge.exe",
+        // 1. bare name PATH lookups
+        if (probeExecutable("mkvmerge", "--version")) {
+            mkvmergePath = "mkvmerge";
+            return mkvmergePath;
+        }
+        if (probeExecutable("mkvmerge.exe", "--version")) {
+            mkvmergePath = "mkvmerge.exe";
+            return mkvmergePath;
+        }
+
+        // 2. Windows: use where.exe to resolve from system PATH
+        String wherePath = resolveViaWhere("mkvmerge");
+        if (wherePath != null && probeExecutable(wherePath, "--version")) {
+            mkvmergePath = wherePath;
+            return mkvmergePath;
+        }
+
+        // 3. hardcoded common install paths
+        String[] hardcoded = {
+            "C:\\ProgramData\\chocolatey\\lib\\mkvtoolnix\\tools\\mkvmerge.exe",
+            "C:\\ProgramData\\chocolatey\\bin\\mkvmerge.exe",
             "C:\\mkvtoolnix\\mkvmerge.exe",
             "C:\\Program Files\\MKVToolNix\\mkvmerge.exe",
             "/usr/bin/mkvmerge",
             "/usr/local/bin/mkvmerge",
             "/opt/homebrew/bin/mkvmerge"
         };
-
-        for (String p : paths) {
-            try {
-                ProcessBuilder pb = new ProcessBuilder(p, "--version");
-                Process process = pb.start();
-                if (process.waitFor() == 0) {
-                    mkvmergePath = p;
-                    return p;
-                }
-            } catch (Exception ignored) {}
+        for (String p : hardcoded) {
+            if (new File(p).exists() && probeExecutable(p, "--version")) {
+                mkvmergePath = p;
+                return mkvmergePath;
+            }
         }
+
+        // 4. Windows: scan chocolatey lib directory for actual mkvmerge binary
+        if (isWindows()) {
+            File chocoLib = new File("C:\\ProgramData\\chocolatey\\lib\\mkvtoolnix");
+            if (chocoLib.isDirectory()) {
+                List<String> found = findInDirectory(chocoLib, "mkvmerge.exe");
+                for (String candidate : found) {
+                    if (probeExecutable(candidate, "--version")) {
+                        mkvmergePath = candidate;
+                        return mkvmergePath;
+                    }
+                }
+            }
+        }
+
+        LOG.warn("mkvmerge not found after all detection attempts");
         return null;
     }
 
