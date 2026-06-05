@@ -21,6 +21,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.muteKey = 'jmedia_video_mute_' + this.profileId;
             this.userActiveTimeout = null;
             this.isIOSNativeFullscreen = false;
+            this._streamFallbackCount = 0;
+            this._maxStreamFallbacks = 2;
             
             // Critical: Duration parsing
             const rawDur = parseFloat(this.container.dataset.duration || 0);
@@ -399,13 +401,15 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
             
-            // Use HLS only on macOS/iOS when transcoding is needed (MKV, non-H.264 codecs)
+            // Use HLS only on Safari/iOS when transcoding is needed (MKV, non-H.264 codecs)
+            // Chromium-based browsers (Chrome, Brave, Edge) on Mac handle direct fragmented MP4 streams well
             // Windows/Linux use direct stream with server-side transcoding
             const isIOS = this._isIOS();
             const isMac = this._isMac();
+            const isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
             const hasMultipleAudio = this.container.dataset.hasMultipleAudio === 'true';
-            if ((isIOS || isMac) && this.needsTranscode) {
-                console.log('[SimplePlayer] macOS/iOS + transcode needed → using HLS');
+            if ((isIOS || (isMac && isSafari)) && this.needsTranscode) {
+                console.log('[SimplePlayer] Safari/iOS + transcode needed → using HLS');
                 this.initHlsStream(savedTime);
             } else {
                 // Direct stream — server-side seek if transcoding needed and resuming
@@ -601,14 +605,19 @@ async refreshMarkers(retries = 3) {
             }, { once: true });
             
             this.video.addEventListener('playing', () => {
+                this._streamFallbackCount = 0;
                 this._hideLoading();
             }, { once: true });
             
             this.video.addEventListener('error', (e) => {
-                console.error('[SimplePlayer] Direct stream error:', this.video.error);
-                this._showLoading('Stream error, trying HLS...');
-                // Fallback to HLS on error
-                setTimeout(() => this.initHlsStream(savedTime), 1000);
+                this._streamFallbackCount++;
+                console.error('[SimplePlayer] Direct stream error (fallback ' + this._streamFallbackCount + '/' + this._maxStreamFallbacks + '):', this.video.error);
+                if (this._streamFallbackCount < this._maxStreamFallbacks) {
+                    this._showLoading('Stream error, trying HLS...');
+                    setTimeout(() => this.initHlsStream(savedTime), 1000);
+                } else {
+                    this._showLoading('Playback failed after ' + this._maxStreamFallbacks + ' attempts');
+                }
             });
             
             this.video.play().catch(e => {
@@ -1338,24 +1347,32 @@ buildUI() {
                 }
 
                 if (isIOS) {
-                    // iOS: First try native video fullscreen
                     let nativeFullscreenAttempted = false;
                     
-                    // Ensure playsinline is set (required for programmatic fullscreen on iOS)
                     if (!this.video.hasAttribute('playsinline')) {
                         this.video.setAttribute('playsinline', 'true');
                         this.video.setAttribute('webkit-playsinline', 'true');
                     }
                     
-                // Try native iOS fullscreen (correct API is webkitEnterFullscreen, lowercase s)
-                if (this.video.webkitEnterFullscreen) {
-                    try {
-                        this.video.webkitEnterFullscreen();
-                        nativeFullscreenAttempted = true;
-                    } catch (err) {
-                        console.log('[SimplePlayer] webkitEnterFullscreen failed:', err);
+                    // iOS 16+ supports standard Fullscreen API
+                    if (this.video.requestFullscreen) {
+                        try {
+                            this.video.requestFullscreen();
+                            nativeFullscreenAttempted = true;
+                        } catch (err) {
+                            console.log('[SimplePlayer] requestFullscreen failed:', err);
+                        }
                     }
-                }
+                    
+                    // Fallback: legacy webkitEnterFullscreen (iOS < 16)
+                    if (!nativeFullscreenAttempted && this.video.webkitEnterFullscreen) {
+                        try {
+                            this.video.webkitEnterFullscreen();
+                            nativeFullscreenAttempted = true;
+                        } catch (err) {
+                            console.log('[SimplePlayer] webkitEnterFullscreen failed:', err);
+                        }
+                    }
                     
                     // If native fullscreen failed, use CSS fallback
                     if (!nativeFullscreenAttempted) {

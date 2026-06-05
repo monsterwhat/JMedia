@@ -25,7 +25,8 @@ public class FFmpegDiscoveryService {
             "C:\\ffmpeg\\bin\\ffmpeg.exe", 
             "C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe",
             "/usr/bin/ffmpeg", 
-            "/usr/local/bin/ffmpeg"
+            "/usr/local/bin/ffmpeg",
+            "/opt/homebrew/bin/ffmpeg"
         };
 
         for (String p : paths) {
@@ -58,7 +59,8 @@ public class FFmpegDiscoveryService {
             "C:\\ffmpeg\\bin\\ffprobe.exe", 
             "C:\\Program Files\\FFmpeg\\bin\\ffprobe.exe",
             "/usr/bin/ffprobe", 
-            "/usr/local/bin/ffprobe"
+            "/usr/local/bin/ffprobe",
+            "/opt/homebrew/bin/ffprobe"
         };
         for (String p : paths) {
             try {
@@ -79,7 +81,8 @@ public class FFmpegDiscoveryService {
             "C:\\mkvtoolnix\\mkvmerge.exe",
             "C:\\Program Files\\MKVToolNix\\mkvmerge.exe",
             "/usr/bin/mkvmerge",
-            "/usr/local/bin/mkvmerge"
+            "/usr/local/bin/mkvmerge",
+            "/opt/homebrew/bin/mkvmerge"
         };
 
         for (String p : paths) {
@@ -108,6 +111,7 @@ public class FFmpegDiscoveryService {
 
         List<String> priorityEncoders = List.of(
             "h264_nvenc", "hevc_nvenc",
+            "h264_videotoolbox", "hevc_videotoolbox",
             "h264_amf", "hevc_amf",
             "h264_qsv", "hevc_qsv",
             "h264_vaapi", "hevc_vaapi",
@@ -151,7 +155,8 @@ public class FFmpegDiscoveryService {
                     while (s.hasNextLine()) {
                         String line = s.nextLine();
                         if (line.contains("nvenc") || line.contains("qsv") || line.contains("vaapi") || 
-                            line.contains("cuvid") || line.contains("v4l2m2m") || line.contains("amf")) {
+                            line.contains("cuvid") || line.contains("v4l2m2m") || line.contains("amf") ||
+                            line.contains("videotoolbox")) {
                             String[] parts = line.trim().split("\\s+");
                             if (parts.length >= 2) supportedDecoders.add(parts[1]);
                         }
@@ -169,11 +174,13 @@ public class FFmpegDiscoveryService {
         
         if (isH264) {
             if (supportedDecoders.contains("h264_cuvid")) return "h264_cuvid";
+            if (supportedDecoders.contains("h264_videotoolbox")) return "h264_videotoolbox";
             if (supportedDecoders.contains("h264_qsv")) return "h264_qsv";
             if (supportedDecoders.contains("h264_vaapi")) return "h264_vaapi";
             if (supportedDecoders.contains("h264_v4l2m2m")) return "h264_v4l2m2m";
         } else if (isHEVC) {
             if (supportedDecoders.contains("hevc_cuvid")) return "hevc_cuvid";
+            if (supportedDecoders.contains("hevc_videotoolbox")) return "hevc_videotoolbox";
             if (supportedDecoders.contains("hevc_qsv")) return "hevc_qsv";
             if (supportedDecoders.contains("hevc_vaapi")) return "hevc_vaapi";
             if (supportedDecoders.contains("hevc_v4l2m2m")) return "hevc_v4l2m2m";

@@ -197,7 +197,7 @@ public class TranscodingService {
             }
 
             String errors = errorOutput.toString();
-            if (useHardware && (errors.contains("nvenc") || errors.contains("amf") || errors.contains("qsv") || errors.contains("vaapi") || errors.contains("driver") || errors.contains("Hardware acceleration failed") || errors.contains("cuvid") || errors.contains("cuda") || errors.contains("GPU") || errors.contains("signal"))) {
+            if (useHardware && (errors.contains("nvenc") || errors.contains("amf") || errors.contains("qsv") || errors.contains("vaapi") || errors.contains("videotoolbox") || errors.contains("driver") || errors.contains("Hardware acceleration failed") || errors.contains("cuvid") || errors.contains("cuda") || errors.contains("GPU") || errors.contains("signal"))) {
                 LOG.warn("Hardware acceleration or encoder failed, falling back to software for {}: {}", videoFile.getName(), errors.split("\n")[0]);
                 useHardware = false;
                 continue;
@@ -244,7 +244,7 @@ public class TranscodingService {
                 videoEncoder = hardwareEncoder;
                 if (hardwareEncoder.contains("nvenc")) {
                     preset = "fast";
-                } else if (hardwareEncoder.contains("amf") || hardwareEncoder.contains("qsv")) {
+                } else if (hardwareEncoder.contains("amf") || hardwareEncoder.contains("qsv") || hardwareEncoder.contains("videotoolbox")) {
                     preset = "fast";
                 } else {
                     preset = "medium";
@@ -264,6 +264,9 @@ public class TranscodingService {
             if (hardwareDecoder.contains("cuvid")) {
                 command.add("-hwaccel");
                 command.add("cuda");
+            } else if (hardwareDecoder.contains("videotoolbox")) {
+                command.add("-hwaccel");
+                command.add("videotoolbox");
             } else if (hardwareDecoder.contains("qsv")) {
                 command.add("-hwaccel");
                 command.add("qsv");
@@ -308,6 +311,8 @@ public class TranscodingService {
                     }
                 } else if (videoEncoder.contains("qsv")) {
                     command.add("-global_quality"); command.add("23");
+                } else if (videoEncoder.contains("videotoolbox")) {
+                    command.add("-quality"); command.add("70");
                 } else {
                     command.add("-crf"); command.add("23");
                 }

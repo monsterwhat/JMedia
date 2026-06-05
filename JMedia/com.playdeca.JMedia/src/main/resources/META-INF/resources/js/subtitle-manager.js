@@ -343,7 +343,7 @@ class SubtitleManager {
             }
             .firefox-subtitle-overlay.active { display: flex !important; }
             
-            video::cue {
+            body.firefox-subtitle-mode video::cue {
                 opacity: 0 !important;
                 visibility: hidden !important;
             }
@@ -354,6 +354,7 @@ class SubtitleManager {
     }
 
     setupFirefoxSubtitlePositioning() {
+        document.body.classList.add('firefox-subtitle-mode');
         let overlay = document.getElementById('firefox-subtitle-overlay');
         if (!overlay) {
             overlay = document.createElement('div');
@@ -415,7 +416,7 @@ class SubtitleManager {
 
             if (parts.length === 0) return text;
 
-            let currentLang = 'spa';
+            let currentLang = (navigator.language || 'en').split('-')[0];
             try {
                 const tracks = window.availableAudioTracks || [];
                 const currentTrack = tracks.find(t => t.isDefault) || tracks[0];

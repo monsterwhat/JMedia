@@ -78,7 +78,9 @@
                     if (profileId) {
                         // Send position update via sendBeacon (reliable during page unload)
                         try {
-                            navigator.sendBeacon('/api/music/playback/position/' + profileId + '/' + stateToSave.currentTime);
+                            if (typeof navigator.sendBeacon === 'function') {
+                                navigator.sendBeacon('/api/music/playback/position/' + profileId + '/' + stateToSave.currentTime);
+                            }
                         } catch (beaconErr) {
                             window.Helpers.log('StatePersistence: sendBeacon failed:', beaconErr);
                         }
