@@ -1,12 +1,14 @@
 package Controllers;
 
 import API.WS.VideoSocket;
+import Models.Profile;
 import Models.ProfileSessionState;
 import Models.Settings;
 import Models.Video;
 import Models.VideoHistory;
 import Models.VideoState;
 import Services.ProfileSessionStateService;
+import Services.SettingsService;
 import Services.VideoHistoryService;
 import Services.VideoService;
 import Services.VideoStateService;
@@ -27,9 +29,8 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class VideoController {
 
-    private ProfileSessionState memoryState;
+    private volatile Long activePlayingProfileId;
 
-    @Inject VideoPersistenceController videoPersistenceController;
     @Inject VideoQueueController videoQueueController;
     @Inject SettingsController currentSettings;
     @Inject VideoService videoService;
@@ -50,30 +51,6 @@ public class VideoController {
     @PostConstruct
     public void init() {
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        memoryState = videoPersistenceController.loadState();
-        if (memoryState == null) {
-            memoryState = new ProfileSessionState();
-        }
-
-        if (memoryState.cue.isEmpty()) {
-            List<Long> videoIds = videoService.findAllVideoIds();
-            if (!videoIds.isEmpty()) {
-                memoryState.cue = videoIds;
-                memoryState.cueIndex = 0;
-                memoryState.currentVideoId = videoIds.get(0);
-            }
-        }
-
-        if (memoryState.currentVideoId == null && !memoryState.cue.isEmpty()) {
-            memoryState.currentVideoId = memoryState.cue.get(0);
-            memoryState.cueIndex = 0;
-        }
-
-        memoryState.playing = false;
-
-        if (memoryState.playing) {
-            startPlaybackTimer();
-        }
     }
 
     @jakarta.annotation.PreDestroy
@@ -90,17 +67,27 @@ public class VideoController {
 
     @jakarta.transaction.Transactional
     protected void processPlaybackTick() {
-        ProfileSessionState st = getState();
-        if (st.playing && st.currentVideoId != null) {
-            double newTime = st.currentTime + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
-            Video currentVideo = findVideo(st.currentVideoId);
-            double duration = currentVideo != null && currentVideo.duration != null ? currentVideo.duration / 1000.0 : 0;
-            if (newTime >= duration && duration > 0) {
-                handleVideoEnded();
-            } else {
-                st.currentTime = newTime;
-                updateState(st, true);
+        if (activePlayingProfileId == null) return;
+
+        Profile playingProfile = Profile.findById(activePlayingProfileId);
+        if (playingProfile == null || playingProfile.userId == null) return;
+
+        SettingsService.setCurrentUserId(playingProfile.userId);
+        try {
+            ProfileSessionState st = getState();
+            if (st.playing && st.currentVideoId != null) {
+                double newTime = st.currentTime + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
+                Video currentVideo = findVideo(st.currentVideoId);
+                double duration = currentVideo != null && currentVideo.duration != null ? currentVideo.duration / 1000.0 : 0;
+                if (newTime >= duration && duration > 0) {
+                    handleVideoEnded();
+                } else {
+                    st.currentTime = newTime;
+                    updateState(st, true);
+                }
             }
+        } finally {
+            SettingsService.clearCurrentUserId();
         }
     }
 
@@ -111,11 +98,15 @@ public class VideoController {
     }
 
     public synchronized ProfileSessionState getState() {
-        if (memoryState == null) {
-            memoryState = videoPersistenceController.loadState();
-            if (memoryState == null) memoryState = new ProfileSessionState();
+        ProfileSessionState state = profileSessionStateService.getOrCreate();
+        if (state != null) return state;
+
+        if (activePlayingProfileId != null) {
+            state = ProfileSessionState.find("profile.id", activePlayingProfileId).firstResult();
+            if (state != null) return state;
         }
-        return memoryState;
+
+        return new ProfileSessionState();
     }
 
     public synchronized void updateState(ProfileSessionState newState, boolean shouldBroadcast) {
@@ -126,7 +117,14 @@ public class VideoController {
             }
         }
 
-        memoryState = profileSessionStateService.save(newState);
+        profileSessionStateService.save(newState);
+
+        if (newState.playing && newState.profile != null) {
+            activePlayingProfileId = newState.profile.id;
+        } else if (!newState.playing && newState.profile != null && activePlayingProfileId != null
+                && activePlayingProfileId.equals(newState.profile.id)) {
+            activePlayingProfileId = null;
+        }
 
         if (shouldBroadcast && ws != null) {
             ws.broadcastAll(newState);
@@ -192,7 +190,9 @@ public class VideoController {
         videoQueueController.clear(st);
         st.collectionId = null;
         stopPlaybackTimer();
+        st.playing = false;
         updateState(st, true);
+        activePlayingProfileId = null;
     }
     
     private synchronized void advanceVideo(boolean forward, boolean fromVideoEnd) {

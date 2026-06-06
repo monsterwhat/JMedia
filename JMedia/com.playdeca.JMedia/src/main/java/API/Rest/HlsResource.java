@@ -18,10 +18,11 @@ public class HlsResource {
     public HlsService.SessionInfo createSession(@PathParam("videoId") Long videoId,
                                                 @QueryParam("start") Double startSeconds,
                                                 @QueryParam("profileId") Long profileId,
-                                                @QueryParam("audioTrack") Integer audioTrackIndex) {
+                                                @QueryParam("audioTrack") Integer audioTrackIndex,
+                                                @QueryParam("quality") Integer qualityHeight) {
         try {
             double start = startSeconds != null ? startSeconds : 0.0;
-            HlsService.HlsSession session = hlsService.createSession(videoId, start, profileId, audioTrackIndex);
+            HlsService.HlsSession session = hlsService.createSession(videoId, start, profileId, audioTrackIndex, qualityHeight);
             String playlistUrl = "/api/hls/master/" + session.sessionId;
             return new HlsService.SessionInfo(session.sessionId, playlistUrl);
         } catch (Exception e) {
@@ -49,6 +50,13 @@ public class HlsResource {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
         return Response.ok(playlist).type("application/vnd.apple.mpegurl").build();
+    }
+
+    @DELETE
+    @Path("/session/{sessionId}")
+    public Response destroySession(@PathParam("sessionId") String sessionId) {
+        hlsService.destroySession(sessionId);
+        return Response.ok().build();
     }
 
     @GET

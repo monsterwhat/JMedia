@@ -1,8 +1,8 @@
 package API.WS;
 
 import Controllers.DesktopController;
-import Controllers.VideoController; // Inject VideoController
-import Models.ProfileSessionState;           // Use ProfileSessionState
+import Controllers.VideoController;
+import Models.ProfileSessionState;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -101,17 +101,14 @@ public class VideoSocket {
         broadcastAll(state);
     }
 
-    public void broadcastAll(ProfileSessionState stateToBroadcast) { // Broadcast ProfileSessionState
-        if (stateToBroadcast == null) {
-            System.out.println("[VideoSocket] broadcastAll: stateToBroadcast is null, not broadcasting.");
-            return;
-        }
+    public void broadcastAll(ProfileSessionState stateToBroadcast) {
+        if (stateToBroadcast == null) return;
 
         try {
             ObjectNode message = mapper.createObjectNode();
             message.put("type", "state");
             message.set("payload", mapper.valueToTree(stateToBroadcast));
-            webSocketManager.broadcastToVideo(mapper.writeValueAsString(message)); // Broadcast to video sessions
+            webSocketManager.broadcastToVideo(mapper.writeValueAsString(message));
         } catch (IOException e) {
             e.printStackTrace();
         }

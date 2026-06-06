@@ -611,6 +611,84 @@ body[data-video-active="true"] .music-player {
     display: flex !important;
 }
 
+.settings-menu .settings-page {
+    display: none !important;
+}
+
+.settings-menu .settings-page.active {
+    display: block !important;
+}
+
+.settings-item {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 10px 15px !important;
+    cursor: pointer !important;
+    color: #eee !important;
+    font-size: 0.85rem !important;
+    transition: background 0.15s !important;
+}
+
+.settings-item:hover {
+    background: rgba(255,255,255,0.08) !important;
+}
+
+.settings-item .pi-chevron-right {
+    font-size: 0.7rem !important;
+    opacity: 0.5 !important;
+}
+
+.settings-back {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 10px 15px !important;
+    cursor: pointer !important;
+    color: #eee !important;
+    font-size: 0.85rem !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+    transition: background 0.15s !important;
+}
+
+.settings-back:hover {
+    background: rgba(255,255,255,0.08) !important;
+}
+
+.settings-back .pi-chevron-left {
+    font-size: 0.8rem !important;
+}
+
+.quality-options {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr !important;
+    gap: 5px !important;
+    padding: 10px 12px !important;
+}
+
+.quality-btn {
+    background: rgba(255,255,255,0.08) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: #ccc !important;
+    padding: 7px 0 !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+    font-size: 0.78rem !important;
+    text-align: center !important;
+    transition: all 0.15s !important;
+}
+
+.quality-btn:hover {
+    background: rgba(255,255,255,0.15) !important;
+    color: #fff !important;
+}
+
+.quality-btn.active {
+    background: var(--player-primary) !important;
+    border-color: var(--player-primary) !important;
+    color: #fff !important;
+}
+
 .speed-menu {
     position: absolute !important;
     bottom: 70px !important;

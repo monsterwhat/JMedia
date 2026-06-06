@@ -88,7 +88,7 @@ public class TranscodingService {
         return true;
     }
 
-    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output, int audioTrackIndex) throws IOException {
+    public void streamRemuxedMKV(Video video, File videoFile, double startSeconds, String userAgent, OutputStream output, int audioTrackIndex, int qualityHeight) throws IOException {
         if (!videoFile.exists() || !videoFile.canRead()) {
             throw new IOException("Video file not found or not readable: " + videoFile.getName());
         }
@@ -106,7 +106,7 @@ public class TranscodingService {
         boolean isIOS = isIOSClient(userAgent);
         LOG.info("Client request - iOS: {}, User-Agent: {}", isIOS, userAgent);
         
-        boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent);
+        boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent) || qualityHeight > 0;
 
         if (needsVideoTranscode) {
             LOG.info("Transcoding forced for codec: {} to ensure web compatibility", video.videoCodec);
@@ -127,7 +127,7 @@ public class TranscodingService {
             LOG.info("Seeking to {}s requested - using FFmpeg instead of mkvmerge for accurate seeking", startSeconds);
         }
 
-        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output, audioTrackIndex);
+        streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, output, audioTrackIndex, qualityHeight);
     }
 
     private void streamViaMkvmerge(String mkvmergePath, File videoFile, OutputStream output, int audioTrackIndex) throws IOException {
@@ -181,7 +181,7 @@ public class TranscodingService {
     private static final long RETRY_DELAY_MS = 500;
 
     private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
-                                  boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS, OutputStream output, int audioTrackIndex) throws IOException {
+                                  boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS, OutputStream output, int audioTrackIndex, int qualityHeight) throws IOException {
         StringBuilder errorOutput = new StringBuilder();
         int exitCode =0;
         
@@ -190,7 +190,7 @@ public class TranscodingService {
         for (int attempt =0; attempt <= MAX_RETRIES; attempt++) {
             errorOutput.setLength(0);
             
-            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, useHardware, output, errorOutput, audioTrackIndex);
+            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, isIOS, useHardware, output, errorOutput, audioTrackIndex, qualityHeight);
             
             if (exitCode == 0 || exitCode == EPIPE) {
                 return;
@@ -231,7 +231,7 @@ public class TranscodingService {
 
     private int runFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
                           boolean needsVideoTranscode, boolean canCopyAudio, boolean isIOS,
-                          boolean useHardware, OutputStream output, StringBuilder errorOutput, int audioTrackIndex) throws IOException {
+                          boolean useHardware, OutputStream output, StringBuilder errorOutput, int audioTrackIndex, int qualityHeight) throws IOException {
         String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
         String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
         
@@ -279,13 +279,12 @@ public class TranscodingService {
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
 
-        command.add("-i"); command.add(videoFile.getAbsolutePath());
-        
-        // Always place -ss after -i for accurate seeking (fixes subtitle sync issues)
+        // Fast keyframe-based seeking — place -ss before -i
         if (startSeconds > 0) {
             command.add("-ss");
             command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
         }
+        command.add("-i"); command.add(videoFile.getAbsolutePath());
 
         command.add("-map"); command.add("0:v:0");
         if (audioTrackIndex >= 0) {
@@ -318,6 +317,9 @@ public class TranscodingService {
                 }
                 
                 command.add("-pix_fmt"); command.add("yuv420p");
+                if (qualityHeight > 0) {
+                    command.add("-vf"); command.add("scale=-2:" + qualityHeight + ":force_original_aspect_ratio=decrease");
+                }
                 if (isIOS && videoEncoder.equals("libx264")) {
                     command.add("-profile:v"); command.add("high");
                 }
@@ -362,10 +364,6 @@ public class TranscodingService {
         command.add("-g"); command.add("48");
         command.add("-avoid_negative_ts"); command.add("make_zero");
         
-        if (startSeconds >0) {
-            command.add("-copyts");
-        }
-        
         command.add("-ignore_unknown");
         command.add("pipe:1");
 
@@ -403,6 +401,8 @@ public class TranscodingService {
                 try {
                     output.write(buffer,0, read);
                 } catch (IOException e) {
+                    LOG.debug("Client disconnected for {}, killing ffmpeg", videoFile.getName());
+                    process.destroyForcibly();
                     break;
                 }
             }
@@ -415,7 +415,7 @@ public class TranscodingService {
             }
             try {
                 int code = process.waitFor();
-                if (code == EPIPE) {
+                if (code == EPIPE || !process.isAlive()) {
                     LOG.debug("FFmpeg pipe closed (client disconnected) for {}", videoFile.getName());
                 } else {
                     String errors = errorOutput.toString();

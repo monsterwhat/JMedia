@@ -76,12 +76,31 @@ public class WebSocketManager {
         logSessions.remove(session);
     }
 
-    public void addVideoSession(Session session) { // Added for video sessions
+    public void addVideoSession(Session session) {
         videoSessions.add(session);
     }
 
-    public void removeVideoSession(Session session) { // Added for video sessions
+    public void addVideoSession(Session session, Long profileId) {
+        videoSessions.add(session);
+        if (profileId != null) {
+            sessionProfileMap.put(session.getId(), profileId);
+            profileSessionsMap.computeIfAbsent(profileId, k -> ConcurrentHashMap.newKeySet()).add(session);
+        }
+    }
+
+    public void removeVideoSession(Session session) {
         videoSessions.remove(session);
+        String sessionId = session.getId();
+        Long profileId = sessionProfileMap.remove(sessionId);
+        if (profileId != null) {
+            Set<Session> sessions = profileSessionsMap.get(profileId);
+            if (sessions != null) {
+                sessions.remove(session);
+                if (sessions.isEmpty()) {
+                    profileSessionsMap.remove(profileId);
+                }
+            }
+        }
     }
 
     public void broadcastToMusic(String message) {

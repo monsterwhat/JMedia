@@ -23,6 +23,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.isIOSNativeFullscreen = false;
             this._streamFallbackCount = 0;
             this._maxStreamFallbacks = 2;
+            this._preferredQuality = 0; // 0 = source, 480/720/1080/2160
             
             // Critical: Duration parsing
             const rawDur = parseFloat(this.container.dataset.duration || 0);
@@ -189,7 +190,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             
             // Create session on server
             try {
-                const sessionResp = await fetch(`/api/hls/session/${this.videoId}?start=${savedTime || 0}`, {
+                const quality = this._preferredQuality || 0;
+                const sessionResp = await fetch(`/api/hls/session/${this.videoId}?start=${savedTime || 0}&quality=${quality}`, {
                     method: 'POST'
                 });
                 if (!sessionResp.ok) throw new Error('Failed to create HLS session');
@@ -840,28 +842,69 @@ buildUI() {
                         </div>
                         
                         <button class="control-btn" id="videoSpeedBtn"><span id="speedValue">1.0x</span></button>
-                        <button class="control-btn" id="videoSubtitleBtn"><i class="pi pi-comments"></i></button>
+                        <button class="control-btn" id="videoSubtitleBtn"><i class="pi pi-cog"></i></button>
                         <button class="control-btn" id="videoFullscreenBtn"><i class="pi pi-expand"></i></button>
                     </div>
                 </div>
 
-                <div class="subtitle-menu" id="subtitleMenu">
-                    <div class="menu-header">Subtitles</div>
-                    <div class="subtitle-list" id="subtitleList">
-                        <div class="subtitle-option" id="sub-off" data-id="off">Off</div>
-                    </div>
-                    
-                    <div class="menu-divider"></div>
-                    <div class="menu-header" style="font-size: 0.7rem; opacity: 0.6; padding-top: 5px;">Timing Offset</div>
-                    <div class="subtitle-correction-row">
-                        <button class="correction-btn" id="subMinusBtn">-0.2s</button>
-                        <div class="correction-val" id="subCorrectionVal" title="Click to edit manually">0.0s</div>
-                        <button class="correction-btn" id="subPlusBtn">+0.2s</button>
-                        <button class="correction-btn correction-reset" id="subResetBtn" title="Reset to 0">↺</button>
+                <div class="subtitle-menu settings-menu" id="subtitleMenu">
+                    <!-- MAIN PAGE -->
+                    <div class="settings-page active" data-page="main">
+                        <div class="menu-header">Settings</div>
+                        <div class="settings-item" data-page="subtitles">
+                            <span>Subtitles</span>
+                            <i class="pi pi-chevron-right"></i>
+                        </div>
+                        <div class="settings-item" data-page="offset">
+                            <span>Timing Offset</span>
+                            <i class="pi pi-chevron-right"></i>
+                        </div>
+                        <div class="settings-item" data-page="style">
+                            <span>Style</span>
+                            <i class="pi pi-chevron-right"></i>
+                        </div>
+                        <div class="settings-item" data-page="quality">
+                            <span>Video Quality</span>
+                            <i class="pi pi-chevron-right"></i>
+                        </div>
                     </div>
 
-                    <div class="menu-divider"></div>
-                    <div class="subtitle-option" id="manageSubtitlesBtn"><i class="pi pi-cog"></i> Manage Subtitles</div>
+                    <!-- SUBTITLES PAGE -->
+                    <div class="settings-page" data-page="subtitles">
+                        <div class="settings-back"><i class="pi pi-chevron-left"></i> Subtitles</div>
+                        <div class="subtitle-list" id="subtitleList">
+                            <div class="subtitle-option" id="sub-off" data-id="off">Off</div>
+                        </div>
+                    </div>
+
+                    <!-- TIMING OFFSET PAGE -->
+                    <div class="settings-page" data-page="offset">
+                        <div class="settings-back"><i class="pi pi-chevron-left"></i> Timing Offset</div>
+                        <div class="subtitle-correction-row">
+                            <button class="correction-btn" id="subMinusBtn">-0.2s</button>
+                            <div class="correction-val" id="subCorrectionVal" title="Click to edit manually">0.0s</div>
+                            <button class="correction-btn" id="subPlusBtn">+0.2s</button>
+                            <button class="correction-btn correction-reset" id="subResetBtn" title="Reset to 0">↺</button>
+                        </div>
+                    </div>
+
+                    <!-- STYLE PAGE -->
+                    <div class="settings-page" data-page="style">
+                        <div class="settings-back"><i class="pi pi-chevron-left"></i> Style</div>
+                        <div class="subtitle-option" id="manageSubtitlesBtn"><i class="pi pi-palette"></i> Subtitle Settings</div>
+                    </div>
+
+                    <!-- QUALITY PAGE -->
+                    <div class="settings-page" data-page="quality">
+                        <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Quality</div>
+                        <div class="quality-options" id="qualityOptions">
+                            <button class="quality-btn" data-quality="0">Source</button>
+                            <button class="quality-btn" data-quality="480">480p</button>
+                            <button class="quality-btn" data-quality="720">720p</button>
+                            <button class="quality-btn" data-quality="1080">1080p</button>
+                            <button class="quality-btn" data-quality="2160">4K</button>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="speed-menu" id="speedMenu">
@@ -1171,7 +1214,8 @@ buildUI() {
 
              this.speedBtn.onclick = (e) => {
                  e.stopPropagation();
-                 this.toggleMenu(this.speedMenu);
+                 this.speedMenu.classList.toggle('active');
+                 this.subtitleMenu.classList.remove('active');
              };
              
              this.container.querySelectorAll('.speed-option').forEach(opt => {
@@ -1190,15 +1234,61 @@ buildUI() {
                 e.stopPropagation();
                 this.subtitleMenu.classList.toggle('active');
                 this.speedMenu.classList.remove('active');
-            };
-
-            this.container.querySelector('#manageSubtitlesBtn').onclick = (e) => {
-                e.stopPropagation();
-                this.subtitleMenu.classList.remove('active');
-                if (window.subtitleManager) {
-                    window.subtitleManager.openModal(this.videoId, this.container.dataset.title, this.container.dataset.path);
+                if (this.subtitleMenu.classList.contains('active')) {
+                    this.switchSettingsPage('main');
                 }
             };
+
+            // Settings page navigation
+            this.subtitleMenu.addEventListener('click', (e) => {
+                const item = e.target.closest('.settings-item');
+                if (item) {
+                    e.stopPropagation();
+                    this.switchSettingsPage(item.dataset.page);
+                    if (item.dataset.page === 'quality') {
+                        this.container.querySelectorAll('.quality-btn').forEach(b => {
+                            b.classList.toggle('active', parseInt(b.dataset.quality) === this._preferredQuality);
+                        });
+                    }
+                    return;
+                }
+                const back = e.target.closest('.settings-back');
+                if (back) {
+                    e.stopPropagation();
+                    this.switchSettingsPage('main');
+                    return;
+                }
+                const manageBtn = e.target.closest('#manageSubtitlesBtn');
+                if (manageBtn) {
+                    e.stopPropagation();
+                    this.subtitleMenu.classList.remove('active');
+                    if (window.subtitleManager) {
+                        window.subtitleManager.openModal(this.videoId, this.container.dataset.title, this.container.dataset.path);
+                    }
+                    return;
+                }
+                const qualityBtn = e.target.closest('.quality-btn');
+                if (qualityBtn) {
+                    e.stopPropagation();
+                    const quality = parseInt(qualityBtn.dataset.quality);
+                    const label = qualityBtn.textContent.trim();
+                    this._preferredQuality = quality;
+                    this.container.querySelectorAll('.quality-btn').forEach(b => b.classList.remove('active'));
+                    qualityBtn.classList.add('active');
+                    if (this.hlsSessionId) {
+                        const currentTime = this.video.currentTime;
+                        this.cleanupHls();
+                        this._showLoading('Switching to ' + label + '…');
+                        this.initHlsStream(currentTime).catch(err => {
+                            console.error('[SimplePlayer] Quality switch failed:', err);
+                        });
+                    } else {
+                        const absTime = this.video.currentTime + (this.streamStartOffset || 0);
+                        this.performServerSeek(absTime);
+                    }
+                    return;
+                }
+            });
 
         this.container.querySelector('#subMinusBtn').onclick = (e) => {
             e.stopPropagation();
@@ -2233,52 +2323,18 @@ formatTime(s) {
                 return;
             }
             
-            // Show loading indicator during seek
             if (this.buffering) this.buffering.style.display = 'block';
             
-            // Explicitly pause and clear src to trigger a clean disconnect on the server before restarting
+            // Explicitly close old connection to kill any existing FFmpeg process
             this.video.pause();
             this.video.src = "";
             this.video.load();
-
+            
             this.streamStartOffset = time;
-            // Preserve audio track selection when seeking
             const audioParam = this.currentAudioTrackIndex !== null ? `&audioTrack=${this.currentAudioTrackIndex}` : '';
-            this.video.src = `/api/video/stream/${this.videoId}?start=${time}${audioParam}`;
-            
-            // Wait for enough buffer before playing (prevents choppiness)
-            const playWhenReady = () => {
-                // Check if we have enough buffer (readyState >= 3 = HAVE_FUTURE_DATA)
-                if (this.video.readyState >= 3) {
-                    console.log('[SimplePlayer] Buffer ready, starting playback');
-                    this.video.play().catch(e => console.log('[SimplePlayer] Play after seek failed:', e));
-                    this.video.removeEventListener('canplay', playWhenReady);
-                    this.video.removeEventListener('progress', checkBuffer);
-                }
-            };
-            
-            const checkBuffer = () => {
-                // Check if we have at least 2 seconds buffered
-                if (this.video.buffered.length > 0) {
-                    const bufferedEnd = this.video.buffered.end(this.video.buffered.length - 1);
-                    const bufferedDuration = bufferedEnd - this.video.currentTime;
-                    if (bufferedDuration >= 2 || this.video.readyState >= 3) {
-                        playWhenReady();
-                    }
-                }
-            };
-            
-            // Listen for buffer events
-            this.video.addEventListener('canplay', playWhenReady, { once: true });
-            this.video.addEventListener('progress', checkBuffer);
-            
-            // Fallback: start playing after timeout if buffer check doesn't fire
-            setTimeout(() => {
-                if (this.buffering && this.buffering.style.display !== 'none') {
-                    console.log('[SimplePlayer] Fallback: forcing playback after timeout');
-                    this.video.play().catch(e => console.log('[SimplePlayer] Fallback play failed:', e));
-                }
-            }, 3000);
+            const qualityParam = this._preferredQuality > 0 ? `&quality=${this._preferredQuality}` : '';
+            this.video.src = `/api/video/stream/${this.videoId}?start=${time}${audioParam}${qualityParam}`;
+            this.video.load();
             
             // Refresh subtitles if one is selected to ensure it gets the correct start offset
             if (this.lastSelectedTrackId && this.lastSelectedTrackId !== 'off') {
@@ -2456,11 +2512,35 @@ formatTime(s) {
             return [];
         }
 
+        switchSettingsPage(page) {
+            this.subtitleMenu.querySelectorAll('.settings-page').forEach(p => p.classList.remove('active'));
+            const target = this.subtitleMenu.querySelector(`.settings-page[data-page="${page}"]`);
+            if (target) target.classList.add('active');
+        }
+
+        cleanupHls() {
+            if (this.hlsSessionId) {
+                fetch(`/api/hls/session/${this.hlsSessionId}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+                this.hlsSessionId = null;
+            }
+            if (this.hlsInstance) {
+                this.hlsInstance.destroy();
+                this.hlsInstance = null;
+            }
+            this._isNativeHls = false;
+            if (this._hlsErrorHandler) {
+                this.video.removeEventListener('error', this._hlsErrorHandler);
+                this._hlsErrorHandler = null;
+            }
+            this.video.src = "";
+            this.video.load();
+        }
+
         destroy() {
             this.destroyAssSubtitle();
             clearInterval(this._prog);
             this.setMusicSuspended(false);
-            if (this.hlsInstance) this.hlsInstance.destroy();
+            this.cleanupHls();
             this.video.pause();
             this.video.src = "";
             window.removeEventListener('keydown', this._boundKeydown);

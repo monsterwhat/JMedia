@@ -299,7 +299,8 @@ public class VideoAPI {
                                @HeaderParam("Range") String rangeHeader,
                                @HeaderParam("User-Agent") String userAgent,
                                @QueryParam("start") @DefaultValue("0") double startSeconds,
-                               @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex) {
+                               @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex,
+                               @QueryParam("quality") @DefaultValue("0") int qualityHeight) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -335,17 +336,18 @@ public class VideoAPI {
         }
 
         // Transcode if it's an MKV OR if the codec is not natively web-friendly (non-H.264)
-        if (isMKV || transcodingService.isTranscodeNeededForWeb(video, userAgent)) {
-            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex);
+        if (isMKV || transcodingService.isTranscodeNeededForWeb(video, userAgent) || qualityHeight > 0) {
+            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight);
         }
 
         return streamDirectFile(videoFile, rangeHeader);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex) {
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight) {
         final Long videoId = video.id;
         final double startPos = startSeconds;
         final int audioTrack = audioTrackIndex;
+        final int quality = qualityHeight;
         
         // If client sends a Range probe (bytes=0-1), return 2 empty bytes — don't start transcoding.
         // iOS/Safari sends this to verify server supports Range requests.
@@ -369,7 +371,7 @@ public class VideoAPI {
             try {
                 // Use TranscodingService - the old direct FFmpeg remux approach
                 // This is the same as what was in the JAR: streams MKV → MP4 on-the-fly via pipe
-                transcodingService.streamRemuxedMKV(video, videoFile, startPos, userAgent, output, audioTrack);
+                transcodingService.streamRemuxedMKV(video, videoFile, startPos, userAgent, output, audioTrack, quality);
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
                     LOG.error("Transcoding error for {}: {}", videoFile.getName(), e.getMessage());

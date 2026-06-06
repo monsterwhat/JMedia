@@ -28,15 +28,24 @@ public class HlsService {
     private Path hlsBasePath;
 
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId) throws IOException {
-        return createSession(videoId, startSeconds, profileId, null);
+        return createSession(videoId, startSeconds, profileId, null, null);
     }
 
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex) throws IOException {
+        return createSession(videoId, startSeconds, profileId, preferredAudioTrackIndex, null);
+    }
+
+    public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex, Integer qualityHeight) throws IOException {
         String sessionId = "vid-" + videoId;
         HlsSession session = activeSessions.get(sessionId);
         if (session != null) {
-            session.markAccessed();
-            return session;
+            if (qualityHeight != null && qualityHeight > 0 && qualityHeight != session.qualityHeight) {
+                LOG.info("Quality changed from {}p to {}p for session {}, recreating", session.qualityHeight, qualityHeight, sessionId);
+                destroySession(sessionId);
+            } else {
+                session.markAccessed();
+                return session;
+            }
         }
         Video video = videoService.findById(videoId);
         if (video == null) throw new IOException("Video not found: " + videoId);
@@ -44,6 +53,11 @@ public class HlsService {
         Files.createDirectories(sessionDir);
         List<AudioTrack> audioTracks = video.audioTracks;
         session = new HlsSession(sessionId, video, audioTracks != null ? audioTracks : new ArrayList<>(), sessionDir, startSeconds);
+        
+        if (qualityHeight != null && qualityHeight > 0) {
+            session.qualityHeight = qualityHeight;
+            LOG.info("HLS session created with quality height: {}p", qualityHeight);
+        }
         
         // Set preferred audio track if specified
         if (preferredAudioTrackIndex != null && preferredAudioTrackIndex >= 0) {
@@ -57,89 +71,234 @@ public class HlsService {
     }
 
     private void startVariantEncoder(HlsSession session, String variantName, Long profileId) {
-        try {
-            String resolvedPath = resolveVideoPath(session.video.path);
+        boolean useHardware = true;
+        for (int attempt = 0; attempt <= 1; attempt++) {
+            try {
+                launchAndMonitorVariantEncoder(session, variantName, profileId, useHardware);
+                return;
+            } catch (IOException e) {
+                if (useHardware) {
+                    LOG.warn("Hardware encoder failed for HLS session {}, falling back to software: {}", session.sessionId, e.getMessage());
+                    useHardware = false;
+                } else {
+                    LOG.error("Failed to start HLS encoder for session {} with software encoding: {}", session.sessionId, e.getMessage());
+                    break;
+                }
+            }
+        }
+    }
 
-            List<String> command = new ArrayList<>();
-            command.add(ffmpegDiscoveryService.findFFmpegExecutable());
-            command.add("-ss");
-            command.add(String.valueOf(session.startSeconds));
-            command.add("-i");
-            command.add(resolvedPath);
-            if (session.audioTracks.isEmpty()) {
-                command.add("-map");
-                command.add("0:a?");
-                command.add("-c:a");
+    private void launchAndMonitorVariantEncoder(HlsSession session, String variantName, Long profileId, boolean useHardware) throws IOException {
+        Process process = startVariantEncoderProcess(session, variantName, profileId, useHardware);
+
+        // Check for early crash (first 2 seconds)
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (!process.isAlive()) {
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                String err = readProcessOutput(process);
+                if (useHardware && isHardwareError(err)) {
+                    throw new IOException("HW encoder failed early with exit code " + exitCode);
+                }
+                throw new IOException("FFmpeg exited with code " + exitCode + ": " + err);
+            }
+        }
+
+        session.addProcess(variantName, process);
+
+        if (!process.isAlive()) {
+            LOG.warn("HLS encoder for session {} exited unexpectedly with code 0", session.sessionId);
+            return;
+        }
+
+        startEncoderMonitor(session, variantName, profileId, process, useHardware);
+        LOG.info("Started HLS encoder for session {} variant {} ({}acceleration)", session.sessionId, variantName, useHardware ? "HW " : "software ");
+    }
+
+    private Process startVariantEncoderProcess(HlsSession session, String variantName, Long profileId, boolean useHardware) throws IOException {
+        String resolvedPath = resolveVideoPath(session.video.path);
+        String ffmpegPath = ffmpegDiscoveryService.findFFmpegExecutable();
+        if (ffmpegPath == null) {
+            throw new IOException("FFmpeg executable not found");
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+
+        // HW decoding (must be placed before -i)
+        if (useHardware) {
+            String hwDecoder = ffmpegDiscoveryService.getHardwareDecoder(session.video.videoCodec);
+            if (hwDecoder != null) {
+                LOG.info("Using hardware-accelerated decoding: {} for codec: {}", hwDecoder, session.video.videoCodec);
+                if (hwDecoder.contains("cuvid")) {
+                    command.add("-hwaccel"); command.add("cuda");
+                } else if (hwDecoder.contains("videotoolbox")) {
+                    command.add("-hwaccel"); command.add("videotoolbox");
+                } else if (hwDecoder.contains("qsv")) {
+                    command.add("-hwaccel"); command.add("qsv");
+                } else if (hwDecoder.contains("vaapi")) {
+                    command.add("-hwaccel"); command.add("vaapi");
+                }
+            }
+        }
+
+        command.add("-ss");
+        command.add(String.valueOf(session.startSeconds));
+        command.add("-i");
+        command.add(resolvedPath);
+
+        // Audio handling
+        if (session.audioTracks.isEmpty()) {
+            command.add("-map");
+            command.add("0:a?");
+            command.add("-c:a");
+            command.add("aac");
+            command.add("-b:a");
+            command.add("128k");
+            command.add("-ac");
+            command.add("2");
+        } else if (session.audioTracks.size() == 1) {
+            AudioTrack track = session.audioTracks.get(0);
+            command.add("-map");
+            command.add("0:a:" + track.trackIndex);
+            command.add("-c:a");
+            if (isCopyableCodec(track.codec)) {
+                command.add("copy");
+            } else {
                 command.add("aac");
                 command.add("-b:a");
                 command.add("128k");
                 command.add("-ac");
                 command.add("2");
-            } else if (session.audioTracks.size() == 1) {
-                AudioTrack track = session.audioTracks.get(0);
-                command.add("-map");
-                command.add("0:a:" + track.trackIndex);
-                command.add("-c:a");
-                if (isCopyableCodec(track.codec)) {
-                    command.add("copy");
-                } else {
-                    command.add("aac");
-                    command.add("-b:a");
-                    command.add("128k");
-                    command.add("-ac");
-                    command.add("2");
-                }
-            } else {
-                command.add("-an");
-                createAudioStreams(session);
             }
-            command.add("-map");
-            command.add("0:v:0");
-            command.add("-c:v");
-            String hardwareEncoder = ffmpegDiscoveryService.detectHardwareEncoder();
-            if (!"libx264".equals(hardwareEncoder)) {
-                LOG.info("Using hardware encoder for HLS: {}", hardwareEncoder);
-                command.add(hardwareEncoder);
+        } else {
+            command.add("-an");
+            createAudioStreams(session);
+        }
+
+        // Video encoding
+        command.add("-map");
+        command.add("0:v:0");
+        command.add("-c:v");
+
+        if (useHardware) {
+            String hwEncoder = ffmpegDiscoveryService.detectHardwareEncoder();
+            if (!"libx264".equals(hwEncoder)) {
+                LOG.info("Using hardware encoder for HLS: {}", hwEncoder);
+                command.add(hwEncoder);
                 command.add("-preset");
                 command.add("fast");
+                if (hwEncoder.contains("nvenc") || hwEncoder.contains("amf")) {
+                    command.add("-rc"); command.add("vbr");
+                    command.add("-cq"); command.add("23");
+                } else if (hwEncoder.contains("qsv")) {
+                    command.add("-global_quality"); command.add("23");
+                } else if (hwEncoder.contains("videotoolbox")) {
+                    command.add("-quality"); command.add("70");
+                }
+                command.add("-pix_fmt"); command.add("yuv420p");
             } else {
+                LOG.info("No hardware encoder found, using libx264 for HLS");
                 command.add("libx264");
-                command.add("-preset");
-                command.add("ultrafast");
-                command.add("-crf");
-                command.add("23");
-                command.add("-pix_fmt");
-                command.add("yuv420p");
+                command.add("-preset"); command.add("ultrafast");
+                command.add("-crf"); command.add("23");
+                command.add("-pix_fmt"); command.add("yuv420p");
             }
-            command.add("-f");
-            command.add("hls");
-            command.add("-hls_time");
-            command.add("4");
-            command.add("-hls_list_size");
-            command.add("0");
-            command.add("-hls_flags");
-            command.add("append_list+omit_endlist+discont_start");
-            command.add("-hls_segment_filename");
-            command.add(session.sessionDir.resolve(variantName + "_%04d.ts").toString());
-            command.add(session.sessionDir.resolve(variantName + ".m3u8").toString());
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.directory(session.sessionDir.toFile());
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            session.addProcess(variantName, process);
-            new Thread(() -> {
+        } else {
+            command.add("libx264");
+            command.add("-preset"); command.add("ultrafast");
+            command.add("-crf"); command.add("23");
+            command.add("-pix_fmt"); command.add("yuv420p");
+        }
+
+        // Scale video to requested quality height (preserving aspect ratio, no upscaling)
+        if (session.qualityHeight > 0) {
+            command.add("-vf");
+            command.add("scale=-2:" + session.qualityHeight + ":force_original_aspect_ratio=decrease");
+        }
+
+        // HLS output args
+        command.add("-f"); command.add("hls");
+        command.add("-hls_time"); command.add("4");
+        command.add("-hls_list_size"); command.add("0");
+        command.add("-hls_flags"); command.add("append_list+omit_endlist+discont_start");
+        command.add("-hls_segment_filename");
+        command.add(session.sessionDir.resolve(variantName + "_%04d.ts").toString());
+        command.add(session.sessionDir.resolve(variantName + ".m3u8").toString());
+
+        LOG.info("Starting HLS encoder for session {} variant {}: {}", session.sessionId, variantName, String.join(" ", command));
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.directory(session.sessionDir.toFile());
+        pb.redirectErrorStream(true);
+        return pb.start();
+    }
+
+    private void startEncoderMonitor(HlsSession session, String variantName, Long profileId, Process process, boolean useHardware) {
+        Thread monitor = new Thread(() -> {
+            try {
+                StringBuilder output = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        output.append(line).append('\n');
                         LOG.debug("[ffmpeg {}] {}", variantName, line);
                     }
-                } catch (IOException e) {
-                    LOG.warn("Error reading ffmpeg output: {}", e.getMessage());
                 }
-            }).start();
-            LOG.info("Started HLS encoder for session {} variant {}", session.sessionId, variantName);
-        } catch (Exception e) {
-            LOG.error("Failed to start HLS encoder", e);
+
+                process.waitFor();
+                int exitCode = process.exitValue();
+
+                if (exitCode != 0 && useHardware && isHardwareError(output.toString())) {
+                    LOG.warn("HLS encoder {} died with hardware error (exit {}), restarting with software encoding", variantName, exitCode);
+                    session.removeProcess(variantName);
+                    try {
+                        Process swProcess = startVariantEncoderProcess(session, variantName, profileId, false);
+                        session.addProcess(variantName, swProcess);
+                        new Thread(() -> {
+                            try (BufferedReader r = new BufferedReader(new InputStreamReader(swProcess.getInputStream()))) {
+                                String l;
+                                while ((l = r.readLine()) != null) {
+                                    LOG.debug("[ffmpeg {}] {}", variantName, l);
+                                }
+                            } catch (IOException e) {
+                                LOG.warn("Error reading ffmpeg output: {}", e.getMessage());
+                            }
+                        }).start();
+                        LOG.info("Restarted HLS encoder {} with software encoding after hardware failure", variantName);
+                    } catch (IOException e) {
+                        LOG.error("Failed to restart HLS encoder {} with software: {}", variantName, e.getMessage());
+                    }
+                }
+            } catch (IOException e) {
+                LOG.warn("Error monitoring HLS encoder {}: {}", variantName, e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        monitor.setDaemon(true);
+        monitor.start();
+    }
+
+    private boolean isHardwareError(String output) {
+        if (output == null || output.isEmpty()) return false;
+        String lower = output.toLowerCase();
+        return lower.contains("nvenc") || lower.contains("amf") || lower.contains("qsv") ||
+               lower.contains("vaapi") || lower.contains("videotoolbox") || lower.contains("cuvid") ||
+               lower.contains("cuda") || lower.contains("gpu") || lower.contains("driver") ||
+               lower.contains("hardware acceleration failed");
+    }
+
+    private String readProcessOutput(Process process) {
+        try (InputStream is = process.getInputStream()) {
+            return new String(is.readAllBytes());
+        } catch (IOException e) {
+            return "";
         }
     }
 
@@ -297,6 +456,14 @@ public class HlsService {
         return hlsBasePath;
     }
 
+    public void destroySession(String sessionId) {
+        HlsSession session = activeSessions.remove(sessionId);
+        if (session != null) {
+            session.stop();
+            LOG.info("Destroyed HLS session {}", sessionId);
+        }
+    }
+
     @PreDestroy
     public void shutdown() {
         activeSessions.values().forEach(HlsSession::stop);
@@ -315,6 +482,8 @@ public class HlsService {
         private final Map<String, Process> processes = new ConcurrentHashMap<>();
         private Integer preferredAudioTrackIndex = null;
 
+        public int qualityHeight = 0;
+
         public HlsSession(String id, Video v, List<AudioTrack> tracks, Path d, double s) {
             sessionId = id;
             video = v;
@@ -330,6 +499,13 @@ public class HlsService {
 
         public void addProcess(String variantName, Process process) {
             processes.put(variantName, process);
+        }
+
+        public void removeProcess(String variantName) {
+            Process p = processes.remove(variantName);
+            if (p != null) {
+                try { p.destroyForcibly(); } catch (Exception e) {}
+            }
         }
 
         public void stop() {
