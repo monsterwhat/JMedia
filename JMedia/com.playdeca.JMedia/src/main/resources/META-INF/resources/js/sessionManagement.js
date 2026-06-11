@@ -208,12 +208,46 @@ window.revokeSession = async function(sessionId) {
     }
 }
 
+window.cleanupSessions = async function() {
+    console.log('[Sessions] Cleaning up old sessions');
+
+    if (!confirm('Clean up all expired sessions? Users with expired sessions will stay logged out.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/users/sessions/cleanup', {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            Toast.error(result.error || 'Failed to clean up sessions');
+            return;
+        }
+
+        Toast.success('Old sessions cleaned up');
+        window.loadSessions();
+
+    } catch (e) {
+        console.error('[Sessions] Error cleaning up sessions:', e);
+        Toast.error('Error cleaning up sessions');
+    }
+};
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const refreshBtn = document.getElementById('refreshSessionsBtn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
             window.loadSessions();
+        });
+    }
+    const cleanupBtn = document.getElementById('cleanupSessionsBtn');
+    if (cleanupBtn) {
+        cleanupBtn.addEventListener('click', () => {
+            window.cleanupSessions();
         });
     }
 });
@@ -224,5 +258,12 @@ if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
         console.log('[Sessions] Refresh button clicked (immediate)');
         window.loadSessions();
+    });
+}
+const cleanupBtn = document.getElementById('cleanupSessionsBtn');
+if (cleanupBtn) {
+    cleanupBtn.addEventListener('click', () => {
+        console.log('[Sessions] Cleanup button clicked (immediate)');
+        window.cleanupSessions();
     });
 }

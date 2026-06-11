@@ -72,6 +72,11 @@ public class MusicUiApi {
     @Inject
     @io.quarkus.qute.Location("mobilePlaylistTableBodyFragment.html")
     Template mobilePlaylistTableBodyFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileSongItemsFragment.html")
+    Template mobileSongItemsFragment;
+
     @Inject
     Template queueFragment;
     @Inject
@@ -96,6 +101,10 @@ public class MusicUiApi {
     Template mobileQueueFragment;
 
     @Inject
+    @io.quarkus.qute.Location("mobileQueueItemsFragment.html")
+    Template mobileQueueItemsFragment;
+
+    @Inject
     @io.quarkus.qute.Location("songDetailFragment.html")
     Template songDetailFragment;
 
@@ -109,6 +118,34 @@ public class MusicUiApi {
 
     @Inject
     Template mobileHistoryFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileHistoryItemsFragment.html")
+    Template mobileHistoryItemsFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileAlbumGridFragment.html")
+    Template mobileAlbumGridFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileAlbumItemsFragment.html")
+    Template mobileAlbumItemsFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileGenreGridFragment.html")
+    Template mobileGenreGridFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobileGenreItemsFragment.html")
+    Template mobileGenreItemsFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobilePlaylistGridFragment.html")
+    Template mobilePlaylistGridFragment;
+
+    @Inject
+    @io.quarkus.qute.Location("mobilePlaylistItemsFragment.html")
+    Template mobilePlaylistItemsFragment;
 
     private String formatDate(Object date) {
         if (date == null) {
@@ -406,31 +443,23 @@ public class MusicUiApi {
             @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
 
         long playlistId = id == null ? 0L : id;
-        System.out.println("DEBUG: Rendering playlist view with profileId=" + profileId + ", playlistId=" + playlistId);
 
-        // For playlist view, we need to check if the user has access to this specific playlist
         Playlist playlist = null;
         String name;
         if (playlistId == 0) {
-            // All Songs - always accessible 
             name = "All Songs";
-            playlist = null; // No specific playlist for All Songs
         } else {
-            // Check access to specific playlist
             playlist = playlistService.find(id);
             if (playlist != null) {
                 name = playlist.getName();
-                System.err.println("DEBUG: Playlist found - ID: " + id + ", Name: " + name + ", Profile: " + profileId);
             } else {
                 name = "Playlist not found";
-                // Debug logging
-                System.err.println("DEBUG: Playlist not found for ID: " + id + " when requested by profile: " + profileId);
             }
         }
 
@@ -447,13 +476,11 @@ public class MusicUiApi {
             totalSongs = result.totalCount();
         }
 
-        int totalPages = (int) Math.ceil((double) totalSongs / limit);
-        int currentPage = Math.max(1, Math.min(page, totalPages));
+        boolean hasMore = (long) page * limit < totalSongs;
+        int nextPage = page + 1;
 
         Song currentSong = playbackController.getCurrentSong(profileId);
         boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
-
-        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
         return playlistView
                 .data("playlistId", String.valueOf(playlistId))
@@ -463,11 +490,10 @@ public class MusicUiApi {
                 .data("isPlaying", isPlaying)
                 .data("formatDate", (Function<Object, String>) this::formatDate)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .data("limit", limit)
-                .data("currentPage", currentPage)
-                .data("totalPages", totalPages)
-                .data("pageNumbers", pageNumbers)
+                .data("currentPage", page)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
                 .data("search", search)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
@@ -482,7 +508,7 @@ public class MusicUiApi {
             @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
@@ -503,16 +529,15 @@ public class MusicUiApi {
                 totalSongs = result.totalCount();
             }
 
-            if (totalSongs == 0) {
-                return "<tr><td colspan='6' class='has-text-centered'>No songs found.</td></tr>";
+            if (paginatedSongs.isEmpty()) {
+                return "<tr><td colspan='6' class='has-text-centered py-5'>No songs found.</td></tr>";
             }
-            int totalPages = (int) Math.ceil((double) totalSongs / limit);
-            int currentPage = Math.max(1, Math.min(page, totalPages));
+
+            boolean hasMore = (long) page * limit < totalSongs;
+            int nextPage = page + 1;
 
             Song currentSong = playbackController.getCurrentSong(profileId);
             boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
-
-            List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
             return playlistTableBodyFragment
                     .data("playlistId", String.valueOf(playlistId))
@@ -521,19 +546,78 @@ public class MusicUiApi {
                     .data("isPlaying", isPlaying)
                     .data("formatDate", (Function<Object, String>) this::formatDate)
                     .data("formatDuration", (Function<Integer, String>) this::formatDuration)
-                    .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                     .data("limit", limit)
-                    .data("currentPage", currentPage)
-                    .data("totalPages", totalPages)
-                    .data("pageNumbers", pageNumbers)
-                    .data("search", search) // Pass search term back to template for pagination links
-                    .data("sortBy", sortBy) // Pass sortBy back to template for pagination links
-                    .data("sortDirection", sortDirection) // Pass sortDirection back to template for pagination links
+                    .data("currentPage", page)
+                    .data("hasMore", hasMore)
+                    .data("nextPage", nextPage)
+                    .data("search", search)
+                    .data("sortBy", sortBy)
+                    .data("sortDirection", sortDirection)
                     .data("profileId", String.valueOf(profileId))
                     .render();
         } catch (Exception e) {
             System.out.println("Error: " + e.getLocalizedMessage());
             return null;
+        }
+    }
+
+    @GET
+    @Path("/tbody-more/{profileId}/{id}")
+    @Blocking
+    public String getMorePlaylistTbody(
+            @PathParam("profileId") Long profileId,
+            @PathParam("id") Long id,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        try {
+            long playlistId = (id == null) ? 0L : id;
+
+            List<Song> paginatedSongs;
+            long totalSongs;
+
+            if (playlistId == 0) {
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                paginatedSongs = result.songs();
+                totalSongs = result.totalCount();
+            } else {
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                paginatedSongs = result.songs();
+                totalSongs = result.totalCount();
+            }
+
+            if (paginatedSongs.isEmpty()) {
+                return "<tr><td colspan='6' class='has-text-centered has-text-grey-light py-3 is-size-7'>— end —</td></tr>";
+            }
+
+            boolean hasMore = (long) page * limit < totalSongs;
+            int nextPage = page + 1;
+
+            Song currentSong = playbackController.getCurrentSong(profileId);
+            boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
+
+            return playlistTableBodyFragment
+                    .data("playlistId", String.valueOf(playlistId))
+                    .data("songs", paginatedSongs)
+                    .data("currentSong", currentSong)
+                    .data("isPlaying", isPlaying)
+                    .data("formatDate", (Function<Object, String>) this::formatDate)
+                    .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                    .data("limit", limit)
+                    .data("currentPage", page)
+                    .data("hasMore", hasMore)
+                    .data("nextPage", nextPage)
+                    .data("search", search)
+                    .data("sortBy", sortBy)
+                    .data("sortDirection", sortDirection)
+                    .data("profileId", String.valueOf(profileId))
+                    .render();
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getLocalizedMessage());
+            return "<tr><td colspan='6' class='has-text-centered has-text-grey-light py-3 is-size-7'>— end —</td></tr>";
         }
     }
 
@@ -544,7 +628,7 @@ public class MusicUiApi {
             @PathParam("profileId") Long profileId,
             @PathParam("id") Long id,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("24") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
@@ -565,29 +649,26 @@ public class MusicUiApi {
                 totalSongs = result.totalCount();
             }
 
-            if (totalSongs == 0) {
+            if (paginatedSongs.isEmpty()) {
                 return "<div class='p-6 has-text-centered opacity-50'><i class='pi pi-info-circle mb-3' style='font-size: 2rem;'></i><p>No songs found in this library.</p></div>";
             }
-            int totalPages = (int) Math.ceil((double) totalSongs / limit);
-            int currentPage = Math.max(1, Math.min(page, totalPages));
+
+            boolean hasMore = (long) page * limit < totalSongs;
+            int nextPage = page + 1;
 
             Song currentSong = playbackController.getCurrentSong(profileId);
             boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
-
-            List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
             return mobilePlaylistTableBodyFragment
                     .data("playlistId", String.valueOf(playlistId))
                     .data("songs", paginatedSongs)
                     .data("currentSong", currentSong)
                     .data("isPlaying", isPlaying)
-                    .data("formatDate", (Function<Object, String>) this::formatDate)
                     .data("formatDuration", (Function<Integer, String>) this::formatDuration)
-                    .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                     .data("limit", limit)
-                    .data("currentPage", currentPage)
-                    .data("totalPages", totalPages)
-                    .data("pageNumbers", pageNumbers)
+                    .data("currentPage", page)
+                    .data("hasMore", hasMore)
+                    .data("nextPage", nextPage)
                     .data("search", search)
                     .data("sortBy", sortBy)
                     .data("sortDirection", sortDirection)
@@ -596,6 +677,58 @@ public class MusicUiApi {
         } catch (Exception e) {
             System.out.println("Error: " + e.getLocalizedMessage());
             return null;
+        }
+    }
+
+    @GET
+    @Path("/mobile-tbody-more/{profileId}/{id}")
+    @Blocking
+    public String getMoreMobileSongs(
+            @PathParam("profileId") Long profileId,
+            @PathParam("id") Long id,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        try {
+            long playlistId = (id == null) ? 0L : id;
+
+            List<Song> paginatedSongs;
+            long totalSongs;
+
+            if (playlistId == 0) {
+                SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
+                paginatedSongs = result.songs();
+                totalSongs = result.totalCount();
+            } else {
+                PlaylistService.PaginatedPlaylistSongs result = playbackController.getSongsByPlaylist(playlistId, page, limit, search, sortBy, sortDirection);
+                paginatedSongs = result.songs();
+                totalSongs = result.totalCount();
+            }
+
+            if (paginatedSongs.isEmpty()) {
+                return "<div class='scroll-end'>— end —</div>";
+            }
+
+            boolean hasMore = (long) page * limit < totalSongs;
+            int nextPage = page + 1;
+
+            return mobileSongItemsFragment
+                    .data("playlistId", String.valueOf(playlistId))
+                    .data("songs", paginatedSongs)
+                    .data("limit", limit)
+                    .data("hasMore", hasMore)
+                    .data("nextPage", nextPage)
+                    .data("search", search)
+                    .data("sortBy", sortBy)
+                    .data("sortDirection", sortDirection)
+                    .data("profileId", String.valueOf(profileId))
+                    .render();
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getLocalizedMessage());
+            return "<div class='scroll-end'>— end —</div>";
         }
     }
 
@@ -633,6 +766,8 @@ public class MusicUiApi {
         int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages)); // Sanitize page number
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+        boolean hasMore = page * limit < totalQueueSize;
+        int nextPage = page + 1;
 
         String html = queueFragment
                 .data("queue", queueWithIndex)
@@ -646,6 +781,8 @@ public class MusicUiApi {
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
                 .data("search", search)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
                 .render();
 
         String mobileHtml = mobileQueueFragment
@@ -659,6 +796,8 @@ public class MusicUiApi {
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
                 .data("search", search)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
                 .render();
 
         return new QueueFragmentResponse(html, mobileHtml, totalQueueSize); // Reverted to return DTO
@@ -687,6 +826,8 @@ public class MusicUiApi {
         int totalPages = (int) Math.ceil((double) totalQueueSize / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages));
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+        boolean hasMore = (long) page * limit < totalQueueSize;
+        int nextPage = page + 1;
 
         return mobileQueueFragment
                 .data("queue", queueWithIndex)
@@ -699,6 +840,46 @@ public class MusicUiApi {
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
                 .data("search", search)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .render();
+    }
+
+    @GET
+    @Path("/mobile-queue-more/{profileId}")
+    @Blocking
+    public String getMoreMobileQueue(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+
+        PlaybackController.PaginatedQueue paginatedQueue = playbackController.getQueuePage(page, limit, profileId, search);
+        List<Song> queuePage = paginatedQueue.songs();
+        int totalQueueSize = paginatedQueue.totalSize();
+
+        int offset = (page - 1) * limit;
+        List<SongWithIndex> queueWithIndex = new ArrayList<>();
+        for (int i = 0; i < queuePage.size(); i++) {
+            queueWithIndex.add(new SongWithIndex(queuePage.get(i), offset + i));
+        }
+
+        if (queueWithIndex.isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+
+        boolean hasMore = (long) page * limit < totalQueueSize;
+        int nextPage = page + 1;
+
+        return mobileQueueItemsFragment
+                .data("queue", queueWithIndex)
+                .data("profileId", profileId)
+                .data("offset", offset)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .render();
     }
 
@@ -771,26 +952,20 @@ public class MusicUiApi {
     public String getSongsFragment(
             @PathParam("profileId") Long profileId,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
-            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
             @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
             @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
 
         SongService.PaginatedSongs result = playbackController.getSongs(page, limit, search, sortBy, sortDirection);
         List<Song> songs = result.songs();
-        long totalSongs = result.totalCount();
 
-        if (totalSongs == 0) {
+        if (songs.isEmpty()) {
             return "<tr><td colspan='6' class='has-text-centered'>No songs found.</td></tr>";
         }
 
-        int totalPages = (int) Math.ceil((double) totalSongs / limit);
-        int currentPage = Math.max(1, Math.min(page, totalPages));
-
         Song currentSong = playbackController.getCurrentSong(profileId);
         boolean isPlaying = playbackController.getState(profileId) != null && playbackController.getState(profileId).isPlaying();
-
-        List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
 
         return allSongsFragment
                 .data("songs", songs)
@@ -798,11 +973,7 @@ public class MusicUiApi {
                 .data("isPlaying", isPlaying)
                 .data("formatDate", (Function<Object, String>) this::formatDate)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
-                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .data("limit", limit)
-                .data("currentPage", currentPage)
-                .data("totalPages", totalPages)
-                .data("pageNumbers", pageNumbers)
                 .data("search", search)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
@@ -878,6 +1049,8 @@ public class MusicUiApi {
         int totalPages = (int) Math.ceil((double) totalHistorySize / limit);
         int currentPage = Math.max(1, Math.min(page, totalPages));
         List<Integer> pageNumbers = getPaginationNumbers(currentPage, totalPages);
+        boolean hasMore = (long) page * limit < totalHistorySize;
+        int nextPage = page + 1;
 
         return mobileHistoryFragment
                 .data("history", historyWithIndex)
@@ -891,6 +1064,45 @@ public class MusicUiApi {
                 .data("totalPages", totalPages)
                 .data("pageNumbers", pageNumbers)
                 .data("search", search)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .render();
+    }
+
+    @GET
+    @Path("/mobile-history-more/{profileId}")
+    @Blocking
+    public String getMoreMobileHistory(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+
+        List<PlaybackHistory> historyPage = playbackHistoryService.getHistory(page, limit, profileId, search);
+        long totalHistorySize = playbackHistoryService.getHistoryCount(profileId, search);
+
+        List<HistoryWithIndex> historyWithIndex = new ArrayList<>();
+        for (int i = 0; i < historyPage.size(); i++) {
+            historyWithIndex.add(new HistoryWithIndex(historyPage.get(i), i));
+        }
+
+        if (historyWithIndex.isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+
+        boolean hasMore = (long) page * limit < totalHistorySize;
+        int nextPage = page + 1;
+
+        return mobileHistoryItemsFragment
+                .data("history", historyWithIndex)
+                .data("profileId", profileId)
+                .data("offset", (page - 1) * limit)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("artworkUrl", (Function<String, String>) this::artworkUrl)
+                .data("formatDate", (Function<Object, String>) this::formatDate)
                 .render();
     }
 
@@ -1334,6 +1546,286 @@ public class MusicUiApi {
                 .data("artworkUrl", (Function<String, String>) this::artworkUrl)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
+    }
+
+    // ── Album Grid (mobile) ──
+
+    public record AlbumCard(String name, String artist, Long firstSongId, long songCount, String year) {}
+
+    @GET
+    @Path("/mobile-albums/{profileId}")
+    @Blocking
+    public String getMobileAlbumGrid(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("album") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        SongService.PaginatedAlbums result = songService.findAlbums(page, limit, search, sortBy, sortDirection);
+        List<AlbumCard> cards = result.albums().stream()
+            .map(row -> {
+                String y = row[4] != null ? row[4].toString() : "";
+                if (y.length() >= 4) y = y.substring(0, 4);
+                return new AlbumCard((String) row[0], (String) row[1], (Long) row[2], (Long) row[3], y);
+            })
+            .toList();
+
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobileAlbumGridFragment
+                .data("albums", cards)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    @GET
+    @Path("/mobile-albums-more/{profileId}")
+    @Blocking
+    public String getMoreMobileAlbums(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("12") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("album") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        SongService.PaginatedAlbums result = songService.findAlbums(page, limit, search, sortBy, sortDirection);
+        if (result.albums().isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+        List<AlbumCard> cards = result.albums().stream()
+            .map(row -> {
+                String y = row[4] != null ? row[4].toString() : "";
+                if (y.length() >= 4) y = y.substring(0, 4);
+                return new AlbumCard((String) row[0], (String) row[1], (Long) row[2], (Long) row[3], y);
+            })
+            .toList();
+
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobileAlbumItemsFragment
+                .data("albums", cards)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    // ── Genre Grid (mobile) ──
+
+    public record GenreCard(String name, long songCount) {}
+
+    @GET
+    @Path("/mobile-genres/{profileId}")
+    @Blocking
+    public String getMobileGenreGrid(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+
+        SongService.PaginatedGenres result = songService.findGenres(page, limit, search);
+        List<GenreCard> cards = result.genres().stream()
+            .map(row -> new GenreCard((String) row[0], (Long) row[1]))
+            .toList();
+
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobileGenreGridFragment
+                .data("genres", cards)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    @GET
+    @Path("/mobile-genres-more/{profileId}")
+    @Blocking
+    public String getMoreMobileGenres(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+
+        SongService.PaginatedGenres result = songService.findGenres(page, limit, search);
+        if (result.genres().isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+        List<GenreCard> cards = result.genres().stream()
+            .map(row -> new GenreCard((String) row[0], (Long) row[1]))
+            .toList();
+
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobileGenreItemsFragment
+                .data("genres", cards)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    // ── Genre Songs (drill-down) ──
+
+    @GET
+    @Path("/mobile-genre-songs/{profileId}/{genre}")
+    @Blocking
+    public String getMobileGenreSongs(
+            @PathParam("profileId") Long profileId,
+            @PathParam("genre") String genre,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        SongService.PaginatedSongs result = songService.findSongsByGenre(page, limit, genre, sortBy, sortDirection);
+        if (result.songs().isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobileSongItemsFragment
+                .data("playlistId", "0")
+                .data("songs", result.songs())
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", "")
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    @GET
+    @Path("/mobile-genre-songs-more/{profileId}/{genre}")
+    @Blocking
+    public String getMoreMobileGenreSongs(
+            @PathParam("profileId") Long profileId,
+            @PathParam("genre") String genre,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
+            @jakarta.ws.rs.QueryParam("sortDirection") @jakarta.ws.rs.DefaultValue("asc") String sortDirection) {
+
+        SongService.PaginatedSongs result = songService.findSongsByGenre(page, limit, genre, sortBy, sortDirection);
+        if (result.songs().isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobileSongItemsFragment
+                .data("playlistId", "0")
+                .data("songs", result.songs())
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", "")
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    // ── Playlist Grid (mobile) ──
+
+    public record PlaylistCard(Long id, String name, long songCount, Long firstSongId) {}
+
+    @GET
+    @Path("/mobile-playlists/{profileId}")
+    @Blocking
+    public String getMobilePlaylistGrid(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+
+        PlaylistService.PaginatedPlaylists result = playlistService.findPlaylists(page, limit, search);
+        List<PlaylistCard> cards = result.playlists().stream()
+            .map(row -> new PlaylistCard((Long) row[0], (String) row[1], (Long) row[2], playlistService.findFirstSongId((Long) row[0])))
+            .toList();
+
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobilePlaylistGridFragment
+                .data("playlists", cards)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    @GET
+    @Path("/mobile-playlists-more/{profileId}")
+    @Blocking
+    public String getMoreMobilePlaylists(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
+            @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
+            @jakarta.ws.rs.QueryParam("search") @jakarta.ws.rs.DefaultValue("") String search) {
+
+        PlaylistService.PaginatedPlaylists result = playlistService.findPlaylists(page, limit, search);
+        if (result.playlists().isEmpty()) {
+            return "<div class='scroll-end'>— end —</div>";
+        }
+        List<PlaylistCard> cards = result.playlists().stream()
+            .map(row -> new PlaylistCard((Long) row[0], (String) row[1], (Long) row[2], playlistService.findFirstSongId((Long) row[0])))
+            .toList();
+
+        boolean hasMore = (long) page * limit < result.totalCount();
+        int nextPage = page + 1;
+
+        return mobilePlaylistItemsFragment
+                .data("playlists", cards)
+                .data("limit", limit)
+                .data("hasMore", hasMore)
+                .data("nextPage", nextPage)
+                .data("search", search)
+                .data("profileId", String.valueOf(profileId))
+                .render();
+    }
+
+    // ── Queue reorder (drag-and-drop) ──
+
+    @POST
+    @Path("/queue/move/{profileId}")
+    @Blocking
+    public String moveInQueue(
+            @PathParam("profileId") Long profileId,
+            @jakarta.ws.rs.QueryParam("from") int fromIndex,
+            @jakarta.ws.rs.QueryParam("to") int toIndex) {
+        try {
+            playbackController.moveInQueue(fromIndex, toIndex, profileId);
+            return "{\"success\":true}";
+        } catch (Exception e) {
+            return "{\"success\":false,\"error\":\"" + e.getMessage() + "\"}";
+        }
     }
 
     /**

@@ -179,6 +179,98 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
         }
  
+        async _preloadSubtitleTracks() {
+            try {
+                const tracksRes = await fetch(`/api/video/subtitles/${this.videoId}`);
+                if (!tracksRes.ok) return;
+                const tracksData = await tracksRes.json();
+                const tracks = tracksData.tracks || tracksData.data || [];
+                console.log('[SimplePlayer] Pre-loaded', tracks.length, 'subtitle tracks for direct stream');
+                this._subtitleTracksData = tracks;
+
+                this.video.querySelectorAll('track').forEach(el => el.remove());
+                let activeFound = false;
+                tracks.forEach(t => {
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    const startOffset = this.streamStartOffset || 0;
+                    track.src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                    track.srclang = t.language || 'en';
+                    track.label = t.displayName || 'Subtitle';
+                    track.id = 'subtitle-track-' + t.id;
+                    const isActive = this.lastSelectedTrackId == t.id;
+                    if (isActive) {
+                        track.default = true;
+                        activeFound = true;
+                    }
+                    this.video.appendChild(track);
+                });
+                if (!activeFound && tracks.length > 0) {
+                    const first = this.video.querySelector('track');
+                    if (first) first.default = true;
+                }
+            } catch (e) {
+                console.warn('[SimplePlayer] Failed to pre-load subtitles:', e);
+            }
+        }
+
+        _syncSubtitleForNativeFullscreen() {
+            this.video.querySelectorAll('track').forEach(el => el.remove());
+
+            const selectedId = this.lastSelectedTrackId;
+            if (!selectedId || selectedId === 'off') {
+                console.log('[SimplePlayer] Subtitles off, no track to sync for fullscreen');
+                return;
+            }
+
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            const startOffset = this.streamStartOffset || 0;
+            track.src = `/api/video/subtitles/track/${selectedId}?start=${startOffset}`;
+            track.default = true;
+            let displayName = 'Subtitle';
+            if (this._subtitleTracksData) {
+                const found = this._subtitleTracksData.find(t => t.id == selectedId);
+                if (found) displayName = found.displayName || found.filename || 'Subtitle';
+            }
+            track.label = displayName;
+            this.video.appendChild(track);
+            console.log('[SimplePlayer] Synced subtitle track for native fullscreen:', selectedId);
+        }
+
+        _restoreSubtitlesAfterFullscreen() {
+            this.video.querySelectorAll('track').forEach(el => el.remove());
+
+            if (this._subtitleTracksData) {
+                this._subtitleTracksData.forEach(t => {
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    const startOffset = this.streamStartOffset || 0;
+                    track.src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                    track.srclang = t.language || 'en';
+                    track.label = t.displayName || 'Subtitle';
+                    track.id = 'subtitle-track-' + t.id;
+                    if (this.lastSelectedTrackId == t.id) track.default = true;
+                    this.video.appendChild(track);
+                });
+                if (this.lastSelectedTrackId && this.lastSelectedTrackId !== 'off') {
+                    const restoreMode = () => {
+                        if (!this.video.textTracks) return;
+                        const target = Array.from(this.video.textTracks).find(tr => {
+                            const found = this._subtitleTracksData.find(t => t.id == this.lastSelectedTrackId);
+                            return found && (tr.label === (found.displayName || 'Subtitle'));
+                        });
+                        if (target) {
+                            target.mode = 'showing';
+                        } else {
+                            setTimeout(restoreMode, 200);
+                        }
+                    };
+                    setTimeout(restoreMode, 300);
+                }
+            }
+        }
+
         async initHlsStream(savedTime) {
             // Create HLS session first
             const sessionId = `vid-${this.videoId}`;
@@ -194,7 +286,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                 const sessionResp = await fetch(`/api/hls/session/${this.videoId}?start=${savedTime || 0}&quality=${quality}`, {
                     method: 'POST'
                 });
-                if (!sessionResp.ok) throw new Error('Failed to create HLS session');
+                if (!sessionResp.ok) {
+                    const errText = await sessionResp.text().catch(() => 'no body');
+                    throw new Error(`Failed to create HLS session (HTTP ${sessionResp.status}): ${errText}`);
+                }
                 const sessionData = await sessionResp.json();
                 console.log('[SimplePlayer] HLS session created:', sessionData);
             } catch (e) {
@@ -202,8 +297,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
 
             // Use master playlist URL with multi-audio support
-            const masterPlaylistUrl = `/api/hls/master/${sessionId}`;
-            const videoPlaylistUrl = `/api/hls/playlist/${sessionId}/video_stream`;
+            const masterPlaylistUrl = `/api/hls/master/${sessionId}.m3u8`;
+            const videoPlaylistUrl = `/api/hls/playlist/${sessionId}/video_stream.m3u8`;
 
             // hls.js is needed for Firefox - native HLS doesn't work
             const useHlsJs = !isSafari && typeof Hls !== 'undefined' && Hls.isSupported();
@@ -222,6 +317,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 if (tracksRes.ok) {
                     const tracksData = await tracksRes.json();
                     subtitleTracks = tracksData.tracks || tracksData.data || [];
+                    this._subtitleTracksData = subtitleTracks;
                     console.log('[SimplePlayer] Pre-loaded', subtitleTracks.length, 'subtitle tracks for HLS');
                 }
             } catch (e) {
@@ -403,29 +499,61 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
             
-            // Use HLS only on Safari/iOS when transcoding is needed (MKV, non-H.264 codecs)
-            // Chromium-based browsers (Chrome, Brave, Edge) on Mac handle direct fragmented MP4 streams well
-            // Windows/Linux use direct stream with server-side transcoding
+            // HLS is disabled on iOS/iPadOS 18+ due to "No decoders for requested formats" error
+            // with application/x-mpegURL / application/vnd.apple.mpegurl.
+            // Direct stream with server-side transcoding works reliably.
             const isIOS = this._isIOS();
             const isMac = this._isMac();
             const isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
             const hasMultipleAudio = this.container.dataset.hasMultipleAudio === 'true';
-            if ((isIOS || (isMac && isSafari)) && this.needsTranscode) {
-                console.log('[SimplePlayer] Safari/iOS + transcode needed → using HLS');
+            if ((isMac && isSafari) && this.needsTranscode) {
+                console.log('[SimplePlayer] Safari/Mac + transcode needed → using HLS');
                 this.initHlsStream(savedTime);
+            } else if (isIOS && this.needsTranscode) {
+                console.log('[SimplePlayer] iOS + transcode needed → direct stream (HLS disabled on iOS)');
+                const setupStream = () => {
+                    if (savedTime > 0) {
+                        this.streamStartOffset = savedTime;
+                        this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
+                    } else {
+                        this.streamStartOffset = 0;
+                        this.video.src = `/api/video/stream/${this.videoId}`;
+                    }
+                    this.loadSubtitles();
+                    if (hasMultipleAudio) {
+                        this.loadAudioTrackSelector();
+                    }
+                    this.video.play().catch(e => {
+                        console.log('[SimplePlayer] Play requires user gesture:', e);
+                    });
+                };
+                // Set offset before preloading subtitles so <track> elements get correct ?start=
+                this.streamStartOffset = savedTime;
+                this._preloadSubtitleTracks().then(setupStream);
             } else {
-                // Direct stream — server-side seek if transcoding needed and resuming
-                if (this.needsTranscode && savedTime > 0) {
+                // iOS/Safari: must create <track> elements before video.src or subtitles won't render
+                const setupStream = () => {
+                    if (this.needsTranscode && savedTime > 0) {
+                        this.streamStartOffset = savedTime;
+                        this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
+                    } else {
+                        this.streamStartOffset = 0;
+                        this.video.src = `/api/video/stream/${this.videoId}`;
+                    }
+                    this.loadSubtitles();
+                    if (hasMultipleAudio) {
+                        this.loadAudioTrackSelector();
+                    }
+                    this.video.play().catch(e => {
+                        console.log('[SimplePlayer] Play requires user gesture:', e);
+                    });
+                };
+                if (isIOS || isSafari) {
+                    // Set offset before preloading subtitles so <track> elements get correct ?start=
                     this.streamStartOffset = savedTime;
-                    this.video.src = `/api/video/stream/${this.videoId}?start=${savedTime}`;
+                    this._preloadSubtitleTracks().then(setupStream);
                 } else {
-                    this.streamStartOffset = 0;
-                    this.video.src = `/api/video/stream/${this.videoId}`;
-                }
-                this.loadSubtitles();
-                // Load audio track selector for multi-audio videos
-                if (hasMultipleAudio) {
-                    this.loadAudioTrackSelector();
+                    setupStream();
                 }
             }
 
@@ -687,22 +815,32 @@ async refreshMarkers(retries = 3) {
             }
 
             this.streamStartOffset = savedTime > 0 ? savedTime : 0;
-            this.video.src = `/api/video/stream/${this.videoId}${savedTime > 0 ? '?start=' + savedTime : ''}`;
-            this.video.load();
-            this.video.addEventListener('loadedmetadata', () => {
-                this._fallbackInProgress = false;
-                if (savedTime > 0 && !this.streamStartOffset) this.video.currentTime = savedTime;
-                this.applyInitialState();
-                setTimeout(() => this.loadSubtitles(), 500);
-            }, { once: true });
-            this.video.addEventListener('playing', () => {
-                this._fallbackInProgress = false;
-                this._hideLoading();
-            }, { once: true });
-            this.video.addEventListener('error', () => {
-                this._fallbackInProgress = false;
-            }, { once: true });
-            this.video.play().catch(() => {});
+
+            const setupFallback = () => {
+                this.video.src = `/api/video/stream/${this.videoId}${savedTime > 0 ? '?start=' + savedTime : ''}`;
+                this.video.load();
+                this.video.addEventListener('loadedmetadata', () => {
+                    this._fallbackInProgress = false;
+                    if (savedTime > 0 && !this.streamStartOffset) this.video.currentTime = savedTime;
+                    this.applyInitialState();
+                    setTimeout(() => this.loadSubtitles(), 500);
+                }, { once: true });
+                this.video.addEventListener('playing', () => {
+                    this._fallbackInProgress = false;
+                    this._hideLoading();
+                }, { once: true });
+                this.video.addEventListener('error', () => {
+                    this._fallbackInProgress = false;
+                }, { once: true });
+                this.video.play().catch(() => {});
+            };
+
+            // iOS/Safari: pre-create <track> elements before changing video.src
+            if (this._isIOS()) {
+                this._preloadSubtitleTracks().then(setupFallback);
+            } else {
+                setupFallback();
+            }
         }
 
         async loadAudioTrackSelector() {
@@ -1437,6 +1575,11 @@ buildUI() {
                 }
 
                 if (isIOS) {
+                    // Save current position before fullscreen transition
+                    // iOS may re-fetch the video source during native fullscreen,
+                    // resetting currentTime to 0 — we'll restore it after the transition.
+                    this._preFullscreenTime = this.video.currentTime;
+                    
                     let nativeFullscreenAttempted = false;
                     
                     if (!this.video.hasAttribute('playsinline')) {
@@ -1499,6 +1642,23 @@ buildUI() {
                     console.log('[SimplePlayer] Native fullscreen changed, but CSS fullscreen is active');
                 }
 
+                // On iOS 16+, native fullscreen may re-fetch the video source,
+                // resetting currentTime to 0. Restore the position once playback resumes.
+                if (isNativeFullscreen && this._preFullscreenTime != null && this._preFullscreenTime > 0) {
+                    const restoreTime = this._preFullscreenTime;
+                    const doRestore = () => {
+                        const ct = this.video.currentTime;
+                        if (ct === 0 || Math.abs(ct - restoreTime) > 0.5) {
+                            this.video.currentTime = restoreTime;
+                        }
+                    };
+                    doRestore();
+                    this.video.addEventListener('canplay', () => doRestore(), { once: true });
+                    this.video.addEventListener('seeking', () => doRestore(), { once: true });
+                    this.video.addEventListener('timeupdate', () => doRestore(), { once: true });
+                    setTimeout(() => { this._preFullscreenTime = null; }, 3000);
+                }
+
                 // Re-trigger subtitle lift update if needed
                 if (this.controlsVisible) this.showControls();
             };
@@ -1506,18 +1666,20 @@ buildUI() {
             document.addEventListener('fullscreenchange', onFullscreenChange);
             document.addEventListener('webkitfullscreenchange', onFullscreenChange);
             
-            // Handle iOS-specific video fullscreen events
+            // Handle iOS-specific video fullscreen events (legacy iOS < 16)
             this.video.addEventListener('webkitbeginfullscreen', () => {
-                console.log('[SimplePlayer] iOS video fullscreen started');
+                console.log('[SimplePlayer] iOS video fullscreen started (legacy event)');
                 this.isIOSNativeFullscreen = true;
                 this.container.classList.add('is-fullscreen');
                 this.updateFullscreenButtonState(true);
+                this._syncSubtitleForNativeFullscreen();
             });
             this.video.addEventListener('webkitendfullscreen', () => {
                 console.log('[SimplePlayer] iOS video fullscreen ended');
                 this.isIOSNativeFullscreen = false;
                 this.container.classList.remove('is-fullscreen');
                 this.updateFullscreenButtonState(false);
+                this._restoreSubtitlesAfterFullscreen();
             });
             
             // Handle orientation changes for CSS fullscreen
@@ -1985,8 +2147,10 @@ formatTime(s) {
         turnOffSubtitles() {
             console.log('[SimplePlayer] Turning off subtitles');
             this.destroyAssSubtitle();
-            if (this._isNativeHls) {
-                // Native HLS: don't remove <track> elements (can't be re-added after source loads)
+            const isAppleSafari = this._isIOS() || (/Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent));
+            if (this._isNativeHls || isAppleSafari) {
+                // Apple browsers: <track> elements can't be re-added after source loads.
+                // Keep DOM elements, just hide via mode.
                 if (this.video.textTracks) {
                     for (let i = 0; i < this.video.textTracks.length; i++) {
                         this.video.textTracks[i].mode = 'hidden';
@@ -1994,7 +2158,7 @@ formatTime(s) {
                 }
             } else {
                 this.video.querySelectorAll('track').forEach(el => {
-                    el.track.mode = 'hidden';
+                    if (el.track) el.track.mode = 'hidden';
                     el.remove();
                 });
                 if (this.video.textTracks) {
@@ -2087,6 +2251,7 @@ formatTime(s) {
                         offOption.classList.add('active');
                         this.subtitleMenu.classList.remove('active');
                         localStorage.setItem('jmedia_last_track_' + this.videoId, 'off');
+                        this.lastSelectedTrackId = 'off';
                     };
                     // Set active state based on last selection
                     if (!this.lastSelectedTrackId || this.lastSelectedTrackId === 'off') {
@@ -2121,20 +2286,37 @@ formatTime(s) {
                                 }
                             }
                         } else {
-                            // Non-HLS: freely create/destroy <track> elements
-                            this.video.querySelectorAll('track').forEach(el => {
-                                if (el.track) el.track.mode = 'hidden';
-                                el.remove();
-                            });
-                            if (this.video.textTracks) {
-                                for (let i = 0; i < this.video.textTracks.length; i++) {
-                                    this.video.textTracks[i].mode = 'hidden';
+                            const isAppleSafari = this._isIOS() || (/Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent));
+                            if (isAppleSafari) {
+                                // iOS/Safari non-HLS: tracks were pre-created before source.
+                                // Toggle modes instead of recreating DOM elements.
+                                if (t.id !== 'off' && this.video.textTracks) {
+                                    for (let i = 0; i < this.video.textTracks.length; i++) {
+                                        const tr = this.video.textTracks[i];
+                                        const trackEl = this.video.querySelector(`track[id="subtitle-track-${t.id}"]`);
+                                        const isSelected = trackEl && (tr.label === trackEl.label);
+                                        tr.mode = isSelected ? 'showing' : 'hidden';
+                                    }
+                                } else if (this.video.textTracks) {
+                                    for (let i = 0; i < this.video.textTracks.length; i++) {
+                                        this.video.textTracks[i].mode = 'hidden';
+                                    }
                                 }
-                            }
-                            
-                            if (t.id !== 'off') {
-                                // Subtitle via native <track> element
-                                const track = document.createElement('track');
+                            } else {
+                                // Non-Apple: freely create/destroy <track> elements
+                                this.video.querySelectorAll('track').forEach(el => {
+                                    if (el.track) el.track.mode = 'hidden';
+                                    el.remove();
+                                });
+                                if (this.video.textTracks) {
+                                    for (let i = 0; i < this.video.textTracks.length; i++) {
+                                        this.video.textTracks[i].mode = 'hidden';
+                                    }
+                                }
+                                
+                                if (t.id !== 'off') {
+                                    // Subtitle via native <track> element
+                                    const track = document.createElement('track');
                                 track.kind = 'subtitles';
                                 
                                 // Get correction from localStorage
@@ -2213,6 +2395,7 @@ formatTime(s) {
                             } else {
                                 console.log('[SimplePlayer] Subtitles turned OFF');
                             }
+                        }
                         }
                         
                         this.container.querySelectorAll('.subtitle-option').forEach(el => el.classList.remove('active'));
@@ -2323,19 +2506,25 @@ formatTime(s) {
                 return;
             }
             
-            if (this.buffering) this.buffering.style.display = 'block';
+            // If seeking within the current transcode range, do a client-side seek instead.
+            // The existing temp file covers from streamStartOffset to end, so any position
+            // >= streamStartOffset can be reached without re-transcoding.
+            if (time >= this.streamStartOffset && this.video.src) {
+                const relativeTime = time - this.streamStartOffset;
+                console.log(`[SimplePlayer] Client-side seek to ${time}s (relative ${relativeTime}s in current transcode)`);
+                if (this.video.readyState > 0) {
+                    this.video.currentTime = Math.min(relativeTime, this.video.duration || relativeTime);
+                    this.video.play().catch(e => console.log('[SimplePlayer] Play after seek requires gesture:', e));
+                } else {
+                    // Video not ready yet — fall through to server seek
+                    console.log('[SimplePlayer] Video not ready, falling back to server-side seek');
+                    this._doServerSeek(time);
+                }
+                return;
+            }
             
-            // Explicitly close old connection to kill any existing FFmpeg process
-            this.video.pause();
-            this.video.src = "";
-            this.video.load();
-            
-            this.streamStartOffset = time;
-            const audioParam = this.currentAudioTrackIndex !== null ? `&audioTrack=${this.currentAudioTrackIndex}` : '';
-            const qualityParam = this._preferredQuality > 0 ? `&quality=${this._preferredQuality}` : '';
-            this.video.src = `/api/video/stream/${this.videoId}?start=${time}${audioParam}${qualityParam}`;
-            this.video.load();
-            
+            this._doServerSeek(time);
+
             // Refresh subtitles if one is selected to ensure it gets the correct start offset
             if (this.lastSelectedTrackId && this.lastSelectedTrackId !== 'off') {
                 const reloadSubtitles = async () => {
@@ -2388,6 +2577,22 @@ formatTime(s) {
 
         goBack() { if (window.videoSPA) window.videoSPA.goBack(); else window.history.back(); }
         goToDetails() { if (window.videoSPA) window.videoSPA.switchSection('details', { videoId: this.videoId }); }
+
+        _doServerSeek(time) {
+            console.log(`[SimplePlayer] Server-side seek to ${time}s — starting new transcode`);
+
+            if (this.buffering) this.buffering.style.display = 'block';
+
+            this.video.pause();
+            this.video.src = "";
+            this.video.load();
+
+            this.streamStartOffset = time;
+            const audioParam = this.currentAudioTrackIndex !== null ? `&audioTrack=${this.currentAudioTrackIndex}` : '';
+            const qualityParam = this._preferredQuality > 0 ? `&quality=${this._preferredQuality}` : '';
+            this.video.src = `/api/video/stream/${this.videoId}?start=${time}${audioParam}${qualityParam}`;
+            this.video.load();
+        }
 
         async playNextEpisode() {
             // Remember fullscreen state to restore on next episode (including iOS native fullscreen)

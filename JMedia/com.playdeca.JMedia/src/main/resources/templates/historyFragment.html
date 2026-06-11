@@ -3,7 +3,7 @@
      <tr data-song-id="{h_with_index.history.song.id}" data-history-id="{h_with_index.history.id}">
          <td style="text-align:center;">
              <figure class="image is-24x24">
-                 <img src="{artworkUrl.apply(h_with_index.history.song.artworkBase64)}" loading="lazy"/>
+                 <img src="/api/music/stream/artwork/{h_with_index.history.song.id}" loading="lazy" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''"/>
              </figure>
          </td>
          <td class="is-size-7" style="width:90%; cursor: pointer;" 

@@ -1,0 +1,30 @@
+{#if albums.isEmpty}
+<div class="empty-state-container" style="width: 100%;">
+    <i class="pi pi-search-minus empty-state-icon"></i>
+    <p class="empty-state-text">No albums found.</p>
+</div>
+{#else}
+<div class="mobile-album-grid">
+    {#for a in albums}
+    <div class="mobile-album-card" style="--i: {a_index};" data-album-name="{a.name}" onclick="window.showAlbumPage(this.dataset.albumName)">
+        <div class="mobile-album-artwork">
+            <img src="/api/music/stream/artwork/{a.firstSongId}" loading="lazy" alt="{a.name}" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+        </div>
+        <div class="mobile-album-name">{a.name}</div>
+        <div class="mobile-album-artist">{a.artist ?: "Unknown Artist"}</div>
+        <div class="mobile-album-meta">{a.songCount} song{#if a.songCount != 1}s{/if}{#if a.year} · {a.year}{/if}</div>
+    </div>
+    {/for}
+
+    {#if hasMore}
+    <div class="scroll-sentinel"
+         hx-get="/api/music/ui/mobile-albums-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+         hx-trigger="intersect once"
+         hx-swap="outerHTML">
+        <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+    </div>
+    {#else}
+    <div class="scroll-end">— end —</div>
+    {/if}
+</div>
+{/if}

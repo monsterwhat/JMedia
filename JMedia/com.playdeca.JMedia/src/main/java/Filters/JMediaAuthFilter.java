@@ -41,9 +41,11 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     // Streaming endpoints that must work even without auth (video element can't handle 401 JSON)
     private static final List<String> STREAMING_ENDPOINTS = Arrays.asList(
             "/api/video/stream/",
-            "/api/video/hls/",
             "/api/video/progress/",
-            "/api/video/storyboard/"
+            "/api/video/storyboard/",
+            "/api/hls/master/",
+            "/api/hls/playlist/",
+            "/api/hls/media/"
     );
 
     @Inject

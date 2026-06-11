@@ -1,0 +1,23 @@
+{#for p in playlists}
+<div class="mobile-playlist-card" style="--i: {p_index};" onclick="loadMobilePlaylistSongs({p.id})">
+    <div class="mobile-playlist-artwork">
+        {#if p.firstSongId}
+        <img src="/api/music/stream/artwork/{p.firstSongId}" loading="lazy" alt="{p.name}" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+        {#else}
+        <i class="pi pi-list"></i>
+        {/if}
+    </div>
+    <div class="mobile-playlist-name">{p.name}</div>
+    <div class="mobile-playlist-count">{p.songCount} song{#if p.songCount != 1}s{/if}</div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-playlists-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

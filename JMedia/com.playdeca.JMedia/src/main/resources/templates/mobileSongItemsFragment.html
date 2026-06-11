@@ -1,0 +1,23 @@
+{#for s in songs}
+<div class="mobile-song-item" data-song-id="{s.id}"
+     data-playlist-id="{playlistId}"
+     style="cursor: pointer; --i: {s_index};">
+    <div class="mobile-song-artwork">
+        <img src="/api/music/stream/artwork/{s.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+    </div>
+    <div class="mobile-song-info">
+        <div class="mobile-song-title">{s.title ?: "Unknown Title"}</div>
+        <div class="mobile-song-artist">{s.artist ?: "Unknown Artist"}</div>
+    </div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-tbody-more/{profileId}/{playlistId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

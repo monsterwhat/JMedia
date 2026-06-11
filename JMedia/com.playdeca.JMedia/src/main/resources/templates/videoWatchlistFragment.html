@@ -59,5 +59,16 @@
                 </div>
             </div>
         {/for}
+
+        {#if hasMore}
+        <div class="scroll-sentinel"
+             hx-get="/api/video/ui/watchlist-fragment-more?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+             hx-trigger="intersect once"
+             hx-swap="outerHTML">
+            <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+        </div>
+        {#else}
+        <div class="scroll-end">— end —</div>
+        {/if}
     </div>
 {/if}

@@ -1,0 +1,26 @@
+{#for h_with_index in history}
+<div class="mobile-song-item"
+     hx-post="/api/music/playback/select/{profileId}/{h_with_index.history.song.id}"
+     hx-trigger="click"
+     hx-swap="none"
+     data-song-id="{h_with_index.history.song.id}"
+     style="--i: {h_with_index_index};">
+    <div class="mobile-song-artwork">
+        <img src="/api/music/stream/artwork/{h_with_index.history.song.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+    </div>
+    <div class="mobile-song-info">
+        <div class="mobile-song-title">{h_with_index.history.song.title ?: "Unknown Title"}</div>
+        <div class="mobile-song-artist">{h_with_index.history.song.artist ?: "Unknown Artist"}</div>
+    </div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-history-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

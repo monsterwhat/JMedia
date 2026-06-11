@@ -15,6 +15,8 @@ import jakarta.ws.rs.core.StreamingOutput;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.util.Base64;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -30,6 +32,42 @@ public class StreamAPI {
     private SettingsService settingsService;
 
     private static final Logger LOGGER = Logger.getLogger(StreamAPI.class.getName());
+    private static final Map<String, String> EXTENSION_TO_MIME = Map.of(
+        ".mp3", "audio/mpeg",
+        ".flac", "audio/flac",
+        ".wav", "audio/wav",
+        ".ogg", "audio/ogg",
+        ".m4a", "audio/mp4",
+        ".aac", "audio/aac",
+        ".opus", "audio/ogg",
+        ".wma", "audio/x-ms-wma"
+    );
+
+    @GET
+    @Path("/artwork/{songId}")
+    @Produces("image/jpeg")
+    public Response getArtwork(@PathParam("songId") Long songId) {
+        if (songId == null) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        Song song = Song.findById(songId);
+        if (song == null || song.getArtworkBase64() == null || song.getArtworkBase64().isBlank()) {
+            return Response.ok(getClass().getResourceAsStream("/META-INF/resources/logo.png"))
+                    .header("Cache-Control", "public, max-age=86400")
+                    .build();
+        }
+        try {
+            byte[] imageData = Base64.getDecoder().decode(song.getArtworkBase64());
+            return Response.ok(imageData)
+                    .header("Cache-Control", "public, max-age=86400")
+                    .type("image/jpeg")
+                    .build();
+        } catch (IllegalArgumentException e) {
+            return Response.ok(getClass().getResourceAsStream("/META-INF/resources/logo.png"))
+                    .header("Cache-Control", "public, max-age=86400")
+                    .build();
+        }
+    }
 
     @GET
     @Path("/{profileId}/{id}")
@@ -150,9 +188,11 @@ public class StreamAPI {
             };
 
             LOGGER.info("Streaming response prepared: bytes=" + start + "-" + end + "/" + len);
+            String contentType = getContentType(file.getName());
             Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? 206 : 200)
                     .header("Accept-Ranges", "bytes")
                     .header("Cache-Control", "public,max-age=3600")
+                    .type(contentType)
                     .entity(stream);
             
             if (rangeHeader != null) {
@@ -165,6 +205,17 @@ public class StreamAPI {
             LOGGER.log(Level.SEVERE, "Error streaming music file", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    private String getContentType(String fileName) {
+        if (fileName == null) return "audio/mpeg";
+        String lower = fileName.toLowerCase();
+        for (Map.Entry<String, String> entry : EXTENSION_TO_MIME.entrySet()) {
+            if (lower.endsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return "audio/mpeg";
     }
 
     /**

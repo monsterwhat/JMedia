@@ -101,31 +101,18 @@
                     </div>
                 </div>
             {/for}
-        </div>
 
-        {#if totalPages > 1}
-        <nav class="standard-pagination mt-6" role="navigation" aria-label="pagination">
-            <div class="is-flex is-align-items-center is-justify-content-center">
-                <a class="pagination-btn {#if currentPage == 1}is-disabled{/if}"
-                   href="javascript:void(0)"
-                   onclick="window.switchSection('movies', \{page: {currentPage - 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}', search: '{search ?: ''}'\})"
-                   {#if currentPage == 1}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
-                    <i class="pi pi-chevron-left"></i> Previous
-                </a>
-
-                <span class="pagination-info mx-5">
-                    Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-                </span>
-
-                <a class="pagination-btn {#if currentPage == totalPages}is-disabled{/if}"
-                   href="javascript:void(0)"
-                   onclick="window.switchSection('movies', \{page: {currentPage + 1}, limit: {limit}, sortBy: '{sortBy}', sortDirection: '{sortDirection}', search: '{search ?: ''}'\})"
-                   {#if currentPage == totalPages}disabled style="opacity: 0.5; pointer-events: none;"{/if}>
-                    Next <i class="pi pi-chevron-right"></i>
-                </a>
+            {#if hasMore}
+            <div class="scroll-sentinel"
+                 hx-get="/api/video/ui/movies-fragment-more?page={nextPage}&limit={limit}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}{#if search}&search={search}{/if}"
+                 hx-trigger="intersect once"
+                 hx-swap="outerHTML">
+                <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
             </div>
-        </nav>
-        {/if}
+            {#else}
+            <div class="scroll-end">— end —</div>
+            {/if}
+        </div>
     {/if}
 </div>
 

@@ -345,45 +345,168 @@ public class VideoAPI {
 
     private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight) {
         final Long videoId = video.id;
-        final double startPos = startSeconds;
-        final int audioTrack = audioTrackIndex;
-        final int quality = qualityHeight;
-        
-        // If client sends a Range probe (bytes=0-1), return 2 empty bytes — don't start transcoding.
-        // iOS/Safari sends this to verify server supports Range requests.
-        // Starting a full transcode for a 2-byte probe wastes resources and triggers "Broken pipe"
-        // when the client closes. The body must actually contain 2 bytes or the browser retries indefinitely.
+
+        // For probe requests (bytes=0-1), start transcode, wait for it to complete so the
+        // Content-Range response has the final file size (iOS Safari requires the real total).
         if (rangeHeader != null && rangeHeader.contains("bytes=0-1")) {
-            LOG.info("Stream: Range probe (bytes=0-1) for video {}, returning 2-byte response", videoId);
-            return Response.status(Response.Status.PARTIAL_CONTENT)
-                    .entity(new byte[]{0, 0})
-                    .header("Content-Type", "video/mp4")
-                    .header("Accept-Ranges", "bytes")
-                    .header("Content-Range", "bytes 0-1/*")
-                    .header("Content-Length", "2")
-                    .header("Cache-Control", "no-cache")
+            try {
+                java.nio.file.Path tempFile = transcodingService.getOrCreateTranscode(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight);
+                transcodingService.waitForFile(tempFile, 2);
+                transcodingService.waitForTranscodeCompletion(videoId, startSeconds, audioTrackIndex, qualityHeight);
+                long currentSize = Files.size(tempFile);
+                LOG.info("Stream probe for video {}: returning Content-Range bytes 0-1/{}", videoId, currentSize);
+                return Response.status(Response.Status.PARTIAL_CONTENT)
+                        .entity(new byte[]{0, 0})
+                        .header("Content-Type", "video/mp4")
+                        .header("Accept-Ranges", "bytes")
+                        .header("Content-Range", "bytes 0-1/" + currentSize)
+                        .header("Content-Length", "2")
+                        .header("Cache-Control", "no-cache")
+                        .build();
+            } catch (IOException e) {
+                LOG.error("Probe failed for video {}: {}", videoId, e.getMessage());
+                return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+            } finally {
+                transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight);
+            }
+        }
+
+            LOG.debug("Stream: Range request for video {} (start={}s, audio={}, range={})",
+                      videoId, startSeconds, audioTrackIndex >= 0 ? audioTrackIndex : "default", rangeHeader);
+
+        try {
+            java.nio.file.Path tempFile = transcodingService.getOrCreateTranscode(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight);
+            return streamFromTempFile(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight);
+        } catch (IOException e) {
+            LOG.error("Failed to start transcode for video {}: {}", videoId, e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    private Response streamFromTempFile(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
+                                         String rangeHeader, int audioTrackIndex, int qualityHeight) {
+        final Long videoId = video.id;
+        long fileLength;
+        try {
+            fileLength = Files.size(tempFile);
+        } catch (IOException e) {
+            LOG.error("Cannot get size of temp file for video {}: {}", videoId, e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+
+        long start = 0;
+        long end = fileLength - 1;
+
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            try {
+                String rangeValue = rangeHeader.substring(6).trim();
+                if (rangeValue.startsWith("-")) {
+                    long suffix = Long.parseLong(rangeValue.substring(1));
+                    start = Math.max(0, fileLength - suffix);
+                    end = fileLength - 1;
+                } else {
+                    String[] parts = rangeValue.split("-", -1);
+                    start = Long.parseLong(parts[0].trim());
+                    if (parts.length > 1 && !parts[1].trim().isEmpty()) {
+                        end = Long.parseLong(parts[1].trim());
+                    } else {
+                        end = fileLength - 1;
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Invalid Range header '{}': {}", rangeHeader, e.getMessage());
+                start = 0;
+                end = fileLength - 1;
+            }
+        }
+
+        // Validate range bounds (same as streamDirectFile)
+        if (end >= fileLength) end = fileLength - 1;
+        if (start > end) {
+            start = 0;
+            end = fileLength - 1;
+        }
+
+        String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+
+        LOG.debug("Stream: range {}-{} (len={}) for video {} (etag={})", start, end, end - start + 1, videoId, etag);
+
+        // Wait for the full range to be available before sending headers
+        try {
+            transcodingService.waitForFile(tempFile, end + 1);
+        } catch (IOException e) {
+            LOG.error("Timeout waiting for requested byte range {}-{} for video {}: {}", start, end, videoId, e.getMessage());
+            long currentSize;
+            try {
+                currentSize = Files.size(tempFile);
+            } catch (IOException ex) {
+                currentSize = 0;
+            }
+            return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header("Content-Range", "bytes */" + currentSize)
                     .build();
         }
-        
-        LOG.info("Stream: Starting transcode/remux for video {} from {} seconds, audio track {}", videoId, startPos, audioTrack >= 0 ? audioTrack : "default");
-        
+
+        long contentLength = end - start + 1;
+        long currentFileSize;
+        try {
+            currentFileSize = Files.size(tempFile);
+        } catch (IOException e) {
+            currentFileSize = fileLength;
+        }
+
+        final long finalStart = start;
+        final long finalEnd = end;
+
         StreamingOutput streamingOutput = output -> {
             try {
-                // Use TranscodingService - the old direct FFmpeg remux approach
-                // This is the same as what was in the JAR: streams MKV → MP4 on-the-fly via pipe
-                transcodingService.streamRemuxedMKV(video, videoFile, startPos, userAgent, output, audioTrack, quality);
+                try (RandomAccessFile raf = new RandomAccessFile(tempFile.toFile(), "r")) {
+                    raf.seek(finalStart);
+                    byte[] buffer = new byte[65536];
+                    long remaining = finalEnd - finalStart + 1;
+                    while (remaining > 0) {
+                        int read = raf.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                        if (read == -1) {
+                            // Check if transcode is done — no more data will come
+                            if (transcodingService.isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight)) {
+                                LOG.debug("Transcode finished, stopping stream for video {}", videoId);
+                                break;
+                            }
+                            try {
+                                Thread.sleep(200);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                            continue;
+                        }
+                        output.write(buffer, 0, read);
+                        remaining -= read;
+                    }
+                }
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
-                    LOG.error("Transcoding error for {}: {}", videoFile.getName(), e.getMessage());
+                    LOG.error("Streaming error for temp file of video {}: {}", videoId, e.getMessage());
                 }
+            } finally {
+                transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight);
             }
         };
 
-        return Response.ok(streamingOutput)
-                .header("Content-Type", "video/mp4")
+        Response.ResponseBuilder responseBuilder = Response.status(rangeHeader != null ? Response.Status.PARTIAL_CONTENT : Response.Status.OK)
+                .entity(streamingOutput)
                 .header("Accept-Ranges", "bytes")
-                .header("Cache-Control", "no-cache")
-                .build();
+                .header("Content-Type", "video/mp4")
+                .header("Content-Length", contentLength)
+                .header("Cache-Control", "public, max-age=172800")
+                .header("ETag", "\"" + etag + "\"");
+
+        if (rangeHeader != null) {
+            long responseEnd = Math.min(finalEnd, currentFileSize - 1);
+            responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + responseEnd + "/" + currentFileSize);
+        }
+
+        return responseBuilder.build();
     }
 
     private Response streamDirectFile(File videoFile, String rangeHeader) {

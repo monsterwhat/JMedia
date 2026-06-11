@@ -647,4 +647,105 @@ public class SongService {
 
         return query.setMaxResults(maxCandidates).getResultList();
     }
+
+    // ── Album browsing ──
+
+    public record PaginatedAlbums(List<Object[]> albums, long totalCount) {}
+
+    public PaginatedAlbums findAlbums(int page, int limit, String search, String sortBy, String sortDirection) {
+        String where = " WHERE s.album IS NOT NULL AND s.album != ''";
+        if (search != null && !search.isBlank()) {
+            where += " AND (LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR LOWER(s.artist) LIKE :search)";
+        }
+        String order = " ORDER BY ";
+        switch (sortBy) {
+            case "album": default: order += "LOWER(s.album)"; break;
+            case "artist": order += "LOWER(s.albumArtist)"; break;
+            case "year": order += "MAX(s.releaseDate)"; break;
+            case "songCount": order += "COUNT(s.id)"; break;
+        }
+        order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
+
+        var q = em.createQuery(
+            "SELECT s.album, s.albumArtist, MIN(s.id), COUNT(s.id), MAX(s.releaseDate) FROM Song s" + where + " GROUP BY s.album, s.albumArtist" + order,
+            Object[].class);
+        if (search != null && !search.isBlank()) {
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+        List<Object[]> albums = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
+        long total = countAlbums(search);
+        return new PaginatedAlbums(albums, total);
+    }
+
+    public long countAlbums(String search) {
+        String where = " WHERE s.album IS NOT NULL AND s.album != ''";
+        if (search != null && !search.isBlank()) {
+            where += " AND (LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR LOWER(s.artist) LIKE :search)";
+        }
+        var q = em.createQuery(
+            "SELECT COUNT(DISTINCT s.album || '::' || COALESCE(s.albumArtist, '')) FROM Song s" + where,
+            Long.class);
+        if (search != null && !search.isBlank()) {
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+        return q.getSingleResult();
+    }
+
+    // ── Genre browsing ──
+
+    public record PaginatedGenres(List<Object[]> genres, long totalCount) {}
+
+    public PaginatedGenres findGenres(int page, int limit, String search) {
+        String where = " WHERE s.genre IS NOT NULL AND s.genre != ''";
+        if (search != null && !search.isBlank()) {
+            where += " AND LOWER(s.genre) LIKE :search";
+        }
+        var q = em.createQuery(
+            "SELECT s.genre, COUNT(s.id) FROM Song s" + where + " GROUP BY s.genre ORDER BY s.genre",
+            Object[].class);
+        if (search != null && !search.isBlank()) {
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+        List<Object[]> genres = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
+        long total = countGenres(search);
+        return new PaginatedGenres(genres, total);
+    }
+
+    public long countGenres(String search) {
+        String where = " WHERE s.genre IS NOT NULL AND s.genre != ''";
+        if (search != null && !search.isBlank()) {
+            where += " AND LOWER(s.genre) LIKE :search";
+        }
+        var q = em.createQuery("SELECT COUNT(DISTINCT s.genre) FROM Song s" + where, Long.class);
+        if (search != null && !search.isBlank()) {
+            q.setParameter("search", "%" + search.toLowerCase() + "%");
+        }
+        return q.getSingleResult();
+    }
+
+    // ── Songs by genre (for genre drill-down) ──
+
+    public PaginatedSongs findSongsByGenre(int page, int limit, String genre, String sortBy, String sortDirection) {
+        String order = " ORDER BY ";
+        switch (sortBy) {
+            case "title": default: order += "s.title"; break;
+            case "artist": order += "s.artist"; break;
+            case "album": order += "s.album"; break;
+            case "duration": order += "s.durationSeconds"; break;
+        }
+        order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
+
+        List<Song> songs = em.createQuery(
+            "SELECT s FROM Song s WHERE LOWER(s.genre) = :genre" + order, Song.class)
+            .setParameter("genre", genre.toLowerCase())
+            .setFirstResult((page - 1) * limit).setMaxResults(limit)
+            .getResultList();
+
+        long total = em.createQuery(
+            "SELECT COUNT(s) FROM Song s WHERE LOWER(s.genre) = :genre", Long.class)
+            .setParameter("genre", genre.toLowerCase())
+            .getSingleResult();
+
+        return new PaginatedSongs(songs, total);
+    }
 }

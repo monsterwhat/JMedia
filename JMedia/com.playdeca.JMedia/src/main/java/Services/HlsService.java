@@ -5,6 +5,7 @@ import Models.Video;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,6 +36,7 @@ public class HlsService {
         return createSession(videoId, startSeconds, profileId, preferredAudioTrackIndex, null);
     }
 
+    @Transactional
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex, Integer qualityHeight) throws IOException {
         String sessionId = "vid-" + videoId;
         HlsSession session = activeSessions.get(sessionId);
@@ -51,8 +53,8 @@ public class HlsService {
         if (video == null) throw new IOException("Video not found: " + videoId);
         Path sessionDir = getHlsBasePath().resolve(sessionId).toAbsolutePath();
         Files.createDirectories(sessionDir);
-        List<AudioTrack> audioTracks = video.audioTracks;
-        session = new HlsSession(sessionId, video, audioTracks != null ? audioTracks : new ArrayList<>(), sessionDir, startSeconds);
+        List<AudioTrack> audioTracks = video.audioTracks != null ? new ArrayList<>(video.audioTracks) : new ArrayList<>();
+        session = new HlsSession(sessionId, video, audioTracks, sessionDir, startSeconds);
         
         if (qualityHeight != null && qualityHeight > 0) {
             session.qualityHeight = qualityHeight;
@@ -100,8 +102,9 @@ public class HlsService {
 
         if (!process.isAlive()) {
             int exitCode = process.exitValue();
+            String err = readProcessOutput(process);
+            LOG.debug("HLS encoder for session {} variant {} exited early (code {}): {}", session.sessionId, variantName, exitCode, err);
             if (exitCode != 0) {
-                String err = readProcessOutput(process);
                 if (useHardware && isHardwareError(err)) {
                     throw new IOException("HW encoder failed early with exit code " + exitCode);
                 }
@@ -391,13 +394,13 @@ public class HlsService {
             for (int i = 0; i < session.audioTracks.size(); i++) {
                 AudioTrack track = session.audioTracks.get(i);
                 String audioName = "audio_" + track.trackIndex;
-                sb.append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"" + track.displayName + "\",LANGUAGE=\"" + (track.languageCode != null ? track.languageCode : "und") + "\",AUTOSELECT=" + (track.isDefault ? "YES" : "NO") + ",DEFAULT=" + (track.isDefault ? "YES" : "NO") + ",URI=\"" + audioName + ".m3u8\"\n");
+                sb.append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"" + track.displayName + "\",LANGUAGE=\"" + (track.languageCode != null ? track.languageCode : "und") + "\",AUTOSELECT=" + (track.isDefault ? "YES" : "NO") + ",DEFAULT=" + (track.isDefault ? "YES" : "NO") + ",URI=\"/api/hls/playlist/" + session.sessionId + "/" + audioName + ".m3u8\"\n");
             }
             sb.append("#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080,CODECS=\"avc1.4d4028,mp4a.40.2\",AUDIO=\"audio\"\n");
         } else {
             sb.append("#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080,CODECS=\"avc1.4d4028,mp4a.40.2\"\n");
         }
-        sb.append(VIDEO_VARIANT + ".m3u8\n");
+        sb.append("/api/hls/playlist/" + session.sessionId + "/" + VIDEO_VARIANT + ".m3u8\n");
         return sb.toString();
     }
 
@@ -410,6 +413,7 @@ public class HlsService {
         }
         try {
             String content = Files.readString(playlistFile);
+            content = rewriteRelativeSegmentPaths(content, session.sessionId, variantName);
             if (!content.contains("#EXT-X-ENDLIST")) {
                 return content + buildPartialPlaylist(session, variantName);
             }
@@ -420,16 +424,65 @@ public class HlsService {
         }
     }
 
-    private String buildPartialPlaylist(HlsSession session, String variantName) {
+    private String rewriteRelativeSegmentPaths(String playlist, String sessionId, String variantName) {
+        String prefix = "/api/hls/media/" + sessionId + "/" + variantName + "/";
+        String[] lines = playlist.split("\n");
         StringBuilder sb = new StringBuilder();
-        if (variantName.equals(VIDEO_VARIANT)) {
-            sb.append("#EXTINF:4.0,\n");
-            sb.append(variantName + "_0000.ts\n");
-        } else {
-            sb.append("#EXTINF:4.0,\n");
-            sb.append(variantName + "_0000.ts\n");
+        for (int i = 0; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.endsWith(".ts") && !trimmed.startsWith("/") && !trimmed.startsWith("#")) {
+                sb.append(prefix).append(trimmed);
+            } else {
+                sb.append(lines[i]);
+            }
+            if (i < lines.length - 1) sb.append("\n");
         }
         return sb.toString();
+    }
+
+    private String buildPartialPlaylist(HlsSession session, String variantName) {
+        StringBuilder sb = new StringBuilder();
+
+        File[] segments = session.sessionDir.toFile().listFiles(
+            (dir, name) -> name.startsWith(variantName + "_") && name.endsWith(".ts")
+        );
+
+        if (segments == null || segments.length == 0) {
+            LOG.debug("No segments found for {} in {}", variantName, session.sessionDir);
+            sb.append("#EXTM3U\n");
+            sb.append("#EXT-X-VERSION:3\n");
+            sb.append("#EXT-X-TARGETDURATION:6\n");
+            sb.append("#EXT-X-MEDIA-SEQUENCE:0\n");
+            return sb.toString();
+        }
+
+        Arrays.sort(segments, Comparator.comparing(File::getName));
+
+        boolean standalone = !Files.exists(session.sessionDir.resolve(variantName + ".m3u8"));
+        if (standalone) {
+            sb.append("#EXTM3U\n");
+            sb.append("#EXT-X-VERSION:3\n");
+            sb.append("#EXT-X-TARGETDURATION:6\n");
+            sb.append("#EXT-X-MEDIA-SEQUENCE:").append(parseSegmentNumber(segments[0].getName())).append("\n");
+            sb.append("#EXT-X-DISCONTINUITY\n");
+        }
+
+        for (File seg : segments) {
+            double duration = 4.0;
+            sb.append("#EXTINF:").append(String.format(Locale.ROOT, "%.3f", duration)).append(",\n");
+            sb.append("/api/hls/media/" + session.sessionId + "/" + variantName + "/" + seg.getName()).append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    private int parseSegmentNumber(String filename) {
+        try {
+            String numPart = filename.replaceAll(".*_(\\d+)\\.ts", "$1");
+            return Integer.parseInt(numPart);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     public File getSegment(String sessionId, String variantName, String segmentName) {

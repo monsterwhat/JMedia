@@ -1,0 +1,32 @@
+{#for video in videos}
+<div class="standard-card" data-video-id="{video.id}" onclick="window.selectItem({video.id}, 'details')">
+    <div class="standard-card-poster">
+        <img class="poster-img" src="/api/video/thumbnail/{video.id}" alt="{video.title}" loading="lazy">
+        <div class="standard-card-overlay">
+            <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({video.id}, 'play')">
+                <i class="pi pi-play"></i>
+            </div>
+            <div class="standard-watchlist-btn remove-btn" onclick="event.stopPropagation(); window.addToWatchlist('{video.title ?: video.seriesTitle}', {video.id})" title="Remove from Watchlist">
+                <i class="pi pi-times"></i>
+            </div>
+        </div>
+    </div>
+    <div class="standard-card-info">
+        <div class="standard-card-title">{video.title ?: video.seriesTitle}</div>
+        <div class="standard-card-meta">
+            {video.type == 'episode' ? 'Series' : 'Movie'}
+            {#if video.releaseYear} · {video.releaseYear}{/if}
+        </div>
+    </div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/video/ui/watchlist-fragment-more?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

@@ -1,0 +1,17 @@
+{#for g in genres}
+<div class="mobile-genre-card" style="--i: {g_index};" data-genre-name="{g.name}" onclick="window.loadGenreSongs(this.dataset.genreName)">
+    <div class="mobile-genre-icon"><i class="pi pi-tag"></i></div>
+    <div class="mobile-genre-name">{g.name}</div>
+    <div class="mobile-genre-count">{g.songCount} song{#if g.songCount != 1}s{/if}</div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-genres-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

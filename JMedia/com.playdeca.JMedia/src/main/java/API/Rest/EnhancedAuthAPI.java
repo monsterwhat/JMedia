@@ -135,6 +135,7 @@ public class EnhancedAuthAPI {
         return Response.ok()
                 .entity("{\"data\":{\"message\":\"Logout successful\"}}")
                 .type("application/json")
+                .header("Clear-Site-Data", "\"cache\", \"cookies\", \"storage\", \"executionContexts\"")
                 .cookie(clearCookie)
                 .build();
     }

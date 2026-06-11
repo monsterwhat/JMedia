@@ -1,7 +1,7 @@
 <div class="library-header is-flex is-justify-content-between is-align-items-center">
     <div>
         <h1 class="library-title">Collections</h1>
-        <p class="nav-label">{collections.size()} Collections</p>
+        <p class="nav-label">{totalItems} Collections</p>
     </div>
     <button class="button is-primary is-rounded admin-only" onclick="showCreateCollectionModal()">
         <i class="pi pi-plus"></i> <span>New Collection</span>
@@ -50,6 +50,17 @@
                 </div>
             </div>
         {/for}
+
+        {#if hasMore}
+        <div class="scroll-sentinel"
+             hx-get="/api/video/ui/collections-fragment-more?page={nextPage}&limit={limit}"
+             hx-trigger="intersect once"
+             hx-swap="outerHTML">
+            <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+        </div>
+        {#else}
+        <div class="scroll-end">— end —</div>
+        {/if}
     </div>
 {/if}
 

@@ -5,7 +5,7 @@
     <!-- Artwork (first column under empty header) -->
     <td class="has-text-centered" style="width: 5%;">
         <figure class="image is-48x48 is-inline-block">
-            <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy" alt="Artwork">
+            <img src="/api/music/stream/artwork/{s.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
         </figure>
     </td>
 
@@ -43,50 +43,20 @@
 </tr>
 {/for}
 
-{#if totalPages > 1}
-<tr>
-    <td colspan="6">
-        <nav class="pagination is-centered py-4" role="navigation" aria-label="pagination">
-            <a class="pagination-previous"
-               {#if currentPage > 1}
-                                                 hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page={currentPage - 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
-                                                 hx-target="#songTableBody"
-                                                 hx-swap="innerHTML"
-               {#else}
-                   disabled
-               {/if}>
-                Previous
-            </a>
-            <a class="pagination-next"
-               {#if currentPage < totalPages}
-                   hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page={currentPage + 1}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
-                   hx-target="#songTableBody"
-                   hx-swap="innerHTML"
-               {#else}
-                   disabled
-               {/if}>
-                Next
-            </a>
-            <ul class="pagination-list">
-                {#for p in pageNumbers}
-                    {#if p == -1}
-                        <li><span class="pagination-ellipsis">&hellip;</span></li>
-                    {#else if p == currentPage}
-                        <li><a class="pagination-link is-current" aria-label="Page {p}" aria-current="page">{p}</a></li>
-                    {#else}
-                        <li>
-                            <a class="pagination-link"
-                               aria-label="Goto page {p}"
-                               hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page={p}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
-                               hx-target="#songTableBody"
-                               hx-swap="innerHTML">
-                                {p}
-                            </a>
-                        </li>
-                    {/if}
-                {/for}
-            </ul>
-        </nav>
+{#if hasMore}
+<tr class="load-more-row"
+    hx-get="/api/music/ui/tbody-more/{profileId}/{playlistId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+    hx-trigger="click"
+    hx-swap="outerHTML">
+    <td colspan="6" class="has-text-centered py-3">
+        <button class="button is-small is-rounded is-info is-light">
+            <span class="htmx-indicator"><i class="pi pi-spin pi-spinner"></i> Loading...</span>
+            <span class="load-more-text"><i class="pi pi-chevron-down mr-1"></i> Load More</span>
+        </button>
     </td>
+</tr>
+{#else if currentPage > 1}
+<tr class="load-more-row">
+    <td colspan="6" class="has-text-centered has-text-grey-light py-3 is-size-7">— end —</td>
 </tr>
 {/if}

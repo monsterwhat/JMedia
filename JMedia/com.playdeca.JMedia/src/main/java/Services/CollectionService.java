@@ -3,6 +3,7 @@ package Services;
 import Models.CollectionEntry;
 import Models.MediaCollection;
 import Models.Video;
+import io.quarkus.panache.common.Page;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -23,6 +24,18 @@ public class CollectionService {
     @Transactional
     public List<MediaCollection> listCollections() {
         return MediaCollection.listAll();
+    }
+
+    @Transactional
+    public List<MediaCollection> findPaginatedCollections(int page, int limit) {
+        return MediaCollection.findAll()
+                .page(Page.of(page - 1, limit))
+                .list();
+    }
+
+    @Transactional
+    public long countCollections() {
+        return MediaCollection.count();
     }
 
     @Transactional

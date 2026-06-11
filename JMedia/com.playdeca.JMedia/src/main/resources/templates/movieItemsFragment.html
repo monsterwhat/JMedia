@@ -1,0 +1,57 @@
+{#for movie in movies}
+<div class="standard-card{#if movie.watched} is-watched{/if}" data-video-id="{movie.id}" data-watch-progress="{movie.watchProgressPercent ?: 0}" data-watched="{movie.watched ?: false}" onclick="window.selectItem({movie.id}, 'details')">
+    <div class="standard-card-poster">
+        <img class="poster-img" src="/api/video/thumbnail/{movie.id}" alt="{movie.title}" loading="lazy">
+        <div class="standard-card-overlay">
+            <div class="standard-play-btn" onclick="event.stopPropagation(); window.selectItem({movie.id}, 'play')">
+                <i class="pi pi-play"></i>
+            </div>
+        </div>
+        {#if movie.watchProgressPercent != null && movie.watchProgressPercent > 0 && movie.watchProgressPercent < 95}
+        <div class="card-progress-container">
+            <div class="card-progress-bar" style="width: {movie.watchProgressPercent}%;"></div>
+        </div>
+        {/if}
+        <div class="standard-watched-toggle">
+            {#if movie.watched}
+            <i class="pi pi-check-circle"></i>
+            {#else}
+            <i class="pi pi-circle"></i>
+            {/if}
+        </div>
+    </div>
+    <div class="standard-card-info">
+        <div class="standard-card-title">{movie.title}</div>
+        <div class="standard-card-meta">{movie.releaseYear}</div>
+    </div>
+</div>
+{/for}
+{#for ev in externalMovies}
+<div class="standard-card is-external" onclick="playExternalEntry({ev.id})">
+    <div class="standard-card-poster">
+        <div class="external-thumbnail-placeholder" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
+            <i class="pi pi-external-link" style="font-size:2rem;opacity:0.4;"></i>
+            <span class="tag is-warning is-light mt-2" style="font-size:0.65rem;">External</span>
+        </div>
+        <div class="standard-card-overlay">
+            <div class="standard-play-btn" onclick="event.stopPropagation(); playExternalEntry({ev.id})">
+                <i class="pi pi-play"></i>
+            </div>
+        </div>
+    </div>
+    <div class="standard-card-info">
+        <div class="standard-card-title">{ev.title}</div>
+        <div class="standard-card-meta">External</div>
+    </div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/video/ui/movies-fragment-more?page={nextPage}&limit={limit}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

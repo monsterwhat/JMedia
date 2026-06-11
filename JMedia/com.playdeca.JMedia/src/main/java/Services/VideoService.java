@@ -1303,6 +1303,109 @@ public class VideoService {
         return entries;
     }
 
+    @Transactional
+    public PaginatedVideos findHistoryPaginated(String search, int page, int limit) {
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null) return new PaginatedVideos(List.of(), 0);
+
+        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true AND h.profile = :profile";
+        if (search != null && !search.trim().isEmpty()) {
+            hql += " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
+        }
+        hql += " ORDER BY h.playedAt DESC";
+
+        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        query.setParameter("profile", activeProfile);
+        if (search != null && !search.trim().isEmpty()) {
+            query.setParameter("s", "%" + search.toLowerCase() + "%");
+        }
+
+        List<Models.VideoHistory> allHistory = query.getResultList();
+
+        java.util.Set<String> seenPaths = new java.util.HashSet<>();
+        List<Video> allVideos = new ArrayList<>();
+        for (Models.VideoHistory h : allHistory) {
+            if (h.mediaFile != null && seenPaths.add(h.mediaFile.path)) {
+                Video v = Video.find("path", h.mediaFile.path).firstResult();
+                if (v != null) allVideos.add(v);
+            }
+        }
+
+        long totalCount = allVideos.size();
+        int fromIndex = (page - 1) * limit;
+        int toIndex = Math.min(fromIndex + limit, allVideos.size());
+        List<Video> pageVideos = fromIndex >= allVideos.size() ? List.of() : allVideos.subList(fromIndex, toIndex);
+        return new PaginatedVideos(pageVideos, totalCount);
+    }
+
+    @Transactional
+    public PaginatedVideos findWatchlistPaginated(String search, int page, int limit) {
+        List<Video> all;
+        if (search == null || search.trim().isEmpty()) {
+            all = Video.list("favorite = true AND isActive = true");
+        } else {
+            String s = "%" + search.toLowerCase() + "%";
+            String hql = "FROM Video v WHERE v.favorite = true AND v.isActive = true AND (" +
+                         "LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR " +
+                         "LOWER(v.description) LIKE :s OR LOWER(v.overview) LIKE :s OR LOWER(v.filename) LIKE :s)";
+            all = em.createQuery("SELECT v " + hql + " ORDER BY v.favoritedAt DESC", Video.class)
+                    .setParameter("s", s)
+                    .getResultList();
+        }
+
+        long totalCount = all.size();
+        int fromIndex = (page - 1) * limit;
+        int toIndex = Math.min(fromIndex + limit, all.size());
+        List<Video> pageVideos = fromIndex >= all.size() ? List.of() : all.subList(fromIndex, toIndex);
+        return new PaginatedVideos(pageVideos, totalCount);
+    }
+
+    public static class PaginatedHistoryEntries {
+        public final List<VideoHistoryEntry> entries;
+        public final long totalCount;
+        public PaginatedHistoryEntries(List<VideoHistoryEntry> entries, long totalCount) {
+            this.entries = entries;
+            this.totalCount = totalCount;
+        }
+    }
+
+    @Transactional
+    public PaginatedHistoryEntries findAllHistoryPaginated(String search, int page, int limit) {
+        String countHql = "SELECT COUNT(vh) FROM VideoHistory vh JOIN Video v ON v.path = vh.mediaFile.path WHERE v.isActive = true";
+        String hql = "SELECT vh FROM VideoHistory vh JOIN Video v ON v.path = vh.mediaFile.path WHERE v.isActive = true";
+        if (search != null && !search.trim().isEmpty()) {
+            String searchClause = " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
+            countHql += searchClause;
+            hql += searchClause;
+        }
+        hql += " ORDER BY vh.playedAt DESC";
+
+        TypedQuery<Long> countQ = em.createQuery(countHql, Long.class);
+        if (search != null && !search.trim().isEmpty()) {
+            countQ.setParameter("s", "%" + search.toLowerCase() + "%");
+        }
+        long totalCount = countQ.getSingleResult();
+
+        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        if (search != null && !search.trim().isEmpty()) {
+            query.setParameter("s", "%" + search.toLowerCase() + "%");
+        }
+        query.setFirstResult((page - 1) * limit);
+        query.setMaxResults(limit);
+
+        List<Models.VideoHistory> historyList = query.getResultList();
+        List<VideoHistoryEntry> entries = new ArrayList<>();
+        for (Models.VideoHistory vh : historyList) {
+            if (vh.mediaFile != null) {
+                Video video = Video.find("path", vh.mediaFile.path).firstResult();
+                if (video != null) {
+                    entries.add(new VideoHistoryEntry(video, vh, vh.profile));
+                }
+            }
+        }
+        return new PaginatedHistoryEntries(entries, totalCount);
+    }
+
     private static class SeriesSortData {
         public LocalDateTime dateAdded;
         public LocalDateTime lastWatched;

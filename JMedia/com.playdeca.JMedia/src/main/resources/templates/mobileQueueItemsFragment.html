@@ -1,0 +1,32 @@
+{#for s_with_index in queue}
+<div class="mobile-song-item mobile-queue-item"
+     draggable="true"
+     data-queue-index="{s_with_index.index}"
+     hx-post="/api/music/playback/select/{profileId}/{s_with_index.song.id}"
+     hx-trigger="click"
+     hx-swap="none"
+     data-song-id="{s_with_index.song.id}"
+     style="--i: {s_with_index_index};">
+    <div class="mobile-song-artwork">
+        <img src="/api/music/stream/artwork/{s_with_index.song.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+    </div>
+    <div class="mobile-song-info">
+        <div class="mobile-song-title">{s_with_index.song.title ?: "Unknown Title"}</div>
+        <div class="mobile-song-artist">{s_with_index.song.artist ?: "Unknown Artist"}</div>
+    </div>
+    <button class="mobile-queue-remove"
+            onclick="event.stopPropagation(); handleQueueAction('remove', {s_with_index.index}, {profileId})">
+        <i class="pi pi-times"></i>
+    </button>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-queue-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

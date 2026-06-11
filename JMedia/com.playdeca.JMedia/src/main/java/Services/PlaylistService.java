@@ -381,4 +381,80 @@ public class PlaylistService {
             em.merge(playlist);
         }
     }
+
+    // ── Playlist browsing ──
+
+    public record PaginatedPlaylists(List<Object[]> playlists, long totalCount) {}
+
+    public PaginatedPlaylists findPlaylists(int page, int limit, String search) {
+        try {
+            Profile activeProfile = settingsService.getActiveProfile();
+            if (activeProfile == null) return new PaginatedPlaylists(List.of(), 0);
+
+            StringBuilder where = new StringBuilder("WHERE (p.profile = :profile OR p.isGlobal = true)");
+            if (search != null && !search.isBlank()) {
+                where.append(" AND LOWER(p.name) LIKE :search");
+            }
+
+            // Count
+            String countQ = "SELECT COUNT(p) FROM Playlist p " + where;
+            var countQuery = em.createQuery(countQ, Long.class)
+                    .setParameter("profile", activeProfile);
+            if (search != null && !search.isBlank()) {
+                countQuery.setParameter("search", "%" + search.toLowerCase() + "%");
+            }
+            long total = countQuery.getSingleResult();
+
+            // Fetch page
+            String dataQ = "SELECT p.id, p.name, SIZE(p.songs) FROM Playlist p " + where + " ORDER BY LOWER(p.name)";
+            var dataQuery = em.createQuery(dataQ, Object[].class)
+                    .setParameter("profile", activeProfile)
+                    .setFirstResult((page - 1) * limit)
+                    .setMaxResults(limit);
+            if (search != null && !search.isBlank()) {
+                dataQuery.setParameter("search", "%" + search.toLowerCase() + "%");
+            }
+            List<Object[]> playlists = dataQuery.getResultList();
+
+            List<Long> hiddenIds = activeProfile.getHiddenPlaylistIds();
+            if (hiddenIds != null && !hiddenIds.isEmpty()) {
+                playlists = playlists.stream()
+                        .filter(p -> !hiddenIds.contains((Long) p[0]))
+                        .toList();
+            }
+
+            return new PaginatedPlaylists(playlists, total);
+        } catch (Exception e) {
+            System.err.println("[ERROR] PlaylistService: Error in findPlaylists: " + e.getMessage());
+            e.printStackTrace();
+            return new PaginatedPlaylists(List.of(), 0);
+        }
+    }
+
+    /**
+     * Returns the first song ID for a playlist (for artwork display).
+     */
+    public Long findFirstSongId(Long playlistId) {
+        try {
+            List<Long> ids = em.createQuery(
+                "SELECT s.id FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId ORDER BY s.id", Long.class)
+                .setParameter("playlistId", playlistId)
+                .setMaxResults(1)
+                .getResultList();
+            return ids.isEmpty() ? null : ids.get(0);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ── Queue reorder ──
+
+    /**
+     * Moves a song within a playlist (drag-and-drop style reordering).
+     * Not yet implemented - the Playlist entity uses Set<Song> so order isn't preserved.
+     * For now, this is a placeholder.
+     */
+    public void moveInPlaylist(Long playlistId, int fromIndex, int toIndex) {
+        // Playlist songs are Sets, so ordered reordering isn't directly supported yet.
+    }
 }

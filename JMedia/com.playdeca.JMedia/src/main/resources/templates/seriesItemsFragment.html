@@ -1,0 +1,39 @@
+{#for entry in series}
+{#let sp = showProgress.get(entry.rawTitle)}
+<div class="standard-card"
+     data-series-title="{entry.rawTitle}"
+     data-sample-video-id="{entry.sampleVideoId}"
+     data-watched-count="{sp.watched}"
+     data-total-episodes="{sp.total}"
+     onclick="window.switchSection('seasons', \{encodedTitle: '{entry.encodedTitle}'\})">
+    <div class="standard-card-poster">
+        {#if entry.sampleVideoId}
+            <img class="poster-img" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy">
+        {#else}
+            <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
+                <i class="pi pi-image"></i>
+            </div>
+        {/if}
+        {#if sp.total > 0}
+        <div class="card-progress-container">
+            <div class="card-progress-bar" style="width: {sp.percent}%;"></div>
+        </div>
+        {/if}
+    </div>
+    <div class="standard-card-info">
+        <div class="standard-card-title">{entry.rawTitle}</div>
+        <div class="standard-card-meta">{#if sp.total > 0}{sp.watched}/{sp.total} episodes{#else}Series{/if}</div>
+    </div>
+</div>
+{/let}
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/video/ui/shows-fragment-more?page={nextPage}&limit={limit}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}{#if search}&search={search}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

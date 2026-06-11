@@ -1,0 +1,41 @@
+{#for c in collections}
+<div class="standard-card" onclick="window.switchSection('collectionEntries', \{collectionId: {c.id}\})">
+    <div class="standard-card-poster">
+        {#if c.coverVideoId}
+            <img class="poster-img" src="/api/video/thumbnail/{c.coverVideoId}" alt="{c.name}" loading="lazy">
+        {#else}
+            <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
+                <i class="pi pi-th-large" style="font-size:2.5rem;opacity:0.4;"></i>
+            </div>
+        {/if}
+        <div class="standard-card-overlay">
+            <div class="standard-play-btn" onclick="event.stopPropagation(); window.switchSection('collectionEntries', \{collectionId: {c.id}\})">
+                <i class="pi pi-eye"></i>
+            </div>
+            <div class="standard-watchlist-btn remove-btn admin-only" onclick="event.stopPropagation(); window.deleteCollection({c.id}, '{c.name}')" title="Delete Collection">
+                <i class="pi pi-trash"></i>
+            </div>
+        </div>
+    </div>
+    <div class="standard-card-info">
+        <div class="standard-card-title">{c.name}</div>
+        <div class="standard-card-meta">
+            {#if c.description}
+                {c.description}
+            {#else}
+                No description
+            {/if}
+        </div>
+    </div>
+</div>
+{/for}
+{#if hasMore}
+<div class="scroll-sentinel"
+     hx-get="/api/video/ui/collections-fragment-more?page={nextPage}&limit={limit}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+</div>
+{#else}
+<div class="scroll-end">— end —</div>
+{/if}

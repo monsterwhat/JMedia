@@ -9,13 +9,16 @@
 {#else}
 <div class="mobile-song-list mobile-queue">
     {#for s_with_index in queue}
-    <div class="mobile-song-item" 
+    <div class="mobile-song-item mobile-queue-item"
+         draggable="true"
+         data-queue-index="{s_with_index.index}"
          hx-post="/api/music/playback/select/{profileId}/{s_with_index.song.id}"
          hx-trigger="click"
          hx-swap="none"
-         data-song-id="{s_with_index.song.id}">
+         data-song-id="{s_with_index.song.id}"
+         style="--i: {s_with_index_index};">
         <div class="mobile-song-artwork">
-            <img src="{artworkUrl.apply(s_with_index.song.artworkBase64)}" loading="lazy" alt="Artwork">
+            <img src="/api/music/stream/artwork/{s_with_index.song.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
         </div>
         <div class="mobile-song-info">
             <div class="mobile-song-title">{s_with_index.song.title ?: "Unknown Title"}</div>
@@ -28,55 +31,16 @@
     </div>
     {/for}
 
-    {#if totalPages > 1}
-    <div class="mobile-pagination-simple" style="width: 100%;">
-        <!-- Page info -->
-        <div class="mobile-pagination-info">
-            Page {currentPage} of {totalPages}
-        </div>
-        
-        <!-- Controls row -->
-        <div class="mobile-pagination-controls">
-            <button class="mobile-pagination-prev"
-                    {#if currentPage > 1}
-                        hx-get="/api/music/ui/mobile-queue-fragment/{profileId}?page={currentPage - 1}&limit={limit}&search={search ?: ''}"
-                        hx-target="#mobileQueueContent"
-                        hx-swap="innerHTML"
-                    {#else}
-                        disabled
-                    {/if}>
-                <i class="pi pi-chevron-left"></i>
-            </button>
-
-            <div class="mobile-pagination-pages">
-                {#for p in pageNumbers}
-                    {#if p == -1}
-                        <span class="mobile-pagination-ellipsis">...</span>
-                    {#else if p == currentPage}
-                        <span class="mobile-pagination-page is-current">{p}</span>
-                    {#else}
-                        <a class="mobile-pagination-page"
-                           hx-get="/api/music/ui/mobile-queue-fragment/{profileId}?page={p}&limit={limit}&search={search ?: ''}"
-                           hx-target="#mobileQueueContent"
-                           hx-swap="innerHTML">
-                            {p}
-                        </a>
-                    {/if}
-                {/for}
-            </div>
-
-            <button class="mobile-pagination-next"
-                    {#if currentPage < totalPages}
-                        hx-get="/api/music/ui/mobile-queue-fragment/{profileId}?page={currentPage + 1}&limit={limit}&search={search ?: ''}"
-                        hx-target="#mobileQueueContent"
-                        hx-swap="innerHTML"
-                    {#else}
-                        disabled
-                    {/if}>
-                <i class="pi pi-chevron-right"></i>
-            </button>
-        </div>
+    {#if hasMore}
+    <div class="scroll-sentinel"
+         hx-get="/api/music/ui/mobile-queue-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
+         hx-trigger="intersect once"
+         hx-swap="outerHTML">
+        <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
     </div>
+    {#else}
+    <div class="scroll-end">— end —</div>
     {/if}
 </div>
+<script>setTimeout(function() { window.setupQueueDrag(); }, 100);</script>
 {/if}

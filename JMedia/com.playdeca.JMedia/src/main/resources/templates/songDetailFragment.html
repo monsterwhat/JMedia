@@ -10,7 +10,7 @@
 
     <div class="song-detail-hero">
         <div class="song-detail-artwork">
-            <img src="{artworkUrl.apply(song.artworkBase64)}" alt="Artwork">
+            <img src="/api/music/stream/artwork/{song.id}" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
         </div>
         <div class="song-detail-primary">
             <h1 class="song-detail-title">{song.title ?: "Unknown Title"}</h1>
@@ -62,7 +62,7 @@
             {#for s in similarSongs}
             <div class="song-detail-similar-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
                 <div class="song-detail-similar-artwork">
-                    <img src="{artworkUrl.apply(s.artworkBase64)}" loading="lazy" alt="Artwork">
+                    <img src="/api/music/stream/artwork/{s.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
                 </div>
                 <div class="song-detail-similar-info">
                     <div class="song-detail-similar-song-title">{s.title ?: "Unknown"}</div>

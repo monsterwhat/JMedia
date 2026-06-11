@@ -96,6 +96,16 @@ public class VideoUiApi {
     Template videoWatchlistFragment;
     @Inject @io.quarkus.qute.Location("adminVideoHistoryFragment.html")
     Template adminVideoHistoryFragment;
+    @Inject @io.quarkus.qute.Location("movieItemsFragment.html")
+    Template movieItemsFragment;
+    @Inject @io.quarkus.qute.Location("seriesItemsFragment.html")
+    Template seriesItemsFragment;
+    @Inject @io.quarkus.qute.Location("historyItemsFragment.html")
+    Template historyItemsFragment;
+    @Inject @io.quarkus.qute.Location("adminHistoryItemsFragment.html")
+    Template adminHistoryItemsFragment;
+    @Inject @io.quarkus.qute.Location("watchlistItemsFragment.html")
+    Template watchlistItemsFragment;
     @Inject @io.quarkus.qute.Location("subtitleTrackSelector.html")
     Template subtitleTrackSelector;
     @Inject @io.quarkus.qute.Location("subtitleSettingsComponent.html")
@@ -254,17 +264,72 @@ public class VideoUiApi {
             }
         }
 
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+
         return movieListContent
                 .data("movies", paginatedVideos.videos)
                 .data("externalMovies", externalMovies)
                 .data("currentPage", page)
                 .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
                 .data("search", search)
                 .data("totalItems", totalItems)
                 .data("totalPages", totalPages)
                 .data("pageNumbers", getPaginationNumbers(page, totalPages))
+                .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                .render();
+    }
+
+    @GET
+    @Path("/movies-fragment-more")
+    @Blocking
+    public String getMoviesFragmentMore(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("sortBy") @DefaultValue("dateAdded") String sortBy,
+            @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
+            @QueryParam("search") String search) {
+
+        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
+
+        List<Models.ExternalVideo> externalMovies;
+        if (search != null && !search.trim().isEmpty()) {
+            String s = "%" + search.toLowerCase() + "%";
+            externalMovies = Models.ExternalVideo.list("entryType = ?1 and LOWER(title) like ?2",
+                    Models.ExistingVideo.MOVIE, s);
+        } else {
+            externalMovies = Models.ExternalVideo.list("entryType = ?1", Models.ExistingVideo.MOVIE);
+        }
+
+        long totalItems = paginatedVideos.totalCount + externalMovies.size();
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+
+        // Enrich movies with per-profile progress (batch)
+        Map<Long, Models.VideoState> movieStates = videoStateService.getOrCreateBatch(paginatedVideos.videos);
+        for (Models.Video movie : paginatedVideos.videos) {
+            Models.VideoState vs = movieStates.get(movie.id);
+            if (vs != null) {
+                movie.watchProgress = vs.watchProgress;
+                movie.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
+                movie.watched = vs.watched;
+            }
+        }
+
+        return movieItemsFragment
+                .data("movies", paginatedVideos.videos)
+                .data("externalMovies", externalMovies)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
+                .data("search", search)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
     }
@@ -354,16 +419,114 @@ public class VideoUiApi {
             showProgress.put(entry.rawTitle(), new SeriesProgress(watched, total));
         }
 
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+
         return seriesListContent
                 .data("series", entries)
                 .data("showProgress", showProgress)
                 .data("currentPage", page)
                 .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
                 .data("search", search)
                 .data("totalItems", totalItems)
                 .data("totalPages", totalPages)
+                .render();
+    }
+
+    @GET
+    @Path("/shows-fragment-more")
+    @Blocking
+    public String getSeriesFragmentMore(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("sortBy") @DefaultValue("dateAdded") String sortBy,
+            @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
+            @QueryParam("search") String search) {
+
+        VideoService.PaginatedSeries paginatedSeries = videoService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection, search);
+
+        if (paginatedSeries.titles.isEmpty()) {
+            return "";
+        }
+
+        int totalItems = (int) paginatedSeries.totalCount;
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+
+        List<Models.Video> allEpisodes = videoService.findEpisodes();
+        if (allEpisodes.isEmpty()) {
+            allEpisodes = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
+                    .collect(Collectors.toList());
+        }
+
+        List<SeriesTitleEntry> entries = new ArrayList<>();
+        for (String title : paginatedSeries.titles) {
+            final String currentTitle = title;
+            Models.Video sample = allEpisodes.stream()
+                    .filter(v -> currentTitle.equalsIgnoreCase(v.seriesTitle))
+                    .findFirst().orElse(null);
+
+            if (sample != null) {
+                entries.add(new SeriesTitleEntry(
+                    title,
+                    URLEncoder.encode(title, StandardCharsets.UTF_8),
+                    "series-" + Math.abs(title.hashCode()),
+                    sample.id
+                ));
+            }
+        }
+
+        // Merge external series titles
+        List<String> externalSeriesTitles = externalVideoService.findAllSeriesTitles();
+        Set<String> existingTitles = entries.stream().map(e -> e.rawTitle().toLowerCase()).collect(Collectors.toSet());
+        for (String extTitle : externalSeriesTitles) {
+            if (existingTitles.contains(extTitle.toLowerCase())) continue;
+            if (search != null && !search.trim().isEmpty()) {
+                if (!extTitle.toLowerCase().contains(search.toLowerCase())) continue;
+            }
+            entries.add(new SeriesTitleEntry(
+                extTitle,
+                URLEncoder.encode(extTitle, StandardCharsets.UTF_8),
+                "series-ext-" + Math.abs(extTitle.hashCode()),
+                null
+            ));
+        }
+
+        // Compute per-show watch progress
+        Map<String, SeriesProgress> showProgress = new HashMap<>();
+        Map<String, List<Models.Video>> episodesBySeries = allEpisodes.stream()
+                .filter(v -> v.seriesTitle != null)
+                .collect(Collectors.groupingBy(v -> v.seriesTitle.toLowerCase()));
+        Map<Long, Models.VideoState> allStates = videoStateService.getOrCreateBatch(allEpisodes);
+        for (SeriesTitleEntry entry : entries) {
+            String key = entry.rawTitle().toLowerCase();
+            List<Models.Video> seriesEps = episodesBySeries.getOrDefault(key, Collections.emptyList());
+            int total = seriesEps.size();
+            int watched = 0;
+            for (Models.Video ep : seriesEps) {
+                Models.VideoState vs = allStates.get(ep.id);
+                if (vs != null && Boolean.TRUE.equals(vs.watched)) {
+                    watched++;
+                }
+            }
+            showProgress.put(entry.rawTitle(), new SeriesProgress(watched, total));
+        }
+
+        return seriesItemsFragment
+                .data("series", entries)
+                .data("showProgress", showProgress)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
+                .data("sortBy", sortBy)
+                .data("sortDirection", sortDirection)
+                .data("search", search)
                 .render();
     }
 
@@ -562,11 +725,14 @@ public class VideoUiApi {
     @GET
     @Path("/history-fragment")
     @Blocking
-    public String getHistoryFragment(@QueryParam("search") String search) {
-        List<Models.Video> videos = videoService.findHistory(search, 50);
+    public String getHistoryFragment(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("search") String search) {
+        VideoService.PaginatedVideos paginated = videoService.findHistoryPaginated(search, page, limit);
         
-        // Enrich history videos with per-profile progress (same pattern as carousel enrichment)
-        for (Models.Video video : videos) {
+        // Enrich history videos with per-profile progress
+        for (Models.Video video : paginated.videos) {
             Models.VideoState vs = videoStateService.getOrCreate(video);
             if (vs != null && vs.watchProgress != null && vs.watchProgress > 0) {
                 video.watchProgress = vs.watchProgress;
@@ -577,12 +743,11 @@ public class VideoUiApi {
         List<Models.ExternalVideo> externalHistoryRaw;
         if (search != null && !search.trim().isEmpty()) {
             String s = search.toLowerCase();
-            externalHistoryRaw = Models.ExternalVideo.<Models.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1)",
-                    "%" + s + "%").stream().limit(50).collect(java.util.stream.Collectors.toList());
+            externalHistoryRaw = Models.ExternalVideo.<Models.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1 or LOWER(description) like ?1)",
+                    "%" + s + "%").stream().limit(limit).collect(java.util.stream.Collectors.toList());
         } else {
             externalHistoryRaw = Models.ExternalVideo.list("watchProgress > 0 order by lastUpdated desc");
         }
-        // Enrich with pre-computed progress percent (Qute can't do arithmetic)
         List<Map<String, Object>> externalHistory = new java.util.ArrayList<>();
         for (Models.ExternalVideo ev : externalHistoryRaw) {
             Map<String, Object> m = new java.util.HashMap<>();
@@ -596,22 +761,117 @@ public class VideoUiApi {
             externalHistory.add(m);
         }
         
+        int totalItems = (int) paginated.totalCount + externalHistory.size();
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+        
         return videoHistoryFragment
-                .data("videos", videos)
+                .data("videos", paginated.videos)
                 .data("externalHistory", externalHistory)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
                 .data("search", search)
                 .data("threshold", 0.95)
                 .render();
     }
     
     @GET
+    @Path("/history-fragment-more")
+    @Blocking
+    public String getHistoryFragmentMore(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("search") String search) {
+        VideoService.PaginatedVideos paginated = videoService.findHistoryPaginated(search, page, limit);
+        
+        for (Models.Video video : paginated.videos) {
+            Models.VideoState vs = videoStateService.getOrCreate(video);
+            if (vs != null && vs.watchProgress != null && vs.watchProgress > 0) {
+                video.watchProgress = vs.watchProgress;
+                video.watchProgressPercent = (int) Math.round(vs.watchProgress * 100);
+            }
+        }
+        
+        List<Models.ExternalVideo> externalHistoryRaw;
+        if (search != null && !search.trim().isEmpty()) {
+            String s = search.toLowerCase();
+            externalHistoryRaw = Models.ExternalVideo.<Models.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1 or LOWER(description) like ?1)",
+                    "%" + s + "%").stream().limit(limit).collect(java.util.stream.Collectors.toList());
+        } else {
+            externalHistoryRaw = Models.ExternalVideo.list("watchProgress > 0 order by lastUpdated desc");
+        }
+        List<Map<String, Object>> externalHistory = new java.util.ArrayList<>();
+        for (Models.ExternalVideo ev : externalHistoryRaw) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", ev.id);
+            m.put("title", ev.title);
+            m.put("seasonNumber", ev.seasonNumber);
+            m.put("episodeNumber", ev.episodeNumber);
+            m.put("entryType", ev.entryType != null ? ev.entryType.name() : "");
+            m.put("watchProgress", ev.watchProgress);
+            m.put("progressPercent", ev.watchProgress != null ? (int) Math.round(ev.watchProgress * 100) : 0);
+            externalHistory.add(m);
+        }
+        
+        int totalItems = (int) paginated.totalCount + externalHistory.size();
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+        
+        return historyItemsFragment
+                .data("videos", paginated.videos)
+                .data("externalHistory", externalHistory)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
+                .data("search", search)
+                .data("threshold", 0.95)
+                .render();
+    }
+
+    @GET
     @Path("/admin-history-fragment")
     @Blocking
-    public String getAdminHistoryFragment(@QueryParam("search") String search) {
-        List<Services.VideoService.VideoHistoryEntry> history = videoService.findAllHistory(search, 50);
+    public String getAdminHistoryFragment(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("search") String search) {
+        VideoService.PaginatedHistoryEntries paginated = videoService.findAllHistoryPaginated(search, page, limit);
+        
+        boolean hasMore = page * limit < paginated.totalCount;
+        int nextPage = page + 1;
         
         return adminVideoHistoryFragment
-                .data("history", history)
+                .data("history", paginated.entries)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
+                .data("search", search)
+                .data("getProfileInitials", (java.util.function.Function<String, String>) this::getProfileInitials)
+                .data("formatDateTime", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")))
+                .data("formatDateTimeISO", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.atOffset(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+                .render();
+    }
+    
+    @GET
+    @Path("/admin-history-fragment-more")
+    @Blocking
+    public String getAdminHistoryFragmentMore(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("search") String search) {
+        VideoService.PaginatedHistoryEntries paginated = videoService.findAllHistoryPaginated(search, page, limit);
+        
+        boolean hasMore = page * limit < paginated.totalCount;
+        int nextPage = page + 1;
+        
+        return adminHistoryItemsFragment
+                .data("history", paginated.entries)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
                 .data("search", search)
                 .data("getProfileInitials", (java.util.function.Function<String, String>) this::getProfileInitials)
                 .data("formatDateTime", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")))
@@ -661,10 +921,45 @@ public class VideoUiApi {
     @GET
     @Path("/watchlist-fragment")
     @Blocking
-    public String getWatchlistFragment(@QueryParam("search") String search) {
-        List<Models.Video> watchlist = videoService.findWatchlist(search);
+    public String getWatchlistFragment(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("search") String search) {
+        VideoService.PaginatedVideos paginated = videoService.findWatchlistPaginated(search, page, limit);
+        
+        long totalItems = paginated.totalCount;
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+        
         return videoWatchlistFragment
-                .data("videos", watchlist)
+                .data("videos", paginated.videos)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
+                .data("search", search)
+                .render();
+    }
+    
+    @GET
+    @Path("/watchlist-fragment-more")
+    @Blocking
+    public String getWatchlistFragmentMore(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit,
+            @QueryParam("search") String search) {
+        VideoService.PaginatedVideos paginated = videoService.findWatchlistPaginated(search, page, limit);
+        
+        long totalItems = paginated.totalCount;
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+        
+        return watchlistItemsFragment
+                .data("videos", paginated.videos)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
                 .data("search", search)
                 .render();
     }

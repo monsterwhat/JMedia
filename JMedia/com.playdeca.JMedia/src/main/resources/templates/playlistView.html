@@ -70,7 +70,7 @@
                      </tr>
                 </thead> 
                 <tbody id='songTableBody'
-                       hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page=1&limit=50&sortBy=title&sortDirection=asc"
+                       hx-get="/api/music/ui/tbody/{profileId}/{playlistId}?page=1&limit={limit}&sortBy=title&sortDirection=asc"
                        hx-trigger="load"
                        hx-swap='innerHTML'
                        hx-include="[name='search']"> 

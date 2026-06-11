@@ -23,6 +23,7 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +36,7 @@ import java.util.stream.Collectors;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;
 import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
-import org.jaudiotagger.audio.mp3.MP3File;
+import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.TagException;
@@ -116,6 +117,10 @@ public class SettingsController implements Serializable {
 
     private String musicLibraryPath;
 
+    private static final Set<String> SUPPORTED_AUDIO_EXTENSIONS = Set.of(
+        ".mp3", ".flac", ".m4a", ".ogg", ".wav"
+    );
+
     private static final int THREADS = Math.max(4, Math.max(1, Runtime.getRuntime().availableProcessors() / 2));
     private static final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
 
@@ -164,7 +169,7 @@ public class SettingsController implements Serializable {
     }
 
     /**
-     * Extracts metadata from a single MP3 file without persisting it. Returns a
+     * Extracts metadata from a single audio file without persisting it. Returns a
      * Song object populated with metadata or null on failure.
      */
     private Song extractMetadataFromFile(File file) {
@@ -177,13 +182,13 @@ public class SettingsController implements Serializable {
             song.setPath(relativePath);
             song.setDateAdded(java.time.LocalDateTime.now()); // Placeholder, not used for comparison
 
-            MP3File mp3File = null;
+            AudioFile audioFile = null;
             Tag tag = null;
             try {
-                mp3File = (MP3File) AudioFileIO.read(file);
-                tag = mp3File.getTag();
+                audioFile = AudioFileIO.read(file);
+                tag = audioFile.getTag();
             } catch (org.jaudiotagger.audio.exceptions.CannotReadException e) {
-                addLog("[org.jau.tag.id3] WARNING: Could not read MP3 metadata for " + file.getName() + ": " + e.getMessage());
+                addLog("[org.jau.tag.id3] WARNING: Could not read audio metadata for " + file.getName() + ": " + e.getMessage());
             } catch (RuntimeException e) {
                 addLog("[org.jau.tag.id3] WARNING: Runtime error while reading tag for " + file.getName() + ": " + e.getMessage(), e);
             }
@@ -256,7 +261,7 @@ public class SettingsController implements Serializable {
             // If all taggers failed, fallback to filename parsing
             if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
                 addLog("INFO: All metadata taggers failed for " + file.getName() + ". Falling back to filename parsing.");
-                String fileName = file.getName().replaceFirst("(?i)\\.mp3$", "");
+                String fileName = file.getName().replaceFirst("(?i)\\.[a-z0-9]+$", "");
                 int separatorIndex = fileName.indexOf(" - ");
                 if (separatorIndex != -1) {
                     if (song.getArtist() == null || song.getArtist().isBlank()) {
@@ -285,7 +290,7 @@ public class SettingsController implements Serializable {
             song.setArtworkBase64(null); // Explicitly null if not found
 
 
-            int trackLength = getVerifiedTrackLength(file, mp3File);
+            int trackLength = getVerifiedTrackLength(file, audioFile);
             song.setDurationSeconds(trackLength);
 
             if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
@@ -409,15 +414,21 @@ public class SettingsController implements Serializable {
         List<File> targetFiles = new ArrayList<>();
         for (String fileName : targetFileNames) {
             File file = new File(importFolder, fileName);
-            if (file.exists() && file.isFile() && file.getName().toLowerCase().endsWith(".mp3")) {
-                targetFiles.add(file);
+            if (file.exists() && file.isFile()) {
+                String name = file.getName().toLowerCase();
+                for (String ext : SUPPORTED_AUDIO_EXTENSIONS) {
+                    if (name.endsWith(ext)) {
+                        targetFiles.add(file);
+                        break;
+                    }
+                }
             } else {
-                addLog("Target file not found or not MP3: " + fileName);
+                addLog("Target file not found: " + fileName);
             }
         }
 
         if (targetFiles.isEmpty()) {
-            addLog("No valid target MP3 files found to scan.");
+            addLog("No valid target audio files found to scan.");
             return new ArrayList<>();
         }
 
@@ -425,17 +436,17 @@ public class SettingsController implements Serializable {
     }
 
     private List<Song> performScan(File folderToScan, String scanType) {
-        List<File> mp3Files = new ArrayList<>();
-        collectMp3Files(folderToScan, mp3Files);
-        addLog("Found " + mp3Files.size() + " MP3 files in " + scanType + ". Starting parallel metadata reading...");
+        List<File> audioFiles = new ArrayList<>();
+        collectAudioFiles(folderToScan, audioFiles);
+        addLog("Found " + audioFiles.size() + " audio files in " + scanType + ". Starting parallel metadata reading...");
 
         ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
-        mp3Files.forEach(f -> completion.submit(() -> processFile(f)));
+        audioFiles.forEach(f -> completion.submit(() -> processFile(f)));
 
         int totalAdded = 0;
         List<Song> processedSongs = new ArrayList<>();
 
-        for (int i = 0; i < mp3Files.size(); i++) {
+        for (int i = 0; i < audioFiles.size(); i++) {
             try {
                 Future<Song> future = completion.take();
                 Song result = future.get();
@@ -445,7 +456,7 @@ public class SettingsController implements Serializable {
                 }
 
                 if ((i + 1) % 50 == 0) {
-                    addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files from " + scanType + "...");
+                    addLog("Processed " + (i + 1) + " / " + audioFiles.size() + " files from " + scanType + "...");
                 }
             } catch (Exception e) {
                 // For unexpected errors during future.get(), we can't pinpoint the file easily from here.
@@ -456,7 +467,7 @@ public class SettingsController implements Serializable {
             }
         }
 
-        addLog("Scan of " + scanType + " completed. Total MP3 files processed successfully: " + totalAdded);
+        addLog("Scan of " + scanType + " completed. Total audio files processed successfully: " + totalAdded);
         if (!failedSongs.isEmpty()) {
             addLog("The following " + failedSongs.size() + " songs failed to process:");
             failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
@@ -507,19 +518,19 @@ public class SettingsController implements Serializable {
     }
 
     private List<Song> performIncrementalScan(File folderToScan, String scanType) {
-        List<File> mp3Files = new ArrayList<>();
-        collectMp3Files(folderToScan, mp3Files);
-        addLog("Found " + mp3Files.size() + " MP3 files for " + scanType + ". Starting parallel metadata reading...");
+        List<File> audioFiles = new ArrayList<>();
+        collectAudioFiles(folderToScan, audioFiles);
+        addLog("Found " + audioFiles.size() + " audio files for " + scanType + ". Starting parallel metadata reading...");
 
         ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
-        mp3Files.forEach(f -> completion.submit(() -> processFile(f)));
+        audioFiles.forEach(f -> completion.submit(() -> processFile(f)));
 
         int totalProcessed = 0;
         int totalAdded = 0;
         int totalSkipped = 0;
         List<Song> processedSongs = new ArrayList<>();
 
-        for (int i = 0; i < mp3Files.size(); i++) {
+        for (int i = 0; i < audioFiles.size(); i++) {
             try {
                 Future<Song> future = completion.take();
                 Song result = future.get();
@@ -531,8 +542,8 @@ public class SettingsController implements Serializable {
                     totalSkipped++;
                 }
 
-                if ((i + 1) % 50 == 0 || (i + 1) == mp3Files.size()) {
-                    addLog("Processed " + (i + 1) + " / " + mp3Files.size() + " files from " + scanType + " (Added: " + totalAdded + ", Skipped: " + totalSkipped + ")...");
+                if ((i + 1) % 50 == 0 || (i + 1) == audioFiles.size()) {
+                    addLog("Processed " + (i + 1) + " / " + audioFiles.size() + " files from " + scanType + " (Added: " + totalAdded + ", Skipped: " + totalSkipped + ")...");
                 }
             } catch (Exception e) {
                 addLog("Error while processing file in parallel from " + scanType + ": " + e.getMessage(), e);
@@ -549,16 +560,22 @@ public class SettingsController implements Serializable {
         return processedSongs;
     }
 
-    private void collectMp3Files(File folder, List<File> mp3Files) {
+    private void collectAudioFiles(File folder, List<File> audioFiles) {
         File[] files = folder.listFiles();
         if (files == null) {
             return;
         }
         for (File f : files) {
             if (f.isDirectory()) {
-                collectMp3Files(f, mp3Files);
-            } else if (f.isFile() && f.getName().toLowerCase().endsWith(".mp3")) {
-                mp3Files.add(f);
+                collectAudioFiles(f, audioFiles);
+            } else if (f.isFile()) {
+                String name = f.getName().toLowerCase();
+                for (String ext : SUPPORTED_AUDIO_EXTENSIONS) {
+                    if (name.endsWith(ext)) {
+                        audioFiles.add(f);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -594,7 +611,7 @@ public class SettingsController implements Serializable {
     }
 
     /**
-     * Process a single MP3 file. Returns the persisted Song object or null on
+     * Process a single audio file. Returns the persisted Song object or null on
      * failure.
      */
     private Song processFile(File file) {
@@ -631,13 +648,13 @@ public class SettingsController implements Serializable {
             song.setSize(size);
             song.setLastModified(lastModified);
 
-            MP3File mp3File = null;
+            AudioFile audioFile = null;
             Tag tag = null;
             try {
-                mp3File = (MP3File) AudioFileIO.read(file);
-                tag = mp3File.getTag();
+                audioFile = AudioFileIO.read(file);
+                tag = audioFile.getTag();
             } catch (org.jaudiotagger.audio.exceptions.CannotReadException e) {
-                addLog("[org.jau.tag.id3] WARNING: Could not read MP3 metadata for " + file.getName() + ": " + e.getMessage());
+                addLog("[org.jau.tag.id3] WARNING: Could not read audio metadata for " + file.getName() + ": " + e.getMessage());
             } catch (RuntimeException e) {
                 addLog("[org.jau.tag.id3] WARNING: Runtime error while reading tag for " + file.getName() + ": " + e.getMessage(), e);
             }
@@ -710,7 +727,7 @@ public class SettingsController implements Serializable {
             // If all taggers failed, fallback to filename parsing
             if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
                 addLog("INFO: All metadata taggers failed for " + file.getName() + ". Falling back to filename parsing.");
-                String fileName = file.getName().replaceFirst("(?i)\\.mp3$", "");
+                String fileName = file.getName().replaceFirst("(?i)\\.[a-z0-9]+$", "");
                 int separatorIndex = fileName.indexOf(" - ");
                 if (separatorIndex != -1) {
                     if (song.getArtist() == null || song.getArtist().isBlank()) {
@@ -742,7 +759,7 @@ public class SettingsController implements Serializable {
 
 
             // If not found by path, try to find by title, artist, and duration (after tags are read)
-            int trackLength = getVerifiedTrackLength(file, mp3File); // Call once and store
+            int trackLength = getVerifiedTrackLength(file, audioFile); // Call once and store
             
             if (isNewSong && song.getTitle() != null && !song.getTitle().isBlank() && song.getArtist() != null && !song.getArtist().isBlank()) {
                 // Ensure duration is also available before attempting to find by title/artist/duration
@@ -1017,11 +1034,11 @@ public class SettingsController implements Serializable {
         }
     }
 
-    private int getVerifiedTrackLength(File file, MP3File initialMp3File) {
+    private int getVerifiedTrackLength(File file, AudioFile initialAudioFile) {
         int duration = 0;
         try {
-            if (initialMp3File != null && initialMp3File.getAudioHeader() != null) {
-                duration = initialMp3File.getAudioHeader().getTrackLength();
+            if (initialAudioFile != null && initialAudioFile.getAudioHeader() != null) {
+                duration = initialAudioFile.getAudioHeader().getTrackLength();
             } else {
                 addLog("[org.jau.tag.id3] WARNING: Could not read initial duration for " + file.getName() + ".");
             }
@@ -1037,10 +1054,10 @@ public class SettingsController implements Serializable {
             
             // Second attempt with jaudiotagger
             try {
-                MP3File mp3FileSecondRead = (MP3File) AudioFileIO.read(file);
+                AudioFile audioFileSecondRead = AudioFileIO.read(file);
                 int secondDuration = 0;
-                if (mp3FileSecondRead != null && mp3FileSecondRead.getAudioHeader() != null) {
-                    secondDuration = mp3FileSecondRead.getAudioHeader().getTrackLength();
+                if (audioFileSecondRead != null && audioFileSecondRead.getAudioHeader() != null) {
+                    secondDuration = audioFileSecondRead.getAudioHeader().getTrackLength();
                 }
 
                 if (duration != secondDuration) {
@@ -1160,9 +1177,9 @@ public class SettingsController implements Serializable {
                 return localLogs;
             }
 
-            localLogs.add("[org.jau.tag.id3] Reading MP3 file: " + songFile.getName());
-            MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
-            Tag tag = mp3File.getTag();
+            localLogs.add("[org.jau.tag.id3] Reading audio file: " + songFile.getName());
+            AudioFile audioFile = AudioFileIO.read(songFile);
+            Tag tag = audioFile.getTag();
 
             // Reset fields before reloading to ensure fresh data
             song.setTitle(null);
@@ -1235,7 +1252,7 @@ public class SettingsController implements Serializable {
             // If all taggers failed, fallback to filename parsing
             if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
                 localLogs.add("INFO: All metadata taggers failed for " + songFile.getName() + ". Falling back to filename parsing.");
-                String fileName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                String fileName = songFile.getName().replaceFirst("(?i)\\.[a-z0-9]+$", "");
                 int separatorIndex = fileName.indexOf(" - ");
                 if (separatorIndex != -1) {
                     if (song.getArtist() == null || song.getArtist().isBlank()) {
@@ -1251,7 +1268,7 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            int duration = getVerifiedTrackLength(songFile, mp3File);
+            int duration = getVerifiedTrackLength(songFile, audioFile);
             localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
             song.setDurationSeconds(duration);
 
@@ -1283,9 +1300,9 @@ public class SettingsController implements Serializable {
                 return localLogs;
             }
 
-            localLogs.add("[org.jau.tag.id3] Reading MP3 file: " + songFile.getName());
-            MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
-            Tag tag = mp3File.getTag();
+            localLogs.add("[org.jau.tag.id3] Reading audio file: " + songFile.getName());
+            AudioFile audioFile = AudioFileIO.read(songFile);
+            Tag tag = audioFile.getTag();
 
             // Reset fields before reloading to ensure fresh data
             song.setTitle(null);
@@ -1358,7 +1375,7 @@ public class SettingsController implements Serializable {
             // If all taggers failed, fallback to filename parsing
             if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
                 localLogs.add("INFO: All metadata taggers failed for " + songFile.getName() + ". Falling back to filename parsing.");
-                String fileName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                String fileName = songFile.getName().replaceFirst("(?i)\\.[a-z0-9]+$", "");
                 int separatorIndex = fileName.indexOf(" - ");
                 if (separatorIndex != -1) {
                     if (song.getArtist() == null || song.getArtist().isBlank()) {
@@ -1393,7 +1410,7 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            int duration = getVerifiedTrackLength(songFile, mp3File);
+            int duration = getVerifiedTrackLength(songFile, audioFile);
             localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
             song.setDurationSeconds(duration);
 
@@ -1421,7 +1438,7 @@ public class SettingsController implements Serializable {
     public void deleteDuplicateSongs() {
         addLog("Deleting duplicate songs...");
 
-        // Step 1: Collect all MP3 files from both main and import folders
+        // Step 1: Collect all audio files from both main and import folders
         List<FileDetails> allFileDetails = new ArrayList<>();
         List<File> unidentifiableFilesToDelete = new ArrayList<>();
 
@@ -1429,7 +1446,7 @@ public class SettingsController implements Serializable {
         File mainMusicFolder = getMusicFolder();
         if (mainMusicFolder.exists() && mainMusicFolder.isDirectory()) {
             List<File> mainFiles = new ArrayList<>();
-            collectMp3Files(mainMusicFolder, mainFiles);
+            collectAudioFiles(mainMusicFolder, mainFiles);
             for (File file : mainFiles) {
                 Song metadata = extractMetadataFromFile(file);
                 if (metadata != null) {
@@ -1446,7 +1463,7 @@ public class SettingsController implements Serializable {
         File importFolder = new File(mainMusicFolder, "import");
         if (importFolder.exists() && importFolder.isDirectory()) {
             List<File> importFiles = new ArrayList<>();
-            collectMp3Files(importFolder, importFiles);
+            collectAudioFiles(importFolder, importFiles);
             for (File file : importFiles) {
                 Song metadata = extractMetadataFromFile(file);
                 if (metadata != null) {
@@ -1683,8 +1700,8 @@ public class SettingsController implements Serializable {
             song.setGenre(null);
             song.setBpm(0);
 
-            MP3File mp3File = (MP3File) AudioFileIO.read(songFile);
-            Tag tag = mp3File.getTag();
+            AudioFile audioFile = AudioFileIO.read(songFile);
+            Tag tag = audioFile.getTag();
 
             if (tag != null) {
                 song.setTitle(safeGet(tag, FieldKey.TITLE));
@@ -1733,7 +1750,7 @@ public class SettingsController implements Serializable {
             }
 
             if (song.getTitle() == null || song.getTitle().isBlank() || song.getArtist() == null || song.getArtist().isBlank()) {
-                String fileName = songFile.getName().replaceFirst("(?i)\\.mp3$", "");
+                String fileName = songFile.getName().replaceFirst("(?i)\\.[a-z0-9]+$", "");
                 int separatorIndex = fileName.indexOf(" - ");
                 if (separatorIndex != -1) {
                     if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist(fileName.substring(0, separatorIndex).trim());
@@ -1747,7 +1764,7 @@ public class SettingsController implements Serializable {
             if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist("Unknown Artist");
             if (song.getAlbum() == null || song.getAlbum().isBlank()) song.setAlbum("Unknown Album");
 
-            int duration = getVerifiedTrackLength(songFile, mp3File);
+            int duration = getVerifiedTrackLength(songFile, audioFile);
             song.setDurationSeconds(duration);
 
             songService.persistSongInNewTx(song);

@@ -234,6 +234,22 @@ public class UserManagementAPI {
                 .build();
     }
     
+    @DELETE
+    @Path("/sessions/cleanup")
+    public Response cleanupSessions(@Context HttpHeaders headers) {
+        if (!isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(ApiResponse.error("Admin access required"))
+                    .build();
+        }
+        
+        sessionService.cleanupExpiredSessions();
+        
+        return Response.ok()
+                .entity(ApiResponse.success(Map.of("message", "Old sessions cleaned up")))
+                .build();
+    }
+    
     public static class UserRequest {
         public String username;
         public String password;

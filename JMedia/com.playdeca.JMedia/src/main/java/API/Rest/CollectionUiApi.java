@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.MediaType;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -31,13 +32,48 @@ public class CollectionUiApi {
     @Inject @Location("collectionEntriesContent.html")
     Template collectionEntriesContent;
 
+    @Inject @Location("collectionItemsFragment.html")
+    Template collectionItemsFragment;
+
     @GET
     @Path("/collections-fragment")
     @Blocking
-    public String getCollectionsFragment() {
-        var collections = collectionService.listCollections();
+    public String getCollectionsFragment(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit) {
+        long totalItems = collectionService.countCollections();
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+        List<Models.MediaCollection> collections = collectionService.findPaginatedCollections(page, limit);
+
         return collectionListContent
                 .data("collections", collections)
+                .data("totalItems", totalItems)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
+                .render();
+    }
+
+    @GET
+    @Path("/collections-fragment-more")
+    @Blocking
+    public String getCollectionsFragmentMore(
+            @QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("limit") @DefaultValue("40") int limit) {
+        long totalItems = collectionService.countCollections();
+        int totalPages = (int) Math.ceil((double) totalItems / limit);
+        boolean hasMore = page < totalPages;
+        int nextPage = page + 1;
+        List<Models.MediaCollection> collections = collectionService.findPaginatedCollections(page, limit);
+
+        return collectionItemsFragment
+                .data("collections", collections)
+                .data("totalItems", totalItems)
+                .data("limit", limit)
+                .data("nextPage", nextPage)
+                .data("hasMore", hasMore)
                 .render();
     }
 
