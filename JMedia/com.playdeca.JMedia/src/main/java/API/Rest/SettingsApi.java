@@ -883,4 +883,12 @@ public class SettingsApi {
         settingsController.addLog("Auto-skip settings updated");
         return Response.ok(ApiResponse.success("Auto-skip settings updated")).build();
     }
+
+    @POST
+    @Path("/{profileId}/fixAlbums")
+    public Response fixAlbums(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        executor.submit(() -> settingsController.fixAlbums(), "FixAlbumsThread");
+        return Response.ok(ApiResponse.success("Album fix started")).build();
+    }
 }

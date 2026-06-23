@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorCompletionService;
+import Utils.MediaPathResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.imageio.ImageIO;
@@ -89,22 +90,27 @@ public class ThumbnailService {
                 return cachedPath;
             }
             
+            // Load video entity once for naming and strategy decisions
+            Video video = entityManager.find(Video.class, videoId);
+            
             // Check if video already has a thumbnail in the database
-            Video existingVideo = entityManager.find(Video.class, videoId);
-            if (existingVideo != null && existingVideo.thumbnailPath != null && !existingVideo.thumbnailPath.isBlank()) {
-                Path existingPath = Paths.get(existingVideo.thumbnailPath);
+            if (video != null && video.thumbnailPath != null && !video.thumbnailPath.isBlank()) {
+                Path existingPath = Paths.get(video.thumbnailPath);
                 if (Files.exists(existingPath)) {
-                    thumbnailCache.put(videoId, existingVideo.thumbnailPath);
-                    LOGGER.info("Using existing thumbnail for video ID {}: {}", videoId, existingVideo.thumbnailPath);
-                    return existingVideo.thumbnailPath;
+                    thumbnailCache.put(videoId, video.thumbnailPath);
+                    LOGGER.info("Using existing thumbnail for video ID {}: {}", videoId, video.thumbnailPath);
+                    return video.thumbnailPath;
                 }
             }
             
             // Create thumbnail directory if it doesn't exist
             Path thumbnailDir = getThumbnailDirectory();
             
-            // Generate unique thumbnail path for this video
-            String thumbnailFileName = "video_" + videoId + ".webp";
+            // Generate canonical thumbnail name using MediaPathResolver
+            String thumbnailFileName = video != null
+                ? MediaPathResolver.resolveThumbnailName(video)
+                : MediaPathResolver.legacyThumbnailName(videoId);
+            if (thumbnailFileName == null) thumbnailFileName = MediaPathResolver.legacyThumbnailName(videoId);
             Path outputPath = thumbnailDir.resolve(thumbnailFileName);
             
             // 1. STRATEGY A: Try to find local sidecar artwork (common standard/Kodi convention)
@@ -123,7 +129,6 @@ public class ThumbnailService {
             }
 
             // 2. STRATEGY B: Try to fetch from online API (TMDb)
-            Video video = entityManager.find(Video.class, videoId);
             if (video != null && settingsService.getOrCreateSettings().getThumbnailPreferApi()) {
                 String type = video.type != null ? video.type : "movie";
                 
@@ -136,9 +141,9 @@ public class ThumbnailService {
                 }
                 
                 if (title != null) {
-                    // Check show-level cache first
-                    String normalizedTitle = title.toLowerCase().trim();
-                    String cachedApiUrl = showThumbnailCache.get(normalizedTitle);
+                    // Check show-level cache first (key by imdbId when available)
+                    String showCacheKey = getShowCacheKey(video, title);
+                    String cachedApiUrl = showThumbnailCache.get(showCacheKey);
                     
                     if (cachedApiUrl != null) {
                         LOGGER.info("Using cached poster URL for show: {}", title);
@@ -154,7 +159,7 @@ public class ThumbnailService {
 
                     if (apiUrl.isPresent()) {
                         // Cache the API URL for this show
-                        showThumbnailCache.put(normalizedTitle, apiUrl.get());
+                        showThumbnailCache.put(showCacheKey, apiUrl.get());
                         downloadImage(apiUrl.get(), outputPath);
                         return finalizeThumbnail(videoId, outputPath.toString());
                     }
@@ -207,6 +212,21 @@ public class ThumbnailService {
         }
     }
     
+    /**
+     * Compute a show cache key preferring IMDb ID for stability across rescans.
+     */
+    private String getShowCacheKey(Video video, String fallbackTitle) {
+        if (video == null && fallbackTitle == null) return null;
+        String id = video != null ? MediaPathResolver.getPrimaryId(video) : null;
+        if (id != null) return id;
+        if ("episode".equalsIgnoreCase(video != null ? video.type : null) && video.showImdbId != null) {
+            return video.showImdbId;
+        }
+        String showImdbId = video != null ? video.showImdbId : null;
+        if (showImdbId != null && !showImdbId.isBlank()) return showImdbId;
+        return fallbackTitle != null ? fallbackTitle.toLowerCase().trim() : null;
+    }
+
     private ShowMetadata getCachedShowMetadata(String showTitle) {
         if (showTitle == null) return null;
         return showMetadataCache.get(showTitle.toLowerCase().trim());
@@ -219,7 +239,10 @@ public class ThumbnailService {
         }
     }
     
-    private String getEpisodeCacheKey(String seriesTitle, int season, int episode) {
+    private String getEpisodeCacheKey(Video video, String seriesTitle, int season, int episode) {
+        if (video != null && video.showImdbId != null && !video.showImdbId.isBlank()) {
+            return video.showImdbId + "_S" + String.format("%02d", season) + "E" + String.format("%02d", episode);
+        }
         return (seriesTitle + "_s" + season + "e" + episode).toLowerCase().trim();
     }
     
@@ -278,26 +301,27 @@ public class ThumbnailService {
             Video video = entityManager.find(Video.class, videoId);
             if (video == null) return null;
             
+            String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+            if (canonicalName == null) canonicalName = MediaPathResolver.legacyThumbnailName(videoId);
+            
             if (isBatchMode) {
-                String seriesKey = video.seriesTitle != null ? video.seriesTitle.toLowerCase().trim() : null;
-                ShowMetadata cached = showMetadataCache.get(seriesKey);
+                String seriesKey = getShowCacheKey(video, video.seriesTitle);
+                ShowMetadata cached = seriesKey != null ? showMetadataCache.get(seriesKey) : null;
                 if (cached != null) {
                     LOGGER.debug("Using cached series metadata for batch: {}", seriesKey);
                     Path thumbnailDir = getThumbnailDirectory();
-                    String thumbnailFileName = "video_" + videoId + ".webp";
-                    Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+                    Path outputPath = thumbnailDir.resolve(canonicalName);
                     downloadImage(cached.posterUrl, outputPath);
                     return finalizeThumbnail(videoId, outputPath.toString());
                 }
             }
             
             if (!isBatchMode && "episode".equalsIgnoreCase(video.type)) {
-                String episodeKey = getEpisodeCacheKey(video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                String episodeKey = getEpisodeCacheKey(video, video.seriesTitle, video.seasonNumber, video.episodeNumber);
                 String cachedEpisode = episodeImageCache.get(episodeKey);
                 if (cachedEpisode != null) {
                     Path thumbnailDir = getThumbnailDirectory();
-                    String thumbnailFileName = "video_" + videoId + ".webp";
-                    Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+                    Path outputPath = thumbnailDir.resolve(canonicalName);
                     downloadImage(cachedEpisode, outputPath);
                     return finalizeThumbnail(videoId, outputPath.toString());
                 }
@@ -307,8 +331,7 @@ public class ThumbnailService {
                 if (episodeImage.isPresent()) {
                     episodeImageCache.put(episodeKey, episodeImage.get());
                     Path thumbnailDir = getThumbnailDirectory();
-                    String thumbnailFileName = "video_" + videoId + ".webp";
-                    Path outputPath = thumbnailDir.resolve(thumbnailFileName);
+                    Path outputPath = thumbnailDir.resolve(canonicalName);
                     downloadImage(episodeImage.get(), outputPath);
                     return finalizeThumbnail(videoId, outputPath.toString());
                 }
@@ -340,14 +363,41 @@ public class ThumbnailService {
                 return false;
             }
 
+            // Try hardware decoder first, fall back to software
             String hwDecoder = discoveryService.getHardwareDecoder(video != null ? video.videoCodec : "h264");
+            boolean useHardware = hwDecoder != null;
+
+            if (useHardware) {
+                if (runFfmpegFrameExtract(ffmpegPath, videoPath, outputPath, seekSeconds, hwDecoder)) {
+                    return true;
+                }
+                LOGGER.warn("Hardware decoder failed for thumbnail, falling back to software: {}", videoPath);
+            }
+
+            return runFfmpegFrameExtract(ffmpegPath, videoPath, outputPath, seekSeconds, null);
+            
+        } catch (Exception e) {
+            LOGGER.error("FFmpeg extraction failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean runFfmpegFrameExtract(String ffmpegPath, String videoPath, String outputPath, long seekSeconds, String hwDecoder) {
+        try {
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
             
-            // If hardware decoder is available, it must be placed BEFORE -i
+            command.add("-v");
+            command.add("error");
+            command.add("-hide_banner");
+            
             if (hwDecoder != null) {
-                command.add("-c:v");
-                command.add(hwDecoder);
+                command.add("-hwaccel");
+                command.add(hwDecoder.contains("cuvid") ? "cuda" : hwDecoder);
+                if (hwDecoder.contains("cuvid")) {
+                    command.add("-hwaccel_output_format");
+                    command.add("cuda");
+                }
             }
             
             command.add("-ss");
@@ -364,23 +414,28 @@ public class ThumbnailService {
             command.add("scale=480:-1");
             command.add("-f");
             command.add("webp");
+            command.add("-max_muxing_queue_size");
+            command.add("1024");
             command.add("-y");
             command.add(outputPath);
 
             ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
             
             Process process = pb.start();
+            String stderr = new String(process.getInputStream().readAllBytes());
             boolean finished = process.waitFor(20, TimeUnit.SECONDS);
             
             if (finished && process.exitValue() == 0) {
                 return true;
-            } else {
-                LOGGER.warn("FFmpeg frame extraction failed for: {}", videoPath);
-                return false;
             }
             
+            int exitCode = finished ? process.exitValue() : -1;
+            LOGGER.warn("FFmpeg frame extraction failed for: {} (exit={}) stderr: {}", videoPath, exitCode, stderr);
+            return false;
+            
         } catch (Exception e) {
-            LOGGER.error("FFmpeg extraction failed: " + e.getMessage());
+            LOGGER.error("FFmpeg frame extract run failed: " + e.getMessage());
             return false;
         }
     }
@@ -393,12 +448,39 @@ public class ThumbnailService {
                 return cachedPath;
             }
             
-            // Try to find on disk even if not in memory cache
-            String thumbnailFileName = "video_" + id + ".webp";
-            Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
-            if (Files.exists(diskPath)) {
-                thumbnailCache.put(id, diskPath.toString());
-                return diskPath.toString();
+            // Try to find canonical name on disk first
+            Video video = entityManager.find(Video.class, id);
+            if (video != null) {
+                String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+                if (canonicalName != null) {
+                    Path canonicalPath = getThumbnailDirectory().resolve(canonicalName);
+                    if (Files.exists(canonicalPath)) {
+                        thumbnailCache.put(id, canonicalPath.toString());
+                        return canonicalPath.toString();
+                    }
+                }
+            }
+            
+            // Legacy fallback: check video_<id>.webp and rename if found
+            String legacyName = MediaPathResolver.legacyThumbnailName(id);
+            Path legacyPath = getThumbnailDirectory().resolve(legacyName);
+            if (Files.exists(legacyPath) && video != null) {
+                String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+                if (canonicalName != null) {
+                    Path canonicalPath = getThumbnailDirectory().resolve(canonicalName);
+                    try {
+                        Files.move(legacyPath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        LOGGER.info("Migrated legacy thumbnail {} -> {}", legacyName, canonicalName);
+                        thumbnailCache.put(id, canonicalPath.toString());
+                        return canonicalPath.toString();
+                    } catch (Exception e) {
+                        LOGGER.warn("Failed to migrate legacy thumbnail, returning legacy path: {}", e.getMessage());
+                        thumbnailCache.put(id, legacyPath.toString());
+                        return legacyPath.toString();
+                    }
+                }
+                thumbnailCache.put(id, legacyPath.toString());
+                return legacyPath.toString();
             }
             
             // Generate on-demand if not found
@@ -424,12 +506,34 @@ public class ThumbnailService {
                 return cachedPath;
             }
             
-            // Try to find on disk even if not in memory cache
-            String thumbnailFileName = "video_" + id + ".webp";
-            Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
-            if (Files.exists(diskPath)) {
-                thumbnailCache.put(id, diskPath.toString());
-                return diskPath.toString();
+            // Try canonical name on disk first
+            String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+            if (canonicalName != null) {
+                Path canonicalPath = getThumbnailDirectory().resolve(canonicalName);
+                if (Files.exists(canonicalPath)) {
+                    thumbnailCache.put(id, canonicalPath.toString());
+                    return canonicalPath.toString();
+                }
+            }
+            
+            // Legacy fallback: check video_<id>.webp and rename if found
+            String legacyName = MediaPathResolver.legacyThumbnailName(id);
+            Path legacyPath = getThumbnailDirectory().resolve(legacyName);
+            if (Files.exists(legacyPath) && canonicalName != null) {
+                Path canonicalPath = getThumbnailDirectory().resolve(canonicalName);
+                try {
+                    Files.move(legacyPath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    LOGGER.info("Migrated legacy thumbnail {} -> {}", legacyName, canonicalName);
+                    thumbnailCache.put(id, canonicalPath.toString());
+                    return canonicalPath.toString();
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to migrate legacy thumbnail, returning legacy path: {}", e.getMessage());
+                    thumbnailCache.put(id, legacyPath.toString());
+                    return legacyPath.toString();
+                }
+            } else if (Files.exists(legacyPath)) {
+                thumbnailCache.put(id, legacyPath.toString());
+                return legacyPath.toString();
             }
             
             // Generate on-demand if not found
@@ -463,16 +567,25 @@ public class ThumbnailService {
                 seriesTitle, seasonNumber, "episode"
             );
             for (Video ep : seasonEpisodes) {
-                if (ep.id.equals(currentVideoId)) continue; // Skip the current video
+                if (ep.id.equals(currentVideoId)) continue;
                 String cached = thumbnailCache.get(ep.id);
                 if (cached != null && Files.exists(Paths.get(cached))) {
                     return cached;
                 }
-                String filename = "video_" + ep.id + ".webp";
-                Path path = getThumbnailDirectory().resolve(filename);
-                if (Files.exists(path)) {
-                    thumbnailCache.put(ep.id, path.toString());
-                    return path.toString();
+                String canonicalName = MediaPathResolver.resolveThumbnailName(ep);
+                if (canonicalName != null) {
+                    Path path = getThumbnailDirectory().resolve(canonicalName);
+                    if (Files.exists(path)) {
+                        thumbnailCache.put(ep.id, path.toString());
+                        return path.toString();
+                    }
+                }
+                // Fallback to legacy name
+                String legacyName = MediaPathResolver.legacyThumbnailName(ep.id);
+                Path legacyPath = getThumbnailDirectory().resolve(legacyName);
+                if (Files.exists(legacyPath)) {
+                    thumbnailCache.put(ep.id, legacyPath.toString());
+                    return legacyPath.toString();
                 }
             }
         }
@@ -488,11 +601,19 @@ public class ThumbnailService {
             if (cached != null && Files.exists(Paths.get(cached))) {
                 return cached;
             }
-            String filename = "video_" + ep.id + ".webp";
-            Path path = getThumbnailDirectory().resolve(filename);
-            if (Files.exists(path)) {
-                thumbnailCache.put(ep.id, path.toString());
-                return path.toString();
+            String canonicalName = MediaPathResolver.resolveThumbnailName(ep);
+            if (canonicalName != null) {
+                Path path = getThumbnailDirectory().resolve(canonicalName);
+                if (Files.exists(path)) {
+                    thumbnailCache.put(ep.id, path.toString());
+                    return path.toString();
+                }
+            }
+            String legacyName = MediaPathResolver.legacyThumbnailName(ep.id);
+            Path legacyPath = getThumbnailDirectory().resolve(legacyName);
+            if (Files.exists(legacyPath)) {
+                thumbnailCache.put(ep.id, legacyPath.toString());
+                return legacyPath.toString();
             }
         }
         
@@ -575,29 +696,100 @@ public class ThumbnailService {
     
     public boolean hasThumbnail(Long videoId) {
         String path = thumbnailCache.get(videoId);
-        if (path == null) {
-            String thumbnailFileName = "video_" + videoId + ".webp";
-            Path diskPath = getThumbnailDirectory().resolve(thumbnailFileName);
-            return Files.exists(diskPath);
+        if (path != null && Files.exists(Paths.get(path))) {
+            return true;
         }
-        return Files.exists(Paths.get(path));
+        // Check canonical name
+        Video video = entityManager.find(Video.class, videoId);
+        if (video != null) {
+            String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+            if (canonicalName != null && Files.exists(getThumbnailDirectory().resolve(canonicalName))) {
+                return true;
+            }
+        }
+        // Legacy fallback
+        String legacyName = MediaPathResolver.legacyThumbnailName(videoId);
+        return Files.exists(getThumbnailDirectory().resolve(legacyName));
     }
     
     @Transactional
     public void deleteThumbnail(Long videoId) {
         try {
             String thumbnailPath = thumbnailCache.remove(videoId);
-            if (thumbnailPath != null) {
+            if (thumbnailPath != null && Files.exists(Paths.get(thumbnailPath))) {
                 Files.deleteIfExists(Paths.get(thumbnailPath));
-            } else {
-                String thumbnailFileName = "video_" + videoId + ".webp";
-                Files.deleteIfExists(getThumbnailDirectory().resolve(thumbnailFileName));
             }
+            // Also try to delete by canonical and legacy names
+            Video video = entityManager.find(Video.class, videoId);
+            if (video != null) {
+                String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+                if (canonicalName != null) {
+                    Files.deleteIfExists(getThumbnailDirectory().resolve(canonicalName));
+                }
+            }
+            String legacyName = MediaPathResolver.legacyThumbnailName(videoId);
+            Files.deleteIfExists(getThumbnailDirectory().resolve(legacyName));
         } catch (IOException e) {
             LOGGER.error("Error deleting thumbnail: " + e.getMessage());
         }
     }
     
+    /**
+     * Rename an existing thumbnail file when external IDs are obtained after enrichment.
+     * Called after fetchAndEnrichMetadata discovers new imdbId/tmdbId/tvdbId.
+     */
+    @Transactional
+    public void renameForExternalIds(Long videoId) {
+        try {
+            Video video = entityManager.find(Video.class, videoId);
+            if (video == null) return;
+
+            String canonicalName = MediaPathResolver.resolveThumbnailName(video);
+            if (canonicalName == null) return;
+
+            String currentPath = video.thumbnailPath;
+            if (currentPath != null && currentPath.endsWith(canonicalName)) {
+                return; // Already using canonical name
+            }
+
+            Path thumbnailDir = getThumbnailDirectory();
+            Path canonicalPath = thumbnailDir.resolve(canonicalName);
+
+            // If canonical file already exists, nothing to do
+            if (Files.exists(canonicalPath)) {
+                thumbnailCache.put(videoId, canonicalPath.toString());
+                if (!canonicalPath.toString().equals(currentPath)) {
+                    video.setThumbnailPath(canonicalPath.toString());
+                }
+                return;
+            }
+
+            // Try to find and rename from legacy name
+            String legacyName = MediaPathResolver.legacyThumbnailName(videoId);
+            Path legacyPath = thumbnailDir.resolve(legacyName);
+            if (Files.exists(legacyPath)) {
+                Files.move(legacyPath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.info("Renamed thumbnail {} -> {} after enrichment", legacyName, canonicalName);
+                thumbnailCache.put(videoId, canonicalPath.toString());
+                video.setThumbnailPath(canonicalPath.toString());
+                return;
+            }
+
+            // Check if there's a stale slug-based name
+            if (currentPath != null && currentPath.contains(THUMBNAIL_DIR)) {
+                Path currentFilePath = Paths.get(currentPath);
+                if (Files.exists(currentFilePath) && !currentFilePath.equals(canonicalPath)) {
+                    Files.move(currentFilePath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    LOGGER.info("Renamed thumbnail {} -> {} after enrichment", currentFilePath.getFileName(), canonicalName);
+                    thumbnailCache.put(videoId, canonicalPath.toString());
+                    video.setThumbnailPath(canonicalPath.toString());
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("Error renaming thumbnail for video {}: {}", videoId, e.getMessage());
+        }
+    }
+
     @PreDestroy
     public void shutdownExecutor() {
         LOGGER.info("Shutting down ThumbnailService executor");

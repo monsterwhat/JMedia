@@ -28,7 +28,7 @@
     {#if songs && songs.size > 0}
     <div class="album-page-songs">
         {#for s in songs}
-        <div class="album-page-song-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
+        <div class="album-page-song-item{#if s.isFlac} is-flac{/if}" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
             <div class="album-page-song-track">{#if s.trackNumber > 0}{s.trackNumber}{#else}--{/if}</div>
             <div class="album-page-song-title">{s.title ?: "Unknown"}</div>
             <div class="album-page-song-duration">{formatDuration.apply(s.durationSeconds)}</div>

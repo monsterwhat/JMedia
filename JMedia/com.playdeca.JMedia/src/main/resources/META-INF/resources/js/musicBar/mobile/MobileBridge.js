@@ -65,14 +65,6 @@
             if (window.jmediaMobile) {
                 this.legacyMobile = window.jmediaMobile;
             }
-            
-            // Add migration提示
-            if (!localStorage.getItem('legacyModeNoticeShown')) {
-                if (window.showToast) {
-                    window.showToast('Using legacy mobile mode. New responsive features are available.', 'info', 5000);
-                }
-                localStorage.setItem('legacyModeNoticeShown', 'true');
-            }
         },
         
         /**
@@ -391,11 +383,8 @@
                 }
             });
             
-            window.addEventListener('requestPlaybackControl', (e) => {
-                if (window.PlaybackController) {
-                    window.PlaybackController.handleControlRequest(e.detail);
-                }
-            });
+            // NOTE: 'requestPlaybackControl' is handled by PlaybackController.js directly.
+            // Do NOT add a duplicate listener here — it would fire every request twice.
             
             window.addEventListener('requestVolumeChange', (e) => {
                 if (window.VolumeController) {

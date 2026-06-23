@@ -408,6 +408,7 @@
                 case 'rescan':
                     this.rescanSong(songId);
                     break;
+                case 'enrich':
                 case 'update':
                     this.updateMetadata(songId);
                     break;
@@ -927,7 +928,7 @@
                         // Emit queue change event
                         window.dispatchEvent(new CustomEvent('queueChanged', {
                             detail: {
-                                queueSize: window.musicState?.cue?.length || 0,
+                                queueSize: window.StateManager?.getState()?.cue?.length || 0,
                                 queueChanged: true,
                                 queueLengthChanged: true
                             }
@@ -953,7 +954,7 @@
                         
                         window.dispatchEvent(new CustomEvent('queueChanged', {
                             detail: {
-                                queueSize: window.musicState?.cue?.length || 0,
+                                queueSize: window.StateManager?.getState()?.cue?.length || 0,
                                 queueChanged: true,
                                 queueLengthChanged: true
                             }

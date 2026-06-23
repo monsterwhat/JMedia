@@ -2,6 +2,7 @@ package Services;
 
 import Models.Settings;
 import Models.Video;
+import Utils.MediaPathResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -46,6 +47,12 @@ public class VideoMetadataService {
     @Inject
     FFprobeAudioService audioService;
 
+    @Inject
+    ThumbnailService thumbnailService;
+
+    @Inject
+    VideoStoryboardService storyboardService;
+
     // TMDb
     private static final String TMDB_SEARCH_MOVIE = "https://api.themoviedb.org/3/search/movie?api_key=%s&query=%s";
     private static final String TMDB_SEARCH_TV = "https://api.themoviedb.org/3/search/tv?api_key=%s&query=%s";
@@ -64,7 +71,7 @@ public class VideoMetadataService {
     private static final String IMDB_DEV_SEARCH_URL = "https://api.imdbapi.dev/search/titles?query=%s";
     
     // TVMaze (Free, no key)
-    private static final String TVMAZE_SEARCH = "https://api.tvmaze.com/singlesearch/shows?q=%s";
+    private static final String TVMAZE_SEARCH = "https://api.tvmaze.com/search/shows?q=%s";
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -324,6 +331,17 @@ public class VideoMetadataService {
 
             // Ensure we merge the changes back to the database session
             video.getEntityManager().merge(video);
+
+            // 6. If we now have external IDs, rename thumbnail/storyboard assets to canonical naming
+            if (MediaPathResolver.hasExternalId(video)) {
+                try {
+                    thumbnailService.renameForExternalIds(video.id);
+                    storyboardService.renameForExternalIds(video.id);
+                } catch (Exception renameEx) {
+                    LOG.warn("Failed to rename assets after enrichment for {}: {}", video.id, renameEx.getMessage());
+                }
+            }
+
             LOG.info("DEBUG: Metadata enrichment successful for: {}", video.title);
         } catch (Exception e) {
             LOG.error("DEBUG: Metadata enrichment FAILED for {}: {}", video.title, e.getMessage(), e);
@@ -676,7 +694,11 @@ public class VideoMetadataService {
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() == 200) return objectMapper.readTree(response.body());
-        LOG.warn("Request failed: {} - {}", response.statusCode(), url);
+        if (response.statusCode() == 404) {
+            LOG.debug("Resource not found (404): {}", url);
+        } else {
+            LOG.warn("Request failed: {} - {}", response.statusCode(), url);
+        }
         return null;
     }
 
@@ -706,8 +728,13 @@ public class VideoMetadataService {
         try {
             String url = String.format(TVMAZE_SEARCH, URLEncoder.encode(title, StandardCharsets.UTF_8));
             JsonNode root = fetchJson(url);
-            if (root != null && root.has("image") && root.get("image").has("medium")) {
-                return Optional.of(root.get("image").get("medium").asText());
+            if (root != null && root.isArray()) {
+                for (JsonNode result : root) {
+                    JsonNode show = result.path("show");
+                    if (show.has("image") && show.get("image").has("medium")) {
+                        return Optional.of(show.get("image").get("medium").asText());
+                    }
+                }
             }
         } catch (Exception e) {
             LOG.warn("TVMaze artwork fetch failed for {}: {}", title, e.getMessage());

@@ -82,6 +82,15 @@ public class Settings extends PanacheEntity {
     private Boolean autoSkipRecap = false;
     private Boolean autoSkipOutro = false;
 
+    // Sync configuration
+    private Boolean syncEnabled = false;
+    private String syncSchedule = "0 0 3 * * ?"; // Daily at 3 AM
+    private String syncApiKey; // Incoming API key for remote servers to authenticate
+    private Boolean syncMusicEnabled = true;
+    private Boolean syncVideoEnabled = false;
+    private Boolean syncTimelinesEnabled = false;
+    private Boolean syncPlaylistsEnabled = false;
+
     // YouTube (yt-dlp) advanced options
     private Boolean youtubeForceIpv4 = false;
     private Boolean youtubeForceIpv6 = false;
@@ -424,6 +433,63 @@ public class Settings extends PanacheEntity {
     
     public void setYoutubePlayerClient(String youtubePlayerClient) {
         this.youtubePlayerClient = youtubePlayerClient;
+    }
+
+    // Sync getters and setters
+    public Boolean getSyncEnabled() {
+        return syncEnabled != null ? syncEnabled : false;
+    }
+
+    public void setSyncEnabled(Boolean syncEnabled) {
+        this.syncEnabled = syncEnabled;
+    }
+
+    public String getSyncSchedule() {
+        return syncSchedule;
+    }
+
+    public void setSyncSchedule(String syncSchedule) {
+        this.syncSchedule = syncSchedule;
+    }
+
+    public Boolean getSyncMusicEnabled() {
+        return syncMusicEnabled != null ? syncMusicEnabled : true;
+    }
+
+    public void setSyncMusicEnabled(Boolean syncMusicEnabled) {
+        this.syncMusicEnabled = syncMusicEnabled;
+    }
+
+    public Boolean getSyncVideoEnabled() {
+        return syncVideoEnabled != null ? syncVideoEnabled : false;
+    }
+
+    public void setSyncVideoEnabled(Boolean syncVideoEnabled) {
+        this.syncVideoEnabled = syncVideoEnabled;
+    }
+
+    public Boolean getSyncTimelinesEnabled() {
+        return syncTimelinesEnabled != null ? syncTimelinesEnabled : false;
+    }
+
+    public void setSyncTimelinesEnabled(Boolean syncTimelinesEnabled) {
+        this.syncTimelinesEnabled = syncTimelinesEnabled;
+    }
+
+    public Boolean getSyncPlaylistsEnabled() {
+        return syncPlaylistsEnabled != null ? syncPlaylistsEnabled : false;
+    }
+
+    public void setSyncPlaylistsEnabled(Boolean syncPlaylistsEnabled) {
+        this.syncPlaylistsEnabled = syncPlaylistsEnabled;
+    }
+
+    public String getSyncApiKey() {
+        return syncApiKey;
+    }
+
+    public void setSyncApiKey(String syncApiKey) {
+        this.syncApiKey = syncApiKey;
     }
 
     public String getTmdbApiKey() {

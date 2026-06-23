@@ -43,6 +43,7 @@ public class SongService {
 
     @Transactional
     public void save(Song song) {
+        song.setUpdatedAt(java.time.LocalDateTime.now());
         if (song.id == null || em.find(Song.class, song.id) == null) {
             em.persist(song);
         } else {
@@ -152,6 +153,7 @@ public class SongService {
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Song persistSongInNewTx(Song song) {
+        song.setUpdatedAt(java.time.LocalDateTime.now());
         if (song.id == null || em.find(Song.class, song.id) == null) {
             em.persist(song);
         } else {
@@ -244,6 +246,7 @@ public class SongService {
         return query.getSingleResult();
     }
 
+    @Transactional
     public List<Song> findByIds(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return new java.util.ArrayList<>();
@@ -440,6 +443,7 @@ public class SongService {
             if (updatedSong != null) {
                 // Preserve the original ID and dateAdded
                 updatedSong.id = song.id;
+                updatedSong.setUpdatedAt(java.time.LocalDateTime.now());
                 em.merge(updatedSong);
                 LOGGER.log(Level.INFO, "Successfully rescanned and updated song: {0}", song.getTitle());
             } else {

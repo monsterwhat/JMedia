@@ -39,7 +39,7 @@
         <h2 class="artist-page-section-title">Songs</h2>
         <div class="artist-page-song-list">
             {#for s in songs}
-            <div class="artist-page-song-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
+            <div class="artist-page-song-item{#if s.isFlac} is-flac{/if}" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
                 <div class="artist-page-song-track">{#if s.trackNumber > 0}{s.trackNumber}{#else}--{/if}</div>
                 <div class="artist-page-song-title">{s.title ?: "Unknown"}</div>
                 <div class="artist-page-song-album">{s.album ?: ""}</div>

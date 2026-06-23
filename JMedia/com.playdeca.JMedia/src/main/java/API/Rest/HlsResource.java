@@ -5,7 +5,7 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.io.File;
+import java.nio.file.Files;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,10 +23,11 @@ public class HlsResource {
                                                 @QueryParam("start") Double startSeconds,
                                                 @QueryParam("profileId") Long profileId,
                                                 @QueryParam("audioTrack") Integer audioTrackIndex,
-                                                @QueryParam("quality") Integer qualityHeight) {
+                                                @QueryParam("quality") Integer qualityHeight,
+                                                @QueryParam("device") String deviceToken) {
         try {
             double start = startSeconds != null ? startSeconds : 0.0;
-            HlsService.HlsSession session = hlsService.createSession(videoId, start, profileId, audioTrackIndex, qualityHeight);
+            HlsService.HlsSession session = hlsService.createSession(videoId, start, profileId, audioTrackIndex, qualityHeight, deviceToken);
             String playlistUrl = "/api/hls/master/" + session.sessionId + ".m3u8";
             return new HlsService.SessionInfo(session.sessionId, playlistUrl);
         } catch (Exception e) {
@@ -37,24 +38,24 @@ public class HlsResource {
 
     @GET
     @Path("/master/{sessionId}.m3u8")
-    @Produces("application/x-mpegURL")
+    @Produces("application/vnd.apple.mpegurl")
     public Response getMasterPlaylist(@PathParam("sessionId") String sessionId) {
         String playlist = hlsService.getMasterPlaylist(sessionId);
         if (playlist == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        return Response.ok(playlist).type("application/x-mpegURL").build();
+        return Response.ok(playlist).type("application/vnd.apple.mpegurl").build();
     }
 
     @GET
     @Path("/playlist/{sessionId}/{variant}.m3u8")
-    @Produces("application/x-mpegURL")
+    @Produces("application/vnd.apple.mpegurl")
     public Response getVariantPlaylist(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant) {
         String playlist = hlsService.getMediaPlaylist(sessionId, variant);
         if (playlist == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
-        return Response.ok(playlist).type("application/x-mpegURL").build();
+        return Response.ok(playlist).type("application/vnd.apple.mpegurl").build();
     }
 
     @DELETE
@@ -66,12 +67,46 @@ public class HlsResource {
 
     @GET
     @Path("/media/{sessionId}/{variant}/{segment}")
-    @Produces("video/MP2T")
+    @Produces("video/iso.segment")
     public Response getSegment(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant, @PathParam("segment") String segment) {
-        File segmentFile = hlsService.getSegment(sessionId, variant, segment);
-        if (segmentFile == null || !segmentFile.exists()) {
-            return Response.status(Response.Status.NOT_FOUND).build();
+        // Wait for segment to be available (up to 5s polling every 100ms)
+        long deadline = System.currentTimeMillis() + 15000;
+        java.nio.file.Path segmentPath = hlsService.getSegmentPath(sessionId, variant, segment);
+        
+        while (System.currentTimeMillis() < deadline) {
+            if (segmentPath != null && Files.exists(segmentPath)) {
+                return Response.ok(segmentPath.toFile()).type("video/iso.segment").build();
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            segmentPath = hlsService.getSegmentPath(sessionId, variant, segment);
         }
-        return Response.ok(segmentFile).type("video/MP2T").build();
+        
+        LOG.debug("Segment not ready after 15s: {}/{}/{}", sessionId, variant, segment);
+        return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
+    }
+
+    @GET
+    @Path("/media/{sessionId}/{variant}/init.mp4")
+    @Produces("video/mp4")
+    public Response getInitSegment(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant) {
+        long deadline = System.currentTimeMillis() + 15000;
+        while (System.currentTimeMillis() < deadline) {
+            java.nio.file.Path initPath = hlsService.getInitSegmentPath(sessionId, variant);
+            if (initPath != null && Files.exists(initPath)) {
+                return Response.ok(initPath.toFile()).type("video/mp4").build();
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
     }
 }

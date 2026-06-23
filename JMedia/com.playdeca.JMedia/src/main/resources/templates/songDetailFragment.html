@@ -60,7 +60,7 @@
         </h3>
         <div class="song-detail-similar-list">
             {#for s in similarSongs}
-            <div class="song-detail-similar-item" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
+            <div class="song-detail-similar-item{#if s.isFlac} is-flac{/if}" data-song-id="{s.id}" onclick="window.playSongFromDetail({s.id})">
                 <div class="song-detail-similar-artwork">
                     <img src="/api/music/stream/artwork/{s.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
                 </div>

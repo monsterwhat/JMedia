@@ -311,7 +311,7 @@
                         if (e.ctrlKey || e.metaKey) {
                             e.preventDefault();
                             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
-                                detail: { action: 'previous' }
+                                detail: { action: 'previous', profileId: window.globalActiveProfileId }
                             }));
                         }
                         break;
@@ -319,7 +319,7 @@
                         if (e.ctrlKey || e.metaKey) {
                             e.preventDefault();
                             window.dispatchEvent(new CustomEvent('requestPlaybackControl', {
-                                detail: { action: 'next' }
+                                detail: { action: 'next', profileId: window.globalActiveProfileId }
                             }));
                         }
                         break;

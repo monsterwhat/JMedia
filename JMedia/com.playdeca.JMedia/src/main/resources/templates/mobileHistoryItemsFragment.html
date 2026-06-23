@@ -1,5 +1,5 @@
 {#for h_with_index in history}
-<div class="mobile-song-item"
+<div class="mobile-song-item{#if h_with_index.history.song.isFlac} is-flac{/if}"
      hx-post="/api/music/playback/select/{profileId}/{h_with_index.history.song.id}"
      hx-trigger="click"
      hx-swap="none"

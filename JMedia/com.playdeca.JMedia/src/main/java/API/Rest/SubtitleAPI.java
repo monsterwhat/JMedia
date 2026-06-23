@@ -4,6 +4,7 @@ import Models.*;
 import Models.DTOs.SubtitleSearchResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -198,6 +199,7 @@ public class SubtitleAPI {
     @POST
     @Path("/{videoId}/upload")
     @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
     public Response uploadSubtitle(@PathParam("videoId") Long videoId,
                                    Map<String, String> request,
                                    @HeaderParam("X-User-ID") Long userId) {
@@ -440,7 +442,8 @@ public class SubtitleAPI {
     @GET
     @Path("/track/{trackId}/raw")
     @Produces("text/plain")
-    public Response streamRawSubtitle(@PathParam("trackId") Long trackId) {
+    public Response streamRawSubtitle(@PathParam("trackId") Long trackId,
+                                       @QueryParam("correction") @jakarta.ws.rs.DefaultValue("0") double correction) {
         SubtitleTrack track = SubtitleTrack.findById(trackId);
         if (track == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -475,6 +478,11 @@ public class SubtitleAPI {
                         .build();
             }
 
+            // Apply user correction to ASS/SSA timestamps if provided
+            if (correction != 0) {
+                content = applyAssOffset(content, correction);
+            }
+
             return Response.ok(content)
                     .header("Content-Type", "text/plain; charset=utf-8")
                     .header("Cache-Control", "public, max-age=3600")
@@ -486,6 +494,101 @@ public class SubtitleAPI {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity("Failed to stream raw subtitle: " + e.getMessage())
                     .build();
+        }
+    }
+
+    /**
+     * Applies a time offset to ASS/SSA subtitle content by shifting all timestamps.
+     * @param assContent The ASS/SSA content
+     * @param shiftSeconds The offset in seconds (positive = later, negative = earlier)
+     * @return Modified ASS/SSA content
+     */
+    private String applyAssOffset(String assContent, double shiftSeconds) {
+        if (shiftSeconds == 0 || assContent == null) return assContent;
+
+        // Shift is in seconds, convert to centiseconds (ASS uses centiseconds)
+        int shiftCs = (int) Math.round(shiftSeconds * 100);
+
+        String[] lines = assContent.split("\n");
+        StringBuilder result = new StringBuilder();
+
+        for (String line : lines) {
+            // Skip header/metadata lines
+            if (line.startsWith("[") || line.startsWith("Format:") || line.startsWith("Style:") || line.trim().isEmpty()) {
+                result.append(line).append("\n");
+                continue;
+            }
+
+            // Dialogue lines: "Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,Text"
+            if (line.startsWith("Dialogue:") || line.startsWith("Comment:")) {
+                result.append(shiftAssDialogueLine(line, shiftCs)).append("\n");
+            } else {
+                result.append(line).append("\n");
+            }
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Shifts timestamps in an ASS Dialogue/Comment line.
+     */
+    private String shiftAssDialogueLine(String line, int shiftCs) {
+        // Format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+        // We need to shift Start and End (fields 1 and 2, 0-indexed after "Dialogue: ")
+        int colonIdx = line.indexOf(':');
+        if (colonIdx == -1) return line;
+
+        String prefix = line.substring(0, colonIdx + 1); // "Dialogue: " or "Comment: "
+        String rest = line.substring(colonIdx + 1).trim();
+
+        String[] fields = rest.split(",", 10); // Split into max 10 fields (9 commas = 10 fields)
+        if (fields.length < 3) return line;
+
+        // fields[1] = Start time, fields[2] = End time
+        String newStart = shiftAssTime(fields[1], shiftCs);
+        String newEnd = shiftAssTime(fields[2], shiftCs);
+
+        fields[1] = newStart;
+        fields[2] = newEnd;
+
+        return prefix + " " + String.join(",", fields);
+    }
+
+    /**
+     * Shifts an ASS timestamp (H:MM:SS.cc) by centiseconds.
+     */
+    private String shiftAssTime(String timeStr, int shiftCs) {
+        // ASS time format: H:MM:SS.cc (e.g., "0:01:23.45" or "1:23:45.67")
+        try {
+            String[] parts = timeStr.split(":");
+            if (parts.length != 3) return timeStr;
+
+            int hours = Integer.parseInt(parts[0]);
+            int minutes = Integer.parseInt(parts[1]);
+            // Seconds part: SS.cc
+            String[] secParts = parts[2].split("\\.");
+            if (secParts.length != 2) return timeStr;
+
+            int seconds = Integer.parseInt(secParts[0]);
+            int centiseconds = Integer.parseInt(secParts[1]);
+
+            // Convert to total centiseconds
+            long totalCs = ((long) hours * 3600 + minutes * 60 + seconds) * 100 + centiseconds;
+            totalCs += shiftCs;
+
+            // Clamp to non-negative
+            if (totalCs < 0) totalCs = 0;
+
+            // Convert back
+            long newHours = totalCs / 360000;
+            long newMinutes = (totalCs % 360000) / 6000;
+            long newSeconds = (totalCs % 6000) / 100;
+            long newCentiseconds = totalCs % 100;
+
+            return String.format("%d:%02d:%02d.%02d", newHours, newMinutes, newSeconds, newCentiseconds);
+        } catch (Exception e) {
+            return timeStr;
         }
     }
 

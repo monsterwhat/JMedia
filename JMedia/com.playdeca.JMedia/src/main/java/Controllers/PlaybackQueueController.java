@@ -10,6 +10,7 @@ import Services.PlaybackHistoryService;
 import Services.SongService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import Models.PlaybackHistory;
 import Services.AudioAnalysisService;
 
@@ -126,6 +127,10 @@ public Long advance(PlaybackState state, boolean forward, boolean skippedEarly, 
         }
 
         // --- FORWARD ADVANCEMENT ---
+        if (cueIndex < 0) {
+            cueIndex = 0;  // reset to start if no active index
+        }
+
         if (state.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE && usePrimaryQueue) {
             findAndPrepareNextSmartSong(state, skippedEarly, profileId);
         }
@@ -628,6 +633,16 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
                 }
             }
 
+            // BPM similarity scoring — prefers tempo-compatible songs for smoother transitions
+            if (currentSong.getBpm() > 0 && candidate.getBpm() > 0) {
+                int bpmDiff = Math.abs(candidate.getBpm() - currentSong.getBpm());
+                if (bpmDiff <= 3) {
+                    score += 2; // Very close BPM match
+                } else if (bpmDiff <= 8) {
+                    score += 1; // Decent BPM match
+                }
+            }
+
             songScores.put(candidate, score);
         }
 
@@ -780,16 +795,18 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
     }
     
     /**
-     * Prepare a DJ Mode transition - find a song with tighter BPM matching for seamless mix
-     * Called at 1/12 remaining in the song when DJ Mode is active
+     * Prepare a DJ Mode transition - find a BPM-matched song and position it as next in queue.
+     * Called from planNextDjTransition() before calculating the beat-aligned crossfade.
+     * Excludes recently played songs to avoid repeats.
      */
+    @Transactional
     public void prepareDjModeTransition(PlaybackState state, Long profileId, int djModeBpmTolerance) {
         Song currentSong = songService.find(state.getCurrentSongId());
         if (currentSong == null || currentSong.getBpm() <= 0) {
             return;
         }
         
-        // Get the song pool
+        // Get the song pool — use originalCue for wider selection if available
         List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
                 ? state.getOriginalCue() : state.getCue();
         
@@ -797,24 +814,36 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return;
         }
         
-        // Try to find a song with tighter BPM tolerance
+        // Exclude recently played songs (last 12) and current song
+        List<Long> recentSongIds = playbackHistoryService.getRecentlyPlayedSongIds(12, profileId);
+        List<Long> exclusions = new ArrayList<>(recentSongIds);
+        if (currentSong.id != null) {
+            exclusions.add(currentSong.id);
+        }
+        
         Song nextSong = null;
         
+        // Try genre + BPM match first
         if (currentSong.getGenre() != null && !currentSong.getGenre().isBlank()) {
-            nextSong = songService.findRandomSongByGenreAndBpm(
+            List<Song> candidates = songService.findCandidatesByGenreAndBpm(
                     currentSong.getGenre(),
                     currentSong.getBpm(),
                     djModeBpmTolerance,
-                    currentSong.id,
-                    songPool
+                    exclusions,
+                    songPool,
+                    10
             );
+            if (!candidates.isEmpty()) {
+                java.util.Collections.shuffle(candidates);
+                nextSong = candidates.get(0);
+            }
         }
         
         // Fall back to BPM-only search if no genre match
         if (nextSong == null) {
             List<Song> allSongs = songService.findByIds(songPool);
             List<Song> bpmMatched = allSongs.stream()
-                    .filter(s -> s.id != null && !s.id.equals(currentSong.id))
+                    .filter(s -> s.id != null && !exclusions.contains(s.id))
                     .filter(s -> s.getBpm() > 0)
                     .filter(s -> Math.abs(s.getBpm() - currentSong.getBpm()) <= djModeBpmTolerance)
                     .sorted((a, b) -> {
@@ -830,14 +859,19 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             }
         }
         
-        // If found, move it to be the next song in queue
+        // Position the chosen song as the next one in the active cue
         if (nextSong != null) {
             List<Long> cue = state.getCue();
             if (cue != null) {
                 int currentSongIndexInCue = state.getCueIndex();
                 int nextSongCurrentIndex = cue.indexOf(nextSong.id);
                 
-                if (nextSongCurrentIndex != -1 && nextSongCurrentIndex != currentSongIndexInCue + 1) {
+                if (nextSongCurrentIndex == -1) {
+                    // Song not in active cue — add it right after current song
+                    int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
+                    cue.add(insertionPoint, nextSong.id);
+                } else if (nextSongCurrentIndex != currentSongIndexInCue + 1) {
+                    // Song is elsewhere in cue — move it to next position
                     Long songToMove = cue.remove(nextSongCurrentIndex);
                     int insertionPoint = Math.min(currentSongIndexInCue + 1, cue.size());
                     cue.add(insertionPoint, songToMove);

@@ -135,7 +135,8 @@
                     id: state.currentSongId,
                     title: state.songName || 'Unknown',
                     artist: state.artistName || state.artist || 'Unknown Artist',
-                    artworkBase64: state.currentSongData?.artworkBase64
+                    artworkBase64: state.currentSongData?.artworkBase64,
+                    flac: state.currentSongData?.flac
                 };
                 console.log('[UIUpdater] Song changed, updating images:', currentSong.title);
                 if (window.ImageManager) {
@@ -151,6 +152,16 @@
                  if (coverEl) coverEl.src = artworkUrl;
                  if (faviconEl) faviconEl.href = artworkUrl;
                  if (!window.videoPlaying && pageTitleEl) pageTitleEl.innerText = `${currentSong.title} - ${currentSong.artist}`;
+                }
+                
+                // FLAC indicator on playback bar artwork
+                const playerContainer = document.querySelector('.persistent-music-player');
+                if (playerContainer) {
+                    if (currentSong.flac) {
+                        playerContainer.classList.add('is-flac');
+                    } else {
+                        playerContainer.classList.remove('is-flac');
+                    }
                 }
             }
         },

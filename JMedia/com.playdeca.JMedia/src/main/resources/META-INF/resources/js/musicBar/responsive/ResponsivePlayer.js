@@ -997,6 +997,16 @@
                     this.elements.coverFallback.style.display = 'block';
                 }
             }
+
+            // FLAC indicator on playback bar artwork
+            const playerContainer = document.querySelector('.persistent-music-player');
+            if (playerContainer) {
+                if (songData && songData.flac) {
+                    playerContainer.classList.add('is-flac');
+                } else {
+                    playerContainer.classList.remove('is-flac');
+                }
+            }
         },
         /**
          * Update playback state display

@@ -80,8 +80,10 @@
             const oldState = detail.oldState || {};
             const newState = detail.newState || {};
             
-            // Check if djTransitionPlanned CHANGED to true
-            const djPlannedChanged = (oldState.djTransitionPlanned !== newState.djTransitionPlanned);
+            // Check if djTransitionPlanned CHANGED to true, or if the target song changed
+            // (user may have skipped, causing re-plan to a different next song)
+            const djPlannedChanged = (oldState.djTransitionPlanned !== newState.djTransitionPlanned) ||
+                                     (newState.djTransitionPlanned === true && oldState.djNextSongId !== newState.djNextSongId);
             
             // Only process transition if DJ Mode is actually active
             if (djPlannedChanged && newState.djTransitionPlanned === true && newState.djModeActive === true) {
@@ -123,6 +125,14 @@
             if (!state || !state.djNextSongId) {
                 window.Helpers.log('[DJ] No next song ID in transition data');
                 return;
+            }
+            
+            // If already prepared for a DIFFERENT song, cancel the old preparation
+            // (e.g., user skipped and the target changed)
+            if (this.transitionPrepared && this.transitionData && 
+                this.transitionData.nextSongId !== state.djNextSongId) {
+                window.Helpers.log('[DJ] Target song changed, cancelling old preparation');
+                this.cancelTransition();
             }
             
             // Don't re-prepare if already prepared for this song
@@ -206,6 +216,18 @@
                 // This allows transitions to trigger even if the user seeks to the beginning.
 
                 if (exitTime > 0 && currentTime >= exitTime) {
+                    // Check if preloaded audio is ready before executing the transition.
+                    // This prevents executing a crossfade when buffering hasn't finished.
+                    if (window.AudioEngine && !window.AudioEngine._nextPreloadReady) {
+                        if (window.AudioEngine._nextPreloadFailed) {
+                            // Preload timed out — proceed anyway with a warning
+                            window.Helpers.log('[DJ] ⚠️ Preload timed out, executing transition anyway');
+                        } else {
+                            // Still loading — wait for the next poll cycle (100ms)
+                            window.Helpers.log('[DJ] Waiting for preload to complete...');
+                            return;
+                        }
+                    }
 
                     console.log('[DJ] >>> EXIT TIME REACHED! Switching to next song at ' + self.transitionData.entryTime + 's');
                     window.Helpers.log('[DJ] Exit time reached, switching to next song');

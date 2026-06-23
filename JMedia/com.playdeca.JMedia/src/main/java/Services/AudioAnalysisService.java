@@ -2,6 +2,7 @@ package Services;
 
 import Models.Song;
 import Models.SongAnalysis;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -40,6 +41,37 @@ public class AudioAnalysisService {
     
     // Configuration
     private static final int BEATS_PER_BAR = 4; // Standard 4/4 time signature
+    
+    private static final int STARTUP_QUEUE_LIMIT = 50; // Max songs to queue on startup
+
+    /**
+     * On application startup, queue all unanalyzed songs for background analysis.
+     * Only queues up to STARTUP_QUEUE_LIMIT to avoid a CPU spike;
+     * the rest will be picked up by AnalysisWorker over time.
+     */
+    @PostConstruct
+    @Transactional
+    void queueUnanalyzedSongsOnStartup() {
+        try {
+            List<Song> allSongs = Song.listAll();
+            int queued = 0;
+            for (Song song : allSongs) {
+                if (queued >= STARTUP_QUEUE_LIMIT) break;
+                
+                SongAnalysis existing = SongAnalysis.find("song.id", song.id).firstResult();
+                boolean needsQueue = (existing == null) ||
+                    existing.getStatus() == SongAnalysis.AnalysisStatus.FAILED;
+                
+                if (needsQueue) {
+                    queueAnalysis(song);
+                    queued++;
+                }
+            }
+            LOG.info("Queued {} unanalyzed songs for background analysis on startup", queued);
+        } catch (Exception e) {
+            LOG.error("Failed to queue unanalyzed songs on startup", e);
+        }
+    }
     
     /**
      * Analyze a song and create SongAnalysis data
@@ -90,7 +122,21 @@ public class AudioAnalysisService {
             AnalysisResult result = performAdvancedTarsosAnalysis(audioFile);
             
             if (result == null || result.beatTimes.isEmpty()) {
-                throw new RuntimeException("TarsosDSP failed to detect any beats");
+                // Beat detection failed (common for classical, ambient, non-percussive music).
+                // Instead of marking as FAILED (which causes endless retries by AnalysisWorker),
+                // mark as COMPLETED with empty data. isReady() will return false, so DJ mode
+                // won't attempt beat-matched transitions, but the song won't be retried.
+                LOG.warn("TarsosDSP detected no beats for '{}' (non-percussive music?). Marking with empty data.", song.getTitle());
+                analysis.setBeatTimes(new java.util.ArrayList<>());
+                analysis.setBeatCount(0);
+                analysis.setAverageBpm(0.0);
+                analysis.setSegmentFeaturesJson("[]");
+                analysis.setSimilarBeatsJson("{}");
+                analysis.setBeatMetadataJson("[]");
+                analysis.setStatus(SongAnalysis.AnalysisStatus.COMPLETED);
+                analysis.setErrorMessage(null);
+                em.merge(analysis);
+                return analysis;
             }
             
             analysis.setBeatTimes(result.beatTimes);
@@ -100,6 +146,7 @@ public class AudioAnalysisService {
             // Update song BPM if it was missing or significantly different
             if (result.detectedBpm > 0) {
                 song.setBpm((int) Math.round(result.detectedBpm));
+                song.setUpdatedAt(java.time.LocalDateTime.now());
                 em.merge(song);
             }
             
@@ -154,7 +201,7 @@ public class AudioAnalysisService {
         dispatcher.addAudioProcessor(new AudioProcessor() {
             @Override
             public boolean process(AudioEvent audioEvent) {
-                float[] buffer = audioEvent.getFloatBuffer();
+                float[] buffer = audioEvent.getFloatBuffer().clone();
                 float[] magnitudes = new float[bufferSize / 2];
                 fft.forwardTransform(buffer);
                 fft.modulus(buffer, magnitudes);
@@ -175,7 +222,7 @@ public class AudioAnalysisService {
         });
 
         // Onset detector
-        ComplexOnsetDetector onsetDetector = new ComplexOnsetDetector(bufferSize);
+        ComplexOnsetDetector onsetDetector = new ComplexOnsetDetector(bufferSize, 0.1, 0.01);
         onsetDetector.setHandler((time, salience) -> onsetTimes.add(time));
         dispatcher.addAudioProcessor(onsetDetector);
         
