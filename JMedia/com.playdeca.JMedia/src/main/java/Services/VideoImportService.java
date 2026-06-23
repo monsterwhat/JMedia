@@ -39,6 +39,8 @@ public class VideoImportService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(VideoImportService.class);
 
+    private static final Set<String> EXCLUDED_SCAN_DIRS = Set.of("hls", "mp4");
+
     @PersistenceContext
     private EntityManager em;
 
@@ -212,6 +214,14 @@ public class VideoImportService {
             try (Stream<Path> paths = Files.walk(directory)) {
                 List<Path> videoFiles = paths.filter(Files::isRegularFile)
                         .filter(this::isVideoFile)
+                        .filter(p -> {
+                            for (int i = 0; i < p.getNameCount() - 1; i++) {
+                                if (EXCLUDED_SCAN_DIRS.contains(p.getName(i).toString().toLowerCase())) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        })
                         .toList();
                 
                 currentScanTotal.set(videoFiles.size());

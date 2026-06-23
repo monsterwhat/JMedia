@@ -126,7 +126,13 @@ public class MetadataService {
             song.setArtist("Unknown Artist");
         }
         if (song.getAlbum() == null || song.getAlbum().isBlank()) {
-            song.setAlbum("Unknown Album");
+            String parentDirName = audioFile.getParentFile().getName();
+            if (parentDirName != null && !parentDirName.isBlank()
+                    && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                song.setAlbum(parentDirName);
+            } else {
+                song.setAlbum("Unknown Album");
+            }
         }
         if (song.getAlbumArtist() == null || song.getAlbumArtist().isBlank()) {
             song.setAlbumArtist(song.getArtist());

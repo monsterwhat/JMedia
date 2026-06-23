@@ -1,5 +1,5 @@
 {#for s in songs}
-<div class="mobile-song-item" data-song-id="{s.id}"
+<div class="mobile-song-item{#if s.isFlac} is-flac{/if}" data-song-id="{s.id}"
      data-playlist-id="{playlistId}"
      style="cursor: pointer; --i: {s_index};">
     <div class="mobile-song-artwork">

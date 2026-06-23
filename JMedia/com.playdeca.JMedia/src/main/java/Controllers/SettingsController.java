@@ -277,6 +277,16 @@ public class SettingsController implements Serializable {
                 }
             }
 
+            // If album is still missing, infer from parent directory name
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                String parentDirName = file.getParentFile().getName();
+                if (parentDirName != null && !parentDirName.isBlank()
+                        && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                    song.setAlbum(parentDirName);
+                    addLog("[Directory] Inferred album from folder: " + parentDirName);
+                }
+            }
+
             // Final fallback to ensure fields are not null
             if (song.getTitle() == null || song.getTitle().isBlank()) {
                 song.setTitle("Unknown Title");
@@ -743,6 +753,16 @@ public class SettingsController implements Serializable {
                 }
             }
 
+            // If album is still missing, infer from parent directory name
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                String parentDirName = file.getParentFile().getName();
+                if (parentDirName != null && !parentDirName.isBlank()
+                        && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                    song.setAlbum(parentDirName);
+                    addLog("[Directory] Inferred album from folder: " + parentDirName);
+                }
+            }
+
             // Final fallback to ensure fields are not null
             if (song.getTitle() == null || song.getTitle().isBlank()) {
                 song.setTitle("Unknown Title");
@@ -786,6 +806,12 @@ public class SettingsController implements Serializable {
             Song persistedSong = songService.persistSongInNewTx(song);
             
             musicEnrichmentService.enrichSong(persistedSong);
+            
+            // Queue analysis for newly imported songs — the background worker
+            // (AnalysisWorker) will process these asynchronously
+            if (isNewSong && persistedSong != null) {
+                audioAnalysisService.queueAnalysis(persistedSong);
+            }
             
             return isNewSong ? persistedSong : null;
 
@@ -1268,6 +1294,21 @@ public class SettingsController implements Serializable {
                 }
             }
 
+            // If album is still missing, infer from parent directory name
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                String parentDirName = songFile.getParentFile().getName();
+                if (parentDirName != null && !parentDirName.isBlank()
+                        && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                    song.setAlbum(parentDirName);
+                    localLogs.add("[Directory] Inferred album from folder: " + parentDirName);
+                }
+            }
+
+            // Final fallback for album
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                song.setAlbum("Unknown Album");
+            }
+
             int duration = getVerifiedTrackLength(songFile, audioFile);
             localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
             song.setDurationSeconds(duration);
@@ -1390,6 +1431,21 @@ public class SettingsController implements Serializable {
                     }
                 }
 
+            }
+
+            // If album is still missing, infer from parent directory name
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                String parentDirName = songFile.getParentFile().getName();
+                if (parentDirName != null && !parentDirName.isBlank()
+                        && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                    song.setAlbum(parentDirName);
+                    localLogs.add("[Directory] Inferred album from folder: " + parentDirName);
+                }
+            }
+
+            // Final fallback for album
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                song.setAlbum("Unknown Album");
             }
 
             // Enrich metadata from external APIs if genre is missing (only if enabled in settings)
@@ -1762,6 +1818,17 @@ public class SettingsController implements Serializable {
 
             if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle("Unknown Title");
             if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist("Unknown Artist");
+
+            // If album is still missing, infer from parent directory name
+            if (song.getAlbum() == null || song.getAlbum().isBlank()) {
+                String parentDirName = songFile.getParentFile().getName();
+                if (parentDirName != null && !parentDirName.isBlank()
+                        && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                    song.setAlbum(parentDirName);
+                    addLog("[Directory] Inferred album from folder: " + parentDirName);
+                }
+            }
+
             if (song.getAlbum() == null || song.getAlbum().isBlank()) song.setAlbum("Unknown Album");
 
             int duration = getVerifiedTrackLength(songFile, audioFile);
@@ -1806,6 +1873,60 @@ public class SettingsController implements Serializable {
             addLog("[Delete] ERROR: Failed to delete song ID " + songId + ": " + e.getMessage());
             return false;
         }
+    }
+
+    // -------------------------------
+    // Batch album fix for already-scanned songs
+    // -------------------------------
+    public void fixAlbums() {
+        addLog("[FixAlbums] Scanning for songs with missing/empty album...");
+        List<Song> broken = Song.list("album IS NULL OR album = '' OR album = 'Unknown Album'");
+        addLog("[FixAlbums] Found " + broken.size() + " songs with missing album.");
+
+        int fixedFromTag = 0;
+        int fixedFromDir = 0;
+        int markedNa = 0;
+
+        for (Song song : broken) {
+            File songFile = new File(getMusicFolder(), song.getPath());
+            if (!songFile.exists() || !songFile.isFile()) {
+                song.setAlbum("N/A");
+                songService.persistSongInNewTx(song);
+                markedNa++;
+                continue;
+            }
+
+            // Try to re-read ID3 tag (file may have been updated since first scan)
+            try {
+                AudioFile af = AudioFileIO.read(songFile);
+                Tag tag = af.getTag();
+                if (tag != null) {
+                    String album = safeGet(tag, FieldKey.ALBUM);
+                    if (album != null && !album.isBlank()) {
+                        song.setAlbum(album);
+                        songService.persistSongInNewTx(song);
+                        fixedFromTag++;
+                        continue;
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            // Fallback: infer from parent directory name
+            String parentDirName = songFile.getParentFile().getName();
+            if (parentDirName != null && !parentDirName.isBlank()
+                    && !parentDirName.matches("(?i)^(cd|disc|disk)\\s*\\d+$")) {
+                song.setAlbum(parentDirName);
+                songService.persistSongInNewTx(song);
+                fixedFromDir++;
+            } else {
+                song.setAlbum("N/A");
+                songService.persistSongInNewTx(song);
+                markedNa++;
+            }
+        }
+
+        addLog("[FixAlbums] Done. Fixed via tag: " + fixedFromTag + ", via directory: " + fixedFromDir + ", marked N/A: " + markedNa);
+        musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
 }

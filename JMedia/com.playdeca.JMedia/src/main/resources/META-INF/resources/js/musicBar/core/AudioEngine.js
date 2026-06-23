@@ -24,6 +24,14 @@
         autoplayBlocked: false,
         autoplayAttempted: false,
         
+        // Preload readiness tracking for DJ mode transitions
+        _nextPreloadReady: false,
+        _nextPreloadFailed: false,
+        _nextPreloadTimer: null,
+        
+        // Deferred volume during crossfade
+        _pendingVolume: null,
+        
         init: function() {
             if (this.initialized) return;
             this.initialized = true;
@@ -209,11 +217,39 @@
                 return;
             }
             
+            // Reset readiness tracking
+            this._nextPreloadReady = false;
+            this._nextPreloadFailed = false;
+            if (this._nextPreloadTimer) {
+                clearTimeout(this._nextPreloadTimer);
+                this._nextPreloadTimer = null;
+            }
+            
             const nextPlayer = this.getInactivePlayer();
             const url = `/api/music/stream/${profileId}/${songId}`;
             
             if (nextPlayer.src.indexOf(url) === -1) {
                 window.Helpers.log('AudioEngine: Preloading ' + songId + ' at ' + startTime + 's');
+                
+                // Track when preload is ready via canplay event
+                const existingCanPlay = nextPlayer.oncanplay;
+                nextPlayer.oncanplay = () => {
+                    if (existingCanPlay) existingCanPlay.call(nextPlayer);
+                    this._nextPreloadReady = true;
+                    if (this._nextPreloadTimer) {
+                        clearTimeout(this._nextPreloadTimer);
+                        this._nextPreloadTimer = null;
+                    }
+                    window.Helpers.log('[AudioEngine] Preload ready for ' + songId);
+                };
+                
+                // 8-second timeout: if preload hangs, flag as failed so transitions can
+                // still proceed with a warning rather than getting stuck
+                this._nextPreloadTimer = setTimeout(() => {
+                    this._nextPreloadFailed = true;
+                    window.Helpers.log('[AudioEngine] ⚠️ Preload timed out for ' + songId + ' after 8s');
+                }, 8000);
+                
                 nextPlayer.src = url;
                 nextPlayer.load(); // Start buffering
                 
@@ -222,6 +258,9 @@
                     if (existingHandler) existingHandler.call(nextPlayer);
                     nextPlayer.currentTime = startTime;
                 };
+            } else {
+                // Already has the source — consider it ready
+                this._nextPreloadReady = true;
             }
         },
 
@@ -423,7 +462,14 @@
                         window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
                     }
                     
-                    // FIX: Ensure volume is consistent after crossfade using the targetVolume we mixed into
+                    // Apply final volume — use pending volume if user changed it during crossfade
+                    var finalVolume = targetVolume;
+                    if (this._pendingVolume !== null) {
+                        finalVolume = window.Helpers.clamp(this._pendingVolume, 0, 1);
+                        this._pendingVolume = null;
+                        window.Helpers.log('AudioEngine: Applying pending volume ' + finalVolume + ' after crossfade');
+                    }
+                    
                     // MUST set both the gain node AND the HTML5 audio element volume
                     if (this.ctx) {
                         // Get current time first to cancel all future events
@@ -431,20 +477,20 @@
                         
                         // Cancel any remaining curves and set exact target value
                         newGain.gain.cancelScheduledValues(now);
-                        newGain.gain.setValueAtTime(targetVolume, now);
-                        newGain.gain.value = targetVolume; // Force immediate value as well
+                        newGain.gain.setValueAtTime(finalVolume, now);
+                        newGain.gain.value = finalVolume; // Force immediate value as well
                         
                         // Also set HTML5 element volume
-                        newPlayer.volume = targetVolume;
+                        newPlayer.volume = finalVolume;
                         
-                        window.Helpers.log('AudioEngine: Set gain to ' + targetVolume + ', player volume to ' + targetVolume);
+                        window.Helpers.log('AudioEngine: Set gain to ' + finalVolume + ', player volume to ' + finalVolume);
                     } else {
-                        newPlayer.volume = targetVolume;
+                        newPlayer.volume = finalVolume;
                     }
                     
                     // Also update StateManager's volume to match what we set (ensure consistency)
                     if (window.StateManager) {
-                        window.StateManager.updateState({ volume: targetVolume }, 'audioEngine');
+                        window.StateManager.updateState({ volume: finalVolume }, 'audioEngine');
                     }
                     
                     // Force sync the slider to the correct position
@@ -468,9 +514,17 @@
         },
 
         setVolume: function(volume, source = 'unknown') {
-            // CROSSFADE GUARD: Don't allow volume updates to interrupt a DJ mix
+            // During crossfade, don't apply the volume change to gain nodes
+            // (they have active ramps that would be corrupted).
+            // Instead, save it as pending — it will be applied after the crossfade completes.
             if (window.SynchronizationManager && window.SynchronizationManager.getFlag('isCrossfading')) {
-                window.Helpers.log('AudioEngine: Ignoring setVolume during active crossfade');
+                this._pendingVolume = volume;
+                // Update UI immediately so the slider responds
+                if (source !== 'stateManager' && window.StateManager) {
+                    window.dispatchEvent(new CustomEvent('requestStateUpdate', {
+                        detail: { changes: { volume: volume }, source: 'audioEngine' }
+                    }));
+                }
                 return;
             }
 

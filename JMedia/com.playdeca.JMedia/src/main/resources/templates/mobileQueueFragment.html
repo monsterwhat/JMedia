@@ -9,7 +9,7 @@
 {#else}
 <div class="mobile-song-list mobile-queue">
     {#for s_with_index in queue}
-    <div class="mobile-song-item mobile-queue-item"
+    <div class="mobile-song-item mobile-queue-item{#if s_with_index.song.isFlac} is-flac{/if}"
          draggable="true"
          data-queue-index="{s_with_index.index}"
          hx-post="/api/music/playback/select/{profileId}/{s_with_index.song.id}"

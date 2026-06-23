@@ -89,13 +89,13 @@ public class DjTransitionService {
         SongAnalysis currentAnalysis = audioAnalysisService.getAnalysis(currentSong.id);
         SongAnalysis nextAnalysis = audioAnalysisService.getAnalysis(nextSong.id);
 
-        if (currentAnalysis == null || !currentAnalysis.isReady()) {
-            LOG.info("Current song {} not analyzed, cannot calculate transition", currentSong.getTitle());
+        if (currentAnalysis == null || !currentAnalysis.isReady() || currentAnalysis.getAverageBpm() == null) {
+            LOG.info("Current song {} not analyzed or has no BPM data, cannot calculate transition", currentSong.getTitle());
             return null;
         }
 
-        if (nextAnalysis == null || !nextAnalysis.isReady()) {
-            LOG.info("Next song {} not analyzed, cannot calculate transition", nextSong.getTitle());
+        if (nextAnalysis == null || !nextAnalysis.isReady() || nextAnalysis.getAverageBpm() == null) {
+            LOG.info("Next song {} not analyzed or has no BPM data, cannot calculate transition", nextSong.getTitle());
             return null;
         }
 
@@ -419,6 +419,29 @@ private double calculateEnergySimilarity(BeatInfo exitBeat, BeatInfo entryBeat,
             if (beat.getBeatInBar() == 1) {
                 firstBeat = beat;
                 break;
+            }
+        }
+
+        // Enforce minimum entry time to avoid silence/intro
+        if (firstBeat.getTime() < 5.0) {
+            for (BeatInfo beat : nextBeats) {
+                if (beat.getBeatInBar() == 1 && beat.getTime() >= 5.0) {
+                    firstBeat = beat;
+                    break;
+                }
+            }
+            // Absolute floor: if no downbeat >= 5s, use the first beat at >= 5s
+            if (firstBeat.getTime() < 5.0) {
+                for (BeatInfo beat : nextBeats) {
+                    if (beat.getTime() >= 5.0) {
+                        firstBeat = beat;
+                        break;
+                    }
+                }
+            }
+            // Last resort: use the last beat in the entry window
+            if (firstBeat.getTime() < 5.0 && !nextBeats.isEmpty()) {
+                firstBeat = nextBeats.get(nextBeats.size() - 1);
             }
         }
 

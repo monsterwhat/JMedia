@@ -28,6 +28,7 @@ public class Song extends PanacheEntity {
     @Column(length = Integer.MAX_VALUE)
     private String artworkBase64;
     private java.time.LocalDateTime dateAdded;
+    private java.time.LocalDateTime updatedAt;
     private Long size;
     private Long lastModified;
     private String musicbrainzId;
@@ -35,7 +36,13 @@ public class Song extends PanacheEntity {
     @com.fasterxml.jackson.annotation.JsonIgnore
     @OneToOne(mappedBy = "song", cascade = CascadeType.ALL, orphanRemoval = true)
     private SongAnalysis analysis;
-  
+
+
+
+    public boolean isFlac() {
+        return path != null && path.toLowerCase().endsWith(".flac");
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

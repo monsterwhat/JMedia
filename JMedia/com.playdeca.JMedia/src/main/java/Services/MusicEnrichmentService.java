@@ -108,6 +108,7 @@ public class MusicEnrichmentService {
                         (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
                         song.setGenre(result.genre());
                     }
+                    song.setUpdatedAt(java.time.LocalDateTime.now());
                     em.merge(song);
                     LOGGER.info("Enriched song from MusicBrainz: {} - {}", artist, title);
                 }
@@ -131,6 +132,7 @@ public class MusicEnrichmentService {
                     if (result.bpm() > 0) {
                         song.setBpm(result.bpm());
                     }
+                    song.setUpdatedAt(java.time.LocalDateTime.now());
                     em.merge(song);
                     LOGGER.info("Enriched BPM from AcousticBrainz for {} - {}", artist, title);
                 }
@@ -181,6 +183,7 @@ public class MusicEnrichmentService {
                     }
                     
                     if (updated) {
+                        song.setUpdatedAt(java.time.LocalDateTime.now());
                         em.merge(song);
                         LOGGER.info("Enriched song from Deezer: {} - {}", artist, title);
                     }
@@ -203,6 +206,7 @@ public class MusicEnrichmentService {
                     String base64 = downloadArtwork(result.artworkUrl());
                     if (base64 != null) {
                         song.setArtworkBase64(base64);
+                        song.setUpdatedAt(java.time.LocalDateTime.now());
                         em.merge(song);
                         LOGGER.info("Enriched artwork from TheAudioDB for {} - {}", artist, title);
                     }

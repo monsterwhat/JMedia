@@ -139,7 +139,8 @@ public class SongAnalysis extends PanacheEntity {
             && beatTimes != null 
             && !beatTimes.isEmpty()
             && similarBeatsJson != null 
-            && !similarBeatsJson.isEmpty();
+            && !similarBeatsJson.isEmpty()
+            && averageBpm != null;
     }
     
     /**

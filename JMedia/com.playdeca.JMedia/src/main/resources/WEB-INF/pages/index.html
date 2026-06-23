@@ -9,8 +9,7 @@
         <script src="/js/theme-initializer.js"></script>
         <script src="/js/fetch-credentials.js"></script>
         <script src="/js/htmx.min.js"></script>
-        <!-- HLS.js for video streaming -->
-        <script src="/lib/hls.min.js"></script>
+        
         <script>
             htmx.config.withCredentials = true;
         </script>
@@ -30,14 +29,10 @@
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <!-- SPA Scripts -->
-        <script src="/js/app.js" defer></script>
-        <script src="/js/music-index.js" defer></script>
+        <script src="/js/CollectionManager.js" defer></script>
         <script src="/js/video-spa.js" defer></script>
-        <script src="/js/import-spa.js" defer></script>
-        <script src="/js/import.js" defer></script>
         
         <!-- Legacy/Shared Scripts (Loaded globally) -->
-        <script src="/js/toast.js" defer></script>
         <!-- Modular Music Bar System (Migrated from legacy monolith) -->
         <script src="/js/musicBar/utils/Helpers.js?v=2" defer></script>
         <script src="/js/musicBar/utils/ActionTracker.js?v=2" defer></script>
@@ -60,23 +55,32 @@
         <script src="/js/musicBar/responsive/ResponsivePlayer.js?v=2" defer></script>
         <script src="/js/musicBar/adapters/DesktopAdapter.js?v=2" defer></script>
         <script src="/js/musicBar/adapters/MobileAdapter.js?v=2" defer></script>
-        <script src="/js/mediaSession.js" defer></script>
-        <script src="/js/musicBar-new.js?v=2" defer></script>
+
         
-        <script src="/js/profileManager.js" defer></script>
-        <script src="/js/songQueue.js" defer></script>
-        
-        <!-- Settings Specific Scripts (Loaded globally for now) -->
-        <script src="/js/settings.js" defer></script>
-        <script src="/js/subtitle-manager.js" defer></script>
-        <script src="/js/playlist-creator.js" defer></script>
-        <script src="/js/video-settings.js" defer></script>
-        <script src="/js/video-external.js" defer></script>
-        <script src="/js/videoContextMenu.js" defer></script>
-        <script src="/js/navbar.js" defer></script>
-        <script src="/js/users.js" defer></script>
-        <script src="/js/sessionManagement.js" defer></script>
-        <script src="/js/ai-subtitle-generator.js" defer></script>
+        <!-- jMedia Module System -->
+        <script src="/js/jmedia/Helpers.js" defer></script>
+        <script src="/js/jmedia/ToastSystem.js" defer></script>
+        <script src="/js/jmedia/Settings.js" defer></script>
+        <script src="/js/jmedia/Users.js" defer></script>
+        <script src="/js/jmedia/SessionManagement.js" defer></script>
+        <script src="/js/jmedia/SyncUI.js" defer></script>
+        <script src="/js/jmedia/Navbar.js" defer></script>
+        <script src="/js/jmedia/ProfileManager.js" defer></script>
+        <script src="/js/jmedia/PlaylistCreator.js" defer></script>
+        <script src="/js/jmedia/ImportUI.js" defer></script>
+        <script src="/js/jmedia/ImportApi.js" defer></script>
+        <script src="/js/jmedia/Player.js" defer></script>
+        <script src="/js/jmedia/PlaybackApi.js" defer></script>
+        <script src="/js/jmedia/QueueManager.js" defer></script>
+        <script src="/js/jmedia/SongCache.js" defer></script>
+        <script src="/js/jmedia/MusicIndex.js" defer></script>
+        <script src="/js/jmedia/MusicBarInit.js" defer></script>
+        <script src="/js/jmedia/MediaSession.js" defer></script>
+        <script src="/js/jmedia/HistoryManager.js" defer></script>
+        <script src="/js/jmedia/PlaylistBar.js" defer></script>
+        <script src="/js/jmedia/PlaylistBodyHelper.js" defer></script>
+        <script src="/js/jmedia/App.js" defer></script>
+        <script src="/js/jmedia/MobileApp.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
 
     </head>
@@ -227,6 +231,9 @@
                         </a>
                         <a href="javascript:void(0)" class="nav-item admin-only" data-tab="ai-subtitle-generator">
                             <i class="pi pi-magic"></i> <span>AI Subtitles</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="sync-configuration">
+                            <i class="pi pi-sync"></i> <span>Sync</span>
                         </a>
                     </div>
 

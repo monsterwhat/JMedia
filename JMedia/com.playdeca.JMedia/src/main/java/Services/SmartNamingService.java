@@ -37,6 +37,12 @@ public class SmartNamingService {
     // NEW: "Naruto 153 - Title" format (show name space number space dash title)
     // Requires at least 2 letters before the number to avoid matching "3 - Title"
     private static final Pattern EPISODE_SHOW_NUMBER_DASH = Pattern.compile("(?i)^([a-z]{2,}.*?)\\s+(\\d{1,4})\\s*[-–—]\\s*(.+)$");
+    // Spanish: "temporada X cap Y" / "temp X ep Y" / "temporada X capitulo Y" / "temporada X episodio Y"
+    private static final Pattern EPISODE_TEMPORADA_CAP = Pattern.compile("(?i)(.*?)[\\s\\._-]*(?:temporada|temp)[\\s\\._-]*(\\d{1,2})[\\s\\._-]*(?:cap[íi]tulo|cap|episodio|ep|e)[\\s\\._\\-]*(\\d{1,3})(.*)");
+    // Spanish: "ShowName SEASON - Cap EPISODE" (e.g., "Shingeki no kyojin 2 - Cap 1 audio latino.mp4")
+    private static final Pattern EPISODE_SEASON_CAP_DASH = Pattern.compile("(?i)^([a-z]{2,}.*?)\\s+(\\d{1,2})\\s*[-–—]\\s*Cap[\\s\\._-]*(\\d{1,3})(.*)");
+    // Spanish: standalone "Cap 1" / "episodio 1" / "capitulo 1" (like E_ONLY but for Spanish)
+    private static final Pattern EPISODE_CAP_ONLY = Pattern.compile("(?i)(.*?)[\\s\\._\\[\\(-]+(?:cap[íi]tulo|cap|episodio)[\\s\\._-]*(\\d{1,3})(.*)");
     
     // Season/Folder patterns
     private static final Pattern SEASON_FOLDER_PATTERN = Pattern.compile("(?i)season[s]?[-_.]?(\\d+)");
@@ -88,14 +94,14 @@ public class SmartNamingService {
     private static final Pattern YEAR_STANDALONE_PATTERN = Pattern.compile("\\b(19|20)\\d{2}\\b");
     
     // Splitters - Split string to find potential show name before metadata
-    private static final Pattern SEASON_SPLIT_PATTERN = Pattern.compile("(?i)\\s+(?:season|arco|saga|libro|book|volume|vol|tome)\\s*\\d+|\\s+S\\d{2,}|\\.s\\d{2,}(?=\\.|\\s|$)|\\s+series\\s*\\d+|\\s+t\\d{1,3}(?=\\s|$|\\))");
+    private static final Pattern SEASON_SPLIT_PATTERN = Pattern.compile("(?i)\\s+(?:season|temporada|temp|arco|saga|libro|book|volume|vol|tome)\\s*\\d+|\\s+S\\d{2,}|\\.s\\d{2,}(?=\\.|\\s|$)|\\s+series\\s*\\d+|\\s+t\\d{1,3}(?=\\s|$|\\))");
     private static final Pattern SEASON_RANGE_PATTERN = Pattern.compile("(?i)\\s+s\\d{1,2}\\s*-\\s*s\\d{1,2}|\\s*\\[\\d+-\\d+\\]|\\s*\\d+-\\d+");  // S01-S12 style ranges or [101-105] or 136-138
     private static final Pattern COMPLETE_SPLIT_PATTERN = Pattern.compile("(?i)\\s+complete|\\.complete");
     private static final Pattern SPECIALS_SPLIT_PATTERN = Pattern.compile("(?i)\\s+specials?|\\.specials?");
     private static final Pattern PLUS_MEDIA_PATTERN = Pattern.compile("(?i)\\s*\\+\\s*(movies?|spinoffs?|extras?|specials?|season).*");  // "+ Movies + Spinoffs"
     
     // Indicators removal - remove keywords from final string
-    private static final Pattern SEASON_EPISODE_REMOVE_PATTERN = Pattern.compile("(?i)\\b(season|series|episode|e|part|temporada|tome|volume|vol|libro|book|chapter|arco|saga)[s]?\\s*[\\d\\-]+");
+    private static final Pattern SEASON_EPISODE_REMOVE_PATTERN = Pattern.compile("(?i)\\b(season|series|episode|e|part|temporada|cap[íi]tulo|episodio|tome|volume|vol|libro|book|chapter|arco|saga)[s]?\\s*[\\d\\-]+");
     private static final Pattern STANDALONE_SXX_PATTERN = Pattern.compile("(?i)\\bS\\d{1,2}\\b");
     private static final Pattern TEMPORADA_T_PATTERN = Pattern.compile("(?i)\\bt\\d{1,3}\\b");
     
@@ -113,7 +119,8 @@ public class SmartNamingService {
     
     // TV show indicators in filenames
     private static final List<String> TV_SHOW_INDICATORS = Arrays.asList(
-        "season", "episode", "ep", "series", "show", "complete", "hdtv"
+        "season", "episode", "ep", "series", "show", "complete", "hdtv",
+        "temporada", "temp", "capitulo", "capítulo", "cap", "episodio"
     );
 
     public static class NamingResult {
@@ -447,6 +454,38 @@ public class SmartNamingService {
             return detection;
         }
 
+        // Spanish: "temporada X cap Y" / "temp X ep Y" / "temporada X episodio Y"
+        Matcher mTempCap = EPISODE_TEMPORADA_CAP.matcher(filename);
+        if (mTempCap.matches()) {
+            String prefix = mTempCap.group(1).trim();
+            detection.season = Integer.parseInt(mTempCap.group(2));
+            detection.episode = Integer.parseInt(mTempCap.group(3));
+            if (!prefix.isEmpty()) {
+                detection.showNameHint = cleanShowName(prefix);
+            }
+            String hint = mTempCap.group(4).trim();
+            detection.titleHint = hint.replaceFirst("\\.[^.]+$", "").trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "TemporadaCap";
+            detection.confidence = 0.9;
+            return detection;
+        }
+
+        // Spanish: "ShowName SEASON - Cap EPISODE" (e.g., "Shingeki no kyojin 2 - Cap 1")
+        Matcher mSeasonCapDash = EPISODE_SEASON_CAP_DASH.matcher(filename);
+        if (mSeasonCapDash.matches()) {
+            String showHint = mSeasonCapDash.group(1);
+            detection.season = Integer.parseInt(mSeasonCapDash.group(2));
+            detection.episode = Integer.parseInt(mSeasonCapDash.group(3));
+            detection.showNameHint = showHint;
+            String hint = mSeasonCapDash.group(4).trim();
+            detection.titleHint = hint.replaceFirst("\\.[^.]+$", "").trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "SeasonCapDash";
+            detection.confidence = 0.85;
+            return detection;
+        }
+
         Matcher m2 = EPISODE_XXY.matcher(filename);
         if (m2.matches()) {
             detection.season = Integer.parseInt(m2.group(2));
@@ -478,6 +517,19 @@ public class SmartNamingService {
             detection.titleHint = mEOnly.group(3).trim().replaceFirst("\\.[^.]+$", "");
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "EOnly";
+            detection.confidence = 0.75;
+            return detection;
+        }
+
+        // Spanish: standalone "Cap 1" / "episodio 1" / "capitulo 1" (like EOnly but for Spanish)
+        Matcher mCapOnly = EPISODE_CAP_ONLY.matcher(filename);
+        if (mCapOnly.matches()) {
+            detection.season = null;
+            detection.episode = Integer.parseInt(mCapOnly.group(2));
+            String hint = mCapOnly.group(3).trim();
+            detection.titleHint = hint.replaceFirst("\\.[^.]+$", "").trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "CapOnly";
             detection.confidence = 0.75;
             return detection;
         }
@@ -1004,9 +1056,9 @@ public class SmartNamingService {
             }
         }
         
-        Matcher bookMatcher = Pattern.compile("(?i)\\s+(libro|book|volume|chapter|vol|tome|arco|saga)[s]?\\s*\\d+").matcher(cleaned);
+        Matcher bookMatcher = Pattern.compile("(?i)\\s+(temporada|temp|libro|book|volume|chapter|vol|tome|arco|saga)[s]?\\s*\\d+").matcher(cleaned);
         if (bookMatcher.find()) {
-            String[] parts = cleaned.split("(?i)\\s+(libro|book|volume|chapter|vol|tome|arco|saga)[s]?\\s*\\d+", 2);
+            String[] parts = cleaned.split("(?i)\\s+(temporada|temp|libro|book|volume|chapter|vol|tome|arco|saga)[s]?\\s*\\d+", 2);
             if (parts.length > 0 && parts[0].trim().length() > 1) {
                 cleaned = parts[0];
             }
@@ -1081,7 +1133,7 @@ public class SmartNamingService {
         
         if (cleaned.isEmpty()) return "Unknown Show";
         if (FILE_EXTENSION_PATTERN.matcher(cleaned).find()) return "Unknown Show";
-        if (cleaned.length() < 2 || cleaned.matches("(?i)^(mkv|mp4|avi|show|series|season|arco|saga)$")) return "Unknown Show";
+        if (cleaned.length() < 2 || cleaned.matches("(?i)^(mkv|mp4|avi|show|series|season|arco|saga|temporada|temp)$")) return "Unknown Show";
         
         return cleaned;
     }

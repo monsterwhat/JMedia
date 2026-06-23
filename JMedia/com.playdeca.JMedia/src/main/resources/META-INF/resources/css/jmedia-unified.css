@@ -101,10 +101,6 @@ body {
     min-height: 0;
 }
 
-.music-page .standard-content {
-    overflow-y: auto !important;
-}
-
 /* Video page specific scroll - Video uses standard-content to scroll */
 .video-page .standard-content {
     overflow-y: auto !important;
@@ -775,6 +771,24 @@ body {
     display: block;
 }
 
+/* ==================== FILTER/SORT MENU (MOBILE) ==================== */
+.mobile-filter-sort-menu {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: var(--mobile-surface, #1e1e2e);
+    padding: 1rem;
+    overflow-y: auto;
+}
+.mobile-filter-sort-menu[aria-hidden="false"] {
+    display: flex;
+    flex-direction: column;
+}
+.mobile-filter-sort-menu .mobile-filter-backdrop {
+    display: none;
+}
+
 /* ==================== SIDE PANEL (MOBILE) ==================== */
 .mobile-side-panel {
     position: fixed;
@@ -925,6 +939,65 @@ body {
 .mobile-song-item {
     animation: fadeInUp 0.35s ease both;
     animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+/* ==================== FLAC HIGH-QUALITY INDICATOR ==================== */
+
+/* Standard content (desktop) - uses !important and green hover */
+.standard-content .mobile-song-item.is-flac {
+    border: 2px solid #FFD700 !important;
+    box-shadow: 0 0 4px rgba(255, 215, 0, 0.3);
+}
+.standard-content .mobile-song-item.is-flac:hover {
+    box-shadow: 0 0 14px rgba(255, 215, 0, 0.6) !important;
+    border-color: #F5C518 !important;
+    transform: translateY(-5px) !important;
+}
+
+/* Mobile app cards */
+.mobile-app .mobile-song-item.is-flac {
+    border: 2px solid #FFD700;
+}
+.mobile-app .mobile-song-item.is-flac:hover {
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+    border-color: #F5C518;
+}
+
+/* Generic fallback (album/artist/similar items use no parent wrapper) */
+.mobile-song-item.is-flac,
+.album-page-song-item.is-flac,
+.artist-page-song-item.is-flac,
+.song-detail-similar-item.is-flac {
+    border: 2px solid #FFD700;
+    border-radius: 6px;
+    transition: box-shadow 0.2s ease;
+}
+
+.mobile-song-item.is-flac:hover,
+.album-page-song-item.is-flac:hover,
+.artist-page-song-item.is-flac:hover,
+.song-detail-similar-item.is-flac:hover {
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+    border-color: #F5C518;
+}
+
+/* Desktop table rows - gold border on the artwork cell */
+tr.is-flac td:first-child figure.image img {
+    border: 2px solid #FFD700;
+    border-radius: 4px;
+    transition: box-shadow 0.2s ease;
+}
+
+tr.is-flac:hover td:first-child figure.image img {
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+}
+
+/* Playback bar artwork gold border */
+.persistent-music-player.is-flac .mobile-player-artwork img {
+    border: 3px solid #FFD700;
+    border-radius: 6px;
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+    transition: box-shadow 0.2s ease;
 }
 
 /* ==================== MOBILE ALBUM GRID ==================== */

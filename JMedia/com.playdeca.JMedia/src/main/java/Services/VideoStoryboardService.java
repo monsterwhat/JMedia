@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video;
+import Utils.MediaPathResolver;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -13,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
@@ -66,14 +68,25 @@ public class VideoStoryboardService {
             return null;
         }
 
-        // Check if image exists
+        // Check if image exists using canonical naming
         Path dir = getStoryboardDirectory();
-        Path path = dir.resolve("video_" + videoId + ".webp");
-        boolean exists = Files.exists(path);
+        String canonicalName = MediaPathResolver.resolveStoryboardName(video);
+        String legacyName = MediaPathResolver.legacyThumbnailName(videoId);
+        Path canonicalPath = canonicalName != null ? dir.resolve(canonicalName) : null;
+        Path legacyPath = dir.resolve(legacyName);
+        Path actualPath = null;
+
+        if (canonicalPath != null && Files.exists(canonicalPath)) {
+            actualPath = canonicalPath;
+        } else if (Files.exists(legacyPath)) {
+            actualPath = legacyPath;
+        }
+
+        boolean exists = actualPath != null;
 
         // Always trigger generation if it doesn't exist
-        if (!exists && !GENERATING_IDS.contains(videoId)) {
-            executor.submit(() -> generateStoryboard(videoId, path));
+        if (!exists && !GENERATING_IDS.contains(videoId) && canonicalPath != null) {
+            executor.submit(() -> generateStoryboard(videoId, canonicalPath));
         }
 
         long durationMs = (video.duration != null && video.duration > 0) ? video.duration : 0;
@@ -95,11 +108,31 @@ public class VideoStoryboardService {
     }
 
     public File getStoryboardImage(Long videoId) {
+        Video video = videoService.find(videoId);
+        if (video == null) return null;
+
         Path dir = getStoryboardDirectory();
-        Path path = dir.resolve("video_" + videoId + ".webp");
+        String canonicalName = MediaPathResolver.resolveStoryboardName(video);
+        if (canonicalName == null) return null;
+
+        Path canonicalPath = dir.resolve(canonicalName);
         
-        if (Files.exists(path)) {
-            return path.toFile();
+        if (Files.exists(canonicalPath)) {
+            return canonicalPath.toFile();
+        }
+
+        // Check legacy name and migrate
+        String legacyName = MediaPathResolver.legacyThumbnailName(videoId);
+        Path legacyPath = dir.resolve(legacyName);
+        if (Files.exists(legacyPath)) {
+            try {
+                Files.move(legacyPath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.info("Migrated legacy storyboard {} -> {}", legacyName, canonicalName);
+                return canonicalPath.toFile();
+            } catch (IOException e) {
+                LOGGER.warn("Failed to migrate legacy storyboard: {}", e.getMessage());
+                return legacyPath.toFile();
+            }
         }
 
         // If already generating, don't start another one, but don't block either
@@ -109,7 +142,7 @@ public class VideoStoryboardService {
         }
 
         // Generate in background
-        executor.submit(() -> generateStoryboard(videoId, path));
+        executor.submit(() -> generateStoryboard(videoId, canonicalPath));
 
         return null;
     }
@@ -213,6 +246,35 @@ public class VideoStoryboardService {
         } catch (IOException e) {
             LOGGER.error("Error creating storyboard directory: " + e.getMessage());
             return Paths.get(".");
+        }
+    }
+
+    /**
+     * Rename storyboard file when external IDs are obtained after enrichment.
+     */
+    @Transactional
+    public void renameForExternalIds(Long videoId) {
+        try {
+            Video video = videoService.find(videoId);
+            if (video == null) return;
+
+            String canonicalName = MediaPathResolver.resolveStoryboardName(video);
+            if (canonicalName == null) return;
+
+            Path dir = getStoryboardDirectory();
+            Path canonicalPath = dir.resolve(canonicalName);
+
+            if (Files.exists(canonicalPath)) return;
+
+            // Check legacy name and rename
+            String legacyName = MediaPathResolver.legacyThumbnailName(videoId);
+            Path legacyPath = dir.resolve(legacyName);
+            if (Files.exists(legacyPath)) {
+                Files.move(legacyPath, canonicalPath, StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.info("Renamed storyboard {} -> {} after enrichment", legacyName, canonicalName);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Error renaming storyboard for video {}: {}", videoId, e.getMessage());
         }
     }
 }

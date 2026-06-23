@@ -113,8 +113,17 @@ public class PlaybackController {
                 if (Boolean.TRUE.equals(st.getDjModeActive()) && Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjExitTime() != null && st.getDuration() > 0) {
                     double djAdvanceTime = st.getDjExitTime() + crossfadeDuration;
                     if (newTime >= djAdvanceTime) {
-                        System.out.println("[DJ] === Crossfade complete, advancing song (exit=" + st.getDjExitTime() + "s + " + crossfadeDuration + "s crossfade) ===");
-                        handleSongEnded(profileId);
+                        // Don't advance here — frontend handles the transition via /transition-started/
+                        // This prevents a double-advance race where the timer also calls handleSongEnded()
+                        // and skips past the DJ-planned next song.
+                        // 10-second safeguard: if frontend never reports back, fall back to advance.
+                        if (newTime >= djAdvanceTime + 10) {
+                            System.out.println("[DJ] ⚠️ Frontend did not report transition within 10s, falling back to server-side advance");
+                            handleSongEnded(profileId);
+                        } else {
+                            st.setCurrentTime(newTime);
+                            broadcastStateIfNecessary(st, profileId);
+                        }
                     } else {
                         st.setCurrentTime(newTime);
                         broadcastStateIfNecessary(st, profileId);
@@ -404,7 +413,7 @@ public class PlaybackController {
         switch (action) {
             case "seek":
                 if (node.has("value")) {
-                    state.setCurrentTime(node.get("value").asDouble());
+                    setSeconds(node.get("value").asDouble(), profileId);
                 }
                 break;
             case "volume":
@@ -646,13 +655,14 @@ public class PlaybackController {
         if (Boolean.TRUE.equals(st.getDjTransitionPlanned()) && st.getDjNextSongId() != null) {
             System.out.println("[DJ] Transition started on frontend, updating server state...");
             
-            // Capture next song info
+            // Capture old song ID BEFORE overwriting currentSongId
+            Long oldSongId = st.getCurrentSongId();
             Long nextSongId = st.getDjNextSongId();
             Double entryTime = st.getDjEntryTime();
             
             // Update history for current song
-            if (st.getCurrentSongId() != null) {
-                Song current = findSong(st.getCurrentSongId());
+            if (oldSongId != null) {
+                Song current = findSong(oldSongId);
                 if (current != null) {
                     playbackHistoryService.add(current, profileId);
                     ws.broadcastHistoryUpdate(profileId);
@@ -669,7 +679,16 @@ public class PlaybackController {
                 st.setCurrentTime(entryTime != null ? entryTime : 0);
                 st.setPlaying(true);
                 
-                // Set index in cue
+                // Remove the OLD (played) song from the cue so the queue stays accurate
+                if (st.getCue() != null && oldSongId != null) {
+                    st.getCue().remove(oldSongId);
+                }
+                // Also clean up originalCue for shuffle consistency
+                if (st.getOriginalCue() != null && oldSongId != null) {
+                    st.getOriginalCue().remove(oldSongId);
+                }
+                
+                // Set index to the next song (now at oldSongId's former position)
                 if (st.getCue() != null) {
                     int idx = st.getCue().indexOf(nextSongId);
                     if (idx != -1) st.setCueIndex(idx);
@@ -702,13 +721,23 @@ public class PlaybackController {
         if (Boolean.TRUE.equals(st.getDjModeActive()) && Boolean.TRUE.equals(st.getDjTransitionPlanned())) {
             System.out.println("[DJ] Transition completed, keeping DJ Mode active for next song");
             LOGGER.info("DJ Mode: Transition completed, planning next transition");
-            clearDjTransitionPlan(st);
+            st.setDjNextSongId(null);
+            st.setDjExitTime(null);
+            st.setDjTransitionPlanned(null);
+            st.setDjTransitionConfidence(null);
+            st.setDjTransitionReason(null);
+            // Keep djEntryTime — advanceSong needs it for the next song's start position
             // Don't deactivate - keep DJ Mode running for continuous mixing
         } else if (Boolean.TRUE.equals(st.getDjModeActive())) {
             // DJ Mode was active but no transition was planned (e.g., song ended before trigger)
             // Keep DJ Mode active for the next song
             System.out.println("[DJ] No transition was planned, keeping DJ Mode active");
-            clearDjTransitionPlan(st);
+            st.setDjNextSongId(null);
+            st.setDjExitTime(null);
+            st.setDjTransitionPlanned(null);
+            st.setDjTransitionConfidence(null);
+            st.setDjTransitionReason(null);
+            // Keep djEntryTime — advanceSong needs it for the next song's start position
         }
         
         currentSettings.addLog("Song ended naturally.");
@@ -901,7 +930,7 @@ public class PlaybackController {
             playbackQueueController.setSeconds(st, seconds, profileId);
             
             // Clear and re-plan DJ transition on seek to align with new position
-            if (Boolean.TRUE.equals(st.getDjModeActive()) && st.getShuffleMode() == PlaybackState.ShuffleMode.SMART_SHUFFLE) {
+            if (Boolean.TRUE.equals(st.getDjModeActive())) {
                 clearDjTransitionPlan(st);
                 planNextDjTransition(st, profileId);
             }
@@ -1201,8 +1230,26 @@ public class PlaybackController {
     }
 
     /**
+     * Called by AnalysisWorker after a song finishes analysis.
+     * Re-plans the DJ transition for any active DJ mode profile that has
+     * this song as the planned next song (djNextSongId).
+     * This enables event-driven re-planning when analysis completes asynchronously.
+     */
+    public synchronized void replanDjTransitionsForAnalyzedSong(Long songId) {
+        for (Long profileId : memoryStates.keySet()) {
+            PlaybackState st = memoryStates.get(profileId);
+            if (st != null && Boolean.TRUE.equals(st.getDjModeActive()) && songId.equals(st.getDjNextSongId())) {
+                System.out.println("[DJ] Song " + songId + " just analyzed, re-planning transition for profile " + profileId);
+                planNextDjTransition(st, profileId);
+            }
+        }
+    }
+
+    /**
      * Plan the next DJ Mode transition for the current song.
      * Called after advanceSong when DJ Mode is active.
+     * First tries to position a BPM-matched song as the next in queue via prepareDjModeTransition(),
+     * then calculates the beat-aligned crossfade to that song.
      */
     private void planNextDjTransition(PlaybackState st, Long profileId) {
         // DJ Mode is INDEPENDENT of Smart Shuffle - plan transition if DJ Mode is active
@@ -1211,6 +1258,13 @@ public class PlaybackController {
             return;
         }
 
+        // STEP 1: Try to find a BPM-matched next song for a better mix
+        Settings settings = currentSettings.getOrCreateSettings();
+        if (settings.getDjModeBpmTolerance() != null && settings.getDjModeBpmTolerance() > 0) {
+            playbackQueueController.prepareDjModeTransition(st, profileId, settings.getDjModeBpmTolerance());
+        }
+
+        // STEP 2: Re-read the cue and next song (prepareDjModeTransition may have updated it)
         List<Long> cue = st.getCue();
         int cueIndex = st.getCueIndex();
         if (cue == null || cueIndex < 0 || cueIndex >= cue.size() - 1) {
@@ -1232,8 +1286,23 @@ public class PlaybackController {
         System.out.println("[DJ] planNextDjTransition: '" + currentSong.getTitle() + "' → '" + nextSong.getTitle() + "'");
         System.out.println("[DJ]   Current analyzed: " + currentAnalyzed + ", Next analyzed: " + nextAnalyzed);
 
+        // STEP 3: Pre-analyze the next song if needed (triggers async analysis)
+        if (!nextAnalyzed) {
+            audioAnalysisService.ensureUpcomingSongsAnalyzed(cue.subList(cueIndex, cue.size()), 3);
+        }
+
         if (!currentAnalyzed || !nextAnalyzed) {
-            System.out.println("[DJ] planNextDjTransition: Songs not yet analyzed, skipping");
+            System.out.println("[DJ] planNextDjTransition: Songs not yet analyzed, keeping transition unplanned");
+            // Keep djNextSongId so replanDjTransitionsForAnalyzedSong can find it
+            // when async analysis completes. Clear only the calculated transition fields.
+            if (st.getDjNextSongId() == null) {
+                st.setDjNextSongId(nextSongId);
+            }
+            st.setDjEntryTime(null);
+            st.setDjExitTime(null);
+            st.setDjTransitionPlanned(null);
+            st.setDjTransitionConfidence(null);
+            st.setDjTransitionReason(null);
             return;
         }
 
