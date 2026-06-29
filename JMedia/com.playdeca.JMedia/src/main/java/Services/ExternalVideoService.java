@@ -110,8 +110,6 @@ public class ExternalVideoService {
     public String detectSourceType(String url) {
         if (url == null) return "unknown";
         String lower = url.toLowerCase();
-        if (lower.startsWith("magnet:")) return "torrent";
-        if (lower.endsWith(".torrent")) return "torrent";
         if (lower.contains(".m3u8")) return "hls";
         if (lower.contains(".mpd")) return "dash";
         if (lower.endsWith(".mp4")) return "mp4";
