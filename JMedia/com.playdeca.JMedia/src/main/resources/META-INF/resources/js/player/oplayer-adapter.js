@@ -35,6 +35,7 @@
         var settingsToggleBtn = document.getElementById('settingsToggleBtn');
 
         /* ---------- Build stream URL ---------- */
+        var startTime = parseFloat(container.dataset.startTime || '0');
         var streamUrl = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4';
 
         var profileId = localStorage.getItem('activeProfileId') || '1';
@@ -646,6 +647,23 @@
             });
 
             console.log('[OPlayerAdapter] Initialized with videoId:', videoId);
+
+            /* ---------- Restore playback position from saved progress ---------- */
+            if (startTime > 0) {
+                var _seekDone = false;
+                video.addEventListener('loadedmetadata', function() {
+                    if (!_seekDone) {
+                        _seekDone = true;
+                        video.currentTime = startTime;
+                    }
+                });
+                video.addEventListener('canplay', function() {
+                    if (!_seekDone) {
+                        _seekDone = true;
+                        video.currentTime = startTime;
+                    }
+                });
+            }
 
             /* ---------- Volume persistence with exponential curve (matching JMedia default player) ---------- */
             video.addEventListener('volumechange', function() {

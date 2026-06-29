@@ -45,6 +45,14 @@
         vjsPlayer.volume(savedVolume);
         vjsPlayer.muted(savedMuted);
 
+        /* Restore playback position from saved progress */
+        var savedTime = parseFloat(container.dataset.startTime || '0');
+        if (savedTime > 0) {
+            vjsPlayer.one('loadedmetadata', function() {
+                vjsPlayer.currentTime(savedTime);
+            });
+        }
+
         /* ---------- Settings Menu Navigation ---------- */
         subtitleMenu.addEventListener('click', function(e) {
             var item = e.target.closest('.settings-item');
