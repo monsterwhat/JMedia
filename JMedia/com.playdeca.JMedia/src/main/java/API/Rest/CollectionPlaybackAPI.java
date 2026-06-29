@@ -3,6 +3,7 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.VideoController;
 import Controllers.VideoQueueController;
+import Models.CollectionEntry;
 import Models.CollectionWatchProgress;
 import Models.ProfileSessionState;
 import Services.CollectionService;
@@ -98,6 +99,58 @@ public class CollectionPlaybackAPI {
         progressService.updateProgress(collectionId, videoId, entryIndex,
                 totalEntries, completedEntries);
         return Response.ok(ApiResponse.success("Progress updated")).build();
+    }
+
+    @POST
+    @Path("/{id}/entries/{entryId}/play-next")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Transactional
+    public Response playNextEntry(
+            @PathParam("id") Long collectionId,
+            @PathParam("entryId") Long entryId) {
+        var entries = collectionService.getEntries(collectionId);
+        if (entries.isEmpty()) {
+            return Response.ok(ApiResponse.error("Collection is empty")).build();
+        }
+
+        CollectionEntry entry = CollectionEntry.findById(entryId);
+        if (entry == null || entry.video == null) {
+            return Response.ok(ApiResponse.error("Entry not found or not a local video")).build();
+        }
+
+        ProfileSessionState session = sessionStateService.getOrCreate();
+        if (session == null) {
+            return Response.ok(ApiResponse.error("No active profile")).build();
+        }
+
+        videoQueueController.addToQueue(session, List.of(entry.video.id), true);
+        return Response.ok(ApiResponse.success("Added to play next")).build();
+    }
+
+    @POST
+    @Path("/{id}/entries/{entryId}/add-to-queue")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Transactional
+    public Response addEntryToQueue(
+            @PathParam("id") Long collectionId,
+            @PathParam("entryId") Long entryId) {
+        var entries = collectionService.getEntries(collectionId);
+        if (entries.isEmpty()) {
+            return Response.ok(ApiResponse.error("Collection is empty")).build();
+        }
+
+        CollectionEntry entry = CollectionEntry.findById(entryId);
+        if (entry == null || entry.video == null) {
+            return Response.ok(ApiResponse.error("Entry not found or not a local video")).build();
+        }
+
+        ProfileSessionState session = sessionStateService.getOrCreate();
+        if (session == null) {
+            return Response.ok(ApiResponse.error("No active profile")).build();
+        }
+
+        videoQueueController.addToQueue(session, List.of(entry.video.id), false);
+        return Response.ok(ApiResponse.success("Added to queue")).build();
     }
 
     @GET

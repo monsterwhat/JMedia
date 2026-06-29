@@ -71,6 +71,9 @@ public class VideoImportService {
     @Inject
     VideoStoryboardService videoStoryboardService;
 
+    @Inject
+    VideoMetadataService videoMetadataService;
+
     // TODO: Remove this method once stale column migration is complete
     private static final String[] STALE_COLUMNS = {"WATCHED", "WATCHPROGRESSDOUBLE"};
     private volatile boolean staleColumnsCleaned = false;
@@ -354,7 +357,12 @@ public class VideoImportService {
         
         String relativePath = path.getFileName().toString();
         SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, path.getFileName().toString(), relativePath, null, null, null, null, null, null);
-        entityCreationService.createVideoFromNamingResult(mediaFile, res);
+        Video updatedVideo = entityCreationService.createVideoFromNamingResult(mediaFile, res);
+        
+        // Trigger full metadata enrichment including audio track extraction
+        if (updatedVideo != null) {
+            videoMetadataService.fetchAndEnrichMetadata(updatedVideo);
+        }
         
         loggingService.addLog("Reloaded metadata for: " + path.getFileName());
     }
@@ -385,6 +393,9 @@ public class VideoImportService {
         } catch (Exception ignored) {}
         try {
             Models.AudioTrack.deleteAll();
+        } catch (Exception ignored) {}
+        try {
+            Models.CollectionEntry.deleteAll();
         } catch (Exception ignored) {}
         Video.deleteAll();
         MediaFile.deleteAll();

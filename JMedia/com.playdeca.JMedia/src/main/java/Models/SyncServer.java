@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 @Entity
 public class SyncServer extends PanacheEntity {
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 255)
     public String name;
 
     @Column(nullable = false, length = 500)

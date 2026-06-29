@@ -23,7 +23,7 @@ class SubtitleManager {
         this.setupFirefoxSubtitlePositioning();
     }
 
-    applySavedStyle() {
+    getStyle() {
         const saved = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
         const defaults = {
             font: "'Segoe UI', sans-serif",
@@ -34,7 +34,11 @@ class SubtitleManager {
             bottom: 60,
             correction: 0
         };
-        const style = { ...defaults, ...saved };
+        return { ...defaults, ...saved };
+    }
+
+    applySavedStyle() {
+        const style = this.getStyle();
         this.applyGlobalStyle(style);
     }
 
@@ -222,20 +226,32 @@ class SubtitleManager {
         }
     }
 
-    saveStyle() {
-        const getVal = (id, def) => {
-            const el = document.getElementById(id);
-            return el ? el.value : def;
-        };
-
-        const style = {
-            font: getVal('subStyleFont', "'Segoe UI', sans-serif"),
-            size: parseInt(getVal('subStyleSize', 20)),
-            color: getVal('subStyleColor', '#ffffff'),
-            bgOpacity: parseFloat(getVal('subStyleBgOpacity', 0.7)),
-            lineHeight: parseFloat(getVal('subStyleLineHeight', 1.4)),
-            bottom: parseInt(getVal('subStyleBottom', 60))
-        };
+    saveStyle(externalStyle) {
+        let style;
+        if (externalStyle) {
+            const defaults = {
+                font: "'Segoe UI', sans-serif",
+                size: 20,
+                color: '#ffffff',
+                bgOpacity: 0.7,
+                lineHeight: 1.4,
+                bottom: 60
+            };
+            style = { ...defaults, ...externalStyle };
+        } else {
+            const getVal = (id, def) => {
+                const el = document.getElementById(id);
+                return el ? el.value : def;
+            };
+            style = {
+                font: getVal('subStyleFont', "'Segoe UI', sans-serif"),
+                size: parseInt(getVal('subStyleSize', 20)),
+                color: getVal('subStyleColor', '#ffffff'),
+                bgOpacity: parseFloat(getVal('subStyleBgOpacity', 0.7)),
+                lineHeight: parseFloat(getVal('subStyleLineHeight', 1.4)),
+                bottom: parseInt(getVal('subStyleBottom', 60))
+            };
+        }
 
         localStorage.setItem('jmedia_subtitle_style', JSON.stringify(style));
         this.applyGlobalStyle(style);

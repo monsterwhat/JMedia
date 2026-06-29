@@ -50,6 +50,7 @@ public class SyncService {
         return syncInProgress;
     }
 
+    @Transactional
     public void syncAllServers() {
         if (syncInProgress) {
             LOGGER.warning("[Sync] Sync already in progress, skipping");
@@ -176,7 +177,7 @@ public class SyncService {
             data.explicit = song.isExplicit();
             data.bpm = song.getBpm();
             data.durationSeconds = song.getDurationSeconds();
-            data.artworkBase64 = song.getArtworkBase64();
+            data.artworkBase64 = null; // Excluded from sync — too large, receiver regenerates from file
             data.updatedAt = song.getUpdatedAt();
 
             SongAnalysis analysis = song.getAnalysis();

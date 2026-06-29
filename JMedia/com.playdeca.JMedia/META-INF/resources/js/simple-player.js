@@ -115,6 +115,40 @@ if (typeof window.SimplePlayer === 'undefined') {
             window.addEventListener('pagehide', this._cleanupOnUnload);
             window.addEventListener('beforeunload', this._cleanupOnUnload);
 
+            if (this._isIOS()) {
+                const videoPath = (this.container.dataset.path || '').toLowerCase();
+                if (videoPath.endsWith('.mkv')) {
+                    this.video.addEventListener('error', () => {
+                        if (this._iosMkvToastShown) return;
+                        this._iosMkvToastShown = true;
+                        const toastContainer = document.getElementById('toast-container');
+                        if (toastContainer) {
+                            const vid = this.videoId;
+                            const toast = document.createElement('div');
+                            toast.className = 'toast warning show';
+                            toast.id = 'ios-mkv-toast';
+                            toast.style.minWidth = '320px';
+                            toast.innerHTML =
+                                '<div class="toast-content" style="flex-direction:column;align-items:stretch;">' +
+                                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+                                '<i class="pi pi-exclamation-triangle toast-icon"></i>' +
+                                '<span>MKV may not play on iOS. Convert to MP4?</span></div>' +
+                                '<button class="button is-small is-warning is-fullwidth" ' +
+                                'onclick="this.disabled=true;this.textContent=\'Starting...\';' +
+                                "fetch('/api/video/manage/convert/" + vid + "',{method:'POST'})" +
+                                '.then(r=>r.json()).then(d=>{' +
+                                "if(d.jobId){window.Toast.success('Conversion started!');" +
+                                "document.getElementById('ios-mkv-toast')?.remove();" +
+                                "setTimeout(function(){location.reload()},5000)" +
+                                '}else{window.Toast.error(\'Failed to start conversion\')}' +
+                                '}).catch(function(){window.Toast.error(\'Conversion failed\')})' +
+                                '" style="white-space:nowrap;">Convert to MP4</button></div>';
+                            toastContainer.appendChild(toast);
+                        }
+                    });
+                }
+            }
+
             this.init();
 
             // Restore fullscreen if navigation occurred while in fullscreen

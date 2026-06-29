@@ -806,9 +806,10 @@ private void findAndPrepareNextSmartSong(PlaybackState state, boolean skippedEar
             return;
         }
         
-        // Get the song pool — use originalCue for wider selection if available
-        List<Long> songPool = (state.getOriginalCue() != null && !state.getOriginalCue().isEmpty())
-                ? state.getOriginalCue() : state.getCue();
+        // Use the current active cue as the song pool to avoid picking songs that are no longer in the queue
+        // (e.g., finished songs that were removed from the cue but still present in originalCue).
+        // This also prevents resurrecting stale songs when smart shuffle has reorganized the queue.
+        List<Long> songPool = state.getCue();
         
         if (songPool == null || songPool.isEmpty()) {
             return;

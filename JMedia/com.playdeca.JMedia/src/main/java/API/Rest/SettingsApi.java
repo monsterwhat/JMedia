@@ -885,6 +885,70 @@ public class SettingsApi {
     }
 
     @POST
+    @Path("/{profileId}/hardware-acceleration")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response setHardwareAcceleration(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            Settings settings = settingsController.getOrCreateSettings();
+            Object enabledVal = data.get("enabled");
+            if (enabledVal instanceof Boolean) {
+                settings.setHardwareAccelerationEnabled((Boolean) enabledVal);
+            } else {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("'enabled' field must be a boolean"))
+                    .build();
+            }
+            settingsService.save(settings);
+            LOGGER.info("Hardware acceleration set to: {}", settings.getHardwareAccelerationEnabled());
+            return Response.ok(ApiResponse.success("Hardware acceleration " + (settings.getHardwareAccelerationEnabled() ? "enabled" : "disabled"))).build();
+        } catch (Exception e) {
+            LOGGER.error("Failed to update hardware acceleration setting", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(ApiResponse.error("Failed to update hardware acceleration setting: " + e.getMessage()))
+                .build();
+        }
+    }
+
+    @GET
+    @Path("/{profileId}/default-player")
+    public Response getDefaultPlayer(@PathParam("profileId") Long profileId) {
+        Settings settings = settingsController.getOrCreateSettings();
+        return Response.ok(ApiResponse.success(settings.getDefaultPlayer())).build();
+    }
+
+    @POST
+    @Path("/{profileId}/default-player")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response setDefaultPlayer(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            Object playerVal = data.get("defaultPlayer");
+            if (playerVal == null || !(playerVal instanceof String)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("'defaultPlayer' must be a string: 'simple', 'videojs', or 'oplayer'"))
+                    .build();
+            }
+            String player = (String) playerVal;
+            if (!"simple".equals(player) && !"videojs".equals(player) && !"oplayer".equals(player)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Invalid player. Must be 'simple', 'videojs', or 'oplayer'"))
+                    .build();
+            }
+            Settings settings = settingsController.getOrCreateSettings();
+            settings.setDefaultPlayer(player);
+            settingsService.save(settings);
+            settingsController.addLog("Default player set to: " + player);
+            return Response.ok(ApiResponse.success("Default player updated to " + player)).build();
+        } catch (Exception e) {
+            LOGGER.error("Failed to update default player", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(ApiResponse.error("Failed to update default player: " + e.getMessage()))
+                .build();
+        }
+    }
+
+    @POST
     @Path("/{profileId}/fixAlbums")
     public Response fixAlbums(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();

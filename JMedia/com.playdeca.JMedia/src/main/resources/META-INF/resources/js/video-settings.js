@@ -106,4 +106,42 @@ window.initVideoSettingsView = function() {
             }
         };
     }
+
+    // Default Player selector
+    const defaultPlayerSelect = document.getElementById("defaultPlayerSelect");
+    if (defaultPlayerSelect) {
+        // Load current value
+        fetch(`/api/settings/${window.globalActiveProfileId}/default-player`)
+            .then(function(r) { return r.json(); })
+            .then(function(json) {
+                if (json.data) {
+                    defaultPlayerSelect.value = json.data;
+                }
+            })
+            .catch(function(err) {
+                console.warn("[VideoSettings] Failed to load default player:", err);
+            });
+
+        // Save on change
+        defaultPlayerSelect.addEventListener("change", function() {
+            var player = this.value;
+            fetch(`/api/settings/${window.globalActiveProfileId}/default-player`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ defaultPlayer: player })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(json) {
+                if (json.success !== false) {
+                    Toast.success("Default player set to " + player);
+                } else {
+                    Toast.error("Failed to update player");
+                }
+            })
+            .catch(function(err) {
+                console.error("[VideoSettings] Failed to save default player:", err);
+                Toast.error("Failed to save player preference");
+            });
+        });
+    }
 };

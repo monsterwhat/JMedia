@@ -59,8 +59,11 @@
             const isNativeFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || p.isIOSNativeFullscreen);
             const isCssFullscreen = p.container.classList.contains('is-css-fullscreen');
 
+            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] requestFullscreen: isIOS=' + isIOS + ' isNative=' + isNativeFullscreen + ' isCss=' + isCssFullscreen);
+
             if (isNativeFullscreen || isCssFullscreen) {
                 if (isNativeFullscreen) {
+                    if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Exiting native fullscreen');
                     if (document.exitFullscreen) {
                         document.exitFullscreen().catch(() => {});
                     } else if (document.webkitExitFullscreen) {
@@ -68,16 +71,19 @@
                     }
                 }
                 if (isCssFullscreen) {
+                    if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Exiting CSS fullscreen');
                     this.toggleCssFullscreen();
                 }
                 return;
             }
 
             if (isIOS) {
+                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Taking iOS fullscreen path');
                 p.video.preload = "auto";
                 p._preFullscreenTime = p.video.currentTime;
 
                 const doEnterFullscreen = () => {
+                    if (p.utils.isIOS()) console.debug('[iOS-DEBUG] doEnterFullscreen: trying requestFullscreen');
                     let nativeFullscreenAttempted = false;
 
                     if (!p.video.hasAttribute('playsinline')) {
@@ -89,28 +95,36 @@
                         try {
                             p.video.requestFullscreen();
                             nativeFullscreenAttempted = true;
+                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] requestFullscreen succeeded');
                         } catch (err) {
+                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] requestFullscreen failed:', err.message);
                             console.log('[SimplePlayer] requestFullscreen failed:', err);
                         }
                     }
 
                     if (!nativeFullscreenAttempted && p.video.webkitEnterFullscreen) {
+                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] trying webkitEnterFullscreen');
                         try {
                             p.video.webkitEnterFullscreen();
                             nativeFullscreenAttempted = true;
+                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] webkitEnterFullscreen succeeded');
                         } catch (err) {
+                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] webkitEnterFullscreen failed:', err.message);
                             console.log('[SimplePlayer] webkitEnterFullscreen failed:', err);
                         }
                     }
 
                     if (!nativeFullscreenAttempted) {
+                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Using CSS fullscreen fallback for iOS');
                         console.log('[SimplePlayer] Using CSS fullscreen fallback for iOS');
                         this.toggleCssFullscreen();
                     }
                 };
 
                 const bufferedEnd = p.video.buffered.length > 0 ? p.video.buffered.end(p.video.buffered.length - 1) : 0;
+                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Buffer check: bufferedEnd=' + bufferedEnd + ' currentTime=' + p.video.currentTime + ' diff=' + (bufferedEnd - p.video.currentTime));
                 if (bufferedEnd - p.video.currentTime < 30) {
+                    if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Less than 30s buffered, waiting for buffer...');
                     const bufferTimer = setInterval(() => {
                         try {
                             const end = p.video.buffered.length > 0 ? p.video.buffered.end(p.video.buffered.length - 1) : 0;
@@ -125,6 +139,7 @@
                     }, 200);
                     setTimeout(() => { clearInterval(bufferTimer); doEnterFullscreen(); }, 10000);
                 } else {
+                    if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Sufficient buffer, entering fullscreen immediately');
                     doEnterFullscreen();
                 }
             } else {
@@ -183,6 +198,7 @@
 
         onIOSVideoFullscreenStart() {
             const p = this.player;
+            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] onIOSVideoFullscreenStart fired');
             console.log('[SimplePlayer] iOS video fullscreen started (legacy event)');
             p.isIOSNativeFullscreen = true;
             p._wasPlayingBeforeFullscreen = !p.video.paused;
@@ -193,6 +209,7 @@
 
         onIOSVideoFullscreenEnd() {
             const p = this.player;
+            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] onIOSVideoFullscreenEnd fired, _wasPlayingBeforeFullscreen=' + p._wasPlayingBeforeFullscreen);
             console.log('[SimplePlayer] iOS video fullscreen ended');
             p.isIOSNativeFullscreen = false;
             p.container.classList.remove('is-fullscreen');
@@ -201,6 +218,7 @@
 
             // iOS natively pauses on fullscreen exit; resume if it was playing
             if (p._wasPlayingBeforeFullscreen) {
+                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Resuming playback after fullscreen exit');
                 setTimeout(() => p.video.play().catch(() => {}), 300);
             }
             p._wasPlayingBeforeFullscreen = false;

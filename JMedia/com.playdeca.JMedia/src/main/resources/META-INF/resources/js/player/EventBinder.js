@@ -16,6 +16,7 @@
             };
 
             p.video.addEventListener('play', () => {
+                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Play event fired, setting 20s stall timer');
                 p.playIcon.className = 'pi pi-pause';
                 p.bigPlay.style.display = 'none';
                 p.container.classList.remove('paused');
@@ -24,6 +25,7 @@
                 p._stallTimer = setTimeout(() => {
                     if (p._destroyed) return;
                     if (p.video.currentTime === 0 && !p.video.paused && !p._hasPlayedData) {
+                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer fired: currentTime=' + p.video.currentTime + ' paused=' + p.video.paused + ' _hasPlayedData=' + p._hasPlayedData + ' _destroyed=' + p._destroyed + ' _streamFallbackCount=' + (p._streamFallbackCount || 0) + ' _maxStreamFallbacks=' + p._maxStreamFallbacks);
                         console.warn('[SimplePlayer] Playback stalled - no data received in 20s');
                         if (window.Toast) window.Toast.warning('Playback stuck - retrying...');
 
@@ -35,7 +37,9 @@
                         if (p._streamFallbackCount < p._maxStreamFallbacks) {
                             const saved = p.streamStartOffset || p.lastKnownGoodPosition || p.initialResumeTime || 0;
                             const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${saved}${qualityParam}`;
+                            const traceId = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${saved}${qualityParam}&trace=${traceId}`;
+                            if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Stall timer reloading src:', p.video.src);
                             p.video.load();
                             p.video.play().catch(() => {});
                         } else {
@@ -75,6 +79,7 @@
                 p.controlsManager.checkMarkers();
 
                 if (p.video.currentTime > 0) {
+                    if (!p._hasPlayedData && p.utils.isIOS()) console.debug('[iOS-DEBUG] _hasPlayedData set to true at currentTime=' + p.video.currentTime);
                     p.lastKnownGoodPosition = p.video.currentTime;
                     p._hasPlayedData = true;
                     if (p._stallTimer) {
@@ -113,6 +118,7 @@
                     p._waitingStart = 0;
                     if (p._destroyed) return;
                     if (p._hasPlayedData && p.lastKnownGoodPosition > 0 && p.video.networkState !== HTMLMediaElement.NETWORK_LOADING) {
+                        if (p.utils.isIOS()) console.debug('[iOS-DEBUG] 60s waiting stall: currentTime=' + p.video.currentTime + ' _hasPlayedData=' + p._hasPlayedData + ' lastKnownGoodPosition=' + p.lastKnownGoodPosition + ' networkState=' + p.video.networkState + ' _streamFallbackCount=' + (p._streamFallbackCount || 0));
                         console.warn('[SimplePlayer] Mid-playback stall detected (>60s), retrying at position', p.lastKnownGoodPosition);
                         p.streamMgr.clearStreamErrorHandlers();
                         p._streamFallbackCount = (p._streamFallbackCount || 0) + 1;
@@ -260,6 +266,29 @@
                     }
                     return;
                 }
+                const playerOpt = e.target.closest('.player-option');
+                if (playerOpt) {
+                    e.stopPropagation();
+                    var playerName = playerOpt.dataset.player;
+                    if (playerName) {
+                        p.container.querySelectorAll('.player-option').forEach(function(b) { b.style.borderColor = ''; b.style.color = ''; });
+                        playerOpt.style.borderColor = '#48c774';
+                        playerOpt.style.color = '#48c774';
+                        if (window.Toast) window.Toast.info('Switching to ' + playerName + '...');
+                        var profileId = localStorage.getItem('activeProfileId') || '1';
+                        fetch('/api/settings/' + profileId + '/default-player', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ defaultPlayer: playerName })
+                        }).then(function() {
+                            location.reload();
+                        }).catch(function() {
+                            if (window.Toast) window.Toast.error('Failed to switch player');
+                        });
+                    }
+                    return;
+                }
+
                 const qualityBtn = e.target.closest('.quality-btn');
                 if (qualityBtn) {
                     e.stopPropagation();
@@ -357,7 +386,10 @@
                 }
             };
 
-            p.fullscreenBtn.onclick = (e) => p.fullscreenMgr.requestFullscreen(e);
+            p.fullscreenBtn.onclick = (e) => {
+                if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Fullscreen requested via button click');
+                p.fullscreenMgr.requestFullscreen(e);
+            };
 
             document.addEventListener('fullscreenchange', () => p.fullscreenMgr.onFullscreenChange());
             document.addEventListener('webkitfullscreenchange', () => p.fullscreenMgr.onFullscreenChange());

@@ -4,37 +4,54 @@ import Controllers.SettingsController;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-/**
- * Centralized logging service that provides the same addLog functionality
- * used by music scanning for video and metadata services.
- * This ensures consistent logging across all scanning operations.
- */
 @ApplicationScoped
 public class LoggingService {
 
     @Inject
     private SettingsController settingsController;
 
-    /**
-     * Logs a message using the same pattern as music scanning
-     * (database storage + WebSocket broadcast)
-     */
+    private String format(String message) {
+        String caller = getCaller();
+        String prefix = caller != null ? "[" + caller + "] " : "";
+        return prefix + message;
+    }
+
+    private String getCaller() {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String selfName = getClass().getName();
+        for (StackTraceElement e : stack) {
+            String cn = e.getClassName();
+            if (cn.equals(selfName) || cn.startsWith(selfName + "$") || cn.startsWith(selfName + "_")) {
+                continue;
+            }
+            if (cn.startsWith("java.") || cn.startsWith("jakarta.") || cn.startsWith("jdk.")
+                    || cn.startsWith("sun.") || cn.startsWith("io.quarkus.") || cn.startsWith("org.jboss.")
+                    || cn.startsWith("io.netty.") || cn.startsWith("org.hibernate.")) {
+                continue;
+            }
+            return cn.substring(cn.lastIndexOf('.') + 1) + "." + e.getMethodName();
+        }
+        return null;
+    }
+
     public void addLog(String message) {
-        settingsController.addLog(message);
+        String formatted = format(message);
+        System.out.println(formatted);
+        settingsController.addLog(formatted);
     }
 
-    /**
-     * Logs a message with exception using the same pattern as music scanning
-     * (database storage + WebSocket broadcast + stack trace)
-     */
     public void addLog(String message, Throwable throwable) {
-        settingsController.addLog(message, throwable);
+        String formatted = format(message);
+        System.err.println(formatted);
+        if (throwable != null) {
+            throwable.printStackTrace(System.err);
+        }
+        settingsController.addLog(formatted, throwable);
     }
 
-    /**
-     * Logs multiple messages in batch (used for parallel processing results)
-     */
     public void addLogs(java.util.List<String> messages) {
-        settingsController.addLogs(messages);
+        for (String msg : messages) {
+            addLog(msg);
+        }
     }
 }

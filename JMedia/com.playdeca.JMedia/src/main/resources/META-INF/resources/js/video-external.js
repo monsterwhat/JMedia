@@ -312,6 +312,7 @@ function getSourceIcon(type) {
         webm: '<i class="pi pi-file"></i>',
         youtube: '<i class="pi pi-play-circle"></i>',
         streamtape: '<i class="pi pi-external-link"></i>',
+        torrent: '<i class="pi pi-download"></i>',
         direct: '<i class="pi pi-link"></i>'
     };
     return icons[type] || '<i class="pi pi-link"></i>';

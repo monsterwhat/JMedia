@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.websocket.OnClose;
+import jakarta.websocket.OnError;
 import jakarta.websocket.OnMessage;
 import jakarta.websocket.OnOpen;
 import jakarta.websocket.Session;
@@ -44,6 +45,15 @@ public class MusicSocket {
 
     @OnClose
     public void onClose(Session session) {
+        CompletableFuture.runAsync(() -> {
+            webSocketManager.removeSession(session);
+            viewSession.clientDisconnected();
+        });
+    }
+
+    @OnError
+    public void onError(Session session, Throwable throwable) {
+        System.err.println("[MusicSocket] Error in session " + session.getId() + ": " + throwable.getMessage());
         CompletableFuture.runAsync(() -> {
             webSocketManager.removeSession(session);
             viewSession.clientDisconnected();

@@ -1,10 +1,14 @@
 package Services;
 
+import Models.AudioTrack;
 import Models.Video;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +16,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
@@ -23,6 +28,13 @@ public class MediaAnalysisService {
     @Inject
     FFmpegDiscoveryService discoveryService;
 
+    @Inject
+    FFprobeAudioService audioService;
+
+    @PersistenceContext
+    EntityManager entityManager;
+
+    @Transactional
     public void analyze(Video video) {
         if (video == null || video.path == null) return;
         
@@ -32,6 +44,10 @@ public class MediaAnalysisService {
         JsonNode root = probe(video.path);
         if (root != null) {
             populateVideoMetadata(video, root);
+            
+            // Extract and persist audio tracks immediately during initial scan
+            extractAndPersistAudioTracks(video);
+            
             LOG.info("Successfully analyzed media for: {}", video.path);
         }
     }
@@ -107,6 +123,8 @@ public class MediaAnalysisService {
                 if (mediaFile.audioCodec == null) {
                     mediaFile.audioCodec = stream.path("codec_name").asText();
                     mediaFile.audioLanguage = stream.path("tags").path("language").asText("und");
+                } else {
+                    mediaFile.hasMultipleAudioTracks = true;
                 }
             } else if ("subtitle".equals(codecType)) {
                 mediaFile.hasEmbeddedSubtitles = true;
@@ -125,7 +143,9 @@ public class MediaAnalysisService {
             video.fileSize = video.size;
         }
         if (format.has("format_name")) {
-            video.container = format.get("format_name").asText().split(",")[0];
+            String formatName = format.get("format_name").asText();
+            // FFprobe reports MP4 container as "mov,mp4,m4a,3gp,3g2,mj2" — check all tokens
+            video.container = formatName.contains("mp4") ? "mp4" : formatName.split(",")[0];
         }
         if (format.has("bit_rate")) {
             video.bitrate = format.get("bit_rate").asInt();
@@ -172,6 +192,8 @@ public class MediaAnalysisService {
                     video.audioChannels = stream.path("channels").asInt();
                     video.primaryAudioLanguage = stream.path("tags").path("language").asText("und");
                     video.audioBitrate = stream.path("bit_rate").asInt();
+                } else {
+                    video.hasMultipleAudioTrack = true;
                 }
             } else if ("subtitle".equals(codecType)) {
                 video.hasSubtitles = true;
@@ -254,6 +276,22 @@ public class MediaAnalysisService {
         } catch (Exception e) {
             LOG.warn("Could not generate fingerprint for {}: {}", filePath, e.getMessage());
             return null;
+        }
+    }
+
+    private void extractAndPersistAudioTracks(Video video) {
+        try {
+            List<AudioTrack> tracks = audioService.extractAudioTracks(video, video.path);
+            if (tracks != null && !tracks.isEmpty()) {
+                for (AudioTrack track : tracks) {
+                    track.video = video;
+                    entityManager.persist(track);
+                }
+                video.hasMultipleAudioTrack = tracks.size() > 1;
+                LOG.info("Extracted and persisted {} audio tracks for: {}", tracks.size(), video.path);
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not extract audio tracks for {}: {}", video.path, e.getMessage());
         }
     }
 }

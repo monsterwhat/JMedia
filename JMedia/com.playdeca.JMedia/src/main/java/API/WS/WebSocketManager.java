@@ -1,5 +1,6 @@
 package API.WS;
 
+import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.websocket.Session;
 
@@ -8,8 +9,13 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @ApplicationScoped
 public class WebSocketManager {
+
+    private static final Logger LOG = LoggerFactory.getLogger(WebSocketManager.class);
 
     private final Set<Session> musicSessions = ConcurrentHashMap.newKeySet();
     private final Set<Session> logSessions = ConcurrentHashMap.newKeySet();
@@ -128,5 +134,48 @@ public class WebSocketManager {
                 session.getAsyncRemote().sendText(message);
             }
         });
+    }
+
+    /**
+     * Periodically evict stale WebSocket sessions (closed or errored)
+     * from all internal data structures to prevent unbounded growth.
+     * Catches edge cases where @OnClose or @OnError were not invoked.
+     */
+    @Scheduled(every = "60s")
+    void cleanupStaleSessions() {
+        int removed = 0;
+        removed += cleanupSessionSet(musicSessions);
+        removed += cleanupSessionSet(logSessions);
+        removed += cleanupSessionSet(videoSessions);
+        if (removed > 0) {
+            LOG.info("Cleaned up {} stale WebSocket session(s)", removed);
+        }
+    }
+
+    private int cleanupSessionSet(Set<Session> sessionSet) {
+        int[] count = {0};
+        sessionSet.removeIf(session -> {
+            if (!session.isOpen()) {
+                removeSessionData(session);
+                count[0]++;
+                return true;
+            }
+            return false;
+        });
+        return count[0];
+    }
+
+    private void removeSessionData(Session session) {
+        String sessionId = session.getId();
+        Long profileId = sessionProfileMap.remove(sessionId);
+        if (profileId != null) {
+            Set<Session> sessions = profileSessionsMap.get(profileId);
+            if (sessions != null) {
+                sessions.remove(session);
+                if (sessions.isEmpty()) {
+                    profileSessionsMap.remove(profileId);
+                }
+            }
+        }
     }
 }

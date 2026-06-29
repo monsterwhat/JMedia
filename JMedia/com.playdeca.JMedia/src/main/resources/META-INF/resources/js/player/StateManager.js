@@ -25,7 +25,7 @@
             p.isIOSNativeFullscreen = false;
             p._streamFallbackCount = 0;
             p._maxStreamFallbacks = 2;
-            p._preferredQuality = 0;
+            p._preferredQuality = 720;
             p._previousQuality = 0;
             p._qualitySwitching = false;
             p._hasPlayedData = false;

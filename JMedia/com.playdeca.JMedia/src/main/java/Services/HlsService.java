@@ -55,8 +55,11 @@ public class HlsService {
             return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, h, 3000000, true));
         }
 
-        // Default: single 480p variant to avoid system overload from multiple concurrent encoders
-        return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, 480, 1000000, true));
+        // Default: cap at 720p, or use native resolution if lower.
+        // Higher qualities (1080p, 4K) are only used when the user
+        // explicitly selects them from the quality menu.
+        int defaultHeight = Math.min(720, sourceHeight);
+        return Collections.singletonList(new VariantConfig(VIDEO_VARIANT, defaultHeight, 1000000, true));
     }
 
     @Inject VideoService videoService;
@@ -277,6 +280,50 @@ public class HlsService {
             }
         }
 
+        // ── Fast path: direct-stream copy for compatible H.264+AAC/AC3 sources ──
+        if (isEligibleForCopyMode(session, variant)) {
+            List<String> copyCommand = new ArrayList<>();
+            copyCommand.add(ffmpegPath);
+            copyCommand.add("-v"); copyCommand.add("error");
+            copyCommand.add("-hide_banner");
+            copyCommand.add("-ss"); copyCommand.add("0");
+            copyCommand.add("-i"); copyCommand.add(resolvedPath);
+            copyCommand.add("-map"); copyCommand.add("0:v:0");
+            copyCommand.add("-c:v"); copyCommand.add("copy");
+            if (session.audioTracks.isEmpty()) {
+                copyCommand.add("-map"); copyCommand.add("0:a?");
+            } else if (session.audioTracks.size() == 1) {
+                copyCommand.add("-map"); copyCommand.add("0:a:" + session.audioTracks.get(0).trackIndex);
+            } else {
+                copyCommand.add("-map"); copyCommand.add("0:a?");
+            }
+            copyCommand.add("-c:a"); copyCommand.add("copy");
+            copyCommand.add("-f"); copyCommand.add("hls");
+            copyCommand.add("-hls_time"); copyCommand.add("6");
+            copyCommand.add("-hls_list_size"); copyCommand.add("0");
+            if (USE_FMP4_HLS) {
+                copyCommand.add("-hls_flags"); copyCommand.add("append_list+omit_endlist+split_by_time");
+                copyCommand.add("-hls_segment_type"); copyCommand.add("fmp4");
+                copyCommand.add("-hls_fmp4_init_filename"); copyCommand.add(variant.name + "_init.mp4");
+                copyCommand.add("-hls_segment_filename");
+                copyCommand.add(variant.name + "_%04d.m4s");
+            } else {
+                copyCommand.add("-hls_flags"); copyCommand.add("append_list+omit_endlist+split_by_time");
+                copyCommand.add("-hls_segment_filename");
+                copyCommand.add(variant.name + "_%05d.ts");
+            }
+            copyCommand.add(variant.name + ".m3u8");
+
+            LOG.info("[HLS] session={} variant={} encoder=copy height={} hw=false audio=copy",
+                session.sessionId, variant.name, variant.height);
+            LOG.info("Starting HLS copy-mode encoder for session {} variant {}: {}", session.sessionId, variant.name, String.join(" ", copyCommand));
+
+            ProcessBuilder pb = new ProcessBuilder(copyCommand);
+            pb.directory(session.sessionDir.toFile());
+            pb.redirectErrorStream(true);
+            return pb.start();
+        }
+
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
 
@@ -320,6 +367,13 @@ public class HlsService {
                     if (hwEncoder.contains("amf")) {
                         command.add("-hwaccel_output_format"); command.add("amf");
                     }
+                } else if (hwDecoder.contains("d3d11va")) {
+                    command.add("-hwaccel"); command.add("d3d11va");
+                    if (hwEncoder != null && hwEncoder.contains("d3d11va")) {
+                        command.add("-hwaccel_output_format"); command.add("d3d11");
+                    }
+                } else if (hwDecoder.contains("dxva2")) {
+                    command.add("-hwaccel"); command.add("dxva2");
                 }
             }
         }
@@ -434,6 +488,11 @@ public class HlsService {
         }
         command.add(variant.name + ".m3u8");
         
+        String hlsEncoder = useHardware && !"libx264".equals(hwEncoder) ? hwEncoder : "libx264";
+        LOG.info("[HLS] session={} variant={} encoder={} height={} hw={} audio={}",
+            session.sessionId, variant.name, hlsEncoder, variant.height, useHardware,
+            command.contains("copy") ? "copy" : "aac");
+
         LOG.info("Starting HLS encoder for session {} variant {}: {}", session.sessionId, variant.name, String.join(" ", command));
 
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -673,6 +732,35 @@ public class HlsService {
         return lower.contains("aac") || lower.contains("mp3")
             || lower.contains("ac3") || lower.contains("eac3") || lower.contains("ec-3")
             || lower.contains("dts") || lower.contains("dca");
+    }
+
+    private boolean isEligibleForCopyMode(HlsSession session, VariantConfig variant) {
+        // Video codec must be H.264 or HEVC for copy-mode eligibility
+        String codec = session.video.videoCodec;
+        if (codec == null) return false;
+        String lower = codec.toLowerCase();
+        boolean isH264 = lower.contains("h264") || lower.contains("avc");
+        boolean isHevc = lower.contains("hevc") || lower.contains("h265");
+        if (!isH264 && !isHevc) return false;
+
+        // All audio tracks must use copyable codecs
+        if (session.audioTracks != null) {
+            for (AudioTrack track : session.audioTracks) {
+                if (!isCopyableCodec(track.codec)) return false;
+            }
+        }
+
+        // No downscale needed — variant height must be >= source height
+        if (variant.height > 0 && session.video.resolution != null && session.video.resolution.contains("x")) {
+            try {
+                int sourceH = Integer.parseInt(session.video.resolution.split("x")[1]);
+                if (variant.height < sourceH) return false;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

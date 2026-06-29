@@ -376,6 +376,18 @@
                 };
             }
 
+            const cleanupSessionsBtn = document.getElementById('cleanupSessionsBtn');
+            if (cleanupSessionsBtn) {
+                cleanupSessionsBtn.onclick = () => {
+                    console.log('[Settings] Cleanup sessions clicked');
+                    if (window.cleanupSessions) {
+                        window.cleanupSessions();
+                    } else {
+                        console.error('[Settings] window.cleanupSessions not found!');
+                    }
+                };
+            }
+
             ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet'].forEach(c => {
                 const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
                 if (btn) btn.onclick = () => handleComponentAction(c, btn);

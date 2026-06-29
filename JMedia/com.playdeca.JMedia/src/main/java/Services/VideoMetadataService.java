@@ -23,6 +23,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
+import Models.DTOs.VerificationField;
+import Models.DTOs.VerificationPreview;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -346,6 +348,139 @@ public class VideoMetadataService {
         } catch (Exception e) {
             LOG.error("DEBUG: Metadata enrichment FAILED for {}: {}", video.title, e.getMessage(), e);
         }
+    }
+
+    /**
+     * Preview what metadata enrichment would change WITHOUT saving anything.
+     * Runs the same TMDB + IMDb lookups as fetchAndEnrichMetadata but returns
+     * a diff of current vs. fetched values. The original Video entity is NOT modified.
+     *
+     * @param video     the video to preview enrichment for
+     * @param titleBlind if true, skip using the extracted title for search; use only showName+S/E
+     * @return VerificationPreview with current vs fetched field pairs
+     */
+    public VerificationPreview previewEnrichment(Video video, boolean titleBlind) {
+        VerificationPreview preview = new VerificationPreview();
+        preview.videoId = video.id;
+        preview.filename = video.filename;
+        preview.type = video.type;
+
+        preview.title = new VerificationField<>(video.title, null);
+        preview.seriesTitle = new VerificationField<>(video.seriesTitle, null);
+        preview.episodeTitle = new VerificationField<>(video.episodeTitle, null);
+        preview.seasonNumber = new VerificationField<>(video.seasonNumber, null);
+        preview.episodeNumber = new VerificationField<>(video.episodeNumber, null);
+        preview.imdbId = new VerificationField<>(video.imdbId, null);
+        preview.showImdbId = new VerificationField<>(video.showImdbId, null);
+        preview.tmdbId = new VerificationField<>(video.tmdbId, null);
+
+        String tmdbKey = getApiKey();
+        if (tmdbKey == null || tmdbKey.isBlank()) {
+            LOG.warn("No TMDB API key available, preview will be limited");
+        }
+
+        try {
+            if ("episode".equalsIgnoreCase(video.type)) {
+                previewEpisode(video, preview, tmdbKey);
+            } else if ("movie".equalsIgnoreCase(video.type)) {
+                previewMovie(video, preview, tmdbKey);
+            }
+        } catch (Exception e) {
+            LOG.warn("Preview enrichment failed for video {}: {}", video.id, e.getMessage());
+        }
+
+        return preview;
+    }
+
+    private void previewEpisode(Video video, VerificationPreview preview, String tmdbKey) {
+        String seriesName = video.seriesTitle;
+        Integer season = video.seasonNumber;
+        Integer ep = video.episodeNumber;
+        if (seriesName == null || seriesName.isBlank() || season == null || ep == null) return;
+
+        // 1. TMDB: search show → episode details
+        if (tmdbKey != null && !tmdbKey.isBlank()) {
+            try {
+                String searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey,
+                        URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
+                JsonNode searchRoot = fetchJson(searchUrl);
+                if (searchRoot != null && searchRoot.path("results").isArray() && searchRoot.path("results").size() > 0) {
+                    String showTmdbId = searchRoot.path("results").get(0).path("id").asText();
+                    if (showTmdbId != null && !showTmdbId.isBlank()) {
+                        preview.tmdbId.fetched = showTmdbId;
+
+                        String epUrl = String.format(TMDB_EPISODE_DETAILS, showTmdbId, season, ep, tmdbKey);
+                        JsonNode epRoot = fetchJson(epUrl);
+                        if (epRoot != null) {
+                            if (epRoot.has("name")) {
+                                preview.episodeTitle.fetched = epRoot.get("name").asText();
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("TMDB preview failed for {} S{}E{}: {}", seriesName, season, ep, e.getMessage());
+            }
+        }
+
+        // 2. IMDb Dev: find show IMDb ID → fetch episode list
+        try {
+            String showImdbId = findSeriesImdbId(video);
+            if (showImdbId != null && !showImdbId.isBlank()) {
+                preview.showImdbId.fetched = showImdbId;
+
+                String epListUrl = String.format(IMDB_DEV_TITLE_URL + "/episodes", showImdbId);
+                JsonNode epRoot = fetchJson(epListUrl);
+                if (epRoot != null && epRoot.path("episodes").isArray()) {
+                    for (JsonNode epNode : epRoot.path("episodes")) {
+                        String epSeason = epNode.path("season").asText();
+                        int epNum = epNode.path("episodeNumber").asInt();
+                        if (String.valueOf(season).equals(epSeason) && epNum == ep) {
+                            String epTitle = epNode.path("title").asText();
+                            if (epTitle != null && !epTitle.isBlank()) {
+                                preview.episodeTitle.fetched = epTitle;
+                            }
+                            String epId = epNode.path("id").asText();
+                            if (epId != null && !epId.isBlank()) {
+                                preview.imdbId.fetched = epId;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("IMDb Dev preview failed for {}: {}", video.id, e.getMessage());
+        }
+
+    }
+
+    private void previewMovie(Video video, VerificationPreview preview, String tmdbKey) {
+        if (tmdbKey != null && !tmdbKey.isBlank()) {
+            try {
+                String query = URLEncoder.encode(video.title != null ? video.title : video.filename, StandardCharsets.UTF_8);
+                String searchUrl = String.format(TMDB_SEARCH_MOVIE, tmdbKey, query);
+                JsonNode root = fetchJson(searchUrl);
+                if (root != null && root.path("results").isArray() && root.path("results").size() > 0) {
+                    JsonNode first = root.path("results").get(0);
+                    String foundTmdbId = first.path("id").asText();
+                    if (foundTmdbId != null && !foundTmdbId.isBlank()) {
+                        preview.tmdbId.fetched = foundTmdbId;
+
+                        String detailUrl = String.format(TMDB_MOVIE_DETAILS, foundTmdbId, tmdbKey);
+                        JsonNode detailRoot = fetchJson(detailUrl);
+                        if (detailRoot != null) {
+                            if (detailRoot.has("imdb_id")) {
+                                preview.imdbId.fetched = detailRoot.get("imdb_id").asText();
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("TMDB movie preview failed for {}: {}", video.id, e.getMessage());
+            }
+        }
+
     }
 
     private void enrichWithImdbDevMetadata(Models.Video video) {

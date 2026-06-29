@@ -10,6 +10,13 @@
             const p = this.player;
             if (p._isUndoing) return;
 
+            // Skip sections the user manually undid — they want to watch them
+            if (p._manuallyUndoneSections) {
+                if (p._manuallyUndoneSections.has('intro') && t >= p.markers.introStart && t < p.markers.introEnd) return;
+                if (p._manuallyUndoneSections.has('recap') && t >= p.markers.recapStart && t < p.markers.recapEnd) return;
+                if (p._manuallyUndoneSections.has('outro') && t >= p.markers.outroStart && p.markers.outroStart > 0) return;
+            }
+
             if (p.autoSkipIntro && t >= p.markers.introStart && t < p.markers.introEnd) {
                 this._performAutoSkip('intro', p.markers.introStart, p.markers.introEnd);
                 return;
@@ -65,18 +72,37 @@
             const p = this.player;
             if (p._autoSkipUndoTime > 0) {
                 p._isUndoing = true;
+
                 if (p.needsTranscode) {
                     p.streamMgr.performServerSeek(p._autoSkipUndoTime);
                 } else {
                     p.video.currentTime = p._autoSkipUndoTime;
                 }
+
+                // Track this section as manually undone — prevents re-auto-skip
+                if (p._autoSkipSection) {
+                    if (!p._manuallyUndoneSections) p._manuallyUndoneSections = new Set();
+                    p._manuallyUndoneSections.add(p._autoSkipSection);
+                }
+
+                // Change the notice text to guide the user, keep it visible so Auto toggle stays accessible
+                if (p.autoSkipNoticeText && p._autoSkipSection) {
+                    const labels = { intro: 'Watching intro — disable Auto to skip next time', recap: 'Watching recap', outro: 'Watching outro' };
+                    p.autoSkipNoticeText.textContent = labels[p._autoSkipSection] || 'Auto-skip disabled for this section';
+                }
                 if (p.autoSkipNotice) {
-                    p.autoSkipNotice.style.display = 'none';
+                    p.autoSkipNotice.style.display = 'flex';
                 }
                 if (p._autoSkipTimer) {
                     clearTimeout(p._autoSkipTimer);
                     p._autoSkipTimer = null;
                 }
+                // Extend the timer to dismiss the guidance notice after 8 seconds
+                p._autoSkipTimer = setTimeout(() => {
+                    if (p.autoSkipNotice) {
+                        p.autoSkipNotice.style.display = 'none';
+                    }
+                }, 8000);
                 setTimeout(() => { p._isUndoing = false; }, 1000);
             }
         }

@@ -62,10 +62,13 @@ public class GpuDetectionService {
         // 1. Detect NVIDIA
         allGpus.addAll(detectNvidia());
 
-        // 2. Detect Intel/AMD (VAAPI)
+        // 2. Detect Intel/AMD (VAAPI) — Linux only
         allGpus.addAll(detectVaapi());
 
-        // 3. Select best
+        // 3. Detect Windows GPUs (D3D11VA, DXVA2, QSV, AMF, MediaFoundation)
+        allGpus.addAll(detectWindowsGpu());
+
+        // 4. Select best
         bestSelection = selectBest(allGpus);
         LOG.info("GPU detection completed. Best GPU: {}", bestSelection.bestOverall().map(GpuInfo::name).orElse("None"));
     }
@@ -117,6 +120,12 @@ public class GpuDetectionService {
             return gpus;
         }
 
+        String ffmpeg = findFFmpeg();
+        if (ffmpeg == null) {
+            LOG.warn("FFmpeg not found for VAAPI detection");
+            return gpus;
+        }
+
         File[] renderNodes = driDir.listFiles((dir, name) -> name.startsWith("renderD"));
         if (renderNodes == null) return gpus;
 
@@ -128,6 +137,11 @@ public class GpuDetectionService {
                 
                 if (gpuVendor == GpuVendor.UNKNOWN) continue;
 
+                if (!probeFFmpegHwDevice(ffmpeg, "vaapi=va:" + devicePath)) {
+                    LOG.debug("VAAPI device {} not usable via ffmpeg", node.getName());
+                    continue;
+                }
+
                 gpus.add(new GpuInfo(
                     gpuVendor,
                     GpuType.INTEGRATED,
@@ -137,7 +151,7 @@ public class GpuDetectionService {
                     0,
                     true,
                     true,
-                    "unknown"
+                    "mesa-va-drivers"
                 ));
             } catch (Exception e) {
                 LOG.warn("Failed to detect VAAPI device {}: {}", node.getName(), e.getMessage());
@@ -178,7 +192,137 @@ public class GpuDetectionService {
             .max(Comparator.comparingInt(g -> g.vramMb));
 
         Optional<GpuInfo> bestOverall = nvidia.isPresent() ? nvidia : (amd.isPresent() ? amd : intel);
+        if (bestOverall.isEmpty() && !gpus.isEmpty()) {
+            bestOverall = Optional.of(gpus.get(0));
+        }
 
         return new BestGpuSelection(nvidia, amd, intel, bestOverall);
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
+    }
+
+    private String findFFmpeg() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-version");
+            Process process = pb.start();
+            if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                return "ffmpeg";
+            }
+        } catch (Exception e) {
+            LOG.debug("ffmpeg not found via PATH: {}", e.getMessage());
+        }
+        if (isWindows()) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("ffmpeg.exe", "-version");
+                Process process = pb.start();
+                if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                    return "ffmpeg.exe";
+                }
+            } catch (Exception e) {
+                LOG.debug("ffmpeg.exe not found via PATH: {}", e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    private boolean probeFFmpegHwDevice(String ffmpeg, String deviceType) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                ffmpeg, "-v", "error",
+                "-init_hw_device", deviceType,
+                "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.1",
+                "-f", "null", "-"
+            );
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes());
+            boolean finished = p.waitFor(10, TimeUnit.SECONDS);
+            boolean success = finished && p.exitValue() == 0;
+            if (success) {
+                LOG.info("GPU: '{}' device type is usable", deviceType);
+            } else {
+                LOG.debug("Windows GPU: '{}' not usable: {}", deviceType, output.trim().replace('\n', ' '));
+            }
+            return success;
+        } catch (Exception e) {
+            LOG.debug("Windows GPU probe failed for '{}': {}", deviceType, e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean probeFFmpegEncodersContain(String ffmpeg, String encoderName) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(ffmpeg, "-hide_banner", "-encoders");
+            Process process = pb.start();
+            String output = new String(process.getInputStream().readAllBytes());
+            process.waitFor();
+            return output.contains(encoderName);
+        } catch (Exception e) {
+            LOG.debug("Failed to probe encoder '{}': {}", encoderName, e.getMessage());
+            return false;
+        }
+    }
+
+    private List<GpuInfo> detectWindowsGpu() {
+        List<GpuInfo> gpus = new ArrayList<>();
+        if (!isWindows()) return gpus;
+
+        String ffmpeg = findFFmpeg();
+        if (ffmpeg == null) {
+            LOG.warn("FFmpeg not found for Windows GPU detection");
+            return gpus;
+        }
+
+        if (probeFFmpegHwDevice(ffmpeg, "d3d11va")) {
+            gpus.add(new GpuInfo(
+                GpuVendor.UNKNOWN, GpuType.DISCRETE,
+                "D3D11VA (DirectX 11 Video Acceleration)",
+                "d3d11va", 0, 0, true, true, "ffmpeg-probed"
+            ));
+        }
+
+        if (probeFFmpegHwDevice(ffmpeg, "dxva2")) {
+            gpus.add(new GpuInfo(
+                GpuVendor.UNKNOWN, GpuType.DISCRETE,
+                "DXVA2 (DirectX Video Acceleration 2)",
+                "dxva2", 0, 0, true, true, "ffmpeg-probed"
+            ));
+        }
+
+        if (probeFFmpegHwDevice(ffmpeg, "qsv")) {
+            gpus.add(new GpuInfo(
+                GpuVendor.INTEL, GpuType.INTEGRATED,
+                "Intel QuickSync (QSV)",
+                "qsv", 0, 0, true, true, "ffmpeg-probed"
+            ));
+        }
+
+        if (probeFFmpegHwDevice(ffmpeg, "amf")) {
+            gpus.add(new GpuInfo(
+                GpuVendor.AMD, GpuType.DISCRETE,
+                "AMD Advanced Media Framework (AMF)",
+                "amf", 0, 0, true, true, "ffmpeg-probed"
+            ));
+        }
+
+        if (probeFFmpegEncodersContain(ffmpeg, "h264_mf")) {
+            gpus.add(new GpuInfo(
+                GpuVendor.UNKNOWN, GpuType.DISCRETE,
+                "MediaFoundation (h264_mf)",
+                "mf", 0, 0, true, true, "ffmpeg-probed"
+            ));
+        }
+
+        if (probeFFmpegEncodersContain(ffmpeg, "hevc_mf")) {
+            gpus.add(new GpuInfo(
+                GpuVendor.UNKNOWN, GpuType.DISCRETE,
+                "MediaFoundation (hevc_mf)",
+                "mf", 0, 0, true, true, "ffmpeg-probed"
+            ));
+        }
+
+        return gpus;
     }
 }

@@ -3,8 +3,12 @@ package API.Rest;
 import Services.VideoService;
 import Services.VideoImportService;
 import Services.SettingsService;
+import Services.VideoConversionService;
+import Services.VideoMetadataService;
+import Services.MetadataEnrichmentWorker;
 import Models.Video;
 import Models.DTOs.TvShowDTO;
+import Models.DTOs.VerificationPreview;
 import io.quarkus.qute.Template;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
@@ -36,6 +40,9 @@ public class VideoManagementApi {
     SettingsService settingsService;
 
     @Inject
+    VideoConversionService videoConversionService;
+
+    @Inject
     com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Inject @io.quarkus.qute.Location("manageFragment.html")
@@ -46,6 +53,18 @@ public class VideoManagementApi {
 
     @Inject @io.quarkus.qute.Location("seriesEpisodesFragment.html")
     Template seriesEpisodesFragment;
+
+    @Inject @io.quarkus.qute.Location("needsAttentionFragment.html")
+    Template needsAttentionFragment;
+
+    @Inject @io.quarkus.qute.Location("verificationFragment.html")
+    Template verificationFragment;
+
+    @Inject
+    MetadataEnrichmentWorker metadataEnrichmentWorker;
+
+    @Inject
+    VideoMetadataService videoMetadataService;
 
     @GET
     @Blocking
@@ -288,6 +307,7 @@ public class VideoManagementApi {
     @POST
     @Path("/update/{id}")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Transactional
     @Blocking
     public Response updateVideo(
             @PathParam("id") Long id,
@@ -298,10 +318,233 @@ public class VideoManagementApi {
             @FormParam("episodeNumber") Integer episodeNumber,
             @FormParam("type") String type,
             @FormParam("showImdbId") String showImdbId,
-            @FormParam("imdbId") String imdbId) {
+            @FormParam("imdbId") String imdbId,
+            @FormParam("tmdbId") String tmdbId,
+            @FormParam("introStart") Double introStart,
+            @FormParam("introEnd") Double introEnd,
+            @FormParam("outroStart") Double outroStart,
+            @FormParam("outroEnd") Double outroEnd) {
         
         videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId, imdbId);
+        
+        // Also update TMDb ID and intro/outro timestamps if provided
+        if (tmdbId != null || introStart != null || introEnd != null || outroStart != null || outroEnd != null) {
+            Video video = videoService.find(id);
+            if (video != null) {
+                if (tmdbId != null && !tmdbId.isBlank()) video.tmdbId = tmdbId;
+                if (introStart != null) video.introStart = introStart;
+                if (introEnd != null) video.introEnd = introEnd;
+                if (outroStart != null) video.outroStart = outroStart;
+                if (outroEnd != null) video.outroEnd = outroEnd;
+                video.dateModified = java.time.LocalDateTime.now();
+                video.persist();
+            }
+        }
+        
         return Response.ok("Metadata updated successfully").build();
+    }
+
+    // ── Admin: Needs Attention ───────────────────────────────────────────
+
+    @GET
+    @Path("/needs-attention")
+    @Blocking
+    public String getNeedsAttentionPanel() {
+        List<Video> problematic = videoService.findVideosNeedingAttention(100);
+        
+        boolean workerRunning = metadataEnrichmentWorker.isRunning();
+        int pendingFailures = metadataEnrichmentWorker.getPendingFailureCount();
+        
+        return needsAttentionFragment
+                .data("videos", problematic)
+                .data("workerRunning", workerRunning)
+                .data("pendingFailures", pendingFailures)
+                .data("totalCount", problematic.size())
+                .render();
+    }
+
+    @POST
+    @Path("/re-enrich/{id}")
+    @Blocking
+    public Response reEnrichVideo(@PathParam("id") Long id) {
+        Video video = videoService.find(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("Video not found")
+                    .build();
+        }
+        
+        try {
+            videoMetadataService.fetchAndEnrichMetadata(video);
+            return Response.ok("Enrichment completed for '" + video.title + "'")
+                    .build();
+        } catch (Exception e) {
+            LOG.error("Manual re-enrichment failed for video {}: {}", id, e.getMessage());
+            return Response.serverError()
+                    .entity("Enrichment failed: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    /**
+     * Save search overrides and trigger enrichment in one step.
+     * Lets users correct auto-detected values before the metadata search runs.
+     */
+    @POST
+    @Path("/search-enrich/{id}")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    @Transactional
+    public Response searchAndEnrich(
+            @PathParam("id") Long id,
+            @FormParam("title") String title,
+            @FormParam("seriesTitle") String seriesTitle,
+            @FormParam("seasonNumber") Integer seasonNumber,
+            @FormParam("episodeNumber") Integer episodeNumber,
+            @FormParam("imdbId") String imdbId,
+            @FormParam("showImdbId") String showImdbId) {
+        
+        Video video = videoService.find(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("Video not found")
+                    .build();
+        }
+
+        // Apply overrides — only update non-null, non-blank values the user explicitly set
+        if (title != null && !title.isBlank()) video.title = title;
+        if (seriesTitle != null && !seriesTitle.isBlank()) video.seriesTitle = seriesTitle;
+        if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
+        if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
+        if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
+        if (showImdbId != null && !showImdbId.isBlank()) video.showImdbId = showImdbId;
+        video.dateModified = java.time.LocalDateTime.now();
+
+        try {
+            videoMetadataService.fetchAndEnrichMetadata(video);
+            LOG.info("Search-and-enrich completed for video {} ('{}')", id, video.title);
+            return Response.ok("Search and enrichment completed for '" + video.title + "'")
+                    .build();
+        } catch (Exception e) {
+            LOG.error("Search-and-enrich failed for video {}: {}", id, e.getMessage());
+            return Response.serverError()
+                    .entity("Search failed: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    // ── Verification (side-by-side metadata comparison) ──────────────────────
+
+    @GET
+    @Path("/verification")
+    @Blocking
+    public String getVerificationPanel() {
+        List<Video> candidates = videoService.findVideosForVerification(100);
+        return verificationFragment
+                .data("videos", candidates)
+                .data("totalCount", candidates.size())
+                .render();
+    }
+
+    @GET
+    @Path("/verification/preview/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    public Response getVerificationPreview(@PathParam("id") Long id,
+            @QueryParam("titleBlind") boolean titleBlind) {
+        Video video = videoService.find(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Video not found\"}")
+                    .build();
+        }
+        VerificationPreview preview = videoMetadataService.previewEnrichment(video, titleBlind);
+        try {
+            String json = objectMapper.writeValueAsString(preview);
+            return Response.ok(json).build();
+        } catch (Exception e) {
+            LOG.error("Failed to serialize verification preview for {}: {}", id, e.getMessage());
+            return Response.serverError()
+                    .entity("{\"error\":\"Failed to generate preview\"}")
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/verification/apply/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    @Transactional
+    public Response applyVerification(@PathParam("id") Long id, Map<String, Object> selections) {
+        Video video = videoService.find(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Video not found\"}")
+                    .build();
+        }
+        try {
+            if (selections.containsKey("title")) {
+                video.title = (String) selections.get("title");
+                if (selections.containsKey("_titleManual"))
+                    video.titleManuallyEdited = Boolean.TRUE.equals(selections.get("_titleManual"));
+            }
+            if (selections.containsKey("seriesTitle")) {
+                video.seriesTitle = (String) selections.get("seriesTitle");
+                if (selections.containsKey("_seriesTitleManual"))
+                    video.seriesTitleManuallyEdited = Boolean.TRUE.equals(selections.get("_seriesTitleManual"));
+            }
+            if (selections.containsKey("episodeTitle")) {
+                video.episodeTitle = (String) selections.get("episodeTitle");
+            }
+            if (selections.containsKey("seasonNumber")) {
+                Object val = selections.get("seasonNumber");
+                video.seasonNumber = val instanceof Number ? ((Number) val).intValue() : null;
+            }
+            if (selections.containsKey("episodeNumber")) {
+                Object val = selections.get("episodeNumber");
+                video.episodeNumber = val instanceof Number ? ((Number) val).intValue() : null;
+            }
+            if (selections.containsKey("imdbId")) {
+                video.imdbId = (String) selections.get("imdbId");
+            }
+            if (selections.containsKey("showImdbId")) {
+                video.showImdbId = (String) selections.get("showImdbId");
+            }
+            if (selections.containsKey("tmdbId")) {
+                video.tmdbId = (String) selections.get("tmdbId");
+            }
+            video.dateModified = java.time.LocalDateTime.now();
+            video.persist();
+            LOG.info("Applied verification selections for video {} ({})", id, video.title);
+            return Response.ok("{\"status\":\"ok\"}").build();
+        } catch (Exception e) {
+            LOG.error("Failed to apply verification for {}: {}", id, e.getMessage());
+            return Response.serverError()
+                    .entity("{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}")
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/verification/re-enrich-blind/{id}")
+    @Blocking
+    public Response reEnrichBlind(@PathParam("id") Long id) {
+        Video video = videoService.find(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("Video not found")
+                    .build();
+        }
+        try {
+            videoMetadataService.fetchAndEnrichMetadata(video);
+            return Response.ok("Blind enrichment completed for '" + video.title + "'").build();
+        } catch (Exception e) {
+            LOG.error("Blind re-enrichment failed for video {}: {}", id, e.getMessage());
+            return Response.serverError()
+                    .entity("Enrichment failed: " + e.getMessage())
+                    .build();
+        }
     }
 
     @POST
@@ -349,6 +592,101 @@ public class VideoManagementApi {
         }
     }
     
+    // ── Conversion endpoints ────────────────────────────────────────────────
+
+    @POST
+    @Path("/convert/batch")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response startBatchConversion(List<Long> videoIds) {
+        if (videoIds == null || videoIds.isEmpty()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("{\"error\":\"No video IDs provided\"}")
+                    .build();
+        }
+
+        String batchId = videoConversionService.startBatchConversion(videoIds);
+        if (batchId == null) {
+            return Response.serverError()
+                    .entity("{\"error\":\"Could not start batch conversion\"}")
+                    .build();
+        }
+
+        VideoConversionService.BatchInfo batch = videoConversionService.getBatchInfo(batchId);
+        int total = batch != null ? batch.total() : videoIds.size();
+        return Response.ok(String.format(
+                "{\"batchId\":\"%s\",\"total\":%d}",
+                batchId, total
+        )).build();
+    }
+
+    @GET
+    @Path("/convert/batch/status/{batchId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    public Response getBatchStatus(@PathParam("batchId") String batchId) {
+        VideoConversionService.BatchInfo batch = videoConversionService.getBatchInfo(batchId);
+        if (batch == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Batch not found\"}")
+                    .build();
+        }
+
+        String json = String.format(
+                "{\"batchId\":\"%s\",\"total\":%d,\"completed\":%d,\"failed\":%d,\"remaining\":%d,\"active\":%b,\"cancelled\":%b}",
+                batch.batchId, batch.total(), batch.completed.get(), batch.failed.get(),
+                batch.remaining(), batch.active, batch.cancelled
+        );
+        return Response.ok(json).build();
+    }
+
+    @POST
+    @Path("/convert/{id}")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response startConversion(@PathParam("id") Long id) {
+        Video video = videoService.find(id);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Video not found\"}")
+                    .build();
+        }
+
+        VideoConversionService.ConversionJob job = videoConversionService.startConversion(id);
+        if (job == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Could not start conversion\"}")
+                    .build();
+        }
+
+        String json = String.format(
+                "{\"jobId\":\"%s\",\"videoId\":%d,\"status\":\"%s\"}",
+                job.jobId, job.videoId, job.status.name()
+        );
+        return Response.ok(json).build();
+    }
+
+    @GET
+    @Path("/convert/status/{jobId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getConversionStatus(@PathParam("jobId") String jobId) {
+        VideoConversionService.ConversionJob job = videoConversionService.getJobStatus(jobId);
+        if (job == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Job not found\"}")
+                    .build();
+        }
+
+        String errorMsg = job.errorMessage != null ? job.errorMessage.replace("\"", "\\\"") : "";
+        String json = String.format(
+                "{\"jobId\":\"%s\",\"videoId\":%d,\"status\":\"%s\",\"progressPercent\":%d,\"message\":\"%s\",\"errorMessage\":\"%s\"}",
+                job.jobId, job.videoId, job.status.name(),
+                job.progressPercent, job.message, errorMsg
+        );
+        return Response.ok(json).build();
+    }
+
     @POST
     @Path("/unlock-series")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)

@@ -31,12 +31,14 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import jakarta.ws.rs.core.StreamingOutput;
 import java.io.RandomAccessFile;
+import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.concurrent.ThreadFactory;
@@ -50,6 +52,7 @@ import jakarta.transaction.Transactional;
 public class VideoAPI {
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoAPI.class);
+    private static final int DEFAULT_QUALITY_HEIGHT = 720;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -300,7 +303,9 @@ public class VideoAPI {
                                @HeaderParam("User-Agent") String userAgent,
                                @QueryParam("start") @DefaultValue("0") double startSeconds,
                                @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex,
-                               @QueryParam("quality") @DefaultValue("0") int qualityHeight) {
+                               @QueryParam("quality") @DefaultValue("0") int qualityHeight,
+                                @QueryParam("trace") String traceId,
+                                @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -330,45 +335,87 @@ public class VideoAPI {
         String filename = videoFile.getName().toLowerCase();
         boolean isMKV = filename.endsWith(".mkv");
 
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamVideo called: videoId={} start={}s audioTrack={} quality={} range={} isMKV={}", traceId, videoId, startSeconds, audioTrackIndex, qualityHeight, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none", isMKV);
+
         // Ensure we have metadata to make an informed transcoding decision
         if (video.videoCodec == null || video.audioCodec == null) {
             videoService.probeVideoMetadata(video);
         }
 
-        // Transcode if it's an MKV OR if the codec is not natively web-friendly (non-H.264)
-        if (isMKV || transcodingService.isTranscodeNeededForWeb(video, userAgent) || qualityHeight > 0) {
-            return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight);
+        // Default quality cap: when no explicit quality is requested, limit to
+        // 720p maximum.  Higher resolutions are only used when the user
+        // explicitly selects them from the quality menu.
+        boolean isFastStart = !isMKV && hasFastStart(videoFile);
+        boolean transcodeNeeded = transcodingService.isTranscodeNeededForWeb(video, userAgent);
+        // Client-side native HEVC support override: when the browser can play HEVC
+        // natively (e.g. Chrome with HEVC Video Extensions on Windows), skip the
+        // server-side FFmpeg transcode and serve the HEVC stream directly via
+        // the lightweight mkvmerge/FFmpeg-copy path.
+        if (nativeHevc && video.videoCodec != null &&
+            (video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc") ||
+             video.videoCodec.toLowerCase(Locale.ROOT).contains("h265"))) {
+            transcodeNeeded = false;
+        }
+        if (qualityHeight <= 0) {
+            int sourceHeight = parseSourceHeight(video.resolution);
+            if (isFastStart && !transcodeNeeded && sourceHeight > 0) {
+                // Faststart + native codec → serve directly at source resolution.
+                // No quality cap is applied because re-encoding just to downscale
+                // is CPU-intensive and counterproductive: transcoded H.264 at 720p
+                // often uses more bandwidth than source HEVC at 1080p.
+                LOG.info("[STREAM] videoId={} file={} codec={}/{} path=direct-faststart res={}",
+                    videoId, videoFile.getName(), video.videoCodec, video.audioCodec, video.resolution);
+                return streamDirectFile(videoFile, rangeHeader, traceId);
+            }
+            // File lacks faststart but codec is natively supported and
+            // resolution is known — remux as fMP4 at source resolution.
+            // Skipping the 720p cap means the transcode service will use
+            // -c:v copy (no re-encode) at the native resolution.
+            if (!transcodeNeeded && sourceHeight > 0) {
+                qualityHeight = sourceHeight;
+            } else {
+                // Codec needs conversion, or resolution is unknown —
+                // enforce the default quality cap.
+                qualityHeight = DEFAULT_QUALITY_HEIGHT;
+            }
         }
 
-        return streamDirectFile(videoFile, rangeHeader);
+        LOG.info("[STREAM] videoId={} file={} codec={}/{} path=fragmented-mp4 isMKV={} transcodeNeeded={} quality={}",
+            videoId, videoFile.getName(), video.videoCodec, video.audioCodec, isMKV,
+            transcodeNeeded, qualityHeight);
+        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight) {
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId) {
         final Long videoId = video.id;
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKV: videoId={} start={}s", traceId, videoId, startSeconds);
 
-        // For probe requests (bytes=0-1), wait for at least 5MB of transcoded data so we
-        // can return the current (real) file size. iOS Safari requires a known total and
-        // will reject video served with Content-Range: * (unknown total).
-        if (rangeHeader != null && rangeHeader.contains("bytes=0-1")) {
-            try {
-                java.nio.file.Path tempFile = transcodingService.getOrCreateTranscode(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight);
-                transcodingService.waitForFile(tempFile, 5 * 1024 * 1024, videoId, startSeconds, audioTrackIndex, qualityHeight);
-                long currentSize = Files.size(tempFile);
-                LOG.info("Stream probe for video {}: returning Content-Range bytes 0-1/{}", videoId, currentSize);
-                return Response.status(Response.Status.PARTIAL_CONTENT)
-                        .entity(new byte[]{0, 0})
-                        .header("Content-Type", "video/mp4")
-                        .header("Accept-Ranges", "bytes")
-                        .header("Content-Range", "bytes 0-1/" + currentSize)
-                        .header("Content-Length", "2")
-                        .header("Cache-Control", "no-cache")
-                        .build();
-            } catch (IOException e) {
-                LOG.error("Probe failed for video {}: {}", videoId, e.getMessage());
-                return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
-            } finally {
-                transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
-            }
+        // Pre-compute a stable estimated final size so that EVERY Content-Range response
+        // reports the same total. Safari (and other clients) reject the stream if the total
+        // changes between the probe (bytes=0-1) and subsequent range requests. Since we use
+        // -c:v copy (video is bit-identical), the output size ≈ source size. 10% headroom
+        // covers the audio re-encode (src audio → AAC 192k, often smaller than DTS/FLAC).
+        final long estimatedFinalSize = (long)(videoFile.length() * 1.10);
+
+        // iOS Safari sends a bytes=0-0 or bytes=0-1 probe to validate range support and
+        // discover the total file size before it requests the real init segment.  Respond
+        // immediately with an empty 206 so Safari never tries to parse partial MP4 data.
+        // The empty body is intentional: the transcode hasn't produced usable fMP4 bytes
+        // yet, but the 206 + Content-Range headers confirm that ranges are supported and
+        // reveal the (estimated) total size.  Safari then follows up with a proper range
+        // request (e.g. bytes 0-65535) by which time the transcode will have data ready.
+        if (rangeHeader != null && (rangeHeader.startsWith("bytes=0-0") || rangeHeader.startsWith("bytes=0-1"))) {
+            LOG.info("[trace:{}] iOS Safari bytes=0-1 probe for videoId={}, returning empty 206 (total={})", traceId != null ? traceId : "-", videoId, estimatedFinalSize);
+            String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+            return Response.status(Response.Status.PARTIAL_CONTENT)
+                    .header("Content-Type", "video/mp4")
+                    .header("Content-Range", "bytes 0-1/" + estimatedFinalSize)
+                    .header("Content-Length", "0")
+                    .header("Accept-Ranges", "bytes")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("ETag", etag)
+                    .header("Cache-Control", "no-cache")
+                    .build();
         }
 
         // Check for an existing cache file (from a prior pipe stream). If present with
@@ -380,7 +427,7 @@ public class VideoAPI {
                 try {
                     java.nio.file.Files.setLastModifiedTime(cacheFile, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
                 } catch (IOException ignored) {}
-                return streamFromTempFile(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight);
+                return streamFromTempFile(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
             }
         } catch (IOException ignored) {
             LOG.debug("Cache file check failed for video {}, proceeding with transcode", videoId);
@@ -391,18 +438,20 @@ public class VideoAPI {
         // fall back to a direct ffmpeg pipe.
         try {
             java.nio.file.Path tempFile = transcodingService.getOrCreateTranscode(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight);
-            return streamFromTempFile(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight);
+            return streamFromTempFile(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
         } catch (IOException e) {
             LOG.warn("Temp file transcode failed for video {}, falling back to direct pipe: {}", videoId, e.getMessage());
         }
 
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] Falling back to direct remux for video {}", traceId, videoId);
         LOG.debug("Fallback direct remux stream for video {} (start={}s, audio={})",
                   videoId, startSeconds, audioTrackIndex >= 0 ? audioTrackIndex : "default");
-        return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight);
+        return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, traceId);
     }
 
-    private Response streamRemuxedMKVDirect(Models.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight) {
+    private Response streamRemuxedMKVDirect(Models.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId) {
         final Long videoId = video.id;
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKVDirect: videoId={} start={}s", traceId, videoId, startSeconds);
         java.nio.file.Path cacheFile = transcodingService.getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight);
 
         StreamingOutput streamingOutput = output -> {
@@ -419,13 +468,16 @@ public class VideoAPI {
 
         return Response.ok(streamingOutput)
                 .header("Content-Type", "video/mp4")
+                .header("Accept-Ranges", "bytes")
                 .header("Cache-Control", "no-cache")
+                .header("Access-Control-Allow-Origin", "*")
                 .build();
     }
 
     private Response streamFromTempFile(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
-                                         String rangeHeader, int audioTrackIndex, int qualityHeight) {
+                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
         final Long videoId = video.id;
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromTempFile: videoId={} start={}s range={}", traceId, videoId, startSeconds, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
         // Fast-fail: if the transcode has already failed, return 503 instead of waiting 90s
         if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
@@ -470,11 +522,17 @@ public class VideoAPI {
             }
         }
 
-        // Validate range bounds (same as streamDirectFile)
-        if (end >= fileLength) end = fileLength - 1;
-        if (start > end) {
-            start = 0;
+        // Validate range bounds — for streaming files, do NOT reset start=0.
+        // That would send Safari duplicate data from byte 0 and freeze playback.
+        // Save original end before clamping so waitForFile uses the correct target.
+        long originalEnd = end;
+        if (end >= fileLength && start < fileLength) {
             end = fileLength - 1;
+        }
+        if (start > end) {
+            // Requested range starts past current EOF — preserve original end
+            // as the wait target so waitForFile blocks until data is produced.
+            end = originalEnd;
         }
 
         String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
@@ -486,9 +544,21 @@ public class VideoAPI {
         // reads a moof atom whose referenced mdat data hasn't been written yet.
         try {
             boolean xcodeFinished = transcodingService.isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
-            long waitTarget = end + 1;
+            long waitTarget;
+            if (start >= fileLength) {
+                // File hasn't grown to the requested start offset yet.
+                waitTarget = start + 1;
+                if (!xcodeFinished) waitTarget += 1024 * 1024;
+            } else {
+                waitTarget = end + 1;
+                if (!xcodeFinished) waitTarget += 1024 * 1024;
+            }
+            // Cap wait target: the streaming loop reads incrementally as the
+            // transcode produces data, so we only need enough to start reading.
+            // Without this cap, requesting the full file (bytes 0-2.5GB) would
+            // block for 90s waiting on a file that's still being transcoded.
             if (!xcodeFinished) {
-                waitTarget = end + 1 + 1024 * 1024;
+                waitTarget = Math.min(waitTarget, fileLength + 5 * 1024 * 1024);
             }
             transcodingService.waitForFile(tempFile, waitTarget, videoId, startSeconds, audioTrackIndex, qualityHeight);
         } catch (IOException e) {
@@ -505,12 +575,20 @@ public class VideoAPI {
                     .build();
         }
 
-        long contentLength = end - start + 1;
         long currentFileSize;
         try {
             currentFileSize = Files.size(tempFile);
         } catch (IOException e) {
             currentFileSize = fileLength;
+        }
+
+        // Content-Length: only up to what the file actually has after waitForFile
+        long contentLength;
+        if (start < currentFileSize) {
+            long adjustedEnd = Math.min(end, currentFileSize - 1);
+            contentLength = adjustedEnd - start + 1;
+        } else {
+            contentLength = 0;
         }
 
         boolean transcodeFinished = transcodingService.isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
@@ -568,7 +646,8 @@ public class VideoAPI {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", "video/mp4")
                 .header("Cache-Control", cacheControl)
-                .header("ETag", "\"" + etag + "\"");
+                .header("ETag", "\"" + etag + "\"")
+                .header("Access-Control-Allow-Origin", "*");
 
         boolean isRangeRequest = rangeHeader != null;
         if (transcodeFinished || isRangeRequest) {
@@ -578,10 +657,14 @@ public class VideoAPI {
         if (isRangeRequest) {
             if (transcodeFinished) {
                 long responseEnd = Math.min(finalEnd, currentFileSize - 1);
-                responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + responseEnd + "/" + currentFileSize);
+                // After transcode finishes, use actual file size (not inflated estimate).
+                // Safari is already playing and handles this total adjustment mid-stream.
+                long finishedTotal = currentFileSize;
+                responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + responseEnd + "/" + finishedTotal);
             } else {
-                // Use current file size so every response has a real (if growing) total.
-                long reportedSize = Math.max(currentFileSize, end + 1);
+                // Use current file size so every response has a real (if growing) total,
+                // but never below estimatedFinalSize so the total stays consistent across requests.
+                long reportedSize = Math.max(estimatedFinalSize, Math.max(currentFileSize, end + 1));
                 responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + Math.min(finalEnd, reportedSize - 1) + "/" + reportedSize);
             }
         }
@@ -593,7 +676,58 @@ public class VideoAPI {
         return responseBuilder.build();
     }
 
-    private Response streamDirectFile(File videoFile, String rangeHeader) {
+    /**
+     * Parses the video height from a resolution string (e.g. "1920x1080" → 1080).
+     * Returns 0 if the resolution is unknown or unparseable.
+     */
+    private static int parseSourceHeight(String resolution) {
+        if (resolution == null || !resolution.contains("x")) return 0;
+        try {
+            String[] parts = resolution.split("x");
+            return parts.length >= 2 ? Integer.parseInt(parts[1]) : 0;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private boolean hasFastStart(File videoFile) {
+        final int HEADER_SIZE = 65536;
+        try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
+            byte[] header = new byte[HEADER_SIZE];
+            int read = raf.read(header);
+            if (read < 8) return false;
+
+            int offset = 0;
+            while (offset + 8 <= read) {
+                int boxSize = ((header[offset] & 0xFF) << 24)
+                            | ((header[offset + 1] & 0xFF) << 16)
+                            | ((header[offset + 2] & 0xFF) << 8)
+                            | (header[offset + 3] & 0xFF);
+
+                // ISO 14496-12: size=0 means box extends to end of file
+                if (boxSize == 0) break;
+                // ISO 14496-12: size=1 means 64-bit extended size follows
+                if (boxSize == 1) {
+                    if (offset + 16 > read) break;
+                    offset += 16;
+                    continue;
+                }
+                if (boxSize < 8) return false;
+
+                String boxType = new String(header, offset + 4, 4, StandardCharsets.US_ASCII);
+                if ("moov".equals(boxType)) return true;
+                if ("mdat".equals(boxType)) return false;
+
+                offset += boxSize;
+            }
+        } catch (IOException e) {
+            LOG.warn("hasFastStart check failed for {}: {}", videoFile.getName(), e.getMessage());
+        }
+        return false;
+    }
+
+    private Response streamDirectFile(File videoFile, String rangeHeader, String traceId) {
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamDirectFile: file={} range={}", traceId, videoFile.getName(), rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
         long fileLength = videoFile.length();
         long start = 0;
         long end = fileLength - 1;
@@ -663,7 +797,8 @@ public class VideoAPI {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", mimeType)
                 .header("Content-Length", contentLength)
-                .header("Cache-Control", "public, max-age=86400, immutable");
+                .header("Cache-Control", "public, max-age=86400, immutable")
+                .header("Access-Control-Allow-Origin", "*");
 
         if (rangeHeader != null) {
             responseBuilder.header("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);

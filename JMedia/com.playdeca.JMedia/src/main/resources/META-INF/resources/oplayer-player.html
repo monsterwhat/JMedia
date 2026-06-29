@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OPlayer Test</title>
+
+    <!-- PrimeIcons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/primeicons@7.0.0/primeicons.css">
+
+    <!-- JMedia player theme -->
+    <link rel="stylesheet" href="/css/player.css">
+    <link rel="stylesheet" href="/css/subtitle-styling.css">
+
+    <style>
+        /* OPlayer container – fill the .video-wrapper */
+        .oplayer-wrapper {
+            width: 100% !important;
+            height: 100% !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+        }
+
+        .oplayer-wrapper .o-player,
+        .oplayer-wrapper .o-player .o-video {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .video-wrapper { z-index: 1 !important; }
+        .subtitle-menu { z-index: 2147483647 !important; }
+
+        /* Error / missing-videoId state */
+        .player-error {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+            color: #fff;
+            z-index: 9999;
+            font-family: 'Inter', sans-serif;
+            gap: 16px;
+        }
+        .player-error i { font-size: 3rem; color: var(--player-primary, #48c774); }
+        .player-error h2 { font-size: 1.5rem; font-weight: 600; margin: 0; }
+        .player-error p { font-size: 0.95rem; opacity: 0.7; margin: 0; }
+        .player-error code {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        /* Prev/Next navigation overlays */
+        .nav-overlay-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 100;
+            width: 48px;
+            height: 48px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.45);
+            color: #fff;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.25s ease, background 0.2s ease;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+        .video-wrapper:hover .nav-overlay-btn { opacity: 1; }
+        .nav-overlay-btn:hover { background: rgba(0,0,0,0.7); }
+        .nav-overlay-btn:active { background: rgba(0,0,0,0.85); }
+        #prevBtn { left: 12px; }
+        #nextBtn { right: 12px; }
+        .nav-overlay-btn i { pointer-events: none; }
+    </style>
+</head>
+<body style="margin:0;background:#111;min-height:100vh;display:flex;align-items:center;justify-content:center;">
+
+    <!-- ==================== MAIN PLAYER CONTAINER ==================== -->
+    <div class="player-container" id="customPlayer"
+         data-video-id=""
+         data-title="OPlayer"
+         data-duration="0"
+         data-type="movie">
+
+        <div class="video-wrapper">
+            <div id="oplayerContainer" class="oplayer-wrapper"></div>
+            <canvas id="assCanvas" class="ass-canvas"></canvas>
+            <button id="prevBtn" class="nav-overlay-btn" aria-label="Previous video"><i class="pi pi-step-backward"></i></button>
+            <button id="nextBtn" class="nav-overlay-btn" aria-label="Next video"><i class="pi pi-step-forward"></i></button>
+        </div>
+
+        <!-- Back button -->
+        <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;">
+            <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
+        </div>
+
+        <!-- Settings toggle button (top-right so it doesn't overlap native control bars at the bottom) -->
+        <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings" style="position:absolute;top:15px;right:15px;z-index:1000;background:rgba(0,0,0,0.6);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);font-size:1.2rem;">
+            <i class="pi pi-cog"></i>
+        </button>
+
+        <!-- Subtitle/Settings menu -->
+        <div class="subtitle-menu settings-menu" id="subtitleMenu">
+            <div class="settings-page active" data-page="main">
+                <div class="menu-header">Settings</div>
+                <div class="settings-item" data-page="subtitles">
+                    <span>Subtitles</span>
+                    <i class="pi pi-chevron-right"></i>
+                </div>
+                <div class="settings-item" data-page="offset">
+                    <span>Timing Offset</span>
+                    <i class="pi pi-chevron-right"></i>
+                </div>
+                <div class="settings-item" data-page="style">
+                    <span>Style</span>
+                    <i class="pi pi-chevron-right"></i>
+                </div>
+                <div class="settings-item" data-page="quality">
+                    <span>Video Quality</span>
+                    <i class="pi pi-chevron-right"></i>
+                </div>
+                <div class="settings-item" data-page="player">
+                    <span>Video Player</span>
+                    <i class="pi pi-chevron-right"></i>
+                </div>
+            </div>
+            <div class="settings-page" data-page="subtitles">
+                <div class="settings-back"><i class="pi pi-chevron-left"></i> Subtitles</div>
+                <div class="subtitle-list" id="subtitleList">
+                    <div class="subtitle-option active" id="sub-off" data-id="off">Off</div>
+                </div>
+            </div>
+            <div class="settings-page" data-page="offset">
+                <div class="settings-back"><i class="pi pi-chevron-left"></i> Timing Offset</div>
+                <div class="subtitle-correction-row">
+                    <button class="correction-btn" id="subMinusBtn">-0.2s</button>
+                    <div class="correction-val" id="subCorrectionVal" title="Click to edit manually">0.0s</div>
+                    <button class="correction-btn" id="subPlusBtn">+0.2s</button>
+                    <button class="correction-btn correction-reset" id="subResetBtn" title="Reset to 0">↺</button>
+                </div>
+            </div>
+            <div class="settings-page" data-page="style" id="subtitleStylePage">
+                <div class="settings-back"><i class="pi pi-chevron-left"></i> Style</div>
+                <div class="settings-content" style="padding:12px;display:flex;flex-direction:column;gap:12px;">
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+                        <span>Font Size: <span id="subFontSizeVal">100</span>%</span>
+                        <input type="range" id="subFontSize" min="50" max="200" value="100" step="5">
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+                        <span>Color</span>
+                        <input type="color" id="subFontColor" value="#ffffff">
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+                        <span>Position: <span id="subPositionVal">90</span>% from bottom</span>
+                        <input type="range" id="subPosition" min="0" max="100" value="90">
+                    </label>
+                </div>
+            </div>
+            <div class="settings-page" data-page="quality">
+                <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Quality</div>
+                <div class="quality-options" id="qualityOptions">
+                    <button class="quality-btn" data-quality="720">720p</button>
+                    <button class="quality-btn" data-quality="1080">1080p</button>
+                    <button class="quality-btn" data-quality="2160">4K</button>
+                    <button class="quality-btn" data-quality="480">480p</button>
+                    <button class="quality-btn" data-quality="0">Source</button>
+                </div>
+            </div>
+            <div class="settings-page" data-page="player">
+                <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Player</div>
+                <div class="quality-options" id="playerOptions">
+                    <button class="quality-btn player-option" data-player="simple">JMedia Player</button>
+                    <button class="quality-btn player-option" data-player="videojs">Video.js</button>
+                    <button class="quality-btn player-option" data-player="oplayer">OPlayer</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error overlay -->
+        <div class="player-error" id="errorOverlay" style="display:none;">
+            <i class="pi pi-exclamation-triangle"></i>
+            <h2>No Video Specified</h2>
+            <p>Add <code>?videoId=XXX</code> to the URL to play a video.</p>
+        </div>
+    </div>
+
+    <!-- ==================== SCRIPTS ==================== -->
+
+    <script src="/js/player/Utils.js?v=3"></script>
+
+    <!-- Shared test player feature module -->
+    <script src="/js/test-player-common.js"></script>
+
+    <!-- OPlayer Core + UI -->
+    <script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"></script>
+
+    <!-- Production adapter for OPlayer -->
+    <script src="/js/player/oplayer-adapter.js?v=5"></script>
+
+    <script>
+    (function() {
+        'use strict';
+
+        const params = new URLSearchParams(window.location.search);
+        const videoId = params.get('videoId');
+
+        if (!videoId) {
+            document.getElementById('errorOverlay').style.display = 'flex';
+            return;
+        }
+
+        var container = document.getElementById('customPlayer');
+        container.dataset.videoId = videoId;
+        container.dataset.title = 'Video ' + videoId;
+
+        // Use the same init function as the production page
+        if (window.initOPlayerAdapter) {
+            initOPlayerAdapter(videoId);
+        } else {
+            console.error('[OPlayer Test] initOPlayerAdapter not found');
+        }
+    })();
+    </script>
+
+</body>
+</html>

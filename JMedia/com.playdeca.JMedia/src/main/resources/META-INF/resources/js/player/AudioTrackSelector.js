@@ -68,6 +68,14 @@
             const trackList = document.getElementById('audioTrackList');
             if (!trackList) return;
 
+            // Hide the entire selector when there are no additional audio tracks
+            const selector = trackList.closest('.audio-track-selector');
+            if (!window.availableAudioTracks || window.availableAudioTracks.length === 0) {
+                if (selector) selector.style.display = 'none';
+                return;
+            }
+            if (selector) selector.style.display = '';
+
             while (trackList.children.length > 1) {
                 trackList.removeChild(trackList.lastChild);
             }

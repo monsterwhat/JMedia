@@ -50,18 +50,24 @@
             const playerContainer = document.querySelector('.player-container');
             const videoElement = document.getElementById('videoElement');
             const customPlayer = document.getElementById('customPlayer');
-            const isOnVideoPage = playerContainer || videoElement || customPlayer;
+            const isActivePlayer = playerContainer || videoElement || customPlayer;
+            const isVideoPath = window.location.pathname.startsWith('/video');
             const musicPlayer = document.querySelector('.mobile-player') ||
                                document.querySelector('.persistent-music-player') ||
                                document.getElementById('musicPlayerContainer');
 
-            if (isOnVideoPage) {
+            if (isActivePlayer || isVideoPath) {
+                // Suspend DJ activity when entering video section
+                if (!window.videoPlaying && window.DjTransitionManager) {
+                    window.DjTransitionManager.suspendForVideo();
+                }
                 window.videoPlaying = true;
                 document.body.classList.add('video-active');
                 if (musicPlayer) {
                     musicPlayer.classList.add('video-active');
                     musicPlayer.style.setProperty('display', 'none', 'important');
                 }
+                // Only pause audio when an actual player is present (not just browsing)
                 const audio = JMedia.PlaybackApi.getAudioElement();
                 if (audio && !audio.paused) {
                     audio.pause();
@@ -213,13 +219,10 @@
                 }
             });
 
-            if (window.setupMediaSessionHandlers) {
-                window.setupMediaSessionHandlers(
-                    window.apiPost,
-                    window.setPlaybackTime,
-                    JMedia.PlaybackApi.getAudioElement()
-                );
-            }
+            // iOS-specific: registering Media Session play/pause action handlers
+            // causes the page to be suspended ~30s after screen lock. Without
+            // handlers iOS manages the <audio> element natively for continuous
+            // background playback, which is the behavior we want.
         }
     };
 

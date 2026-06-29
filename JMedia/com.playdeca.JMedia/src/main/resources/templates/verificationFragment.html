@@ -1,0 +1,332 @@
+<div class="library-header">
+    <div class="is-flex is-justify-content-between is-align-items-center is-flex-wrap-wrap" style="gap: 1rem;">
+        <div>
+            <h1 class="library-title">Metadata Verification</h1>
+            <p class="subtitle is-6 has-text-grey-light">
+                Videos where re-running enrichment may change metadata
+                <span class="tag is-info ml-2"><i class="pi pi-eye mr-1"></i>Side-by-side</span>
+            </p>
+        </div>
+        <div class="field is-grouped">
+            <div class="control">
+                <a class="button is-info is-outlined is-small" href="javascript:void(0)" onclick="window.videoSPA.switchSection('manage')">
+                    <i class="pi pi-arrow-left mr-1"></i> Back to Manage
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="notification is-info is-light mt-4" style="background: rgba(32, 156, 238, 0.1); border: 1px solid rgba(32, 156, 238, 0.2); border-radius: 8px;">
+    <div class="is-flex is-align-items-center" style="gap: 0.5rem;">
+        <i class="pi pi-info-circle" style="color: var(--standard-accent);"></i>
+        <span class="is-size-7 has-text-grey-light">Click any row to compare current metadata against what external APIs return. For each differing field, pick which value to keep.</span>
+    </div>
+</div>
+
+<div class="mt-4" id="verificationListContainer">
+    {#if videos.size() == 0}
+    <div class="has-text-centered p-6">
+        <i class="pi pi-check-circle" style="font-size: 2rem; color: rgba(72, 199, 116, 0.3); margin-bottom: 1rem;"></i>
+        <p class="has-text-grey is-size-7">No candidates for verification right now</p>
+    </div>
+    {#else}
+    <div class="table-container" style="max-height: 65vh; overflow-y: auto;">
+        <table class="table is-fullwidth is-hoverable" style="background: transparent; color: rgba(255,255,255,0.85);">
+            <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #1e1e2a; z-index: 1;">
+                    <th style="color: var(--standard-accent);">Title</th>
+                    <th style="color: var(--standard-accent);">Type</th>
+                    <th style="color: var(--standard-accent);">External IDs</th>
+                    <th style="color: var(--standard-accent);" class="has-text-right">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {#for video in videos}
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer;"
+                    onclick="openVerifyModal({video.id}, '{video.type}')">
+                    <td style="vertical-align: middle;">
+                        <div style="font-size: 0.85rem;">{video.title}</div>
+                        {#if video.seriesTitle}
+                            <div class="is-size-7 has-text-grey-light">{video.seriesTitle}</div>
+                        {/if}
+                    </td>
+                    <td style="vertical-align: middle;">
+                        <span class="tag is-small {#if video.type == 'episode'}is-info{#else}is-warning{/if}" style="font-size: 0.65rem;">
+                            {video.type}
+                        </span>
+                    </td>
+                    <td style="vertical-align: middle; font-size: 0.7rem;">
+                        {#if video.imdbId}<span class="tag is-small is-dark mr-1" style="font-size: 0.6rem;">IMDb</span>{/if}
+                        {#if video.tmdbId}<span class="tag is-small is-dark mr-1" style="font-size: 0.6rem;">TMDb</span>{/if}
+                        {#if video.showImdbId}<span class="tag is-small is-dark" style="font-size: 0.6rem;">Show IMDb</span>{/if}
+                    </td>
+                    <td class="has-text-right" style="vertical-align: middle;">
+                        <button class="button is-info is-small is-outlined" style="font-size: 0.7rem; height: 1.8rem;">
+                            <i class="pi pi-eye mr-1"></i> Compare
+                        </button>
+                    </td>
+                </tr>
+                {/for}
+            </tbody>
+        </table>
+    </div>
+    {/if}
+</div>
+
+<!-- Verification Comparison Modal -->
+<div class="modal" id="verifyModal">
+    <div class="modal-background" onclick="closeVerifyModal()"></div>
+    <div class="modal-card" style="max-width: 800px; width: 95%; background: #1e1e2a; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;">
+        <header class="modal-card-head" style="background: transparent; border-bottom: 1px solid rgba(255,255,255,0.08); border-radius: 12px 12px 0 0; padding: 1.25rem 1.5rem;">
+            <p class="modal-card-title has-text-white is-size-5" style="font-weight: 600;">
+                <i class="pi pi-eye mr-2" style="color: var(--standard-accent);"></i>
+                <span id="verifyModalTitle">Verify Metadata</span>
+            </p>
+            <div class="is-flex is-align-items-center mr-3" style="gap: 6px;">
+                <label class="is-size-7 has-text-grey-light" for="titleBlindToggle">
+                    <i class="pi pi-low-vision mr-1"></i>Title-Blind
+                </label>
+                <input class="switch is-small is-info" type="checkbox" id="titleBlindToggle" onchange="refreshVerificationPreview()">
+            </div>
+            <button class="delete" onclick="closeVerifyModal()" aria-label="close"></button>
+        </header>
+        <section class="modal-card-body" style="background: transparent; padding: 1.5rem; max-height: 70vh; overflow-y: auto;">
+            <div id="verifyPreviewContent">
+                <div class="is-flex is-justify-content-center p-6">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
+                </div>
+            </div>
+        </section>
+        <footer class="modal-card-foot" style="background: transparent; border-top: 1px solid rgba(255,255,255,0.08); border-radius: 0 0 12px 12px; padding: 1rem 1.5rem; gap: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <span id="verifyStatus" class="is-size-7 has-text-grey-light"></span>
+            <div style="display: flex; gap: 8px;">
+                <button class="button is-light" onclick="closeVerifyModal()">Cancel</button>
+                <button class="button is-success" onclick="applyVerification()" id="applyVerifyBtn">
+                    <i class="pi pi-check mr-1"></i> Apply Selected
+                </button>
+            </div>
+        </footer>
+    </div>
+</div>
+
+<script>
+    var _currentVerifyVideoId = null;
+    var _currentVerifyPreview = null;
+
+    function openVerifyModal(videoId, type) {
+        _currentVerifyVideoId = videoId;
+        document.getElementById('verifyModalTitle').textContent = 'Verify Metadata #' + videoId;
+        document.getElementById('verifyStatus').textContent = '';
+        document.getElementById('applyVerifyBtn').disabled = true;
+        document.getElementById('titleBlindToggle').checked = false;
+        document.getElementById('verifyModal').classList.add('is-active');
+        refreshVerificationPreview();
+    }
+
+    function closeVerifyModal() {
+        document.getElementById('verifyModal').classList.remove('is-active');
+        _currentVerifyVideoId = null;
+        _currentVerifyPreview = null;
+    }
+
+    async function refreshVerificationPreview() {
+        var id = _currentVerifyVideoId;
+        if (!id) return;
+
+        var titleBlind = document.getElementById('titleBlindToggle').checked;
+        var content = document.getElementById('verifyPreviewContent');
+        content.innerHTML = '<div class="is-flex is-justify-content-center p-6"><i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i></div>';
+        document.getElementById('applyVerifyBtn').disabled = true;
+
+        try {
+            var resp = await fetch('/api/video/manage/verification/preview/' + id + '?titleBlind=' + titleBlind);
+            if (!resp.ok) {
+                content.innerHTML = '<div class="notification is-danger is-light"><i class="pi pi-exclamation-triangle mr-2"></i>Failed to load preview</div>';
+                return;
+            }
+            var preview = await resp.json();
+            _currentVerifyPreview = preview;
+            renderVerificationPreview(preview, content);
+            document.getElementById('applyVerifyBtn').disabled = !preview.hasDifferences;
+        } catch (e) {
+            content.innerHTML = '<div class="notification is-danger is-light"><i class="pi pi-exclamation-triangle mr-2"></i>Error: ' + e.message + '</div>';
+        }
+    }
+
+    function renderVerificationPreview(preview, container) {
+        var isEpisode = preview.type === 'episode';
+        var fields = [];
+
+        fields.push({ key: 'title', label: 'Title', current: preview.title.current, fetched: preview.title.fetched, diff: preview.title.different, currentEmpty: preview.title.currentEmpty });
+        if (isEpisode) {
+            fields.push({ key: 'seriesTitle', label: 'Series Title', current: preview.seriesTitle.current, fetched: preview.seriesTitle.fetched, diff: preview.seriesTitle.different, currentEmpty: preview.seriesTitle.currentEmpty });
+            fields.push({ key: 'episodeTitle', label: 'Episode Title', current: preview.episodeTitle.current, fetched: preview.episodeTitle.fetched, diff: preview.episodeTitle.different, currentEmpty: preview.episodeTitle.currentEmpty });
+            fields.push({ key: 'seasonNumber', label: 'Season', current: preview.seasonNumber.current, fetched: preview.seasonNumber.fetched, diff: preview.seasonNumber.different, currentEmpty: preview.seasonNumber.currentEmpty });
+            fields.push({ key: 'episodeNumber', label: 'Episode #', current: preview.episodeNumber.current, fetched: preview.episodeNumber.fetched, diff: preview.episodeNumber.different, currentEmpty: preview.episodeNumber.currentEmpty });
+        }
+        fields.push({ key: 'imdbId', label: 'IMDb ID', current: preview.imdbId.current, fetched: preview.imdbId.fetched, diff: preview.imdbId.different, currentEmpty: preview.imdbId.currentEmpty });
+        if (isEpisode) {
+            fields.push({ key: 'showImdbId', label: 'Show IMDb ID', current: preview.showImdbId.current, fetched: preview.showImdbId.fetched, diff: preview.showImdbId.different, currentEmpty: preview.showImdbId.currentEmpty });
+        }
+        fields.push({ key: 'tmdbId', label: 'TMDb ID', current: preview.tmdbId.current, fetched: preview.tmdbId.fetched, diff: preview.tmdbId.different, currentEmpty: preview.tmdbId.currentEmpty });
+
+        var html = '';
+        html += '<div class="table-container"><table class="table is-fullwidth" style="background: transparent; color: rgba(255,255,255,0.85);">';
+        html += '<thead><tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">';
+        html += '<th style="color: var(--standard-accent); width: 30px;"></th>';
+        html += '<th style="color: var(--standard-accent);">Field</th>';
+        html += '<th style="color: var(--standard-accent);">Current Value</th>';
+        html += '<th style="color: var(--standard-accent);">Fetched Value</th>';
+        html += '</tr></thead><tbody>';
+
+        var changedCount = 0;
+        for (var i = 0; i < fields.length; i++) {
+            var f = fields[i];
+            var rowClass = f.diff ? 'style="border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(255, 193, 7, 0.06);"' : 'style="border-bottom: 1px solid rgba(255,255,255,0.05);"';
+            var badge = f.diff ? '<span class="tag is-warning is-light is-small" style="font-size: 0.6rem;">CHANGED</span>' : '<span class="tag is-success is-light is-small" style="font-size: 0.6rem;">SAME</span>';
+            var checked = f.diff ? 'checked' : '';
+            var disabled = f.diff ? '' : 'disabled';
+            var currentDisplay = f.current !== null && f.current !== undefined ? f.current : '<span class="has-text-grey is-size-7" style="font-style: italic;">—</span>';
+            var fetchedDisplay = f.fetched !== null && f.fetched !== undefined ? f.fetched : '<span class="has-text-grey is-size-7" style="font-style: italic;">—</span>';
+
+            if (f.diff) changedCount++;
+
+            html += '<tr ' + rowClass + '>';
+            html += '<td style="vertical-align: middle;">';
+            html += '<input type="radio" name="verify_' + f.key + '" value="fetched" ' + checked + ' ' + disabled + ' class="verify-radio" data-field="' + f.key + '">';
+            html += '</td>';
+            html += '<td style="vertical-align: middle;"><span class="is-size-7">' + badge + ' ' + f.label + '</span></td>';
+            html += '<td style="vertical-align: middle; font-size: 0.85rem;">' + currentDisplay + '</td>';
+            html += '<td style="vertical-align: middle; font-size: 0.85rem;">' + fetchedDisplay + '</td>';
+            html += '</tr>';
+
+            html += '<input type="radio" name="verify_' + f.key + '" value="current" style="display:none;" ' + (!f.diff ? 'checked' : '') + ' data-field="' + f.key + '">';
+        }
+
+        html += '</tbody></table></div>';
+
+        if (changedCount === 0) {
+            html += '<div class="notification is-success is-light mt-3" style="background: rgba(72, 199, 116, 0.08); border: 1px solid rgba(72, 199, 116, 0.2); border-radius: 8px;">';
+            html += '<i class="pi pi-check-circle mr-2" style="color: #48c774;"></i>';
+            html += '<span class="is-size-7 has-text-grey-light">All fields match API data. Nothing to update.</span></div>';
+        } else {
+            html += '<div class="notification is-warning is-light mt-3" style="background: rgba(255, 193, 7, 0.06); border: 1px solid rgba(255, 193, 7, 0.2); border-radius: 8px;">';
+            html += '<i class="pi pi-exclamation-triangle mr-2" style="color: #ffc107;"></i>';
+            html += '<span class="is-size-7 has-text-grey-light">' + changedCount + ' field(s) differ. Radio buttons pre-selected to use fetched values for changed fields.</span></div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+    function applyVerification() {
+        var preview = _currentVerifyPreview;
+        if (!preview) return;
+
+        var selections = {};
+        var isEpisode = preview.type === 'episode';
+        var fieldKeys = ['title'];
+        if (isEpisode) fieldKeys.push('seriesTitle', 'episodeTitle', 'seasonNumber', 'episodeNumber');
+        fieldKeys.push('imdbId');
+        if (isEpisode) fieldKeys.push('showImdbId');
+        fieldKeys.push('tmdbId');
+
+        for (var i = 0; i < fieldKeys.length; i++) {
+            var key = fieldKeys[i];
+            var radios = document.getElementsByName('verify_' + key);
+            var selected = 'current';
+            for (var j = 0; j < radios.length; j++) {
+                if (radios[j].checked) {
+                    selected = radios[j].value;
+                    break;
+                }
+            }
+
+            var srcField = preview[key];
+            if (selected === 'fetched' && srcField.fetched !== null && srcField.fetched !== undefined) {
+                selections[key] = srcField.fetched;
+                if (key === 'title') selections['_titleManual'] = true;
+                if (key === 'seriesTitle') selections['_seriesTitleManual'] = true;
+            }
+        }
+
+        var btn = document.getElementById('applyVerifyBtn');
+        var status = document.getElementById('verifyStatus');
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+        status.textContent = 'Applying...';
+
+        fetch('/api/video/manage/verification/apply/' + _currentVerifyVideoId, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(selections)
+        })
+        .then(function(r) {
+            if (!r.ok) throw new Error('Apply failed');
+            return r.json();
+        })
+        .then(function() {
+            status.textContent = 'Applied!';
+            window.Toast.success('Metadata updated successfully!');
+            closeVerifyModal();
+        })
+        .catch(function(err) {
+            status.textContent = 'Error';
+            window.Toast.error('Failed to apply: ' + err.message);
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        });
+    }
+</script>
+
+<style>
+    .switch[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 36px;
+        height: 20px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 10px;
+        position: relative;
+        cursor: pointer;
+        vertical-align: middle;
+        margin: 0;
+    }
+    .switch[type="checkbox"]::after {
+        content: '';
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: white;
+        top: 2px;
+        left: 2px;
+        transition: all 0.2s;
+    }
+    .switch[type="checkbox"]:checked {
+        background: var(--standard-accent);
+    }
+    .switch[type="checkbox"]:checked::after {
+        left: 18px;
+    }
+    .verify-radio {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 50%;
+        position: relative;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .verify-radio:checked {
+        border-color: var(--standard-accent);
+        background: var(--standard-accent);
+        box-shadow: inset 0 0 0 3px #1e1e2a;
+    }
+    .verify-radio:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+</style>

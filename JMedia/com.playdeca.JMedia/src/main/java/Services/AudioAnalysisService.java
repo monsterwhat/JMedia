@@ -359,6 +359,7 @@ public class AudioAnalysisService {
             
             // For each beat, find similar beats (same position in different cycle)
             for (int i = 0; i < beatTimes.size(); i++) {
+                Set<Integer> seen = new HashSet<>(); // O(1) dedup instead of List.contains()
                 List<Integer> similar = new ArrayList<>();
                 
                 int beatInBar = i % BEATS_PER_BAR;
@@ -370,7 +371,7 @@ public class AudioAnalysisService {
                     if (Math.abs(otherBar - currentBar) <= 1) continue; // Skip adjacent bars
                     
                     int otherBeatIndex = otherBar * BEATS_PER_BAR + beatInBar;
-                    if (otherBeatIndex < beatTimes.size()) {
+                    if (otherBeatIndex < beatTimes.size() && seen.add(otherBeatIndex)) {
                         similar.add(otherBeatIndex);
                     }
                 }
@@ -385,10 +386,8 @@ public class AudioAnalysisService {
                     double posDiff = Math.abs(currentRelPos - otherRelPos);
                     
                     // Beats at similar relative position are also similar
-                    if (posDiff < 0.1 || (posDiff > 0.4 && posDiff < 0.6)) {
-                        if (!similar.contains(j)) {
-                            similar.add(j);
-                        }
+                    if ((posDiff < 0.1 || (posDiff > 0.4 && posDiff < 0.6)) && seen.add(j)) {
+                        similar.add(j);
                     }
                 }
                 

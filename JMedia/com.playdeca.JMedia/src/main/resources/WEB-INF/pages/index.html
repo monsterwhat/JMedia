@@ -26,11 +26,13 @@
         <link rel="stylesheet" href="/lib/primeicons.css">
         <link rel="stylesheet" href="/css/video-cards.css">
         <link rel="stylesheet" href="/css/jmedia-unified.css">
+        <link rel="stylesheet" href="/css/subtitle-styling.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <!-- SPA Scripts -->
         <script src="/js/CollectionManager.js" defer></script>
         <script src="/js/video-spa.js" defer></script>
+        <script src="/js/videoContextMenu.js" defer></script>
         
         <!-- Legacy/Shared Scripts (Loaded globally) -->
         <!-- Modular Music Bar System (Migrated from legacy monolith) -->
@@ -61,6 +63,8 @@
         <script src="/js/jmedia/Helpers.js" defer></script>
         <script src="/js/jmedia/ToastSystem.js" defer></script>
         <script src="/js/jmedia/Settings.js" defer></script>
+        <script src="/js/video-settings.js" defer></script>
+        <script src="/js/ai-subtitle-generator.js" defer></script>
         <script src="/js/jmedia/Users.js" defer></script>
         <script src="/js/jmedia/SessionManagement.js" defer></script>
         <script src="/js/jmedia/SyncUI.js" defer></script>
@@ -81,6 +85,7 @@
         <script src="/js/jmedia/PlaylistBodyHelper.js" defer></script>
         <script src="/js/jmedia/App.js" defer></script>
         <script src="/js/jmedia/MobileApp.js" defer></script>
+        <script src="/js/subtitle-manager.js" defer></script>
         <script src="/js/timezone-fix.js" defer></script>
 
     </head>
@@ -144,6 +149,12 @@
                              <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="window.switchSection('manage')">
                                  <i class="pi pi-cog"></i> <span>Manage Library</span>
                              </a>
+                              <a href="javascript:void(0)" class="nav-item" id="nav-needs-attention" onclick="window.switchSection('needsAttention')">
+                                  <i class="pi pi-exclamation-triangle" style="color: #ffa502;"></i> <span>Needs Attention</span>
+                              </a>
+                              <a href="javascript:void(0)" class="nav-item" id="nav-verification" onclick="window.switchSection('verification')">
+                                  <i class="pi pi-check-square" style="color: #48c774;"></i> <span>Verification</span>
+                              </a>
                              <a href="javascript:void(0)" class="nav-item admin-only" id="nav-external" onclick="window.switchSection('external')">
                                   <i class="pi pi-external-link"></i> <span>External Link</span>
                                   <span class="tag is-small is-warning" style="margin-left: auto;">Beta</span>
@@ -257,7 +268,7 @@
 
                 <!-- Persistent Player -->
                 <div id="musicPlayerContainer" class="persistent-music-player">
-                    <audio id="audioPlayer" preload="auto"></audio>
+                    <audio id="audioPlayer" preload="auto" playsinline></audio>
                     <div class="mobile-player">
                         <div class="mobile-player-info">
                             <div class="mobile-player-artwork" id="songCoverImageContainer"><img id="songCoverImage" src="/logo.png" alt="Cover"><i class="pi pi-music" id="songCoverFallback" style="display: none;"></i></div>

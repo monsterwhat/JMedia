@@ -55,7 +55,6 @@
 
         setMusicSuspended(s) {
             const p = this.player;
-            window.videoPlaying = s;
             document.body.setAttribute('data-video-active', s ? 'true' : 'false');
             if (s) document.querySelectorAll('audio').forEach(a => a.pause());
         }

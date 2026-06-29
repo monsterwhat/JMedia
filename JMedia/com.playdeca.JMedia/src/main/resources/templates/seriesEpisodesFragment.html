@@ -42,6 +42,10 @@
                     <span class="icon"><i class="pi pi-tags"></i></span>
                     <span>Rename Episodes</span>
                 </button>
+                <button class="button is-danger" onclick="convertSelectedEpisodes()" title="Convert selected episodes to MP4">
+                    <span class="icon"><i class="pi pi-refresh"></i></span>
+                    <span>Convert to MP4</span>
+                </button>
             </div>
         </div>
         <div class="level-right">
@@ -83,7 +87,12 @@
                     <td><span class="has-text-grey">S{video.seasonNumber ?: 0}E{video.episodeNumber ?: 0}</span></td>
                     <td>{video.episodeTitle ?: video.title ?: video.filename}</td>
                     <td class="is-size-7 has-text-grey is-hidden-mobile" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{video.path}</td>
-                    <td><button class="button is-small is-info is-rounded" onclick="event.stopPropagation();openEditModal({video.id})" title="Edit Metadata"><i class="pi pi-pencil"></i></button></td>
+                    <td><div style="display: flex; gap: 4px;">
+                        <button class="button is-small is-info is-rounded" onclick="event.stopPropagation();openEditModal({video.id})" title="Edit Metadata"><i class="pi pi-pencil"></i></button>
+                        {#if video.container != 'mp4'}
+                        <button class="button is-small is-warning is-rounded" onclick="event.stopPropagation();convertVideo({video.id})" title="Convert to MP4"><i class="pi pi-refresh"></i></button>
+                        {/if}
+                    </div></td>
                 </tr>
                 {/for}
             </tbody>
@@ -313,7 +322,7 @@
 </style>
 
 <script>
-    let manageLastClickedIndex = -1;
+    var manageLastClickedIndex = -1;
 
     function updateManageEpisodeCount() {
         const checks = document.querySelectorAll('.manage-episode-check:checked');
@@ -569,6 +578,160 @@
             target: '#editModalBody',
             swap: 'innerHTML'
         });
+    }
+
+    async function convertVideo(videoId) {
+        try {
+            const resp = await fetch('/api/video/manage/convert/' + videoId, { method: 'POST' });
+            if (!resp.ok) {
+                const err = await resp.text();
+                window.Toast.error('Convert failed: ' + (err.error || err));
+                return;
+            }
+            const data = await resp.json();
+            const jobId = data.jobId;
+            if (!jobId) { window.Toast.error('No job ID returned'); return; }
+
+            window.Toast.progress('Starting conversion...', 0);
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusResp = await fetch('/api/video/manage/convert/status/' + jobId);
+                    if (!statusResp.ok) { clearInterval(pollInterval); return; }
+                    const status = await statusResp.json();
+
+                    window.Toast.progress(status.message || 'Converting...', status.progressPercent || 0);
+
+                    if (status.status === 'COMPLETED') {
+                        clearInterval(pollInterval);
+                        window.Toast.progress('Conversion completed!', 100);
+                        // Refresh the series episodes view
+                        htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), {
+                            target: '#spa-content',
+                            swap: 'innerHTML'
+                        });
+                    } else if (status.status === 'FAILED') {
+                        clearInterval(pollInterval);
+                        window.Toast.hideToast('scan-progress-toast');
+                        window.Toast.error('Conversion failed: ' + (status.errorMessage || 'Unknown error'));
+                    }
+                } catch (e) {
+                    console.error('Poll error:', e);
+                }
+            }, 2000);
+
+            // Stop polling after 1 hour
+            setTimeout(() => clearInterval(pollInterval), 3600000);
+        } catch (e) {
+            window.Toast.error('Error starting conversion: ' + e.message);
+        }
+    }
+
+    /**
+     * Checks whether a given episode row is eligible for conversion.
+     * Returns true if the row has a visible convert button (non-MP4 container).
+     */
+    function isEpisodeConvertible(row) {
+        return row !== null && row.querySelector('button[onclick*="convertVideo"]') !== null;
+    }
+
+    /**
+     * Converts selected (checked) episodes to MP4.
+     * If none are checked, prompts to convert all eligible (non-MP4) episodes.
+     */
+    async function convertSelectedEpisodes() {
+        const rows = document.querySelectorAll('.manage-episode-row');
+        const checkedIds = [];
+        let hasNonMp4Selected = false;
+
+        rows.forEach(row => {
+            const cb = row.querySelector('.manage-episode-check');
+            if (cb && cb.checked) {
+                const id = parseInt(row.dataset.id);
+                if (isEpisodeConvertible(row)) {
+                    checkedIds.push(id);
+                    hasNonMp4Selected = true;
+                }
+            }
+        });
+
+        // If no checked non-MP4 episodes, prompt to convert all eligible
+        if (checkedIds.length === 0) {
+            if (!hasNonMp4Selected) {
+                // All selected episodes are already MP4
+                window.Toast.info('Selected episodes are already MP4.');
+                return;
+            }
+            // Nothing checked — ask if they want to convert all eligible
+            const confirmed = confirm('No episodes selected. Convert all non-MP4 episodes in this series?');
+            if (!confirmed) return;
+
+            rows.forEach(row => {
+                if (isEpisodeConvertible(row)) {
+                    checkedIds.push(parseInt(row.dataset.id));
+                }
+            });
+        }
+
+        if (checkedIds.length === 0) {
+            window.Toast.info('All episodes in this series are already MP4.');
+            return;
+        }
+
+        // Start batch conversion
+        try {
+            const resp = await fetch('/api/video/manage/convert/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(checkedIds)
+            });
+            if (!resp.ok) {
+                const err = await resp.text();
+                window.Toast.error('Batch convert failed: ' + (err.error || err));
+                return;
+            }
+            const data = await resp.json();
+            const batchId = data.batchId;
+            if (!batchId) { window.Toast.error('No batch ID returned'); return; }
+
+            const total = data.total || checkedIds.length;
+            window.Toast.progress('Converting 0 of ' + total + ' episodes...', 0);
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusResp = await fetch('/api/video/manage/convert/batch/status/' + batchId);
+                    if (!statusResp.ok) { clearInterval(pollInterval); return; }
+                    const status = await statusResp.json();
+
+                    const processed = (status.completed || 0) + (status.failed || 0);
+                    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+                    window.Toast.progress('Converted ' + processed + ' of ' + total + ' episodes...', pct);
+
+                    if (!status.active || status.remaining <= 0) {
+                        clearInterval(pollInterval);
+                        window.Toast.hideToast('scan-progress-toast');
+                        if (status.failed > 0 && status.completed > 0) {
+                            window.Toast.success('Conversion complete: ' + status.completed + ' done, ' + status.failed + ' failed.');
+                        } else if (status.failed > 0) {
+                            window.Toast.error('All ' + status.failed + ' conversions failed.');
+                        } else {
+                            window.Toast.progress('All ' + status.completed + ' episodes converted!', 100);
+                        }
+                        // Refresh the series episodes view
+                        htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), {
+                            target: '#spa-content',
+                            swap: 'innerHTML'
+                        });
+                    }
+                } catch (e) {
+                    console.error('Batch poll error:', e);
+                }
+            }, 2000);
+
+            // Stop polling after 2 hours
+            setTimeout(() => clearInterval(pollInterval), 7200000);
+        } catch (e) {
+            window.Toast.error('Error starting batch conversion: ' + e.message);
+        }
     }
     
     function closeEditModal() {

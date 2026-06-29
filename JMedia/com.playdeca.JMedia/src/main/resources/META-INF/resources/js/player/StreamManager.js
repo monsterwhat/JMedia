@@ -132,11 +132,12 @@
 
         initDirectStream(savedTime) {
             const p = this.player;
+            const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
             if (p.needsTranscode && savedTime > 0) {
                 console.log('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
-                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${savedTime}`;
+                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${savedTime}&trace=${_traceId()}`;
             } else {
-                p.video.src = `/api/video/stream/${p.videoId}.mp4`;
+                p.video.src = `/api/video/stream/${p.videoId}.mp4?trace=${_traceId()}`;
             }
 
             p._showLoading('Loading video...');
@@ -160,7 +161,7 @@
                     setTimeout(() => {
                         const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
                         const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                        p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}`;
+                        p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}&trace=${_traceId()}`;
                         p.video.load();
                         p.video.play().catch(() => {});
                     }, 1000);
@@ -286,6 +287,7 @@
         }
 
         switchAudioTrack(trackIndex) {
+            const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
             const p = this.player;
             console.log('[SimplePlayer] Switching audio track to:', trackIndex);
 
@@ -303,14 +305,14 @@
             const currentTime = p.video.currentTime + (p.streamStartOffset || 0);
 
             const audioParam = (trackIndex !== null && trackIndex >= 0) ? `&audioTrack=${trackIndex}` : '';
-            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${audioParam}`;
+            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${audioParam}&trace=${_traceId()}`;
             p.video.load();
             p._seekErrorHandler = (e) => {
                 console.error('[SimplePlayer] Audio-switched stream error, retrying');
                 if (p._destroyed) return;
                 p._seekErrorHandler = null;
                 const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}`;
+                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}&trace=${_traceId()}`;
                 p.video.load();
                 p.video.play().catch(() => {});
             };

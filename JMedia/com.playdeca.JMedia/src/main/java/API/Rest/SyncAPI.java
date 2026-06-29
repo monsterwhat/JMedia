@@ -22,6 +22,8 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import Services.LoggingService;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,9 @@ import java.util.Map;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class SyncAPI {
+
+    @Inject
+    LoggingService log;
 
     @PersistenceContext
     EntityManager em;
@@ -52,8 +57,12 @@ public class SyncAPI {
             ))).build();
         }
 
-        Thread syncThread = new Thread(() -> syncService.syncAllServers(), "SyncTriggerThread");
-        syncThread.start();
+        new Thread(() ->
+            io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(
+                () -> syncService.syncAllServers()
+            ),
+            "SyncTriggerThread"
+        ).start();
 
         return Response.ok(ApiResponse.success(Map.of(
                 "message", "Sync started"
@@ -139,6 +148,28 @@ public class SyncAPI {
         return Response.ok(ApiResponse.success(syncSettings)).build();
     }
 
+    @POST
+    @Path("/settings/generate-api-key")
+    @Transactional
+    public Response generateApiKey() {
+        SecureRandom random = new SecureRandom();
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        StringBuilder sb = new StringBuilder(64);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        String newKey = "jm_" + sb;
+
+        Models.Settings settings = settingsService.getOrCreateSettings();
+        settings.setSyncApiKey(newKey);
+        settingsService.save(settings);
+
+        return Response.ok(ApiResponse.success(Map.of(
+                "apiKey", newKey
+        ))).build();
+    }
+
     @GET
     @Path("/logs")
     public Response getSyncLogs(@QueryParam("limit") @DefaultValue("20") int limit) {
@@ -165,15 +196,28 @@ public class SyncAPI {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("Server URL is required")).build();
         }
+        server.url = normalizeUrl(server.url);
+        if (server.url.length() > 500) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Server URL must not exceed 500 characters")).build();
+        }
         try {
             new java.net.URI(server.url);
         } catch (java.net.URISyntaxException e) {
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("Invalid server URL format")).build();
+                    .entity(ApiResponse.error("Invalid server URL format: " + e.getMessage())).build();
         }
         if (server.apiKey == null || server.apiKey.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("API key is required")).build();
+        }
+        if (server.apiKey.length() > 255) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("API key must not exceed 255 characters")).build();
+        }
+        if (server.name != null && server.name.length() > 255) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Server name must not exceed 255 characters")).build();
         }
 
         server.enabled = true;
@@ -189,6 +233,22 @@ public class SyncAPI {
         if (server == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Server not found")).build();
+        }
+
+        if (updated.apiKey != null && updated.apiKey.length() > 255) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("API key must not exceed 255 characters")).build();
+        }
+        if (updated.name != null && updated.name.length() > 255) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Server name must not exceed 255 characters")).build();
+        }
+        if (updated.url != null) {
+            updated.url = normalizeUrl(updated.url);
+            if (updated.url.length() > 500) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Server URL must not exceed 500 characters")).build();
+            }
         }
 
         if (updated.name != null) server.name = updated.name;
@@ -210,18 +270,22 @@ public class SyncAPI {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("Server URL is required")).build();
         }
+        url = normalizeUrl(url);
         if (apiKey == null || apiKey.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("API key is required")).build();
         }
 
+        log.addLog("Testing connection to sync server: " + url);
         boolean reachable = remoteClient.checkConnection(url, apiKey);
         if (reachable) {
+            log.addLog("Connection test succeeded for " + url);
             return Response.ok(ApiResponse.success(Map.of(
                     "reachable", true,
                     "message", "Connection successful"
             ))).build();
         } else {
+            log.addLog("Connection test failed for " + url);
             return Response.ok(ApiResponse.success(Map.of(
                     "reachable", false,
                     "message", "Server is unreachable — check URL, API key, and that the remote server is running"
@@ -242,6 +306,15 @@ public class SyncAPI {
         SyncLog.delete("server.id", id);
         server.delete();
         return Response.ok(ApiResponse.success("Server deleted")).build();
+    }
+
+    private static String normalizeUrl(String url) {
+        if (url == null) return null;
+        url = url.trim();
+        if (!url.contains("://")) {
+            url = "https://" + url;
+        }
+        return url.replaceAll("/+$", "");
     }
 
 }

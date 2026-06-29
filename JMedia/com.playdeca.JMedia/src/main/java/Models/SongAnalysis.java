@@ -3,6 +3,7 @@ package Models;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -11,6 +12,7 @@ import java.util.List;
  * Contains beat positions, segment features, and similar beat mappings
  */
 @Data
+@EqualsAndHashCode(callSuper=false)
 @Entity
 public class SongAnalysis extends PanacheEntity {
 

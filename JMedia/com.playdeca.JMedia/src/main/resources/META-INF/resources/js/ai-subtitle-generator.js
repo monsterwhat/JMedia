@@ -657,14 +657,18 @@ window.resumeIfJobRunning = async function() {
     }
 };
 
-// Auto-initialize
+// Auto-initialize (works with both defer and non-defer)
+function initAiSubtitleTab() {
+    const activeTab = document.querySelector('#settingsSideTabs .nav-item.active');
+    if (activeTab && activeTab.getAttribute('data-tab') === 'ai-subtitle-generator') {
+        window.loadAiSubtitleVideos(0);
+        window.loadCompletedAiSubtitles(0);
+        window.resumeIfJobRunning();
+    }
+}
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() {
-        const activeTab = document.querySelector('#settingsSideTabs .nav-item.active');
-        if (activeTab && activeTab.getAttribute('data-tab') === 'ai-subtitle-generator') {
-            window.loadAiSubtitleVideos(0);
-            window.loadCompletedAiSubtitles(0);
-            window.resumeIfJobRunning();
-        }
-    });
+    document.addEventListener('DOMContentLoaded', initAiSubtitleTab);
+} else {
+    initAiSubtitleTab();
 }

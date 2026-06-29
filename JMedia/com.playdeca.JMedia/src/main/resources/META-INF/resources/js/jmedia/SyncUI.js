@@ -11,6 +11,8 @@
     }
 
     JMedia.Sync = {
+        _servers: [],
+
         loadAll: async function() {
             await Promise.all([
                 JMedia.Sync.loadSyncSettings(),
@@ -46,6 +48,60 @@
                     statusEl.style.display = '';
                 }
             }
+        },
+
+        generateApiKey: async function() {
+            const btn = document.getElementById('syncGenerateApiKeyBtn');
+            const input = document.getElementById('syncApiKey');
+            if (!btn || !input) return;
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            try {
+                const res = await fetch('/api/sync/settings/generate-api-key', { method: 'POST' });
+                const json = await res.json();
+                if (res.ok && json.data && json.data.apiKey) {
+                    input.value = json.data.apiKey;
+                    if (window.showToast) window.showToast('New API key generated', 'success');
+                } else {
+                    if (window.showToast) window.showToast(json.error || 'Failed to generate API key', 'error');
+                }
+            } catch (e) {
+                console.error('[Sync] Error generating API key:', e);
+                if (window.showToast) window.showToast('Error generating API key', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('is-loading');
+            }
+        },
+
+        copyApiKey: function() {
+            const input = document.getElementById('syncApiKey');
+            const btn = document.getElementById('syncCopyApiKeyBtn');
+            if (!input || !input.value) {
+                if (window.showToast) window.showToast('No API key to copy', 'warning');
+                return;
+            }
+            if (!navigator.clipboard) {
+                input.type = 'text';
+                input.select();
+                try {
+                    document.execCommand('copy');
+                    if (window.showToast) window.showToast('API key copied', 'success');
+                } catch (e) {
+                    if (window.showToast) window.showToast('Failed to copy', 'error');
+                }
+                input.type = 'password';
+                return;
+            }
+            navigator.clipboard.writeText(input.value).then(() => {
+                if (window.showToast) window.showToast('API key copied', 'success');
+                if (btn) {
+                    btn.classList.add('is-success');
+                    setTimeout(() => btn.classList.remove('is-success'), 1500);
+                }
+            }).catch(() => {
+                if (window.showToast) window.showToast('Failed to copy API key', 'error');
+            });
         },
 
         saveSyncSettings: async function() {
@@ -118,6 +174,7 @@
                     return;
                 }
                 const servers = json.data || [];
+                JMedia.Sync._servers = servers;
                 if (servers.length === 0) {
                     container.innerHTML = '<div class="has-text-centered p-4 has-text-grey">No servers configured. Add a server to get started.</div>';
                     return;
@@ -134,6 +191,7 @@
                                 <div class="level-right">
                                     <div class="buttons are-small">
                                         <button class="button is-small is-info is-light" onclick="JMedia.Sync.testServerConnection(${s.id})" title="Test Connection"><i class="pi pi-plug"></i></button>
+                                        <button class="button is-small is-link is-light" onclick="JMedia.Sync.showEditServerDialog(${s.id})" title="Edit"><i class="pi pi-pencil"></i></button>
                                         <button class="button is-small is-warning is-light" onclick="JMedia.Sync.toggleServer(${s.id}, ${!s.enabled})" title="${s.enabled ? 'Disable' : 'Enable'}"><i class="pi pi-${s.enabled ? 'pause' : 'play'}"></i></button>
                                         <button class="button is-small is-danger" onclick="JMedia.Sync.deleteServer(${s.id})" title="Remove"><i class="pi pi-trash"></i></button>
                                     </div>
@@ -272,6 +330,105 @@
                     await JMedia.Sync.loadServers();
                 } else {
                     if (errorEl) { errorEl.textContent = json.error || 'Failed to add server'; errorEl.style.display = 'block'; }
+                }
+            } catch (e) {
+                if (errorEl) { errorEl.textContent = 'Error: ' + e.message; errorEl.style.display = 'block'; }
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('is-loading');
+            }
+        },
+
+        showEditServerDialog: function(id) {
+            const server = JMedia.Sync._servers.find(s => s.id === id);
+            if (!server) {
+                if (window.showToast) window.showToast('Server not found', 'error');
+                return;
+            }
+            const existing = document.getElementById('syncServerModal');
+            if (existing) existing.remove();
+            const div = document.createElement('div');
+            div.id = 'syncServerModal';
+            div.dataset.editId = id;
+            div.className = 'modal is-active';
+            div.innerHTML = `
+                <div class="modal-background" onclick="JMedia.Sync.closeAddServerDialog()"></div>
+                <div class="modal-card glass-modal">
+                    <header class="modal-card-head">
+                        <p class="modal-card-title">Edit Sync Server</p>
+                        <button class="delete" aria-label="close" onclick="JMedia.Sync.closeAddServerDialog()"></button>
+                    </header>
+                    <section class="modal-card-body">
+                        <div id="syncServerModalError" class="notification is-danger is-light" style="display: none;"></div>
+                        <div class="field">
+                            <label class="label">Name</label>
+                            <div class="control">
+                                <input id="syncServerName" class="input is-small" type="text" value="${escapeHtml(server.name)}">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label class="label">URL</label>
+                            <div class="control">
+                                <input id="syncServerUrl" class="input is-small" type="text" value="${escapeHtml(server.url)}">
+                            </div>
+                            <p class="help">The full URL of the remote JMedia instance.</p>
+                        </div>
+                        <div class="field">
+                            <label class="label">API Key</label>
+                            <div class="control">
+                                <input id="syncServerApiKey" class="input is-small" type="password" value="${escapeHtml(server.apiKey || '')}">
+                            </div>
+                            <p class="help">Leave blank to keep the existing key unchanged.</p>
+                        </div>
+                        <div class="field">
+                            <label class="checkbox">
+                                <input type="checkbox" id="syncServerEnabled" ${server.enabled ? 'checked' : ''}> Server enabled
+                            </label>
+                        </div>
+                    </section>
+                    <footer class="modal-card-foot" style="justify-content: flex-end;">
+                        <button id="syncServerTestBtn" class="button is-info is-small" onclick="JMedia.Sync.testNewConnection()"><i class="pi pi-plug mr-1"></i> Test Connection</button>
+                        <button id="syncServerSaveBtn" class="button is-success is-small" onclick="JMedia.Sync.saveEditServer()"><i class="pi pi-save mr-1"></i> Save Changes</button>
+                        <button class="button is-small" onclick="JMedia.Sync.closeAddServerDialog()">Cancel</button>
+                    </footer>
+                </div>
+            `;
+            document.body.appendChild(div);
+        },
+
+        saveEditServer: async function() {
+            const modal = document.getElementById('syncServerModal');
+            const btn = document.getElementById('syncServerSaveBtn');
+            const errorEl = document.getElementById('syncServerModalError');
+            const id = modal ? parseInt(modal.dataset.editId) : null;
+            if (!id) {
+                if (window.showToast) window.showToast('Server ID not found', 'error');
+                return;
+            }
+            const name = document.getElementById('syncServerName')?.value?.trim();
+            const url = document.getElementById('syncServerUrl')?.value?.trim();
+            const apiKey = document.getElementById('syncServerApiKey')?.value?.trim();
+            const enabled = document.getElementById('syncServerEnabled')?.checked ?? true;
+            if (errorEl) errorEl.style.display = 'none';
+            if (!name) { if (errorEl) { errorEl.textContent = 'Name is required'; errorEl.style.display = 'block'; } return; }
+            if (!url) { if (errorEl) { errorEl.textContent = 'URL is required'; errorEl.style.display = 'block'; } return; }
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            try {
+                const body = { name, url, enabled };
+                if (apiKey) body.apiKey = apiKey;
+                const res = await fetch('/api/sync/servers/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const json = await res.json();
+                if (res.ok) {
+                    JMedia.Sync.closeAddServerDialog();
+                    if (window.showToast) window.showToast('Server updated', 'success');
+                    await JMedia.Sync.loadServers();
+                } else {
+                    if (errorEl) { errorEl.textContent = json.error || 'Failed to update server'; errorEl.style.display = 'block'; }
                 }
             } catch (e) {
                 if (errorEl) { errorEl.textContent = 'Error: ' + e.message; errorEl.style.display = 'block'; }

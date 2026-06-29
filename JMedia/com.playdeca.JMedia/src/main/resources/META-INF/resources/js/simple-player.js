@@ -16,6 +16,18 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.video.preload = 'auto';
 
             this.needsTranscode = this.container.dataset.needsTranscode === 'true';
+            this._canNativeHevc = false;
+            // Browser-native HEVC override: if the server flagged transcode but the
+            // browser can play HEVC natively (e.g. Chrome with HEVC Video Extensions),
+            // skip the server-side FFmpeg transcode and request the lightweight remux.
+            const codec = (this.container.dataset.videoCodec || '').toLowerCase();
+            if (this.needsTranscode && (codec.includes('hevc') || codec.includes('h265'))) {
+                if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport()) {
+                    this.needsTranscode = false;
+                    this._canNativeHevc = true;
+                    console.log('[SimplePlayer] Browser supports HEVC natively — skipping server transcode');
+                }
+            }
             this.streamStartOffset = 0;
             this.lastKnownGoodPosition = 0;
 
@@ -96,23 +108,24 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
 
             const savedTime = parseFloat(this.container.dataset.startTime || 0);
-            const hasMultipleAudio = this.container.dataset.hasMultipleAudio === 'true';
-
+            const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
             if (this.needsTranscode) {
                 const qualityParam = this._preferredQuality > 0 ? `&quality=${this._preferredQuality}` : '';
                 const setupStream = () => {
                     if (savedTime > 0) {
                         this.streamStartOffset = savedTime;
-                        this.video.src = `/api/video/stream/${this.videoId}.mp4?start=${savedTime}${qualityParam}`;
+                        this.video.src = `/api/video/stream/${this.videoId}.mp4?start=${savedTime}${qualityParam}&trace=${_traceId()}`;
                     } else {
                         this.streamStartOffset = 0;
-                        this.video.src = `/api/video/stream/${this.videoId}.mp4${qualityParam}`;
+                        this.video.src = `/api/video/stream/${this.videoId}.mp4?trace=${_traceId()}`;
                     }
+                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Setting video src:', this.video.src);
                     this.subtitleController.loadSubtitles();
-                    if (hasMultipleAudio) {
-                        this.streamMgr.loadAudioTrackSelector();
-                    }
-                    this.video.play().catch(e => {
+                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Calling play()');
+                    this.video.play().then(() => {
+                        if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() resolved successfully');
+                    }).catch(e => {
+                        if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() rejected:', e.message);
                         console.log('[SimplePlayer] Play requires user gesture:', e);
                     });
                 };
@@ -136,13 +149,23 @@ if (typeof window.SimplePlayer === 'undefined') {
                     setupStream();
                 });
             } else {
-                this.streamStartOffset = 0;
-                this.video.src = `/api/video/stream/${this.videoId}.mp4`;
-                this.subtitleController.loadSubtitles();
-                if (hasMultipleAudio) {
-                    this.streamMgr.loadAudioTrackSelector();
+                const params = [];
+                if (savedTime > 0) {
+                    this.streamStartOffset = savedTime;
+                    params.push(`start=${savedTime}`);
+                } else {
+                    this.streamStartOffset = 0;
                 }
-                this.video.play().catch(e => {
+                if (this._canNativeHevc) params.push('nativeHevc=1');
+                params.push(`trace=${_traceId()}`);
+                this.video.src = `/api/video/stream/${this.videoId}.mp4?${params.join('&')}`;
+                if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Setting video src:', this.video.src);
+                this.subtitleController.loadSubtitles();
+                if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Calling play()');
+                this.video.play().then(() => {
+                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() resolved successfully');
+                }).catch(e => {
+                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() rejected:', e.message);
                     console.log('[SimplePlayer] Play requires user gesture:', e);
                 });
             }

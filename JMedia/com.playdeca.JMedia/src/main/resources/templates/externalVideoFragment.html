@@ -110,6 +110,16 @@
 
 </div>
 
+<script src="/js/video-external.js?v=1"></script>
 <script>
-    initExternalVideoView();
+    (function() {
+        var retry = function() {
+            if (typeof initExternalVideoView === 'function') {
+                initExternalVideoView();
+            } else {
+                setTimeout(retry, 50);
+            }
+        };
+        retry();
+    })();
 </script>

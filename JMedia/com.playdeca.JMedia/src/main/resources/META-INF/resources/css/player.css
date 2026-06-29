@@ -248,7 +248,13 @@ body[data-video-active="true"] .music-player {
     
     /* Controls row adjustments */
     .controls-row {
-        gap: 6px !important;
+        gap: 4px !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    
+    .controls-row::-webkit-scrollbar {
+        display: none !important;
     }
     
     .control-btn {
@@ -259,7 +265,8 @@ body[data-video-active="true"] .music-player {
         display: none !important;
     }
     
-    #videoMuteBtn {
+    #videoMuteBtn,
+    #muteBtn {
         display: none !important;
     }
     
@@ -276,6 +283,39 @@ body[data-video-active="true"] .music-player {
     left: 0 !important;
     z-index: 1 !important;
     pointer-events: none !important;
+}
+
+/* OPlayer native UI needs pointer events inside the wrapper */
+.oplayer-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    pointer-events: auto !important;
+}
+
+/* OPlayer root element */
+.oplayer-wrapper .o-player {
+    pointer-events: auto !important;
+}
+
+/* VideoJS native controls need pointer events inside the wrapper */
+#videoElement.video-js {
+    pointer-events: auto !important;
+}
+
+/* VideoJS container — fill the .video-wrapper */
+#videoElement.video-js,
+#videoElement.video-js .vjs-tech {
+    width: 100% !important;
+    height: 100% !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+}
+#videoElement.video-js {
+    background: #000 !important;
 }
 
 .ass-canvas {
@@ -436,7 +476,8 @@ body[data-video-active="true"] .music-player {
     display: inline-block !important;
 }
 
-.player-container.is-fullscreen #videoFullscreenBtn i.pi-compress::before {
+.player-container.is-fullscreen #videoFullscreenBtn i.pi-compress::before,
+.player-container.is-fullscreen #fullscreenBtn i.pi-compress::before {
     content: "\e925" !important; /* pi-compress code */
 }
 
@@ -537,11 +578,54 @@ body[data-video-active="true"] .music-player {
     border-right: 2px solid rgba(255, 152, 0, 0.8) !important;
 }
 
+/* Base control button styles — flat transparent appearance matching regular player */
+.control-btn,
+.player-container .control-btn {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: none;
+    color: #fff;
+    font-family: inherit;
+    font-size: 1em;
+    margin: 0;
+    padding: 8px;
+    cursor: pointer;
+    flex-shrink: 0 !important;
+}
+
+#fullscreenBtn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    min-height: 36px;
+}
+
 /* Controls Row */
 .controls-row {
     display: flex !important;
     align-items: center !important;
-    gap: 12px !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+.controls-row::-webkit-scrollbar {
+    height: 4px !important;
+}
+
+.controls-row::-webkit-scrollbar-track {
+    background: transparent !important;
+}
+
+.controls-row::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3) !important;
+    border-radius: 2px !important;
+}
+
+.controls-row::-webkit-scrollbar {
+    display: none !important;
 }
 
 .spacer { flex: 1 !important; }
@@ -589,6 +673,26 @@ body[data-video-active="true"] .music-player {
     flex-shrink: 0 !important;
     font-variant-numeric: tabular-nums !important;
     min-width: 100px !important;
+}
+
+/* Range input styling scoped to player container — for test page volume sliders */
+.player-container input[type="range"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background: rgba(255, 255, 255, 0.2) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+    outline: none !important;
+}
+
+.player-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    height: 12px !important;
+    width: 12px !important;
+    background: #48c774 !important;
+    border-radius: 50% !important;
+    cursor: pointer !important;
 }
 
 /* Subtitles */
@@ -1356,4 +1460,371 @@ body[data-video-active="true"] .music-player {
 
 .skip-auto-toggle input[type="checkbox"] {
     display: none !important;
+}
+
+/* ===== Underplayer Carousel ===== */
+.underplayer-carousel-section {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 8px;
+}
+
+.underplayer-carousel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0 10px 0;
+}
+
+.underplayer-carousel-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #e0e0e0;
+    font-weight: 600;
+}
+
+.underplayer-carousel-header .button {
+    font-size: 0.75rem;
+    padding: 2px 10px;
+}
+
+.underplayer-carousel-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.underplayer-carousel {
+    display: flex;
+    overflow-x: auto;
+    gap: 10px;
+    padding: 4px 12px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.underplayer-carousel::-webkit-scrollbar {
+    display: none;
+}
+
+.underplayer-nav-btn {
+    position: absolute;
+    z-index: 2;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    transition: background 0.2s;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.underplayer-nav-btn:hover {
+    background: rgba(0,0,0,0.85);
+}
+
+.underplayer-nav-btn.left {
+    left: 2px;
+}
+
+.underplayer-nav-btn.right {
+    right: 2px;
+}
+
+.underplayer-card {
+    flex: 0 0 140px;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+    scroll-snap-align: start;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.04);
+}
+
+.underplayer-card:hover {
+    transform: translateY(-2px);
+}
+
+.underplayer-card.carousel-card-current {
+    box-shadow: 0 0 8px rgba(72,199,116,0.4);
+    border: 2px solid #48c774;
+    border-radius: 6px;
+}
+
+.underplayer-card-thumb {
+    position: relative;
+    width: 100%;
+    height: 80px;
+    overflow: hidden;
+    background: #1a1a2e;
+    border-radius: 6px 6px 0 0;
+}
+
+.underplayer-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.underplayer-card-gradient {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #1a1a2e, #2d1b69);
+    color: #fff;
+    font-size: 1.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    border-radius: 6px 6px 0 0;
+}
+
+.underplayer-card-now-playing {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #48c774;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    box-shadow: 0 0 4px rgba(72,199,116,0.6);
+}
+
+.underplayer-card-info {
+    padding: 6px 8px;
+}
+
+.underplayer-card-title {
+    font-size: 0.78rem;
+    color: #d0d0d0;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.underplayer-card-meta {
+    font-size: 0.68rem;
+    color: #888;
+    margin-top: 2px;
+}
+
+/* ===== Redesigned Underplayer Info Panel ===== */
+.underplayer-info-section {
+    margin-top: 12px;
+    padding: 0 16px;
+}
+
+.underplayer-info-block {
+    background: rgba(0,0,0,0.35);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+}
+
+/* --- Movie: horizontal poster + info --- */
+.underplayer-movie-layout {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+}
+
+.underplayer-movie-poster {
+    flex: 0 0 88px;
+    border-radius: 6px;
+    overflow: hidden;
+    aspect-ratio: 2 / 3;
+    background: #1a1a2e;
+}
+
+.underplayer-movie-poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.underplayer-movie-info {
+    flex: 1;
+    min-width: 0;
+}
+
+/* --- Episode: series title above --- */
+.underplayer-info-block .series-title-label {
+    font-size: 0.78rem;
+    color: #999;
+    font-weight: 500;
+    margin-bottom: 1px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* --- Title + badge inline --- */
+.underplayer-info-block h2 {
+    margin: 0;
+    font-size: 1rem;
+    color: #f0f0f0;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.underplayer-info-block .episode-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    background: rgba(72,199,116,0.2);
+    border-radius: 4px;
+    color: #48c774;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* --- Compact meta row --- */
+.info-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 0.76rem;
+    color: #aaa;
+    margin: 3px 0;
+    align-items: center;
+}
+
+/* --- Genre chips --- */
+.info-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0;
+}
+
+.genre-tag {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(72,199,116,0.15);
+    color: #48c774;
+    border: 1px solid rgba(72,199,116,0.25);
+}
+
+/* --- Overview text --- */
+.info-overview {
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: #b0b0b0;
+    margin: 6px 0 4px 0;
+}
+
+/* --- Credits line --- */
+.info-credits {
+    font-size: 0.76rem;
+    color: #999;
+    margin: 2px 0;
+}
+
+.info-credits strong {
+    color: #bbb;
+}
+
+/* --- Ratings row --- */
+.info-ratings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 3px 0;
+}
+
+.rating-badge {
+    font-size: 0.75rem;
+    color: #e0a800;
+    font-weight: 500;
+}
+
+.rating-badge.tmdb {
+    color: #01b4e4;
+}
+
+.mpaa-badge {
+    display: inline-block;
+    font-size: 0.68rem;
+    padding: 1px 6px;
+    border: 1px solid #666;
+    border-radius: 3px;
+    color: #ccc;
+}
+
+/* --- Tech specs chips --- */
+.info-tech {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.info-tech span {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.06);
+    color: #999;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* --- Tagline --- */
+.tagline {
+    font-style: italic;
+    font-size: 0.8rem;
+    color: #888;
+    margin: 1px 0 4px 0;
+}
+
+/* --- Separator --- */
+.info-separator {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 6px 0;
+}
+
+/* --- Episode border accent --- */
+.underplayer-info-block.episode-block {
+    border-left: 2px solid rgba(72,199,116,0.4);
+}
+
+@media (max-width: 768px) {
+    .underplayer-card {
+        flex: 0 0 100px;
+    }
+    .underplayer-card-thumb {
+        height: 60px;
+    }
+    .underplayer-card-title {
+        font-size: 0.7rem;
+    }
+    .underplayer-info-section {
+        padding: 0 4px;
+    }
+    .underplayer-movie-layout {
+        flex-direction: column;
+    }
+    .underplayer-movie-poster {
+        flex: 0 0 auto;
+        width: 80px;
+        aspect-ratio: 2 / 3;
+    }
 }

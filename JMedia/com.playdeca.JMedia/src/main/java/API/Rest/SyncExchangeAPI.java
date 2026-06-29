@@ -133,7 +133,7 @@ public class SyncExchangeAPI {
         data.explicit = song.isExplicit();
         data.bpm = song.getBpm();
         data.durationSeconds = song.getDurationSeconds();
-        data.artworkBase64 = song.getArtworkBase64();
+        data.artworkBase64 = null; // Excluded from sync — too large, receiver regenerates from file
         data.updatedAt = song.getUpdatedAt();
 
         SongAnalysis analysis = song.getAnalysis();

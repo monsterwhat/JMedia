@@ -256,7 +256,7 @@ class VideoContextMenu {
             
             if (response.ok) {
                 this.showNotification('Metadata reload started', 'success');
-                setTimeout(() => window.location.reload(), 2000);
+                await this.waitForAudioTracksAndReload(this.currentVideoId);
             } else {
                 this.showNotification('Failed to reload metadata', 'danger');
             }
@@ -273,13 +273,39 @@ class VideoContextMenu {
             });
             if (response.ok) {
                 this.showNotification('Episode metadata reload started', 'success');
-                setTimeout(() => window.location.reload(), 2000);
+                await this.waitForAudioTracksAndReload(this.currentVideoId);
             } else {
                 this.showNotification('Failed to reload episode metadata', 'danger');
             }
         } catch (error) {
             console.error('Error reloading episode metadata:', error);
         }
+    }
+
+    async waitForAudioTracksAndReload(videoId) {
+        const maxWaitMs = 30000;
+        const pollIntervalMs = 1000;
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < maxWaitMs) {
+            try {
+                const response = await fetch(`/api/video/${videoId}/audio-tracks`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const tracks = data.data || data;
+                    if (tracks && tracks.length > 0) {
+                        window.location.reload();
+                        return;
+                    }
+                }
+            } catch (e) {
+                // Ignore network errors, keep polling
+            }
+            await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        }
+        
+        // Timeout reached - reload anyway
+        window.location.reload();
     }
 
     async editMetadata() {
