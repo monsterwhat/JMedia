@@ -149,13 +149,11 @@ if (typeof window.SimplePlayer === 'undefined') {
                     setupStream();
                 });
             } else {
+                /* Load from beginning; client-side seek in loadedmetadata handles resume.
+                   Server-side ?start= can fail for direct streams, causing the progress bar
+                   to show the resume time while the video is actually at 0:00. */
+                this.streamStartOffset = 0;
                 const params = [];
-                if (savedTime > 0) {
-                    this.streamStartOffset = savedTime;
-                    params.push(`start=${savedTime}`);
-                } else {
-                    this.streamStartOffset = 0;
-                }
                 if (this._canNativeHevc) params.push('nativeHevc=1');
                 params.push(`trace=${_traceId()}`);
                 this.video.src = `/api/video/stream/${this.videoId}.mp4?${params.join('&')}`;
