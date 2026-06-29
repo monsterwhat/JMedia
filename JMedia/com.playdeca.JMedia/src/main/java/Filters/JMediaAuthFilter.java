@@ -9,6 +9,8 @@ import jakarta.ws.rs.ext.Provider;
 import jakarta.ws.rs.core.UriInfo;
 import Services.SessionService;
 import Services.RateLimitService;
+import Services.SettingsService;
+import Models.Settings;
 import Utils.IpResolutionUtils;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.inject.Inject;
@@ -55,6 +57,9 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     RateLimitService rateLimitService;
 
     @Inject
+    SettingsService settingsService;
+
+    @Inject
     HttpServerRequest vertxRequest;
 
     @Override
@@ -86,6 +91,15 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
             // Valid session - allow request immediately
             LOG.debug("Allowing authenticated request from {}", clientIp);
             return;
+        }
+
+        if (path.startsWith("/api/sync/")) {
+            String syncKey = requestContext.getHeaderString("X-JMedia-Sync-Key");
+            Settings settings = settingsService.getSettingsOrNull();
+            if (settings != null && syncKey != null && syncKey.equals(settings.getSyncApiKey())) {
+                LOG.debug("Allowing sync API request with valid key from {}", clientIp);
+                return;
+            }
         }
 
         // 4. Handle unauthenticated requests

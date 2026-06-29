@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPlayer Minimal Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: sans-serif;
+        }
+        #player-container {
+            width: 800px;
+            max-width: 100vw;
+            aspect-ratio: 16/9;
+            position: relative;
+            background: #000;
+        }
+        #oplayer-target {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="player-container">
+        <div id="oplayer-target"></div>
+    </div>
+
+    <!-- OPlayer CDN only, NO JMedia CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"></script>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // Use a sample video that doesn't need backend
+        var SAMPLE_VIDEO = 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4';
+
+        function init() {
+            if (typeof OPlayer === 'undefined' || typeof OUI === 'undefined') {
+                console.log('[MinimalTest] Waiting for OPlayer/OUI...');
+                setTimeout(init, 500);
+                return;
+            }
+
+            console.log('[MinimalTest] OPlayer loaded:', !!OPlayer);
+            console.log('[MinimalTest] OUI loaded:', !!OUI);
+
+            var target = document.getElementById('oplayer-target');
+
+            try {
+                var player = OPlayer.make(target, {
+                    source: {
+                        src: SAMPLE_VIDEO,
+                        title: 'Big Buck Bunny',
+                        format: 'auto'
+                    },
+                    autoplay: false,
+                    muted: false,
+                    volume: 0.7,
+                    playbackRate: 1,
+                    playsinline: true,
+                    preload: 'auto'
+                }).use([OUI({
+                    theme: {
+                        controller: {
+                            header: true,
+                            display: 'always',
+                            coverButton: true
+                        }
+                    },
+                    settings: ['loop']
+                })]).create();
+
+                console.log('[MinimalTest] Player created');
+
+                // Expose for debugging
+                window.__player = player;
+                window.__checkPointerEvents = function() {
+                    var root = player.$root;
+                    if (!root) return { error: 'no root' };
+                    var all = root.querySelectorAll('*');
+                    var results = [];
+                    all.forEach(function(el) {
+                        var pe = getComputedStyle(el).pointerEvents;
+                        if (pe === 'none') {
+                            results.push({
+                                tag: el.tagName,
+                                id: el.id,
+                                cls: el.className,
+                                rect: el.getBoundingClientRect(),
+                                pe: pe
+                            });
+                        }
+                    });
+                    console.log('[PointerEvents:NONE]', results.length, 'elements');
+                    results.forEach(function(r) { console.log(r); });
+                    return results;
+                };
+                window.__checkZIndex = function() {
+                    var root = player.$root;
+                    if (!root) return { error: 'no root' };
+                    var all = root.querySelectorAll('*');
+                    var results = [];
+                    all.forEach(function(el) {
+                        var z = getComputedStyle(el).zIndex;
+                        if (z !== 'auto') {
+                            results.push({
+                                tag: el.tagName,
+                                id: el.id,
+                                cls: el.className.substring(0, 40),
+                                zIndex: z
+                            });
+                        }
+                    });
+                    console.log('[Z-Index]', results.length, 'non-auto elements');
+                    results.forEach(function(r) { console.log(r); });
+                    return results;
+                };
+
+            } catch (err) {
+                console.error('[MinimalTest] Error:', err);
+            }
+        }
+
+        init();
+    })();
+    </script>
+</body>
+</html>

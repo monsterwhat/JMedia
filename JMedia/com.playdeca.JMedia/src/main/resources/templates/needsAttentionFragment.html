@@ -1,0 +1,297 @@
+<div class="library-header">
+    <div class="is-flex is-justify-content-between is-align-items-center is-flex-wrap-wrap" style="gap: 1rem;">
+        <div>
+            <h1 class="library-title">Needs Attention</h1>
+            <p class="subtitle is-6 has-text-grey-light">
+                {totalCount} videos with missing metadata
+                {#if workerRunning}
+                <span class="tag is-success ml-2"><i class="pi pi-spin pi-spinner mr-1"></i>Worker Active</span>
+                {#else}
+                <span class="tag is-warning ml-2"><i class="pi pi-pause mr-1"></i>Worker Idle</span>
+                {/if}
+                {#if pendingFailures > 0}
+                <span class="tag is-danger ml-2"><i class="pi pi-exclamation-triangle mr-1"></i>{pendingFailures} pending retries</span>
+                {/if}
+            </p>
+        </div>
+        <div class="field is-grouped">
+            <div class="control">
+                <a class="button is-info is-outlined is-small" href="javascript:void(0)" onclick="window.videoSPA.switchSection('manage')">
+                    <i class="pi pi-arrow-left mr-1"></i> Back to Manage
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{#if videos && videos.size() > 0}
+<div class="table-container mt-4" style="overflow-x: auto;">
+    <table class="table is-fullwidth is-hoverable is-narrow" style="background: transparent; color: rgba(255,255,255,0.85);">
+        <thead>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <th style="color: var(--standard-accent);">Title</th>
+                <th style="color: var(--standard-accent);">Type</th>
+                <th style="color: var(--standard-accent);">Issues</th>
+                <th style="color: var(--standard-accent);">IMDb ID</th>
+                <th style="color: var(--standard-accent);">TMDb ID</th>
+                <th style="color: var(--standard-accent);">Show IMDb</th>
+                <th style="color: var(--standard-accent);">S/E</th>
+                <th style="color: var(--standard-accent);">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#for video in videos}
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="vertical-align: middle;">
+                    <strong class="has-text-white">{video.title ?: video.filename}</strong>
+                    <p class="is-size-7 has-text-grey" style="word-break: break-all; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{video.path}</p>
+                </td>
+                <td style="vertical-align: middle;">
+                    <span class="tag {#if video.type == 'episode'}is-info{#else}is-primary{/if} is-light is-small">{video.type ?: 'unknown'}</span>
+                </td>
+                <td style="vertical-align: middle;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 3px;">
+                        {#if video.imdbId == null || video.imdbId.isBlank()}<span class="tag is-danger is-light is-small">Missing IMDb</span>{/if}
+                        {#if video.tmdbId == null || video.tmdbId.isBlank()}<span class="tag is-danger is-light is-small">Missing TMDb</span>{/if}
+                        {#if video.type == 'episode' && (video.showImdbId == null || video.showImdbId.isBlank())}<span class="tag is-danger is-light is-small">Missing Show IMDb</span>{/if}
+                        {#if video.type == 'episode' && video.seasonNumber == null}<span class="tag is-danger is-light is-small">Missing Season</span>{/if}
+                        {#if video.type == 'episode' && video.episodeNumber == null}<span class="tag is-danger is-light is-small">Missing Episode</span>{/if}
+                        {#if video.introStart == null && video.type == 'episode'}<span class="tag is-danger is-light is-small">No Intro</span>{/if}
+                        {#if video.outroStart == null && video.type == 'episode'}<span class="tag is-danger is-light is-small">No Outro</span>{/if}
+                    </div>
+                </td>
+                <td style="vertical-align: middle; font-family: monospace; font-size: 0.85rem;">{video.imdbId ?: '-'}</td>
+                <td style="vertical-align: middle; font-family: monospace; font-size: 0.85rem;">{video.tmdbId ?: '-'}</td>
+                <td style="vertical-align: middle; font-family: monospace; font-size: 0.85rem;">{video.showImdbId ?: '-'}</td>
+                <td style="vertical-align: middle;">
+                    {#if video.type == 'episode'}
+                        <span class="has-text-grey-light">S{video.seasonNumber ?: '?'} E{video.episodeNumber ?: '?'}</span>
+                    {#else}
+                        <span class="has-text-grey-light">-</span>
+                    {/if}
+                </td>
+                <td style="vertical-align: middle;">
+                    <div class="buttons are-small">
+                        <button class="button is-info is-rounded" onclick="openEditModal({video.id})" title="Edit Metadata">
+                            <i class="pi pi-pencil"></i>
+                        </button>
+                        <button class="button is-warning is-rounded"
+                            onclick="openEnrichModal(this)"
+                            data-video-id="{video.id}"
+                            data-title="{video.title ?: ''}"
+                            data-series-title="{video.seriesTitle ?: ''}"
+                            data-season="{video.seasonNumber ?: ''}"
+                            data-episode="{video.episodeNumber ?: ''}"
+                            data-imdb-id="{video.imdbId ?: ''}"
+                            data-show-imdb-id="{video.showImdbId ?: ''}"
+                            data-type="{video.type ?: 'movie'}"
+                            title="Set search params and enrich">
+                            <i class="pi pi-search"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+</div>
+
+<div class="notification is-warning is-light mt-4">
+    <div class="is-flex is-align-items-center" style="gap: 0.5rem;">
+        <i class="pi pi-info-circle"></i>
+        <span>These videos have missing fields that the automatic metadata enrichment couldn't resolve. Use the <strong>Edit</strong> button to manually fill in the missing data, or the <strong>Search</strong> button to correct search parameters and retry.</span>
+    </div>
+</div>
+
+{#else}
+<div class="has-text-centered p-6">
+    <i class="pi pi-check-circle" style="font-size: 3rem; color: #48c774; margin-bottom: 1rem;"></i>
+    <h3 class="title is-5 has-text-white">All videos look good!</h3>
+    <p class="has-text-grey">No videos are missing essential metadata. The enrichment worker is keeping things up to date.</p>
+</div>
+{/if}
+
+<div class="modal" id="enrichModal">
+    <div class="modal-background" onclick="closeEnrichModal()"></div>
+    <div class="modal-card" style="max-width: 520px; background: #1e1e2a; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;">
+        <header class="modal-card-head" style="background: transparent; border-bottom: 1px solid rgba(255,255,255,0.08); border-radius: 12px 12px 0 0; padding: 1.25rem 1.5rem;">
+            <p class="modal-card-title has-text-white is-size-5" style="font-weight: 600;">
+                <i class="pi pi-search mr-2" style="color: var(--standard-accent);"></i>Search Parameters
+            </p>
+            <button class="delete" onclick="closeEnrichModal()" aria-label="close"></button>
+        </header>
+        <section class="modal-card-body" style="background: transparent; padding: 1.5rem;">
+            <p class="is-size-7 has-text-grey-light mb-4">
+                Correct the values below before searching. The metadata APIs will use these to find the right match.
+            </p>
+            <form id="enrichForm" onsubmit="return false;">
+                <input type="hidden" id="enrichVideoId">
+
+                <div class="field">
+                    <label class="label is-small has-text-grey-light">Title</label>
+                    <div class="control">
+                        <input class="input" type="text" id="enrichTitle" placeholder="Video title">
+                    </div>
+                </div>
+
+                <div class="field series-only-enrich" style="display:none;">
+                    <label class="label is-small has-text-grey-light">Series / Show Name</label>
+                    <div class="control">
+                        <input class="input" type="text" id="enrichSeriesTitle" placeholder="e.g. Breaking Bad">
+                    </div>
+                </div>
+
+                <div class="columns series-only-enrich" style="display:none;">
+                    <div class="column is-6">
+                        <div class="field">
+                            <label class="label is-small has-text-grey-light">Season</label>
+                            <div class="control">
+                                <input class="input" type="number" id="enrichSeason" placeholder="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column is-6">
+                        <div class="field">
+                            <label class="label is-small has-text-grey-light">Episode</label>
+                            <div class="control">
+                                <input class="input" type="number" id="enrichEpisode" placeholder="1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label is-small has-text-grey-light">IMDb ID</label>
+                    <div class="control">
+                        <input class="input" type="text" id="enrichImdbId" placeholder="e.g. tt0111161">
+                    </div>
+                    <p class="help has-text-grey">Leave blank to auto-detect</p>
+                </div>
+
+                <div class="field series-only-enrich" style="display:none;">
+                    <label class="label is-small has-text-grey-light">Series IMDb ID</label>
+                    <div class="control">
+                        <input class="input" type="text" id="enrichShowImdbId" placeholder="e.g. tt0096697">
+                    </div>
+                    <p class="help has-text-grey">The IMDb ID of the TV series</p>
+                </div>
+            </form>
+        </section>
+        <footer class="modal-card-foot" style="background: transparent; border-top: 1px solid rgba(255,255,255,0.08); border-radius: 0 0 12px 12px; padding: 1rem 1.5rem; gap: 8px;">
+            <button class="button is-info" onclick="submitEnrichSearch()" id="enrichSubmitBtn">
+                <i class="pi pi-search mr-1"></i> Search &amp; Enrich
+            </button>
+            <button class="button is-light" onclick="closeEnrichModal()">Cancel</button>
+            <span id="enrichStatus" class="is-size-7 has-text-grey-light" style="margin-left: auto;"></span>
+        </footer>
+    </div>
+</div>
+
+<div id="editModal" class="modal">
+    <div class="modal-background" onclick="closeEditModal()"></div>
+    <div class="modal-card glass-modal" style="max-width: 650px; width: 95%;">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Edit Metadata</p>
+            <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
+        </header>
+        <section class="modal-card-body" id="editModalBody">
+            <div class="is-flex is-justify-content-center p-6">
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+    function openEditModal(id) {
+        var modal = document.getElementById('editModal');
+        if (!modal) return;
+        modal.classList.add('is-active');
+        htmx.ajax('GET', '/api/video/manage/edit/' + id, { target: '#editModalBody', swap: 'innerHTML' });
+    }
+    
+    function closeEditModal() {
+        var modal = document.getElementById('editModal');
+        if (modal) modal.classList.remove('is-active');
+    }
+
+    function openEnrichModal(btn) {
+        document.getElementById('enrichVideoId').value = btn.dataset.videoId;
+        document.getElementById('enrichTitle').value = btn.dataset.title;
+        document.getElementById('enrichSeriesTitle').value = btn.dataset.seriesTitle;
+        document.getElementById('enrichSeason').value = btn.dataset.season;
+        document.getElementById('enrichEpisode').value = btn.dataset.episode;
+        document.getElementById('enrichImdbId').value = btn.dataset.imdbId;
+        document.getElementById('enrichShowImdbId').value = btn.dataset.showImdbId;
+
+        const isEpisode = btn.dataset.type === 'episode';
+        document.querySelectorAll('.series-only-enrich').forEach(el => {
+            el.style.display = isEpisode ? (el.classList.contains('columns') ? 'flex' : 'block') : 'none';
+        });
+
+        document.getElementById('enrichStatus').textContent = '';
+        document.getElementById('enrichSubmitBtn').classList.remove('is-loading');
+        document.getElementById('enrichSubmitBtn').disabled = false;
+        document.getElementById('enrichModal').classList.add('is-active');
+    }
+
+    function closeEnrichModal() {
+        document.getElementById('enrichModal').classList.remove('is-active');
+    }
+
+    async function submitEnrichSearch() {
+        const btn = document.getElementById('enrichSubmitBtn');
+        const status = document.getElementById('enrichStatus');
+        const videoId = document.getElementById('enrichVideoId').value;
+
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+        status.textContent = 'Searching...';
+
+        try {
+            const formData = new URLSearchParams();
+            formData.append('title', document.getElementById('enrichTitle').value);
+            const seriesTitle = document.getElementById('enrichSeriesTitle').value;
+            if (seriesTitle) formData.append('seriesTitle', seriesTitle);
+            const season = document.getElementById('enrichSeason').value;
+            if (season) formData.append('seasonNumber', season);
+            const episode = document.getElementById('enrichEpisode').value;
+            if (episode) formData.append('episodeNumber', episode);
+            const imdbId = document.getElementById('enrichImdbId').value;
+            if (imdbId) formData.append('imdbId', imdbId);
+            const showImdbId = document.getElementById('enrichShowImdbId').value;
+            if (showImdbId) formData.append('showImdbId', showImdbId);
+
+            const resp = await fetch('/api/video/manage/search-enrich/' + videoId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            });
+
+            if (!resp.ok) {
+                const err = await resp.text();
+                status.textContent = 'Failed';
+                window.Toast.error('Search failed: ' + err);
+                btn.classList.remove('is-loading');
+                btn.disabled = false;
+                return;
+            }
+
+            status.textContent = 'Done!';
+            window.Toast.success('Metadata search completed!');
+            closeEnrichModal();
+
+            setTimeout(() => {
+                htmx.ajax('GET', '/api/video/manage/needs-attention', {
+                    target: '#spa-content',
+                    swap: 'innerHTML'
+                });
+            }, 1000);
+        } catch (e) {
+            status.textContent = 'Error';
+            window.Toast.error('Error: ' + e.message);
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        }
+    }
+</script>

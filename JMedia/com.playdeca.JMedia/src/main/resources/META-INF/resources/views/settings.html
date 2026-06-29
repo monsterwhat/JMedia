@@ -31,6 +31,18 @@
                                     <label class="label">TMDb API Key</label>
                                     <div class="control"><input id="tmdbApiKeyInput" class="input is-small" type="password" placeholder="API Key"></div>
                                 </div>
+                                <div class="field">
+                                    <label class="label">Default Video Player</label>
+                                    <div class="control">
+                                        <div class="select is-small">
+                                            <select id="defaultPlayerSelect">
+                                                <option value="simple">JMedia Player</option>
+                                                <option value="videojs">Video.js</option>
+                                                <option value="oplayer" selected>OPlayer</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="buttons mt-5">
@@ -455,10 +467,18 @@
                             <!-- API Key -->
                             <div class="field">
                                 <label class="label">API Key</label>
-                                <div class="control">
-                                    <input id="syncApiKey" class="input is-small" type="password" placeholder="Enter API key for incoming sync requests">
+                                <div class="is-flex" style="gap: 6px;">
+                                    <div style="flex: 1;">
+                                        <input id="syncApiKey" class="input is-small" type="password" placeholder="Enter API key for incoming sync requests">
+                                    </div>
+                                    <div>
+                                        <button id="syncGenerateApiKeyBtn" class="button is-small is-warning" onclick="JMedia.Sync.generateApiKey()" title="Generate a secure random API key"><i class="pi pi-key mr-1"></i> Generate</button>
+                                    </div>
+                                    <div>
+                                        <button id="syncCopyApiKeyBtn" class="button is-small" onclick="JMedia.Sync.copyApiKey()" title="Copy API key to clipboard"><i class="pi pi-copy mr-1"></i> Copy</button>
+                                    </div>
                                 </div>
-                                <p class="help">Used by remote servers to authenticate when pushing data to this instance.</p>
+                                <p class="help">Used by remote servers to authenticate when pushing data to this instance. Click <strong>Generate</strong> to create a secure random key.</p>
                             </div>
 
                             <hr>

@@ -1,10 +1,8 @@
-<!-- Custom Modern Player -->
 <link rel="stylesheet" href="/css/player.css"/>
 <link rel="stylesheet" href="/css/subtitle-styling.css"/>
 
+{#if defaultPlayer == 'simple'}
 {#include subtitleSettingsComponent}{/include}
-{#include audioTrackSelector}{/include}
-
 <div class="player-container paused" id="customPlayer"
       data-video-id="{item.id}"
       data-title="{item.title ?: item.seriesTitle}"
@@ -33,26 +31,24 @@
       data-auto-skip-intro="{autoSkipIntro}"
       data-auto-skip-recap="{autoSkipRecap}"
       data-auto-skip-outro="{autoSkipOutro}">
-    
     <div class="video-wrapper">
-        <video id="videoElement" crossorigin="anonymous" playsinline autoplay>
-        </video>
+        <video id="videoElement" crossorigin="anonymous" playsinline autoplay></video>
         <canvas id="assCanvas" class="ass-canvas"></canvas>
     </div>
 </div>
 
 <script src="/lib/jassub/jassub.bundle.js"></script>
-<script src="/js/player/Utils.js"></script>
+<script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/StateManager.js"></script>
 <script src="/js/player/StreamManager.js"></script>
-<script src="/js/player/UIBuilder.js"></script>
+<script src="/js/player/UIBuilder.js?v=4"></script>
 <script src="/js/player/ControlsManager.js"></script>
 <script src="/js/player/FullscreenManager.js"></script>
 <script src="/js/player/SubtitleController.js"></script>
 <script src="/js/player/AudioTrackSelector.js"></script>
 <script src="/js/player/SubtitleSettingsUI.js"></script>
 <script src="/js/player/StoryboardManager.js"></script>
-<script src="/js/player/EventBinder.js"></script>
+<script src="/js/player/EventBinder.js?v=4"></script>
 <script src="/js/player/KeyboardShortcuts.js"></script>
 <script src="/js/player/SkipController.js"></script>
 <script src="/js/player/ProgressReporter.js"></script>
@@ -60,8 +56,7 @@
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {
-        console.log("[Playback] Fragment Loaded. Initializing...");
-        
+        console.log("[Playback] Initializing SimplePlayer...");
         const tryInit = () => {
             if (window.SimplePlayer) {
                 new window.SimplePlayer({
@@ -73,7 +68,312 @@
                 setTimeout(tryInit, 50);
             }
         };
-
         tryInit();
     })();
 </script>
+{#else}
+{#include subtitleSettingsComponent}{/include}
+{#include audioTrackSelector}{/include}
+<div class="player-container" id="customPlayer"
+      data-video-id="{item.id}"
+      data-title="{item.title ?: item.seriesTitle}"
+      data-path="{item.path.replace('\\', '/')}"
+      data-duration="{item.duration}"
+      data-type="{item.type ?: 'movie'}"
+      data-series-title="{item.seriesTitle ?: ''}"
+      data-season-number="{item.seasonNumber ?: 1}"
+      data-episode-number="{item.episodeNumber ?: 0}"
+      data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
+      data-meta="{#if item.type == 'Episode' || item.type == 'episode'}S{item.seasonNumber}E{item.episodeNumber} • {item.episodeTitle ?: 'Untitled'}{#else}{item.releaseYear ?: ''}{/if}"
+      data-start-time="{resumeTime}"
+      data-next-id="{nextEpisodeId}"
+      data-prev-id="{prevEpisodeId}"
+      data-needs-transcode="{needsTranscoding}"
+      data-video-codec="{item.videoCodec ?: ''}"
+      data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
+      data-intro-start="{item.introStart ?: 0}"
+      data-intro-end="{item.introEnd ?: 0}"
+      data-outro-start="{item.outroStart ?: 0}"
+      data-outro-end="{item.outroEnd ?: 0}"
+      data-recap-start="{item.recapStart ?: 0}"
+      data-recap-end="{item.recapEnd ?: 0}"
+      data-preferred-audio-language="{item.preferredAudioLanguage ?: ''}"
+      data-default-audio-track-id="{item.defaultAudioTrackId ?: ''}"
+      data-auto-skip-intro="{autoSkipIntro}"
+      data-auto-skip-recap="{autoSkipRecap}"
+      data-auto-skip-outro="{autoSkipOutro}">
+
+    <div class="video-wrapper">
+        {#if defaultPlayer == 'oplayer'}
+        <div id="oplayerContainer" class="oplayer-wrapper"></div>
+        {#else}
+        <video id="videoElement" class="video-js vjs-default-skin" crossorigin="anonymous" playsinline autoplay></video>
+{/if}
+        <canvas id="assCanvas" class="ass-canvas"></canvas>
+    </div>
+
+    <!-- Back button -->
+    <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;">
+        <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
+    </div>
+
+    <!-- Settings toggle button (top-right so it doesn't overlap native control bars at the bottom) -->
+    <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings" style="position:absolute;top:15px;right:15px;z-index:1000;background:rgba(0,0,0,0.6);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);font-size:1.2rem;">
+        <i class="pi pi-cog"></i>
+    </button>
+
+    <!-- Settings/Subtitle menu -->
+    <div class="subtitle-menu settings-menu" id="subtitleMenu">
+        <div class="settings-page active" data-page="main">
+            <div class="menu-header">Settings</div>
+            <div class="settings-item" data-page="subtitles">
+                <span>Subtitles</span>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+            <div class="settings-item" data-page="offset">
+                <span>Timing Offset</span>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+            <div class="settings-item" data-page="style">
+                <span>Style</span>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+            <div class="settings-item" data-page="quality">
+                <span>Video Quality</span>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+            <div class="settings-item" data-page="player">
+                <span>Video Player</span>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+        </div>
+        <div class="settings-page" data-page="subtitles">
+            <div class="settings-back"><i class="pi pi-chevron-left"></i> Subtitles</div>
+            <div class="subtitle-list" id="subtitleList">
+                <div class="subtitle-option active" id="sub-off" data-id="off">Off</div>
+            </div>
+        </div>
+        <div class="settings-page" data-page="offset">
+            <div class="settings-back"><i class="pi pi-chevron-left"></i> Timing Offset</div>
+            <div class="subtitle-correction-row">
+                <button class="correction-btn" id="subMinusBtn">-0.2s</button>
+                <div class="correction-val" id="subCorrectionVal" title="Click to edit manually">0.0s</div>
+                <button class="correction-btn" id="subPlusBtn">+0.2s</button>
+                <button class="correction-btn correction-reset" id="subResetBtn" title="Reset to 0">↺</button>
+            </div>
+        </div>
+        <div class="settings-page" data-page="style" id="subtitleStylePage">
+            <div class="settings-back"><i class="pi pi-chevron-left"></i> Style</div>
+            <div class="settings-content" style="padding:12px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+                    <span>Font Size: <span id="subFontSizeVal">100</span>%</span>
+                    <input type="range" id="subFontSize" min="50" max="200" value="100" step="5">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+                    <span>Color</span>
+                    <input type="color" id="subFontColor" value="#ffffff">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+                    <span>Position: <span id="subPositionVal">90</span>% from bottom</span>
+                    <input type="range" id="subPosition" min="0" max="100" value="90">
+                </label>
+            </div>
+        </div>
+        <div class="settings-page" data-page="quality">
+            <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Quality</div>
+            <div class="quality-options" id="qualityOptions">
+                <button class="quality-btn" data-quality="720">720p</button>
+                <button class="quality-btn" data-quality="1080">1080p</button>
+                <button class="quality-btn" data-quality="2160">4K</button>
+                <button class="quality-btn" data-quality="480">480p</button>
+                <button class="quality-btn" data-quality="0">Source</button>
+            </div>
+        </div>
+        <div class="settings-page" data-page="player">
+            <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Player</div>
+            <div class="quality-options" id="playerOptions">
+                <button class="quality-btn player-option" data-player="simple"{#if defaultPlayer == 'simple'} style="border-color:#48c774;color:#48c774;"{/if}>JMedia Player</button>
+                <button class="quality-btn player-option" data-player="videojs"{#if defaultPlayer == 'videojs'} style="border-color:#48c774;color:#48c774;"{/if}>Video.js</button>
+                <button class="quality-btn player-option" data-player="oplayer"{#if defaultPlayer == 'oplayer'} style="border-color:#48c774;color:#48c774;"{/if}>OPlayer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{#if defaultPlayer == 'videojs'}
+<link href="https://vjs.zencdn.net/8.17.4/video-js.css" rel="stylesheet">
+<script src="https://vjs.zencdn.net/8.17.4/video.min.js"></script>
+<script src="/js/player/Utils.js?v=3"></script>
+<script src="/js/player/videojs-adapter.js?v=4"></script>
+<script src="/js/test-player-common.js"></script>
+<script>
+    (function() {
+        console.log("[Playback] Initializing Video.js...");
+        var videoId = {item.id};
+        var tryInit = function() {
+            if (window.videojs && window.initVideoJsAdapter) {
+                initVideoJsAdapter(videoId);
+            } else {
+                setTimeout(tryInit, 50);
+            }
+        };
+        tryInit();
+    })();
+</script>
+{#else}
+<script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"></script>
+<script src="/js/player/Utils.js?v=3"></script>
+<script src="/js/player/oplayer-adapter.js?v=4"></script>
+<script src="/js/test-player-common.js"></script>
+<script>
+    (function() {
+        console.log("[Playback] Initializing OPlayer...");
+        var videoId = {item.id};
+        var tryInit = function() {
+            if (window.OPlayer && window.initOPlayerAdapter) {
+                initOPlayerAdapter(videoId);
+            } else {
+                setTimeout(tryInit, 50);
+            }
+        };
+        tryInit();
+    })();
+</script>
+{/if}
+{/if}
+
+{#if hasCarousel}
+<div class="underplayer-carousel-section">
+  <div class="underplayer-carousel-header">
+    <h3>{carouselTitle}</h3>
+    {#if collectionId}
+    <a class="button is-small" href="#collections">View Collection</a>
+    {/if}
+  </div>
+  <div class="underplayer-carousel-container">
+    <button class="underplayer-nav-btn left" onclick="window.scrollCarousel('underplayerCarousel', 'left')"><i class="pi pi-chevron-left"></i></button>
+    <div class="underplayer-carousel" id="underplayerCarousel">
+      {#for item in carouselItems}
+      <div class="underplayer-card {#if item.isCurrent}carousel-card-current{/if}"
+           data-video-id="{item.id}"
+           data-entry-id="{item.entryId}"
+           data-collection-id="{item.collectionId}"
+           data-media-type="{item.mediaType ?: 'video'}"
+           onclick="underplayerPlayCard(this)">
+        <div class="underplayer-card-thumb">
+          {#if item.mediaType == 'external'}
+          <div class="underplayer-card-gradient">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
+          {#else}
+          <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <div class="underplayer-card-gradient" style="display:none">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
+          {/if}
+          {#if item.isCurrent}
+          <div class="underplayer-card-now-playing"><i class="pi pi-play"></i></div>
+          {/if}
+        </div>
+        <div class="underplayer-card-info">
+          <div class="underplayer-card-title">{item.title ?: item.seriesTitle}</div>
+          {#if item.type == 'episode' || item.type == 'Episode'}
+          <div class="underplayer-card-meta">S{item.seasonNumber}E{item.episodeNumber}</div>
+          {/if}
+        </div>
+      </div>
+      {/for}
+    </div>
+    <button class="underplayer-nav-btn right" onclick="window.scrollCarousel('underplayerCarousel', 'right')"><i class="pi pi-chevron-right"></i></button>
+  </div>
+</div>
+{/if}
+
+{#if hasCarousel}
+<script>
+(function() {
+    var carousel = document.getElementById('underplayerCarousel');
+    var current = carousel && carousel.querySelector('.carousel-card-current');
+    if (carousel && current) {
+        var scrollTarget = current.offsetLeft - (carousel.clientWidth / 2) + (current.offsetWidth / 2);
+        carousel.scrollLeft = Math.max(0, scrollTarget);
+    }
+})();
+</script>
+{/if}
+
+<div class="underplayer-info-section">
+  {#if infoSection.infoType == 'episode'}
+  <div class="underplayer-info-block episode-block">
+    {#if infoSection.seriesTitle}
+    <div class="series-title-label">{infoSection.seriesTitle}</div>
+    {/if}
+    <div class="underplayer-episode-header">
+      {#if infoSection.seasonNumber || infoSection.episodeNumber}
+      <span class="episode-badge">S{infoSection.seasonNumber}E{infoSection.episodeNumber}</span>
+      {/if}
+      <h2>{infoSection.episodeTitle ?: item.title}</h2>
+    </div>
+    <div class="info-meta-row">
+      {#if infoSection.runtimeMins}<span>{infoSection.runtimeMins}m</span>{/if}
+      {#if infoSection.releaseDate}<span>{infoSection.releaseDate.substring(0,4)}</span>{/if}
+      {#if infoSection.mpaaRating}<span class="mpaa-badge">{infoSection.mpaaRating}</span>{/if}
+    </div>
+    {#if infoSection.genres}
+    <div class="info-genres">{#for g in infoSection.genres}<span class="genre-tag">{g}</span>{/for}</div>
+    {/if}
+    <p class="info-overview">{infoSection.overview ?: 'No description'}</p>
+    {#if infoSection.imdbRating || infoSection.tmdbRating}
+    <div class="info-separator"></div>
+    <div class="info-ratings">
+      {#if infoSection.imdbRating}<span class="rating-badge">IMDb: <strong>{infoSection.imdbRating}</strong></span>{/if}
+      {#if infoSection.tmdbRating}<span class="rating-badge tmdb">TMDB: <strong>{infoSection.tmdbRating}</strong></span>{/if}
+    </div>
+    {/if}
+    {#if infoSection.cast}<div class="info-credits"><strong>Cast:</strong> {infoSection.cast}</div>{/if}
+    {#if infoSection.directors}<div class="info-credits"><strong>Director:</strong> {infoSection.directors}</div>{/if}
+    {#if infoSection.writers}<div class="info-credits"><strong>Writers:</strong> {infoSection.writers}</div>{/if}
+  </div>
+  {#else}
+  <div class="underplayer-info-block">
+    <div class="underplayer-movie-layout">
+      {#if item.id}
+      <div class="underplayer-movie-poster">
+        <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy">
+      </div>
+      {/if}
+      <div class="underplayer-movie-info">
+        <h2>{infoSection.title}</h2>
+        {#if infoSection.tagline}<div class="tagline">{infoSection.tagline}</div>{/if}
+        <div class="info-meta-row">
+          {#if infoSection.releaseYear}<span>{infoSection.releaseYear}</span>{/if}
+          {#if infoSection.runtimeMins}<span>{infoSection.runtimeMins}m</span>{/if}
+          {#if infoSection.mpaaRating}<span class="mpaa-badge">{infoSection.mpaaRating}</span>{/if}
+        </div>
+        {#if infoSection.genres}
+        <div class="info-genres">{#for g in infoSection.genres}<span class="genre-tag">{g}</span>{/for}</div>
+        {/if}
+        <p class="info-overview">{infoSection.overview ?: 'No description'}</p>
+        {#if infoSection.imdbRating || infoSection.tmdbRating || infoSection.metacriticRating}
+        <div class="info-separator"></div>
+        <div class="info-ratings">
+          {#if infoSection.imdbRating}<span class="rating-badge">IMDb: <strong>{infoSection.imdbRating}</strong></span>{/if}
+          {#if infoSection.tmdbRating}<span class="rating-badge tmdb">TMDB: <strong>{infoSection.tmdbRating}</strong></span>{/if}
+          {#if infoSection.metacriticRating}<span class="rating-badge">Metascore: <strong>{infoSection.metacriticRating}</strong></span>{/if}
+        </div>
+        {/if}
+        {#if infoSection.cast}<div class="info-credits"><strong>Cast:</strong> {infoSection.cast}</div>{/if}
+        {#if infoSection.directors}<div class="info-credits"><strong>Director:</strong> {infoSection.directors}</div>{/if}
+        {#if infoSection.writers}<div class="info-credits"><strong>Writers:</strong> {infoSection.writers}</div>{/if}
+        {#if infoSection.awards}<div class="info-credits"><strong>Awards:</strong> {infoSection.awards}</div>{/if}
+        {#if infoSection.displayResolution || infoSection.videoCodec || infoSection.audioChannels}
+        <div class="info-tech">
+          {#if infoSection.displayResolution}<span>{infoSection.displayResolution}</span>{/if}
+          {#if infoSection.videoCodec}<span>{infoSection.videoCodec}</span>{/if}
+          {#if infoSection.audioChannels}<span>{infoSection.audioChannels}.1 Ch</span>{/if}
+        </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+  {/if}
+</div>
+
+

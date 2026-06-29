@@ -9,7 +9,7 @@
         build() {
             const p = this.player;
             const uiHTML = `
-                <div class="video-click-overlay"></div>
+                <div class="video-click-overlay" id="clickOverlay"></div>
                 <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
                 <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
 
@@ -103,6 +103,10 @@
                             <span>Video Quality</span>
                             <i class="pi pi-chevron-right"></i>
                         </div>
+                        <div class="settings-item" data-page="player">
+                            <span>Video Player</span>
+                            <i class="pi pi-chevron-right"></i>
+                        </div>
                     </div>
 
                     <div class="settings-page" data-page="subtitles">
@@ -130,11 +134,19 @@
                     <div class="settings-page" data-page="quality">
                         <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Quality</div>
                         <div class="quality-options" id="qualityOptions">
-                            <button class="quality-btn" data-quality="0">Source</button>
-                            <button class="quality-btn" data-quality="480">480p</button>
                             <button class="quality-btn" data-quality="720">720p</button>
                             <button class="quality-btn" data-quality="1080">1080p</button>
                             <button class="quality-btn" data-quality="2160">4K</button>
+                            <button class="quality-btn" data-quality="480">480p</button>
+                            <button class="quality-btn" data-quality="0">Source</button>
+                        </div>
+                    </div>
+                    <div class="settings-page" data-page="player">
+                        <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Player</div>
+                        <div class="quality-options" id="playerOptions">
+                            <button class="quality-btn player-option" data-player="simple" style="border-color:#48c774;color:#48c774;">JMedia Player</button>
+                            <button class="quality-btn player-option" data-player="videojs">Video.js</button>
+                            <button class="quality-btn player-option" data-player="oplayer">OPlayer</button>
                         </div>
                     </div>
                 </div>

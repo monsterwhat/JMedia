@@ -3,7 +3,7 @@
         <h1 class="library-title">Collections</h1>
         <p class="nav-label">{totalItems} Collections</p>
     </div>
-    <button class="button is-primary is-rounded admin-only" onclick="showCreateCollectionModal()">
+    <button class="button is-primary is-rounded" onclick="showCreateCollectionModal()">
         <i class="pi pi-plus"></i> <span>New Collection</span>
     </button>
 </div>
@@ -83,6 +83,13 @@
                 <div class="control">
                     <textarea class="textarea is-dark" id="collectionDescInput" placeholder="Optional description"></textarea>
                 </div>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" id="collectionIsPublicInput" checked>
+                    <span class="ml-2">Public — visible to all users</span>
+                </label>
+                <p class="help">Uncheck for a private collection visible only to you and admins.</p>
             </div>
         </section>
         <footer class="modal-card-foot">

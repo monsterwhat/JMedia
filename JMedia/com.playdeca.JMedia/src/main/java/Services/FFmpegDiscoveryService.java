@@ -367,6 +367,9 @@ public class FFmpegDiscoveryService {
         if (decoder.contains("videotoolbox")) return "videotoolbox";
         if (decoder.contains("amf")) return "amf";
         if (decoder.contains("v4l2m2m")) return "v4l2m2m";
+        if (decoder.contains("d3d11va")) return "d3d11va";
+        if (decoder.contains("dxva2")) return "dxva2";
+        if (decoder.contains("_mf")) return "mf";
         return null;
     }
 
@@ -385,6 +388,7 @@ public class FFmpegDiscoveryService {
             ProcessBuilder pb = new ProcessBuilder(
                 ffmpeg, "-v", "error",
                 "-init_hw_device", hwaccelType,
+                "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.1",
                 "-f", "null", "-"
             );
             pb.redirectErrorStream(true);
@@ -411,6 +415,9 @@ public class FFmpegDiscoveryService {
     private boolean decoderIsUsable(String decoder) {
         String hwaccelType = decoderToHwaccelType(decoder);
         if (hwaccelType == null) return false;
+        if ("mf".equals(hwaccelType)) {
+            return isWindows();
+        }
         return isHwaccelUsable(hwaccelType);
     }
 
@@ -426,7 +433,8 @@ public class FFmpegDiscoveryService {
                         String line = s.nextLine();
                         if (line.contains("nvenc") || line.contains("qsv") || line.contains("vaapi") || 
                             line.contains("cuvid") || line.contains("v4l2m2m") || line.contains("amf") ||
-                            line.contains("videotoolbox")) {
+                            line.contains("videotoolbox") || line.contains("d3d11va") || line.contains("dxva2") ||
+                            line.contains("_mf")) {
                             String[] parts = line.trim().split("\\s+");
                             if (parts.length >= 2) supportedDecoders.add(parts[1]);
                         }
@@ -447,6 +455,9 @@ public class FFmpegDiscoveryService {
             if (supportedDecoders.contains("h264_videotoolbox") && decoderIsUsable("h264_videotoolbox")) return "h264_videotoolbox";
             if (supportedDecoders.contains("h264_qsv") && decoderIsUsable("h264_qsv")) return "h264_qsv";
             if (supportedDecoders.contains("h264_amf") && decoderIsUsable("h264_amf")) return "h264_amf";
+            if (supportedDecoders.contains("h264_d3d11va") && decoderIsUsable("h264_d3d11va")) return "h264_d3d11va";
+            if (supportedDecoders.contains("h264_dxva2") && decoderIsUsable("h264_dxva2")) return "h264_dxva2";
+            if (supportedDecoders.contains("h264_mf") && decoderIsUsable("h264_mf")) return "h264_mf";
             if (supportedDecoders.contains("h264_vaapi") && decoderIsUsable("h264_vaapi")) return "h264_vaapi";
             if (supportedDecoders.contains("h264_v4l2m2m") && decoderIsUsable("h264_v4l2m2m")) return "h264_v4l2m2m";
         } else if (isHEVC) {
@@ -454,6 +465,9 @@ public class FFmpegDiscoveryService {
             if (supportedDecoders.contains("hevc_videotoolbox") && decoderIsUsable("hevc_videotoolbox")) return "hevc_videotoolbox";
             if (supportedDecoders.contains("hevc_qsv") && decoderIsUsable("hevc_qsv")) return "hevc_qsv";
             if (supportedDecoders.contains("hevc_amf") && decoderIsUsable("hevc_amf")) return "hevc_amf";
+            if (supportedDecoders.contains("hevc_d3d11va") && decoderIsUsable("hevc_d3d11va")) return "hevc_d3d11va";
+            if (supportedDecoders.contains("hevc_dxva2") && decoderIsUsable("hevc_dxva2")) return "hevc_dxva2";
+            if (supportedDecoders.contains("hevc_mf") && decoderIsUsable("hevc_mf")) return "hevc_mf";
             if (supportedDecoders.contains("hevc_vaapi") && decoderIsUsable("hevc_vaapi")) return "hevc_vaapi";
             if (supportedDecoders.contains("hevc_v4l2m2m") && decoderIsUsable("hevc_v4l2m2m")) return "hevc_v4l2m2m";
         } else if (isVP9) {

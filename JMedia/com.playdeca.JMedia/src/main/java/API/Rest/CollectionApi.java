@@ -1,7 +1,9 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Models.Profile;
 import Services.CollectionService;
+import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -17,6 +19,9 @@ public class CollectionApi {
     @Inject
     CollectionService collectionService;
 
+    @Inject
+    SettingsService settingsService;
+
     private boolean checkAdmin(HttpHeaders headers) {
         String sessionId = null;
         if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
@@ -30,15 +35,32 @@ public class CollectionApi {
     }
 
     @GET
-    public Response listCollections() {
-        return Response.ok(ApiResponse.success(collectionService.listCollections())).build();
+    public Response listCollections(@Context HttpHeaders headers) {
+        boolean isAdmin = checkAdmin(headers);
+        Profile activeProfile = settingsService.getActiveProfile();
+        return Response.ok(ApiResponse.success(collectionService.listCollections(activeProfile, isAdmin))).build();
+    }
+
+    @GET
+    @Path("/my")
+    public Response listMyCollections(@Context HttpHeaders headers) {
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null)
+            return Response.status(401).entity(ApiResponse.error("No active profile")).build();
+        return Response.ok(ApiResponse.success(collectionService.findMyCollections(activeProfile))).build();
     }
 
     @GET
     @Path("/{id}")
-    public Response getCollection(@PathParam("id") Long id) {
+    public Response getCollection(@Context HttpHeaders headers, @PathParam("id") Long id) {
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
+        boolean isAdmin = checkAdmin(headers);
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (c.profile != null && !c.isPublic && !isAdmin
+                && (activeProfile == null || !activeProfile.equals(c.profile))) {
+            return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
+        }
         return Response.ok(ApiResponse.success(c)).build();
     }
 
@@ -46,12 +68,21 @@ public class CollectionApi {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response createCollection(@Context HttpHeaders headers,
                                      @FormParam("name") String name,
-                                     @FormParam("description") String description) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
+                                     @FormParam("description") String description,
+                                     @FormParam("isPublic") @DefaultValue("false") boolean isPublic) {
+        boolean isAdmin = checkAdmin(headers);
         if (name == null || name.trim().isEmpty())
             return Response.status(400).entity(ApiResponse.error("Name is required")).build();
-        var c = collectionService.create(name.trim(), description);
+
+        if (isAdmin) {
+            var c = collectionService.create(name.trim(), description);
+            return Response.ok(ApiResponse.success(c)).build();
+        }
+
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null)
+            return Response.status(401).entity(ApiResponse.error("No active profile")).build();
+        var c = collectionService.create(name.trim(), description, activeProfile, isPublic);
         return Response.ok(ApiResponse.success(c)).build();
     }
 
@@ -62,19 +93,31 @@ public class CollectionApi {
                                      @PathParam("id") Long id,
                                      @FormParam("name") String name,
                                      @FormParam("description") String description) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
-        var c = collectionService.update(id, name, description);
+        boolean isAdmin = checkAdmin(headers);
+        var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
-        return Response.ok(ApiResponse.success(c)).build();
+
+        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        if (!isAdmin && !isOwner)
+            return Response.status(403).entity(ApiResponse.error("Access denied")).build();
+
+        var updated = collectionService.update(id, name, description);
+        if (updated == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
+        return Response.ok(ApiResponse.success(updated)).build();
     }
 
     @DELETE
     @Path("/{id}")
     public Response deleteCollection(@Context HttpHeaders headers,
                                      @PathParam("id") Long id) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
+        boolean isAdmin = checkAdmin(headers);
+        var c = collectionService.getCollection(id);
+        if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
+
+        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        if (!isAdmin && !isOwner)
+            return Response.status(403).entity(ApiResponse.error("Access denied")).build();
+
         if (collectionService.delete(id))
             return Response.ok(ApiResponse.success("Collection deleted")).build();
         return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
@@ -93,15 +136,33 @@ public class CollectionApi {
     public Response addEntry(@Context HttpHeaders headers,
                              @PathParam("id") Long id,
                              @FormParam("videoId") Long videoId,
+                             @FormParam("externalVideoId") Long externalVideoId,
                              @FormParam("orderIndex") @DefaultValue("0") int orderIndex,
                              @FormParam("notes") String notes) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
-        if (videoId == null)
-            return Response.status(400).entity(ApiResponse.error("videoId is required")).build();
-        var e = collectionService.addEntry(id, videoId, orderIndex, notes);
-        if (e == null) return Response.status(404).entity(ApiResponse.error("Collection or video not found")).build();
-        return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
+        boolean isAdmin = checkAdmin(headers);
+        var c = collectionService.getCollection(id);
+        if (c == null)
+            return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
+
+        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        if (!isAdmin && !isOwner)
+            return Response.status(403).entity(ApiResponse.error("Access denied")).build();
+
+        if (videoId == null && externalVideoId == null)
+            return Response.status(400).entity(ApiResponse.error("videoId or externalVideoId is required")).build();
+
+        if (videoId != null) {
+            var e = collectionService.addEntry(id, videoId, orderIndex, notes);
+            if (e == null)
+                return Response.status(404).entity(ApiResponse.error("Collection or video not found")).build();
+            collectionService.updateCoverVideo(c);
+            return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
+        } else {
+            var e = collectionService.addEntryWithExternalVideo(id, externalVideoId, orderIndex, notes);
+            if (e == null)
+                return Response.status(404).entity(ApiResponse.error("Collection or external video not found")).build();
+            return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
+        }
     }
 
     @PUT
@@ -111,8 +172,16 @@ public class CollectionApi {
                                 @PathParam("entryId") Long entryId,
                                 @FormParam("orderIndex") Integer orderIndex,
                                 @FormParam("notes") String notes) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
+        boolean isAdmin = checkAdmin(headers);
+        Models.CollectionEntry foundEntry = Models.CollectionEntry.findById(entryId);
+        if (foundEntry == null)
+            return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
+
+        boolean isOwner = foundEntry.collection.profile != null
+            && foundEntry.collection.profile.equals(settingsService.getActiveProfile());
+        if (!isAdmin && !isOwner)
+            return Response.status(403).entity(ApiResponse.error("Access denied")).build();
+
         var e = collectionService.updateEntry(entryId, orderIndex, notes);
         if (e == null) return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
         return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
@@ -122,10 +191,20 @@ public class CollectionApi {
     @Path("/entries/{entryId}")
     public Response removeEntry(@Context HttpHeaders headers,
                                 @PathParam("entryId") Long entryId) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
-        if (collectionService.removeEntry(entryId))
+        boolean isAdmin = checkAdmin(headers);
+        Models.CollectionEntry foundEntry = Models.CollectionEntry.findById(entryId);
+        if (foundEntry == null)
+            return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
+
+        boolean isOwner = foundEntry.collection.profile != null
+            && foundEntry.collection.profile.equals(settingsService.getActiveProfile());
+        if (!isAdmin && !isOwner)
+            return Response.status(403).entity(ApiResponse.error("Access denied")).build();
+
+        if (collectionService.removeEntry(entryId)) {
+            collectionService.updateCoverVideo(foundEntry.collection);
             return Response.ok(ApiResponse.success("Entry removed")).build();
+        }
         return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
     }
 
@@ -134,14 +213,20 @@ public class CollectionApi {
     @Consumes(MediaType.APPLICATION_JSON)
     public Response reorderEntries(@Context HttpHeaders headers,
                                    @PathParam("id") Long id, Map<String, Object> rawMap) {
-        if (!checkAdmin(headers))
-            return Response.status(403).entity(ApiResponse.error("Admin access required")).build();
+        boolean isAdmin = checkAdmin(headers);
+        var c = collectionService.getCollection(id);
+        if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
+
+        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        if (!isAdmin && !isOwner)
+            return Response.status(403).entity(ApiResponse.error("Access denied")).build();
+
         java.util.Map<Long, Integer> orderMap = new java.util.HashMap<>();
         for (var entry : rawMap.entrySet()) {
             try {
-                Long entryId = Long.parseLong(entry.getKey());
+                Long eid = Long.parseLong(entry.getKey());
                 Integer order = ((Number) entry.getValue()).intValue();
-                orderMap.put(entryId, order);
+                orderMap.put(eid, order);
             } catch (Exception ignored) {}
         }
         if (collectionService.reorderEntries(id, orderMap))

@@ -72,9 +72,24 @@
             </div>
         </div>
         
+        <!-- Hidden elements synced to SubtitleManager's expected IDs for cross-UI compatibility -->
+        <div style="display:none">
+            <input type="hidden" id="subStyleFont" value="'Segoe UI', sans-serif">
+            <input type="hidden" id="subStyleSize" value="20">
+            <input type="hidden" id="subStyleColor" value="#ffffff">
+            <input type="hidden" id="subStyleBgOpacity" value="0.7">
+            <input type="hidden" id="subStyleLineHeight" value="1.4">
+            <input type="hidden" id="subStyleBottom" value="60">
+            <input type="hidden" id="subStyleColorHex" value="#ffffff">
+            <span id="fontSizeVal">20</span>
+            <span id="bgOpacityVal">0.7</span>
+            <span id="bottomDistVal">60</span>
+        </div>
+
         <!-- Preview -->
         <div class="subtitle-preview-box">
             <div id="subSettingsPreviewText">Sample Subtitle Text</div>
+            <div id="subPreviewText" style="display:none">Sample Subtitle Text</div>
         </div>
         
         <!-- Action Buttons -->

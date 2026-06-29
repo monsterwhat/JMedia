@@ -9,8 +9,16 @@ import java.time.LocalDateTime;
 @Data
 @Entity
 @EqualsAndHashCode(callSuper = false)
-@Table(name = "media_collection")
+@Table(name = "media_collection", indexes = {
+    @Index(name = "idx_collection_profile", columnList = "profile_id")
+})
 public class MediaCollection extends PanacheEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "profile_id")
+    public Profile profile;
+
+    public Boolean isPublic = false;
 
     public String name;
 

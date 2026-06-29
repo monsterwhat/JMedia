@@ -91,6 +91,12 @@ public class Settings extends PanacheEntity {
     private Boolean syncTimelinesEnabled = false;
     private Boolean syncPlaylistsEnabled = false;
 
+    private String defaultPlayer = "oplayer";
+
+    // Streaming / transcoding configuration
+    private Integer maxConcurrentTranscodes = 2; // Max concurrent transcode sessions (0 = use default)
+    private Boolean hardwareAccelerationEnabled = true; // Enable hardware-accelerated transcoding
+
     // YouTube (yt-dlp) advanced options
     private Boolean youtubeForceIpv4 = false;
     private Boolean youtubeForceIpv6 = false;
@@ -376,6 +382,14 @@ public class Settings extends PanacheEntity {
 
     public void setAutoSkipOutro(Boolean autoSkipOutro) {
         this.autoSkipOutro = autoSkipOutro;
+    }
+
+    public String getDefaultPlayer() {
+        return defaultPlayer != null ? defaultPlayer : "simple";
+    }
+
+    public void setDefaultPlayer(String defaultPlayer) {
+        this.defaultPlayer = defaultPlayer;
     }
 
     // YouTube advanced options getters and setters

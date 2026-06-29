@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.websocket.OnClose;
+import jakarta.websocket.OnError;
 import jakarta.websocket.OnOpen;
 import jakarta.websocket.Session;
 import jakarta.websocket.server.ServerEndpoint;
@@ -55,6 +56,12 @@ public class LogSocket {
 
     @OnClose
     public void onClose(Session session) {
+        webSocketManager.removeLogSession(session);
+    }
+
+    @OnError
+    public void onError(Session session, Throwable throwable) {
+        System.err.println("[LogSocket] Error in session " + session.getId() + ": " + throwable.getMessage());
         webSocketManager.removeLogSession(session);
     }
 

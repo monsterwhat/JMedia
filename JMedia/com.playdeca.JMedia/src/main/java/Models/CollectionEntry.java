@@ -8,7 +8,9 @@ import lombok.EqualsAndHashCode;
 @Data
 @Entity
 @EqualsAndHashCode(callSuper = false)
-@Table(name = "collection_entry")
+@Table(name = "collection_entry", indexes = {
+    @Index(name = "idx_entry_external_video", columnList = "external_video_id")
+})
 public class CollectionEntry extends PanacheEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -18,6 +20,10 @@ public class CollectionEntry extends PanacheEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "video_id")
     public Video video;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "external_video_id")
+    public ExternalVideo externalVideo;
 
     public int orderIndex;
 

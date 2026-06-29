@@ -15,6 +15,8 @@ class VideoSPA {
             adminSuggestions: '/api/video/ui/admin-suggestions-fragment',
             manage: '/api/video/manage',
             manageSeries: '/api/video/manage/series/{seriesTitle}',
+            needsAttention: '/api/video/manage/needs-attention',
+            verification: '/api/video/manage/verification',
             seasons: '/api/video/ui/shows/{encodedTitle}/seasons-fragment',
             episodes: '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/episodes-fragment',
             'folder-episodes': '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/folders/{folderName}/episodes-fragment',
@@ -162,13 +164,13 @@ class VideoSPA {
         this.hideLoading();
     }
 
-    async selectItem(item, action) {
+    async selectItem(item, action, extraParams = {}) {
         const videoId = (typeof item === 'object') ? item.id : item;
         if (!videoId) return;
 
         switch(action) {
             case 'play':
-                await this.playVideo(videoId);
+                await this.playVideo(videoId, extraParams);
                 break;
             case 'details':
                 await this.switchSection('details', {videoId: videoId});
@@ -176,7 +178,7 @@ class VideoSPA {
         }
     }
     
-    async playVideo(videoId) {
+    async playVideo(videoId, extraParams = {}) {
         this.showLoading();
         try {
             // Fetch video details first to get the resume time
@@ -188,7 +190,7 @@ class VideoSPA {
             }
 
             await fetch(`/api/video/playback/play/${videoId}?startTime=${startTime}`, { method: 'POST' });
-            await this.switchSection('playback', {videoId: videoId});
+            await this.switchSection('playback', {videoId: videoId, ...extraParams});
         } catch (error) {
             this.handleError(error);
         }
@@ -218,6 +220,54 @@ class VideoSPA {
     }
 
     buildExternalPlayerHtml(v) {
+        /* Torrent/magnet sources: use OPlayer + @oplayer/torrent plugin */
+        if (v.sourceType === 'torrent') {
+            /* HTML attributes use escapeAttr; inline JS strings use escapeJs (no entity decoding in <script>) */
+            const attrUrl = this.escapeAttr(v.url);
+            const attrTitle = this.escapeAttr(v.title || 'Torrent Video');
+            const jsUrl = this.escapeJs(v.url);
+            const jsTitle = this.escapeJs(v.title || 'Torrent Video');
+            return `
+                <link rel="stylesheet" href="/css/player.css"/>
+                <div class="player-container" id="customPlayer"
+                     data-external-id="${v.id}"
+                     data-title="${attrTitle}"
+                     data-duration="0"
+                     data-start-time="${v.currentTime || 0}"
+                     data-type="external"
+                     data-source-type="torrent"
+                     data-external-original-url="${attrUrl}">
+                    <div class="video-wrapper">
+                        <div id="oplayerContainer" class="oplayer-wrapper"></div>
+                    </div>
+                </div>
+
+                <script src="https://cdn.jsdelivr.net/npm/webtorrent@0.98.18/webtorrent.min.js"><\/script>
+                <script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"><\/script>
+                <script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"><\/script>
+                <script src="https://cdn.jsdelivr.net/npm/@oplayer/torrent@latest/dist/index.min.js"><\/script>
+                <script src="/js/player/Utils.js?v=3"><\/script>
+                <script src="/js/player/oplayer-adapter.js?v=5"><\/script>
+                <script>
+                    (function() {
+                        var cId = 'customPlayer';
+                        var src = '${jsUrl}';
+                        var title = '${jsTitle}';
+                        var extId = '${v.id}';
+                        var retry = function() {
+                            if (typeof window.initExternalOPlayerTorrent === 'function') {
+                                window.initExternalOPlayerTorrent(cId, src, title, extId);
+                            } else {
+                                setTimeout(retry, 200);
+                            }
+                        };
+                        retry();
+                    })();
+                <\/script>
+            `;
+        }
+
+        /* Default: proxy-stream via SimplePlayer */
         const proxyUrl = '/api/video/external/proxy/stream?url=' + encodeURIComponent(v.url);
         const alts = v.alternativeUrls && Array.isArray(v.alternativeUrls) && v.alternativeUrls.length > 0
             ? JSON.stringify(v.alternativeUrls).replace(/"/g, '&quot;') : '';
@@ -235,11 +285,47 @@ class VideoSPA {
                     <video id="videoElement" crossorigin="anonymous" playsinline autoplay></video>
                 </div>
             </div>
+
+            <script src="/js/player/Utils.js?v=3"><\/script>
+            <script src="/js/player/StateManager.js"><\/script>
+            <script src="/js/player/StreamManager.js"><\/script>
+            <script src="/js/player/UIBuilder.js?v=4"><\/script>
+            <script src="/js/player/ControlsManager.js"><\/script>
+            <script src="/js/player/FullscreenManager.js"><\/script>
+            <script src="/js/player/SubtitleController.js"><\/script>
+            <script src="/js/player/AudioTrackSelector.js"><\/script>
+            <script src="/js/player/SubtitleSettingsUI.js"><\/script>
+            <script src="/js/player/StoryboardManager.js"><\/script>
+            <script src="/js/player/EventBinder.js?v=4"><\/script>
+            <script src="/js/player/KeyboardShortcuts.js"><\/script>
+            <script src="/js/player/SkipController.js"><\/script>
+            <script src="/js/player/ProgressReporter.js"><\/script>
+            <script src="/js/player/NavigationManager.js"><\/script>
             <script src="/js/simple-player.js"><\/script>
             <script>
                 (function() {
-                    const tryInit = () => {
-                        if (window.SimplePlayer) {
+                    var requiredModules = [
+                        'SimplePlayer',
+                        'PlayerStateManager',
+                        'PlayerStreamManager',
+                        'PlayerUIBuilder',
+                        'PlayerControlsManager',
+                        'PlayerFullscreenManager',
+                        'PlayerSubtitleController',
+                        'PlayerAudioTrackSelector',
+                        'PlayerSubtitleSettingsUI',
+                        'PlayerStoryboardManager',
+                        'PlayerEventBinder',
+                        'PlayerKeyboardShortcuts',
+                        'PlayerSkipController',
+                        'PlayerProgressReporter',
+                        'PlayerNavigationManager'
+                    ];
+                    var tryInit = function() {
+                        var allReady = requiredModules.every(function(m) {
+                            return typeof window[m] !== 'undefined';
+                        });
+                        if (allReady) {
                             new window.SimplePlayer({
                                 containerId: 'customPlayer',
                                 videoId: 'videoElement',
@@ -258,6 +344,11 @@ class VideoSPA {
     escapeAttr(str) {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    escapeJs(str) {
+        if (!str) return '';
+        return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
     }
 
     async destroyCurrentPlayer() {
@@ -637,7 +728,7 @@ window.clearAdminVideoSearch = function() {
     window.videoSPA.switchSection('adminHistory', params);
 };
 
-window.selectItem = (item, action) => window.videoSPA.selectItem(item, action);
+window.selectItem = (item, action, extraParams) => window.videoSPA.selectItem(item, action, extraParams);
 window.switchSection = (section, params) => window.videoSPA.switchSection(section, params);
 
 window.addToWatchlist = async (title, id) => {
@@ -677,5 +768,20 @@ window.playExternalEntry = function(externalId) {
 };
 
 window.collectionMgr = new window.CollectionManager(window.videoSPA);
+
+window.underplayerPlayCard = function(card) {
+    var videoId = card.getAttribute('data-video-id');
+    var entryId = card.getAttribute('data-entry-id');
+    var collectionId = card.getAttribute('data-collection-id');
+    var mediaType = card.getAttribute('data-media-type');
+    if (mediaType === 'external') {
+        if (window.selectExternalVideo) window.selectExternalVideo(videoId);
+    } else {
+        var params = {};
+        if (collectionId) { params.collectionId = collectionId; }
+        if (entryId) { params.entryId = entryId; }
+        if (window.selectItem) window.selectItem(videoId, 'play', params);
+    }
+};
 
 

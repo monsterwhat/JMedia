@@ -5,6 +5,7 @@ import Controllers.VideoController;
 import Services.VideoService;
 import Services.VideoHistoryService;
 import Services.VideoStateService;
+import Services.CollectionService;
 import Services.CollectionWatchProgressService;
 import Services.GenreService;
 import Models.Video;
@@ -18,6 +19,7 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.ValueResolver;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -66,6 +68,9 @@ public class VideoUiApi {
 
     @Inject
     ExternalVideoService externalVideoService;
+
+    @Inject
+    CollectionService collectionService;
 
     @Inject @io.quarkus.qute.Location("suggestionFragment.html")
     Template suggestionFragment;
@@ -983,7 +988,12 @@ public class VideoUiApi {
     @GET
     @Path("/playback-fragment")
     @Blocking
-    public String getPlaybackFragment(@QueryParam("videoId") Long videoId, @HeaderParam("User-Agent") String userAgent) {
+    @Transactional
+    public String getPlaybackFragment(
+            @QueryParam("videoId") Long videoId,
+            @QueryParam("collectionId") Long collectionId,
+            @QueryParam("entryId") Long entryId,
+            @HeaderParam("User-Agent") String userAgent) {
         Models.Video item = videoService.find(videoId);
         if (item == null) return "<div class='notification is-warning'>No video available for playback</div>";
 
@@ -1011,11 +1021,107 @@ public class VideoUiApi {
         boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
         boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, userAgent);
 
-        // Load auto-skip settings
+        // Load settings (auto-skip + default player)
         Models.Settings settings = settingsService.getOrCreateSettings();
         boolean autoSkipIntro = settings.getAutoSkipIntro();
         boolean autoSkipRecap = settings.getAutoSkipRecap();
         boolean autoSkipOutro = settings.getAutoSkipOutro();
+        String defaultPlayer = settings.getDefaultPlayer();
+
+        List<Map<String, Object>> carouselItems = new ArrayList<>();
+        int currentCarouselIndex = 0;
+        String carouselTitle = "";
+        Map<String, Object> infoSection = new LinkedHashMap<>();
+
+        buildInfoSection(infoSection, item);
+
+        if (collectionId != null) {
+            Models.MediaCollection coll = collectionService.getCollection(collectionId);
+            if (coll != null) {
+                carouselTitle = coll.name;
+                var entries = collectionService.getEntries(collectionId);
+                int idx = 0;
+                for (var entry : entries) {
+                    Map<String, Object> ci = new LinkedHashMap<>();
+                    if (entry.video != null) {
+                        ci.put("id", entry.video.id);
+                        ci.put("title", entry.video.title != null ? entry.video.title : "");
+                        ci.put("seriesTitle", entry.video.seriesTitle != null ? entry.video.seriesTitle : "");
+                        ci.put("seasonNumber", entry.video.seasonNumber != null ? entry.video.seasonNumber : 0);
+                        ci.put("episodeNumber", entry.video.episodeNumber != null ? entry.video.episodeNumber : 0);
+                        ci.put("type", entry.video.type != null ? entry.video.type : "");
+                        ci.put("mediaType", "video");
+                        ci.put("thumbnailPath", entry.video.thumbnailPath);
+                        boolean isCurrent = entry.video.id.equals(videoId);
+                        ci.put("isCurrent", isCurrent);
+                        if (isCurrent) currentCarouselIndex = idx;
+                    } else if (entry.externalVideo != null) {
+                        ci.put("id", entry.externalVideo.id);
+                        ci.put("title", entry.externalVideo.title != null ? entry.externalVideo.title : "");
+                        ci.put("seriesTitle", entry.externalVideo.seriesTitle != null ? entry.externalVideo.seriesTitle : "");
+                        ci.put("seasonNumber", entry.externalVideo.seasonNumber != null ? entry.externalVideo.seasonNumber : 0);
+                        ci.put("episodeNumber", entry.externalVideo.episodeNumber != null ? entry.externalVideo.episodeNumber : 0);
+                        ci.put("type", entry.externalVideo.entryType == Models.ExistingVideo.EPISODE ? "Episode" : "");
+                        ci.put("mediaType", "external");
+                        ci.put("thumbnailPath", null);
+                        ci.put("isCurrent", false);
+                    }
+                    ci.put("entryId", entry.id);
+                    ci.put("collectionId", collectionId);
+                    carouselItems.add(ci);
+                    idx++;
+                }
+            }
+        } else {
+            String videoType = item.type != null ? item.type.toLowerCase() : "";
+            if (videoType.contains("episode") && item.seriesTitle != null && !item.seriesTitle.isBlank()) {
+                carouselTitle = "Episodes — " + item.seriesTitle;
+                List<Video> episodes = videoService.findEpisodesForSeries(item.seriesTitle);
+                int idx = 0;
+                for (Video ep : episodes) {
+                    Map<String, Object> ci = new LinkedHashMap<>();
+                    ci.put("id", ep.id);
+                    ci.put("title", ep.title != null ? ep.title : "");
+                    ci.put("seriesTitle", ep.seriesTitle != null ? ep.seriesTitle : "");
+                    ci.put("seasonNumber", ep.seasonNumber != null ? ep.seasonNumber : 0);
+                    ci.put("episodeNumber", ep.episodeNumber != null ? ep.episodeNumber : 0);
+                    ci.put("type", ep.type != null ? ep.type : "");
+                    ci.put("mediaType", "video");
+                    ci.put("thumbnailPath", ep.thumbnailPath);
+                    boolean isCurrent = ep.id.equals(videoId);
+                    ci.put("isCurrent", isCurrent);
+                    if (isCurrent) currentCarouselIndex = idx;
+                    ci.put("entryId", null);
+                    ci.put("collectionId", null);
+                    carouselItems.add(ci);
+                    idx++;
+                }
+            } else {
+                carouselTitle = "Recommended";
+                List<Video> trending = videoService.findTrending(20);
+                int idx = 0;
+                for (Video v : trending) {
+                    Map<String, Object> ci = new LinkedHashMap<>();
+                    ci.put("id", v.id);
+                    ci.put("title", v.title != null ? v.title : "");
+                    ci.put("seriesTitle", v.seriesTitle != null ? v.seriesTitle : "");
+                    ci.put("seasonNumber", v.seasonNumber != null ? v.seasonNumber : 0);
+                    ci.put("episodeNumber", v.episodeNumber != null ? v.episodeNumber : 0);
+                    ci.put("type", v.type != null ? v.type : "");
+                    ci.put("mediaType", "video");
+                    ci.put("thumbnailPath", v.thumbnailPath);
+                    boolean isCurrent = v.id.equals(videoId);
+                    ci.put("isCurrent", isCurrent);
+                    if (isCurrent) currentCarouselIndex = idx;
+                    ci.put("entryId", null);
+                    ci.put("collectionId", null);
+                    carouselItems.add(ci);
+                    idx++;
+                }
+            }
+        }
+
+        boolean hasCarousel = !carouselItems.isEmpty();
 
         return playbackFragment
                 .data("item", item)
@@ -1026,11 +1132,56 @@ public class VideoUiApi {
                 .data("autoSkipIntro", autoSkipIntro)
                 .data("autoSkipRecap", autoSkipRecap)
                 .data("autoSkipOutro", autoSkipOutro)
+                .data("defaultPlayer", defaultPlayer)
+                .data("carouselItems", carouselItems)
+                .data("currentCarouselIndex", currentCarouselIndex)
+                .data("carouselTitle", carouselTitle)
+                .data("hasCarousel", hasCarousel)
+                .data("collectionId", collectionId)
+                .data("infoSection", infoSection)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .data("json", (ValueResolver) (ctx) -> {
                     try { return java.util.concurrent.CompletableFuture.completedFuture(objectMapper.writeValueAsString(ctx.getBase())); }
                     catch (Exception e) { return java.util.concurrent.CompletableFuture.completedFuture("{}"); }
                 }).render();
+    }
+
+    private void buildInfoSection(Map<String, Object> info, Models.Video item) {
+        info.put("infoType", item.type != null && item.type.equalsIgnoreCase("episode") ? "episode" : "movie");
+        info.put("title", item.title != null ? item.title : "");
+        info.put("seriesTitle", item.seriesTitle != null ? item.seriesTitle : "");
+        info.put("seasonNumber", item.seasonNumber != null ? item.seasonNumber : 0);
+        info.put("episodeNumber", item.episodeNumber != null ? item.episodeNumber : 0);
+        info.put("episodeTitle", item.episodeTitle != null ? item.episodeTitle : "");
+        info.put("releaseYear", item.releaseYear);
+        info.put("runtimeMins", item.runtimeMins);
+        info.put("mpaaRating", item.mpaaRating != null ? item.mpaaRating : "");
+        info.put("overview", item.overview != null ? item.overview : (item.description != null ? item.description : ""));
+        info.put("tagline", item.tagline != null ? item.tagline : "");
+        info.put("genres", item.genres);
+        info.put("imdbRating", item.imdbRating);
+        info.put("tmdbRating", item.tmdbRating);
+        info.put("metacriticRating", item.metacriticRating);
+        info.put("cast", item.cast);
+        info.put("directors", item.directors);
+        info.put("writers", item.writers);
+        info.put("productionCompanies", item.productionCompanies);
+        info.put("awards", item.awards != null ? item.awards : "");
+        info.put("budget", item.budget);
+        info.put("revenue", item.revenue);
+        info.put("originalLanguage", item.originalLanguage != null ? item.originalLanguage : "");
+        info.put("productionCountries", item.productionCountries != null ? item.productionCountries : "");
+        info.put("releaseDate", item.releaseDate != null ? item.releaseDate : "");
+        info.put("trailerUrl", item.trailerUrl != null ? item.trailerUrl : "");
+        info.put("parentsGuide", item.parentsGuide != null ? item.parentsGuide : "");
+        info.put("collectionName", item.collectionName != null ? item.collectionName : "");
+        info.put("franchiseName", item.franchiseName != null ? item.franchiseName : "");
+        info.put("resolution", item.resolution != null ? item.resolution : "");
+        info.put("displayResolution", item.displayResolution != null ? item.displayResolution : "");
+        info.put("videoCodec", item.videoCodec != null ? item.videoCodec : "");
+        info.put("audioChannels", item.audioChannels);
+        info.put("status", item.status != null ? item.status : "");
+        info.put("networks", item.networks);
     }
 
     @GET

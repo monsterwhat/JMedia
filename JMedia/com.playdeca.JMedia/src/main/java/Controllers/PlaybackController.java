@@ -802,6 +802,9 @@ public class PlaybackController {
         }
         PlaybackState.ShuffleMode newMode;
 
+        // Clear any stale DJ transition plan before reorganizing the queue
+        clearDjTransitionPlan(state);
+
         switch (currentMode) {
             case OFF:
                 newMode = PlaybackState.ShuffleMode.SHUFFLE;
@@ -819,6 +822,12 @@ public class PlaybackController {
         }
 
         state.setShuffleMode(newMode);
+
+        // Re-plan DJ transition for the reorganized queue if DJ mode is active
+        if (Boolean.TRUE.equals(state.getDjModeActive())) {
+            planNextDjTransition(state, profileId);
+        }
+
         currentSettings.addLog("Shuffle mode set to: " + newMode);
         updateState(profileId, state, true);
     }

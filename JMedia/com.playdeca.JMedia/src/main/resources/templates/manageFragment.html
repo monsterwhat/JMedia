@@ -74,6 +74,11 @@
                         <button class="button is-small is-info is-rounded" onclick="openEditModal({video.id})" title="Edit Metadata">
                             <i class="pi pi-pencil"></i>
                         </button>
+                        {#if video.container != 'mp4'}
+                        <button class="button is-small is-warning is-rounded" onclick="convertVideo({video.id})" title="Convert to MP4">
+                            <i class="pi pi-refresh"></i>
+                        </button>
+                        {/if}
                     </div>
                 </div>
 
@@ -146,6 +151,54 @@
     
     function closeEditModal() {
         document.getElementById('editModal').classList.remove('is-active');
+    }
+
+    async function convertVideo(videoId) {
+        try {
+            const resp = await fetch('/api/video/manage/convert/' + videoId, { method: 'POST' });
+            if (!resp.ok) {
+                const err = await resp.text();
+                window.Toast.error('Convert failed: ' + (err.error || err));
+                return;
+            }
+            const data = await resp.json();
+            const jobId = data.jobId;
+            if (!jobId) { window.Toast.error('No job ID returned'); return; }
+
+            window.Toast.progress('Starting conversion...', 0);
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusResp = await fetch('/api/video/manage/convert/status/' + jobId);
+                    if (!statusResp.ok) { clearInterval(pollInterval); return; }
+                    const status = await statusResp.json();
+
+                    window.Toast.progress(status.message || 'Converting...', status.progressPercent || 0);
+
+                    if (status.status === 'COMPLETED') {
+                        clearInterval(pollInterval);
+                        window.Toast.progress('Conversion completed!', 100);
+                        // Refresh the manage view after a short delay so user sees the toast
+                        setTimeout(() => {
+                            htmx.ajax('GET', '/api/video/manage', {
+                                target: '#spa-content',
+                                swap: 'innerHTML'
+                            });
+                        }, 1500);
+                    } else if (status.status === 'FAILED') {
+                        clearInterval(pollInterval);
+                        window.Toast.hideToast('scan-progress-toast');
+                        window.Toast.error('Conversion failed: ' + (status.errorMessage || 'Unknown error'));
+                    }
+                } catch (e) {
+                    console.error('Poll error:', e);
+                }
+            }, 2000);
+
+            // Stop polling after 1 hour
+            setTimeout(() => clearInterval(pollInterval), 3600000);
+        } catch (e) {
+            window.Toast.error('Error starting conversion: ' + e.message);
+        }
     }
     
     document.addEventListener('htmx:afterRequest', function(evt) {

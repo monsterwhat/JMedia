@@ -5,6 +5,7 @@ import Models.DTOs.SyncExchangeResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,6 +17,9 @@ public class RemoteJMediaClient {
 
     public static final int CONNECT_TIMEOUT_SECONDS = 10;
     public static final int READ_TIMEOUT_SECONDS = 60;
+
+    @Inject
+    LoggingService log;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -60,18 +64,38 @@ public class RemoteJMediaClient {
     }
 
     public boolean checkConnection(String baseUrl, String apiKey) {
+        String pingUrl = baseUrl.replaceAll("/+$", "") + "/api/sync/ping";
+        log.addLog("Testing connection to " + pingUrl);
         try {
-            String url = baseUrl.replaceAll("/+$", "") + "/api/sync/ping";
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(URI.create(pingUrl))
                     .header("X-JMedia-Sync-Key", apiKey)
                     .timeout(Duration.ofSeconds(5))
                     .GET()
                     .build();
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() == 200;
+            if (response.statusCode() == 200) {
+                log.addLog("Connection test succeeded for " + pingUrl);
+                return true;
+            } else {
+                log.addLog("Connection test to " + pingUrl + " returned HTTP " + response.statusCode());
+                return false;
+            }
+        } catch (java.net.UnknownHostException e) {
+            log.addLog("Connection test failed — unknown host: " + pingUrl, e);
+            return false;
+        } catch (java.net.http.HttpConnectTimeoutException e) {
+            log.addLog("Connection test failed — timed out after " + CONNECT_TIMEOUT_SECONDS + "s: " + pingUrl, e);
+            return false;
+        } catch (java.net.ConnectException e) {
+            log.addLog("Connection test failed — connection refused: " + pingUrl, e);
+            return false;
+        } catch (javax.net.ssl.SSLException e) {
+            log.addLog("Connection test failed — SSL/TLS error: " + pingUrl, e);
+            return false;
         } catch (Exception e) {
+            log.addLog("Connection test failed for " + pingUrl + " — " + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
             return false;
         }
     }

@@ -16,13 +16,16 @@
             <i class="pi pi-play"></i> <span>Play All</span>
         </button>
         {/if}
-        <button class="button is-primary is-rounded is-small admin-only" onclick="showAddEntryModal()">
+        <button class="button is-primary is-rounded is-small" onclick="showAddEntryModal()">
             <i class="pi pi-plus"></i> <span>Add Video</span>
+        </button>
+        <button class="button is-small is-rounded admin-only" onclick="window.showRenameCollectionModal()" title="Rename Collection">
+            <i class="pi pi-pencil"></i>
         </button>
     </div>
 </div>
 
-<div id="collectionEntriesList">
+<div id="collectionEntriesList" style="padding: 0 2rem;">
     {#if entries.empty}
         <div class="carousel-empty-state">
             <i class="pi pi-th-large"></i>
@@ -30,18 +33,25 @@
             <p>Click "Add Video" to start building your watch order.</p>
         </div>
     {#else}
+        <div class="field" style="max-width: 400px; margin-bottom: 12px;">
+            <div class="control has-icons-left">
+                <input class="input is-dark is-rounded is-small" type="text" id="collectionFilterInput" placeholder="Filter entries..." oninput="window.filterCollectionEntries(this.value)">
+                <span class="icon is-left"><i class="pi pi-search"></i></span>
+            </div>
+        </div>
         <div class="collection-entries" id="sortableEntries">
             {#for entry in entries}
-                <div class="collection-entry" data-entry-id="{entry.id}" data-video-id="{entry.video.id}">
+                <div class="collection-entry" data-entry-id="{entry.id}" data-media-type="{#if entry.video}video{#else if entry.externalVideo}external{/if}">
                     <div class="entry-order-handle" title="Drag to reorder">
                         <i class="pi pi-bars"></i>
                     </div>
                     <div class="entry-order-badge">{entry.orderIndex}</div>
+                    {#if entry.video}
                     <div class="entry-thumbnail" onclick="window.selectItem({entry.video.id}, 'details')">
                         <img src="/api/video/thumbnail/{entry.video.id}" alt="{entry.video.title}" loading="lazy">
                     </div>
                     <div class="entry-info" onclick="window.selectItem({entry.video.id}, 'details')">
-                        <div class="entry-title">{entry.video.title ?: entry.video.seriesTitle}</div>
+                        <div class="entry-title entry-title-text">{entry.video.title ?: entry.video.seriesTitle}</div>
                         <div class="entry-meta">
                             {#if entry.video.type == 'episode'}
                                 {entry.video.seriesTitle} S{entry.video.seasonNumber}E{entry.video.episodeNumber}
@@ -54,16 +64,49 @@
                         </div>
                     </div>
                     <div class="entry-actions">
-                        <button class="button is-small is-rounded is-success" onclick="event.stopPropagation(); window.selectItem({entry.video.id}, 'play')" title="Play">
+                        <button class="button is-small is-rounded is-success" onclick="event.stopPropagation(); window.selectItem({entry.video.id}, 'play', \{collectionId: {collection.id}, entryId: {entry.id}\})" title="Play">
                             <i class="pi pi-play"></i>
                         </button>
-                        <button class="button is-small is-rounded admin-only" onclick="event.stopPropagation(); showEditEntryModal({entry.id}, '{entry.notes ?: ''}')" title="Edit">
+                        <button class="button is-small is-rounded" onclick="event.stopPropagation(); window.playNextEntry({entry.id})" title="Play Next">
+                            <i class="pi pi-forward"></i>
+                        </button>
+                        <button class="button is-small is-rounded" onclick="event.stopPropagation(); window.addEntryToQueue({entry.id})" title="Add to Queue">
+                            <i class="pi pi-plus"></i>
+                        </button>
+                        <button class="button is-small is-rounded" onclick="event.stopPropagation(); showEditEntryModal({entry.id}, '{entry.notes ?: ''}')" title="Edit">
                             <i class="pi pi-pencil"></i>
                         </button>
-                        <button class="button is-small is-rounded is-danger admin-only" onclick="event.stopPropagation(); removeEntry({entry.id})" title="Remove">
+                        <button class="button is-small is-rounded is-danger" onclick="event.stopPropagation(); removeEntry({entry.id})" title="Remove">
                             <i class="pi pi-times"></i>
                         </button>
                     </div>
+                    {#else if entry.externalVideo}
+                    <div class="entry-thumbnail" onclick="event.stopPropagation(); window.selectExternalVideo({entry.externalVideo.id})">
+                        <div class="entry-thumbnail-placeholder" style="height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(255,255,255,0.1),rgba(255,255,255,0.02));color:rgba(255,255,255,0.5);">
+                            <span style="font-size:1.5rem;font-weight:700;">{entry.externalVideo.title.substring(0,1)}</span>
+                        </div>
+                    </div>
+                    <div class="entry-info" onclick="event.stopPropagation(); window.selectExternalVideo({entry.externalVideo.id})">
+                        <div class="entry-title entry-title-text">{entry.externalVideo.title}</div>
+                        <div class="entry-meta">
+                            External {#if entry.externalVideo.sourceType}({entry.externalVideo.sourceType}){/if}
+                            {#if entry.notes}
+                                <span class="tag is-info is-light is-small ml-2">{entry.notes}</span>
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="entry-actions">
+                        <button class="button is-small is-rounded is-success" onclick="event.stopPropagation(); window.selectExternalVideo({entry.externalVideo.id})" title="Play">
+                            <i class="pi pi-play"></i>
+                        </button>
+                        <button class="button is-small is-rounded" onclick="event.stopPropagation(); showEditEntryModal({entry.id}, '{entry.notes ?: ''}')" title="Edit">
+                            <i class="pi pi-pencil"></i>
+                        </button>
+                        <button class="button is-small is-rounded is-danger" onclick="event.stopPropagation(); removeEntry({entry.id})" title="Remove">
+                            <i class="pi pi-times"></i>
+                        </button>
+                    </div>
+                    {/if}
                 </div>
             {/for}
         </div>
@@ -85,7 +128,27 @@
         </h4>
         <div class="standard-grid video-group-body">
             {#for m in movies}
-            <div class="standard-card add-card" data-search="{m.title} movie" data-video-id="{m.id}" data-entry-id="{m.entryId}" data-in-collection="{m.inCollection}" onclick="toggleCollectionEntry({m.id}, {m.entryId}, {m.inCollection})">
+            {#if m.mediaType == 'external'}
+            <div class="standard-card add-card" data-search="{m.title} movie" data-media-type="external" data-media-id="{m.id}" data-entry-id="{m.entryId}" data-in-collection="{m.inCollection}" onclick="toggleCollectionEntry({m.id}, {m.entryId}, {m.inCollection}, 'external')">
+                <div class="standard-card-poster">
+                    <div class="poster-img" style="display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(255,255,255,0.1),rgba(255,255,255,0.02));color:rgba(255,255,255,0.5);">
+                        <span style="font-size:2rem;font-weight:700;">{m.title.substring(0,1)}</span>
+                    </div>
+                    <div class="standard-card-overlay">
+                        {#if m.inCollection}
+                        <div class="standard-play-btn" style="background:#e74c3c;" onclick="event.stopPropagation(); removeEntry({m.entryId})"><i class="pi pi-times"></i></div>
+                        {#else}
+                        <div class="standard-play-btn" onclick="event.stopPropagation(); addEntryByExternal({m.id})"><i class="pi pi-plus"></i></div>
+                        {/if}
+                    </div>
+                </div>
+                <div class="standard-card-info">
+                    <div class="standard-card-title">{m.title}{#if m.inCollection} <span class="tag is-warning is-light is-small">In Collection</span>{/if}</div>
+                    <div class="standard-card-meta">{#if m.sourceType}{m.sourceType}{#else}External{/if} &middot; Movie</div>
+                </div>
+            </div>
+            {#else}
+            <div class="standard-card add-card" data-search="{m.title} movie" data-media-type="video" data-media-id="{m.id}" data-entry-id="{m.entryId}" data-in-collection="{m.inCollection}" onclick="toggleCollectionEntry({m.id}, {m.entryId}, {m.inCollection}, 'video')">
                 <div class="standard-card-poster">
                     <img class="poster-img" src="/api/video/thumbnail/{m.id}" alt="" loading="lazy">
                     <div class="standard-card-overlay">
@@ -101,6 +164,7 @@
                     <div class="standard-card-meta">{#if m.releaseYear}({m.releaseYear}){/if} &middot; Movie</div>
                 </div>
             </div>
+            {/if}
             {/for}
         </div>
     </div>
@@ -164,7 +228,27 @@
             </div>
             <div class="standard-grid">
                 {#for ep in season.episodes}
-                <div class="standard-card add-card" data-search="{ep.title} {ep.seriesTitle} episode" data-video-id="{ep.id}" data-entry-id="{ep.entryId}" data-in-collection="{ep.inCollection}" onclick="toggleCollectionEntry({ep.id}, {ep.entryId}, {ep.inCollection})">
+                {#if ep.mediaType == 'external'}
+                <div class="standard-card add-card" data-search="{ep.title} {ep.seriesTitle} episode" data-media-type="external" data-media-id="{ep.id}" data-entry-id="{ep.entryId}" data-in-collection="{ep.inCollection}" onclick="toggleCollectionEntry({ep.id}, {ep.entryId}, {ep.inCollection}, 'external')">
+                    <div class="standard-card-poster">
+                        <div class="poster-img" style="display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(255,255,255,0.1),rgba(255,255,255,0.02));color:rgba(255,255,255,0.5);">
+                            <span style="font-size:2rem;font-weight:700;">{ep.title.substring(0,1)}</span>
+                        </div>
+                        <div class="standard-card-overlay">
+                            {#if ep.inCollection}
+                            <div class="standard-play-btn" style="background:#e74c3c;" onclick="event.stopPropagation(); removeEntry({ep.entryId})"><i class="pi pi-times"></i></div>
+                            {#else}
+                            <div class="standard-play-btn" onclick="event.stopPropagation(); addEntryByExternal({ep.id})"><i class="pi pi-plus"></i></div>
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title">{ep.title}{#if ep.inCollection} <span class="tag is-warning is-light is-small">In Collection</span>{/if}</div>
+                        <div class="standard-card-meta">S{ep.seasonNumber}E{ep.episodeNumber}</div>
+                    </div>
+                </div>
+                {#else}
+                <div class="standard-card add-card" data-search="{ep.title} {ep.seriesTitle} episode" data-media-type="video" data-media-id="{ep.id}" data-entry-id="{ep.entryId}" data-in-collection="{ep.inCollection}" onclick="toggleCollectionEntry({ep.id}, {ep.entryId}, {ep.inCollection}, 'video')">
                     <div class="standard-card-poster">
                         <img class="poster-img" src="/api/video/thumbnail/{ep.id}" alt="" loading="lazy">
                         <div class="standard-card-overlay">
@@ -180,6 +264,7 @@
                         <div class="standard-card-meta">S{ep.seasonNumber}E{ep.episodeNumber}</div>
                     </div>
                 </div>
+                {/if}
                 {/for}
             </div>
         </div>
@@ -187,6 +272,34 @@
         {/for}
     </div>
     {/if}
+</div>
+
+<div class="modal" id="renameCollectionModal">
+    <div class="modal-background" onclick="document.getElementById('renameCollectionModal').classList.remove('is-active')"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Rename Collection</p>
+            <button class="delete" onclick="document.getElementById('renameCollectionModal').classList.remove('is-active')"></button>
+        </header>
+        <section class="modal-card-body">
+            <div class="field">
+                <label class="label">Name</label>
+                <div class="control">
+                    <input class="input is-dark" id="renameCollectionNameInput" type="text" placeholder="Collection name">
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Description</label>
+                <div class="control">
+                    <textarea class="textarea is-dark" id="renameCollectionDescInput" placeholder="Optional description"></textarea>
+                </div>
+            </div>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-primary" onclick="submitRenameCollection()">Save</button>
+            <button class="button" onclick="document.getElementById('renameCollectionModal').classList.remove('is-active')">Cancel</button>
+        </footer>
+    </div>
 </div>
 
 <div class="modal" id="editEntryModal">

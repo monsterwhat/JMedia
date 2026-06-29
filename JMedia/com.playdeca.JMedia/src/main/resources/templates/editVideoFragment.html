@@ -88,6 +88,15 @@
                 <p class="help has-text-grey">The IMDb ID of this video/movie</p>
             </div>
         </div>
+        <div class="column">
+            <div class="field">
+                <label class="label">TMDb ID</label>
+                <div class="control">
+                    <input class="input" type="text" name="tmdbId" value="{video.tmdbId ?: ''}" placeholder="e.g. 550">
+                </div>
+                <p class="help has-text-grey">The TMDb ID for metadata enrichment</p>
+            </div>
+        </div>
         <div class="column series-only-field" {#if video.type != 'episode'}style="display:none"{/if}>
             <div class="field">
                 <label class="label">Series IMDb ID</label>
@@ -99,10 +108,58 @@
         </div>
     </div>
 
+    <!-- Intro / Outro Timestamps (collapsible) -->
+    <div class="mt-4" style="border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden;">
+        <div class="p-3" style="background: rgba(255,255,255,0.03); cursor: pointer;" 
+             onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+            <span class="has-text-grey-light"><i class="pi pi-clock mr-2"></i>Intro / Outro Timestamps</span>
+            <span class="tag is-small is-dark is-pulled-right">Click to expand</span>
+        </div>
+        <div style="display: none; padding: 12px;">
+            <div class="columns is-multiline">
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label is-small">Intro Start (sec)</label>
+                        <div class="control">
+                            <input class="input" type="number" step="0.1" name="introStart" value="{video.introStart ?: ''}" placeholder="e.g. 85.5">
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label is-small">Intro End (sec)</label>
+                        <div class="control">
+                            <input class="input" type="number" step="0.1" name="introEnd" value="{video.introEnd ?: ''}" placeholder="e.g. 135.0">
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label is-small">Outro Start (sec)</label>
+                        <div class="control">
+                            <input class="input" type="number" step="0.1" name="outroStart" value="{video.outroStart ?: ''}" placeholder="e.g. 2100.0">
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label is-small">Outro End (sec)</label>
+                        <div class="control">
+                            <input class="input" type="number" step="0.1" name="outroEnd" value="{video.outroEnd ?: ''}" placeholder="e.g. 2220.0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="field mt-5">
-        <div class="control">
-            <button class="button is-info is-fullwidth" type="submit">
+        <div class="control is-flex" style="gap: 8px;">
+            <button class="button is-info is-flex-grow-1" type="submit">
                 <i class="pi pi-save mr-2"></i> Save Changes
+            </button>
+            <button class="button is-warning" type="button" onclick="reEnrichFromEdit({video.id})" title="Re-enrich from metadata APIs">
+                <i class="pi pi-refresh mr-1"></i> Re-enrich
             </button>
         </div>
     </div>
@@ -117,11 +174,37 @@
     });
 
     // Optional: Add some visual feedback for the combobox
-    const seriesInput = document.getElementById('seriesTitleInput');
+    var seriesInput = document.getElementById('seriesTitleInput');
     seriesInput.addEventListener('focus', function() {
         // This helps users know it's a searchable list
         if (this.value === '') {
             // Placeholder logic or show all could go here if using a custom library
         }
     });
+
+    async function reEnrichFromEdit(videoId) {
+        const btn = event.target.closest('button') || event.target;
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/api/video/manage/re-enrich/' + videoId, { method: 'POST' });
+            if (!resp.ok) {
+                const err = await resp.text();
+                window.Toast.error('Re-enrichment failed: ' + err);
+                return;
+            }
+            window.Toast.success('Re-enrichment completed! Refreshing...');
+            setTimeout(() => {
+                htmx.ajax('GET', '/api/video/manage/edit/' + videoId, {
+                    target: '#editVideoModalBody',
+                    swap: 'innerHTML'
+                });
+            }, 1500);
+        } catch (e) {
+            window.Toast.error('Error: ' + e.message);
+        } finally {
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        }
+    }
 </script>

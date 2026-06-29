@@ -1406,6 +1406,44 @@ public class VideoService {
         return new PaginatedHistoryEntries(entries, totalCount);
     }
 
+    /**
+     * Find videos that need manual attention from the metadata enrichment worker.
+     * Returns videos with missing external IDs, missing season/episode numbers,
+     * or that likely failed enrichment (active for >1 hour with no IDs).
+     */
+    @Transactional
+    public List<Video> findVideosNeedingAttention(int maxResults) {
+        String jpql = "SELECT v FROM Video v WHERE v.isActive = true AND v.titleManuallyEdited = false AND (" +
+                "v.imdbId IS NULL OR v.tmdbId IS NULL OR " +
+                "(v.type = 'episode' AND v.showImdbId IS NULL) OR " +
+                "(v.type = 'episode' AND (v.seasonNumber IS NULL OR v.episodeNumber IS NULL))" +
+                ") ORDER BY v.dateAdded DESC";
+        return em.createQuery(jpql, Video.class)
+                .setMaxResults(maxResults)
+                .getResultList();
+    }
+
+    /**
+     * Find videos that have been enriched (have external IDs) for verification.
+     * These are candidates where re-running enrichment might produce different
+     * values worth human review — as opposed to findVideosNeedingAttention which
+     * finds videos with missing data.
+     */
+    @Transactional
+    public List<Video> findVideosForVerification(int maxResults) {
+        String jpql = "SELECT v FROM Video v WHERE v.isActive = true AND v.titleManuallyEdited = false AND (" +
+                "(v.type = 'movie' AND v.imdbId IS NOT NULL AND v.imdbId != '' AND v.tmdbId IS NOT NULL AND v.tmdbId != '')" +
+                " OR " +
+                "(v.type = 'episode' AND v.imdbId IS NOT NULL AND v.imdbId != '' AND " +
+                " v.tmdbId IS NOT NULL AND v.tmdbId != '' AND " +
+                " v.showImdbId IS NOT NULL AND v.showImdbId != '' AND " +
+                " v.seasonNumber IS NOT NULL AND v.episodeNumber IS NOT NULL)" +
+                ") ORDER BY v.dateModified DESC";
+        return em.createQuery(jpql, Video.class)
+                .setMaxResults(maxResults)
+                .getResultList();
+    }
+
     private static class SeriesSortData {
         public LocalDateTime dateAdded;
         public LocalDateTime lastWatched;

@@ -122,6 +122,11 @@
          * Prepare for transition - store transition data and start monitoring
          */
         prepareTransition: function(state) {
+            // Don't prepare transitions while video is active
+            if (window.videoPlaying) {
+                console.log('[DJ] Video active, skipping transition preparation');
+                return;
+            }
             if (!state || !state.djNextSongId) {
                 window.Helpers.log('[DJ] No next song ID in transition data');
                 return;
@@ -410,6 +415,18 @@
             }
             
             this.updateDjIndicator('none');
+        },
+
+        /**
+         * Suspend DJ activity when video takes over — cancels any in-flight
+         * transition and stops the monitor interval. Called automatically
+         * by MusicBarInit when entering the video section.
+         */
+        suspendForVideo: function() {
+            if (this.monitorTimer || this.transitionPrepared || this.isTransitioning) {
+                console.log('[DJ] Suspending for video');
+                this.cancelTransition();
+            }
         },
 
         /**

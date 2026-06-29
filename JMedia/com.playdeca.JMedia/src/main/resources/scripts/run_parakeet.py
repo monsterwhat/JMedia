@@ -210,7 +210,7 @@ def main():
     print(f"PARAKEET:Done — {subtitle_index - 1} subtitles written", file=sys.stderr)
 
 
-def group_words_into_subtitles(words, max_chars=42, max_duration=4.0):
+def group_words_into_subtitles(words, max_chars=42, max_duration=2.0):
     """Group word-level timestamps into subtitle segments."""
     if not words:
         return []

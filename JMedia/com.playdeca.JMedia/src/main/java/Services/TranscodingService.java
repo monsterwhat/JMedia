@@ -53,7 +53,7 @@ public class TranscodingService {
     private static final long CACHE_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000L;
     private static final long TRANSCODE_START_TIMEOUT_MS = 90_000L;
 
-    private static final int MAX_CONCURRENT_TRANSCODES = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+    private static final int MAX_CONCURRENT_TRANSCODES = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() / 4, 2));
     private final java.util.concurrent.Semaphore transcodePermits = new java.util.concurrent.Semaphore(MAX_CONCURRENT_TRANSCODES, true);
 
     private final AtomicLong transcodeAttemptCount = new AtomicLong(0);
@@ -101,6 +101,7 @@ public class TranscodingService {
     @PostConstruct
     void init() {
         cacheCleanupExecutor.scheduleAtFixedRate(this::cleanupOldCacheFiles, 1, 1, TimeUnit.HOURS);
+        LOG.info("Max concurrent transcodes: {}", MAX_CONCURRENT_TRANSCODES);
     }
 
     private void cleanupOldCacheFiles() {
@@ -130,12 +131,26 @@ public class TranscodingService {
         }
     }
 
+    private boolean isHardwareAccelerationEnabled() {
+        try {
+            Models.Settings settings = settingsService.getOrCreateSettings();
+            return settings.getHardwareAccelerationEnabled() != null ? settings.getHardwareAccelerationEnabled() : true;
+        } catch (Exception e) {
+            LOG.debug("Could not read hardware acceleration setting, defaulting to enabled: {}", e.getMessage());
+            return true;
+        }
+    }
+
+    private static final java.util.Set<String> COPYABLE_AUDIO_CODECS = java.util.Set.of(
+        "aac", "mp3", "ac3", "dts", "truehd", "flac", "opus"
+    );
+
     private boolean canCopyAudio(Video video) {
         if (video.audioCodec == null) {
             return false;
         }
         String codec = video.audioCodec.toLowerCase(Locale.ROOT);
-        return codec.equals("aac") || codec.equals("mp3");
+        return COPYABLE_AUDIO_CODECS.contains(codec);
     }
 
     private String getScaleFilter(boolean isNvidia, int qualityHeight, String resolution) {
@@ -148,6 +163,8 @@ public class TranscodingService {
                 h = Integer.parseInt(p[1]);
             }
         } catch (Exception ignored) {}
+        // Never upscale — if source is already below the target, no scaling needed.
+        if (h > 0 && qualityHeight >= h) return null;
         double aspect = (double) w / h;
         int targetH = qualityHeight;
         int targetW = (int) Math.round(targetH * aspect);
@@ -171,6 +188,8 @@ public class TranscodingService {
                 h = Integer.parseInt(p[1]);
             }
         } catch (Exception ignored) {}
+        // Never upscale — if source is already below the target, no scaling needed.
+        if (h > 0 && qualityHeight >= h) return null;
         double aspect = (double) w / h;
         int targetH = qualityHeight;
         int targetW = (int) Math.round(targetH * aspect);
@@ -182,6 +201,8 @@ public class TranscodingService {
         boolean decoderIsVaapi = hardwareDecoder != null && hardwareDecoder.contains("vaapi");
         boolean decoderIsAmf = hardwareDecoder != null && hardwareDecoder.contains("amf");
         boolean decoderIsVideoToolbox = hardwareDecoder != null && hardwareDecoder.contains("videotoolbox");
+        boolean decoderIsD3d11va = hardwareDecoder != null && hardwareDecoder.contains("d3d11va");
+        boolean decoderIsDxva2 = hardwareDecoder != null && hardwareDecoder.contains("dxva2");
 
         boolean encoderIsNvenc = videoEncoder != null && videoEncoder.contains("nvenc");
         boolean encoderIsQsv = videoEncoder != null && videoEncoder.contains("qsv");
@@ -213,6 +234,10 @@ public class TranscodingService {
         } else if (decoderIsAmf) {
             return "scale=" + targetW + ":" + targetH;
         } else if (decoderIsVideoToolbox) {
+            return "scale=" + targetW + ":" + targetH;
+        } else if (decoderIsD3d11va) {
+            return "scale=" + targetW + ":" + targetH;
+        } else if (decoderIsDxva2) {
             return "scale=" + targetW + ":" + targetH;
         }
 
@@ -306,7 +331,12 @@ public class TranscodingService {
         boolean isIOS = isIOSClient(userAgent);
         boolean isMacSafari = isMacOSSafari(userAgent);
         boolean needsAppleHvc1Tag = needsHEVCTag(userAgent);
-        boolean skipMkvmerge = isIOS || isMacSafari;
+        // mkvmerge outputs Matroska, which Apple browsers play natively for
+        // H.264/AVC content. Only skip mkvmerge when the Apple client needs the
+        // hvc1 tag (HEVC/H.265), since Matroska doesn't carry that tag.
+        boolean isAppleHevcClient = needsAppleHvc1Tag && video.videoCodec != null &&
+            (video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc") || video.videoCodec.toLowerCase(Locale.ROOT).contains("h265"));
+        boolean skipMkvmerge = isAppleHevcClient;
         LOG.info("Client request - iOS: {}, macOS Safari: {}, User-Agent: {}", isIOS, isMacSafari, userAgent);
         
         boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent) || qualityHeight > 0;
@@ -317,7 +347,10 @@ public class TranscodingService {
 
         boolean canCopyAudio = canCopyAudio(video);
 
-        if (!needsVideoTranscode && startSeconds ==0 && !skipMkvmerge) {
+        LOG.info("[STREAM] videoId={} using mkvmerge remux path direct={} startSeconds={}", video.id, !needsVideoTranscode && startSeconds == 0 && !skipMkvmerge, startSeconds);
+
+        boolean isMkvInput = videoFile.getName().toLowerCase(Locale.ROOT).endsWith(".mkv");
+        if (!needsVideoTranscode && startSeconds ==0 && !skipMkvmerge && isMkvInput) {
             LOG.info("Using mkvmerge for instant remux of {}", videoFile.getName());
             String mkvmergePath = discoveryService.findMkvmerge();
             if (mkvmergePath != null) {
@@ -393,7 +426,7 @@ public class TranscodingService {
         StringBuilder errorOutput = new StringBuilder();
         int exitCode =0;
         
-        boolean useHardware = true;
+        boolean useHardware = isHardwareAccelerationEnabled();
         
         for (int attempt =0; attempt <= MAX_RETRIES; attempt++) {
             transcodeAttemptCount.incrementAndGet();
@@ -429,7 +462,8 @@ public class TranscodingService {
                                 errors.contains("nvenc") || errors.contains("amf") || errors.contains("qsv") || 
                                 errors.contains("vaapi") || errors.contains("videotoolbox") || errors.contains("driver") || 
                                 errors.contains("Hardware acceleration failed") || errors.contains("cuvid") || 
-                                errors.contains("cuda") || errors.contains("GPU") || errors.contains("signal"))) {
+                                errors.contains("cuda") || errors.contains("GPU") || errors.contains("signal") ||
+                                errors.contains("d3d11va") || errors.contains("dxva2") || errors.contains("mf"))) {
                 LOG.warn("Hardware acceleration or encoder failed, falling back to software for {}: {}", videoFile.getName(), errors.split("\n")[0]);
                 
                 // Invalidate the failed encoder
@@ -441,6 +475,12 @@ public class TranscodingService {
                 else if (errors.contains("hevc_amf")) discoveryService.recordEncoderFailure("hevc_amf");
                 else if (errors.contains("h264_vaapi")) discoveryService.recordEncoderFailure("h264_vaapi");
                 else if (errors.contains("hevc_vaapi")) discoveryService.recordEncoderFailure("hevc_vaapi");
+                else if (errors.contains("h264_d3d11va")) discoveryService.recordEncoderFailure("h264_d3d11va");
+                else if (errors.contains("hevc_d3d11va")) discoveryService.recordEncoderFailure("hevc_d3d11va");
+                else if (errors.contains("h264_dxva2")) discoveryService.recordEncoderFailure("h264_dxva2");
+                else if (errors.contains("hevc_dxva2")) discoveryService.recordEncoderFailure("hevc_dxva2");
+                else if (errors.contains("h264_mf")) discoveryService.recordEncoderFailure("h264_mf");
+                else if (errors.contains("hevc_mf")) discoveryService.recordEncoderFailure("hevc_mf");
                 
                 transcodeHwFallbackCount.incrementAndGet();
                 useHardware = false;
@@ -557,6 +597,13 @@ public class TranscodingService {
                 if (videoEncoder.contains("amf")) {
                     command.add("-hwaccel_output_format"); command.add("amf");
                 }
+            } else if (hardwareDecoder.contains("d3d11va")) {
+                command.add("-hwaccel"); command.add("d3d11va");
+                if (videoEncoder != null && videoEncoder.contains("d3d11va")) {
+                    command.add("-hwaccel_output_format"); command.add("d3d11");
+                }
+            } else if (hardwareDecoder.contains("dxva2")) {
+                command.add("-hwaccel"); command.add("dxva2");
             }
         }
 
@@ -679,6 +726,11 @@ public class TranscodingService {
 
         command.add("-max_muxing_queue_size"); command.add("1024");
 
+        String ffmpegAudioMode = (needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio) ? "aac" : "copy";
+        LOG.info("[FFMPEG] videoId={} hw={} decoder={} encoder={} audio={} scale={}",
+            video.id, useHardware, hardwareDecoder, videoEncoder, ffmpegAudioMode,
+            qualityHeight > 0 ? String.valueOf(qualityHeight) : "none");
+
         LOG.info("FFmpeg command for {} (AppleHvc1Tag={}): {}", videoFile.getName(), needsAppleHvc1Tag, String.join(" ", command));
 
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -789,6 +841,14 @@ public class TranscodingService {
         return dir;
     }
 
+    /** Path to the completion marker file for a transcode temp file.
+     *  Existence of this file means FFmpeg exited successfully (exit code 0).
+     *  Absence means the file is from a crashed/partial transcode.
+     */
+    private static Path completedMarkerPath(Path tempFile) {
+        return tempFile.resolveSibling(tempFile.getFileName().toString() + ".done");
+    }
+
     private boolean isTranscodeStuck(ActiveTranscode at) {
         if (at.completed || at.process == null || !at.process.isAlive()) {
             return false;
@@ -806,9 +866,10 @@ public class TranscodingService {
                                        int audioTrackIndex, int qualityHeight) throws IOException {
         String key = buildTranscodeKey(video.id, startSeconds, audioTrackIndex, qualityHeight);
 
-        // Fast path: check without lock
+        // Fast path: check without lock. Reject placeholders (process==null) —
+        // those are from the encoder retry loop and have no data yet.
         ActiveTranscode existing = activeTranscodes.get(key);
-        if (existing != null && !existing.failed && !isTranscodeStuck(existing)) {
+        if (existing != null && existing.process != null && !existing.failed && !isTranscodeStuck(existing)) {
             existing.refCount.incrementAndGet();
             existing.lastAccessed = System.currentTimeMillis();
             if (existing.cleanupFuture != null) {
@@ -826,14 +887,40 @@ public class TranscodingService {
             // Double-check: another thread may have created it while we waited
             existing = activeTranscodes.get(key);
             if (existing != null && !existing.failed && !isTranscodeStuck(existing)) {
-                existing.refCount.incrementAndGet();
-                existing.lastAccessed = System.currentTimeMillis();
-                if (existing.cleanupFuture != null) {
-                    existing.cleanupFuture.cancel(false);
-                    existing.cleanupFuture = null;
+                if (existing.process == null) {
+                    // Placeholder — encoder retry loop is in progress (may try several
+                    // HW encoders before falling back to libx264). Poll-wait up to 20s
+                    // for one to succeed. lock.wait(timeout) releases the monitor during
+                    // sleep so other threads aren't blocked. The retry loop calls
+                    // lock.notifyAll() when a process starts or all encoders fail.
+                    for (int i = 0; i < 100; i++) {
+                        try { lock.wait(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                        existing = activeTranscodes.get(key);
+                        if (existing == null) break;  // all encoders failed, entry removed
+                        if (existing.process != null) {
+                            existing.refCount.incrementAndGet();
+                            existing.lastAccessed = System.currentTimeMillis();
+                            if (existing.cleanupFuture != null) {
+                                existing.cleanupFuture.cancel(false);
+                                existing.cleanupFuture = null;
+                            }
+                            transcodeLocks.remove(key);
+                            return existing.tempFile;
+                        }
+                        // existing.failed is transient here — the retry loop resets it
+                        // when trying the next encoder. Keep waiting.
+                    }
+                    LOG.warn("Placeholder wait timeout (20s) for key {} — starting new transcode", key);
+                } else {
+                    existing.refCount.incrementAndGet();
+                    existing.lastAccessed = System.currentTimeMillis();
+                    if (existing.cleanupFuture != null) {
+                        existing.cleanupFuture.cancel(false);
+                        existing.cleanupFuture = null;
+                    }
+                    transcodeLocks.remove(key);
+                    return existing.tempFile;
                 }
-                transcodeLocks.remove(key);
-                return existing.tempFile;
             }
 
             // Clean up any failed or stuck transcode for this key
@@ -847,33 +934,58 @@ public class TranscodingService {
                 cleanupTranscode(existing);
             }
 
-            // Reuse existing file from a previous session (48h TTL) instead of re-transcoding
+            // Reuse existing file from a previous session (48h TTL) instead of re-transcoding.
+            // Only reuse if the completion marker exists — otherwise the file is from a
+            // crashed/partial transcode and must be re-created from scratch.
             if (Files.exists(tempFile) && Files.size(tempFile) > 1024) {
-                LOG.debug("Reusing existing transcode file for key {} (size={})", key, Files.size(tempFile));
-                ActiveTranscode at = new ActiveTranscode(key, null, tempFile);
-                at.completed = true;
-                at.refCount.set(1);
-                activeTranscodes.put(key, at);
-                transcodeLocks.remove(key);
-                return tempFile;
+                Path markerPath = completedMarkerPath(tempFile);
+                if (Files.exists(markerPath)) {
+                    LOG.debug("Reusing existing transcode file for key {} (size={})", key, Files.size(tempFile));
+                    ActiveTranscode at = new ActiveTranscode(key, null, tempFile);
+                    at.completed = true;
+                    at.refCount.set(1);
+                    activeTranscodes.put(key, at);
+                    transcodeLocks.remove(key);
+                    return tempFile;
+                } else {
+                    LOG.warn("Found partial transcode file for key {} (size={}) without completion marker — deleting and re-transcoding", key, Files.size(tempFile));
+                    try {
+                        Files.delete(tempFile);
+                    } catch (IOException e) {
+                        LOG.warn("Failed to delete partial temp file for key {}: {}", key, e.getMessage());
+                    }
+                }
             }
 
             // Placeholder entry: marks this transcode as "being started" in the map
             // so other threads arriving for the same key find it and either wait or share.
             // The lock stays in transcodeLocks until the FFmpeg process actually starts below.
             ActiveTranscode starting = new ActiveTranscode(key, null, tempFile);
-            starting.discontinuityDetected = true; // Signal discontinuity on new transcode start
+            // Only signal discontinuity when replacing a failed/stuck transcode,
+            // not on the very first request for this key.
+            starting.discontinuityDetected = (existing != null);
             activeTranscodes.put(key, starting);
         }
 
         LOG.info("Starting new transcode for key {} (video={})", key, videoFile.getName());
 
+        // Best-effort cleanup of leftover file from previous attempt.
+        // On Windows, the file may be locked by a crashed FFmpeg process that
+        // hasn't released its handle yet — this IOException is non-fatal.
         if (Files.exists(tempFile)) {
-            Files.delete(tempFile);
+            try {
+                Files.delete(tempFile);
+            } catch (IOException e) {
+                LOG.warn("Could not delete stale temp file {} (will let FFmpeg overwrite): {}", tempFile, e.getMessage());
+            }
         }
 
         if (video.videoCodec == null || video.audioCodec == null) {
-            videoService.probeVideoMetadata(video);
+            try {
+                videoService.probeVideoMetadata(video);
+            } catch (Exception e) {
+                LOG.warn("Failed to probe metadata for video {}: {}", video.id, e.getMessage());
+            }
         }
 
         String ffmpegPath = discoveryService.findFFmpegExecutable();
@@ -884,7 +996,11 @@ public class TranscodingService {
         // Retry loop: iterate all available hardware encoders in priority order.
         // If one fails quickly (e.g. missing CUDA runtime), clean up and try the next.
         // Falls through to libx264 software encoding last.
-        boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent) || qualityHeight > 0;
+        // When the codec is natively supported, copy video directly into the
+        // fMP4 container even when qualityHeight is set.  qualityHeight in copy
+        // mode effectively caps audio resolution (re-encode AAC at 192k) but
+        // leaves the video stream untouched, avoiding unnecessary re-encode.
+        boolean needsVideoTranscode = isTranscodeNeededForWeb(video, userAgent);
         boolean needsAppleHvc1Tag = needsHEVCTag(userAgent);
         boolean canCopyAudio = canCopyAudio(video);
 
@@ -972,6 +1088,13 @@ public class TranscodingService {
                     if (videoEncoder.contains("amf")) {
                         command.add("-hwaccel_output_format"); command.add("amf");
                     }
+                } else if (hwDecoder.contains("d3d11va")) {
+                    command.add("-hwaccel"); command.add("d3d11va");
+                    if (videoEncoder != null && videoEncoder.contains("d3d11va")) {
+                        command.add("-hwaccel_output_format"); command.add("d3d11");
+                    }
+                } else if (hwDecoder.contains("dxva2")) {
+                    command.add("-hwaccel"); command.add("dxva2");
                 }
             }
 
@@ -1066,6 +1189,11 @@ public class TranscodingService {
 
             command.add("-sn");
             command.add("-f"); command.add("mp4");
+            // Fragmented MP4 with empty moov + default base: the standard streaming
+            // fMP4 configuration. empty_moov signals "more fragments coming" and
+            // default_base_moof makes each fragment self-contained so the browser
+            // can play while the file is still being written. Truncation detection
+            // is handled by the completion marker (.done file), not by moov position.
             command.add("-movflags"); command.add("frag_keyframe+empty_moov+default_base_moof");
             command.add("-max_muxing_queue_size"); command.add("1024");
             command.add("-avoid_negative_ts"); command.add("make_zero");
@@ -1096,6 +1224,10 @@ public class TranscodingService {
             } else {
                 placeholder.process = process;
                 placeholder.failed = false;
+            }
+            // Wake up any threads waiting on the placeholder in the slow path
+            synchronized (lock) {
+                lock.notifyAll();
             }
             final ActiveTranscode at = placeholder;
 
@@ -1180,6 +1312,13 @@ public class TranscodingService {
                         }
                     } else {
                         LOG.info("FFmpeg transcode {} finished with code {}", key, exitCode);
+                        // Write completion marker so file reuse path can distinguish
+                        // a complete transcode from a truncated one (crash/OOM/etc.)
+                        try {
+                            Files.createFile(completedMarkerPath(at.tempFile));
+                        } catch (IOException e) {
+                            LOG.warn("Failed to write completion marker for {}: {}", key, e.getMessage());
+                        }
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -1223,7 +1362,10 @@ public class TranscodingService {
             return tempFile;
         }
 
-        // All encoders failed — clean up lock entry
+        // All encoders failed — wake up waiting threads, then clean up
+        synchronized (lock) {
+            lock.notifyAll();
+        }
         transcodeLocks.remove(key);
         activeTranscodes.remove(key);
         throw new IOException("All encoding attempts failed for video " + video.id, lastException);
@@ -1364,12 +1506,16 @@ public class TranscodingService {
         if (at.process != null && at.process.isAlive()) {
             at.process.destroyForcibly();
         }
+        Path markerPath = completedMarkerPath(at.tempFile);
         try {
             if (Files.exists(at.tempFile)) {
                 Files.delete(at.tempFile);
             }
+            if (Files.exists(markerPath)) {
+                Files.delete(markerPath);
+            }
         } catch (IOException e) {
-            LOG.warn("Failed to delete temp file {}: {}", at.tempFile, e.getMessage());
+            LOG.warn("Failed to delete temp file or marker for {}: {}", at.tempFile, e.getMessage());
         }
     }
 
