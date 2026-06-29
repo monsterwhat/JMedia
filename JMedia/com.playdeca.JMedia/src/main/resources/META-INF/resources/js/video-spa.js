@@ -220,53 +220,6 @@ class VideoSPA {
     }
 
     buildExternalPlayerHtml(v) {
-        /* Torrent/magnet sources: use OPlayer + @oplayer/torrent plugin */
-        if (v.sourceType === 'torrent') {
-            /* HTML attributes use escapeAttr; inline JS strings use escapeJs (no entity decoding in <script>) */
-            const attrUrl = this.escapeAttr(v.url);
-            const attrTitle = this.escapeAttr(v.title || 'Torrent Video');
-            const jsUrl = this.escapeJs(v.url);
-            const jsTitle = this.escapeJs(v.title || 'Torrent Video');
-            return `
-                <link rel="stylesheet" href="/css/player.css"/>
-                <div class="player-container" id="customPlayer"
-                     data-external-id="${v.id}"
-                     data-title="${attrTitle}"
-                     data-duration="0"
-                     data-start-time="${v.currentTime || 0}"
-                     data-type="external"
-                     data-source-type="torrent"
-                     data-external-original-url="${attrUrl}">
-                    <div class="video-wrapper">
-                        <div id="oplayerContainer" class="oplayer-wrapper"></div>
-                    </div>
-                </div>
-
-                <script src="https://cdn.jsdelivr.net/npm/webtorrent@0.98.18/webtorrent.min.js"><\/script>
-                <script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"><\/script>
-                <script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"><\/script>
-                <script src="https://cdn.jsdelivr.net/npm/@oplayer/torrent@latest/dist/index.min.js"><\/script>
-                <script src="/js/player/Utils.js?v=3"><\/script>
-                <script src="/js/player/oplayer-adapter.js?v=5"><\/script>
-                <script>
-                    (function() {
-                        var cId = 'customPlayer';
-                        var src = '${jsUrl}';
-                        var title = '${jsTitle}';
-                        var extId = '${v.id}';
-                        var retry = function() {
-                            if (typeof window.initExternalOPlayerTorrent === 'function') {
-                                window.initExternalOPlayerTorrent(cId, src, title, extId);
-                            } else {
-                                setTimeout(retry, 200);
-                            }
-                        };
-                        retry();
-                    })();
-                <\/script>
-            `;
-        }
-
         /* Default: proxy-stream via SimplePlayer */
         const proxyUrl = '/api/video/external/proxy/stream?url=' + encodeURIComponent(v.url);
         const alts = v.alternativeUrls && Array.isArray(v.alternativeUrls) && v.alternativeUrls.length > 0
@@ -344,11 +297,6 @@ class VideoSPA {
     escapeAttr(str) {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    escapeJs(str) {
-        if (!str) return '';
-        return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r');
     }
 
     async destroyCurrentPlayer() {
