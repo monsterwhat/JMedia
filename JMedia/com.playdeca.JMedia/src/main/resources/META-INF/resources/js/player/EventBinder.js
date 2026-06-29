@@ -200,12 +200,7 @@
 
                 const seekTo = ((e.clientX - rect.left) / rect.width) * dur;
 
-                if (p.needsTranscode) {
-                    p.streamMgr.performServerSeek(seekTo);
-                } else {
-                    p.video.currentTime = seekTo - (p.streamStartOffset || 0);
-                }
-                p.video.dispatchEvent(new Event('timeupdate'));
+                p.streamMgr.performServerSeek(seekTo);
                 p.controlsManager.showControls();
             };
 
