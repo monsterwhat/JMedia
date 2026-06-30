@@ -1,6 +1,6 @@
 # JMedia - Java Runtime Required (Launch4J Version)
 
-This version of JMedia requires Java 21 to run, but it was not found on your system.
+This version of JMedia requires Java 25 to run, but it was not found on your system.
 
 ## Why this happened:
 You are running the Launch4J wrapper version of JMedia, which needs a Java Runtime Environment (JRE) or Java Development Kit (JDK) to execute. The launcher could not find a compatible Java installation.
@@ -9,14 +9,14 @@ You are running the Launch4J wrapper version of JMedia, which needs a Java Runti
 
 ## How to fix this:
 
-1. **Download Microsoft JDK 21** from the official link:
-   - https://aka.ms/download-jdk/microsoft-jdk-21.0.9-windows-x64.exe
+1. **Download Microsoft JDK 25** from the official link:
+   - https://aka.ms/download-jdk/microsoft-jdk-25-windows-x64.exe
 
 2. **Run the installer** and follow the installation steps
 
 3. **Restart JMedia** after installation is complete
 
-The Microsoft JDK 21 is the recommended Java distribution for Windows and provides the best compatibility with JMedia.
+The Microsoft JDK 25 is the recommended Java distribution for Windows and provides the best compatibility with JMedia.
 
 ## If you already have Java installed:
 You may need to add it to your system PATH or set JAVA_HOME environment variable.

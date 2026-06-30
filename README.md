@@ -2,8 +2,8 @@
 ### A Decentralized, Private, and Efficient Media Streaming Application  
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://openjdk.org/projects/jdk/17/)
-[![Quarkus](https://img.shields.io/badge/Powered%20by-Quarkus%203.34-red.svg)](https://quarkus.io/)
+[![Java](https://img.shields.io/badge/Java-25%2B-orange.svg)](https://openjdk.org/projects/jdk/25/)
+[![Quarkus](https://img.shields.io/badge/Powered%20by-Quarkus%203.34.1-red.svg)](https://quarkus.io/)
 [![Build with Maven](https://img.shields.io/badge/Build-Maven-blue.svg)](https://maven.apache.org/)
 [![GitHub Release](https://img.shields.io/github/v/release/monsterwhat/JMedia)](https://github.com/monsterwhat/JMedia/releases)
 
@@ -132,7 +132,7 @@ This means:
 
 | Layer | Technology |
 |-------|-------------|
-| **Backend** | Java 17+, Quarkus 3.34.1 |
+| **Backend** | Java 25+, Quarkus 3.34.1 |
 | **Frontend** | HTML, CSS, JavaScript, HTMX, Alpine.js |
 | **Templating** | Qute |
 | **Database** | H2 (file-based, `~/.jmedia/jmedia`) |
@@ -220,17 +220,17 @@ Download the latest release from the [📦 GitHub Releases](https://github.com/m
 
 - **Windows:**  
   Download `JMedia.exe` and run it directly.  
-  > ⚠️ **Requires Java 17+** - If you get a Java error, see [JAVA_REQUIRED.md](JAVA_REQUIRED.md) for installation instructions.
+  > ⚠️ **Requires Java 25+** - If you get a Java error, see [JAVA_REQUIRED.md](JAVA_REQUIRED.md) for installation instructions.
 
 - **Cross-Platform (JAR):**  
-  Requires **Java 17+**.  
+  Requires **Java 25+**.  
   ```bash
   java -jar JMedia-runner.jar
   ```
   > 💡 Tip: On most systems, you can double-click the `.jar` to launch it.
 
 ### 🔹 **System Requirements**
-- **Java 17** or newer (required for all versions)
+- **Java 25** or newer (required for all versions)
 - Modern web browser (Chrome, Firefox, Safari, Edge)
 - **FFmpeg/ffprobe** — can be installed automatically via the app's settings
 
@@ -243,7 +243,7 @@ These builds will run standalone without needing a separate Java installation.
 ## 🧑‍💻 Developer Setup
 
 ### Prerequisites
-- **Java 17** or newer  
+- **Java 25** or newer  
 - **Maven 3.8+**
 
 ### Steps
