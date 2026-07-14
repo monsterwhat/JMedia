@@ -6,7 +6,7 @@
      data-song-id="{h_with_index.history.song.id}"
      style="--i: {h_with_index_index};">
     <div class="mobile-song-artwork">
-        <img src="/api/music/stream/artwork/{h_with_index.history.song.id}" loading="lazy" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+        <img src="/api/music/stream/artwork/{h_with_index.history.song.id}" loading="lazy" alt="Artwork" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">
     </div>
     <div class="mobile-song-info">
         <div class="mobile-song-title">{h_with_index.history.song.title ?: "Unknown Title"}</div>
@@ -19,7 +19,7 @@
      hx-get="/api/music/ui/mobile-history-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
      hx-trigger="intersect once"
      hx-swap="outerHTML">
-    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+    <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
 </div>
 {#else}
 <div class="scroll-end">— end —</div>

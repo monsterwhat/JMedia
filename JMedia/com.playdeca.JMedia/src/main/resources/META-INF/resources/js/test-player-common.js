@@ -65,17 +65,20 @@
         // INIT
         // ====================================================================
         async _init() {
+            this._isLiveExternal = !!(this.container && this.container.dataset.externalUrl);
             this._createMissingElements();
             this._setupSubtitleNavigation();
-            await this.loadMetadata();
-            this.startProgressReporting();
-            this.setupNavigation();
-            await this.loadSubtitles();
-            await this.loadStoryboard();
-            await this.loadAudioTracks();
-            this.loadMarkers();
-            this.setupServerSeek();
-            this.setupQualitySelector();
+            if (!this._isLiveExternal) {
+                await this.loadMetadata();
+                this.startProgressReporting();
+                this.setupNavigation();
+                await this.loadSubtitles();
+                await this.loadStoryboard();
+                await this.loadAudioTracks();
+                this.loadMarkers();
+                this.setupServerSeek();
+                this.setupQualitySelector();
+            }
             this.setupPip();
             this.setupSubtitleStyles();
             this.setupBufferIndicator();

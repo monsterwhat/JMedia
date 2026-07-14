@@ -903,6 +903,11 @@
         },
         
         /**
+         * Track in-flight fetch to prevent duplicate concurrent requests
+         */
+        _fetchingSongData: null,
+
+        /**
          * Handle state changes from StateManager
          */
         handleStateChange: function(oldState, newState) {
@@ -914,8 +919,9 @@
                 this.updateCoverImage(newState);
             }
 
-            // ALSO update if currentSongData changed (even if ID is same, data might have arrived)
-            if (oldState.currentSongData !== newState.currentSongData) {
+            // ALSO update if currentSongData actually changed (deepClone creates new object references,
+            // so use artworkBase64 value comparison to avoid false positives)
+            if (oldState.currentSongData?.artworkBase64 !== newState.currentSongData?.artworkBase64) {
                 this.updateCoverImage(newState);
             }
 
@@ -933,6 +939,13 @@
                 return;
             }
             
+            // Guard against duplicate concurrent requests for the same song
+            if (this._fetchingSongData === songId) {
+                window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData: Already fetching for songId:', songId);
+                return;
+            }
+            this._fetchingSongData = songId;
+            
             window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData called for songId:', songId);
             
             const profileId = window.globalActiveProfileId || '1';
@@ -940,30 +953,42 @@
                 .then(r => r.json())
                 .then(data => {
                      if (data && data.data) {
+                         // Discard stale response if song changed while fetch was in flight
+                         const currentSongId = window.StateManager?.getProperty('currentSongId');
+                         if (String(currentSongId) !== String(songId)) {
+                             window.Helpers.log('[ResponsivePlayer] fetchCurrentSongData: Ignoring stale response for', songId, 'current is', currentSongId);
+                             return;
+                         }
+                         
                          // Store metadata with artworkBase64 (now included in JSON response)
                          const songMetadata = { ...data.data };
                         
-                        if (window.StateManager) {
-                            window.StateManager.updateState({ currentSongId: songId, currentSongData: songMetadata }, 'ResponsivePlayer');
-                        }
-                        
-                         // Update cover image
-                         this.updateCoverImage(window.StateManager.getState());
-                        
-                         // Update media session metadata
-                         if (window.updateMediaSessionMetadata) {
-                              const artworkUrl = songMetadata.artworkBase64 
-                                  ? 'data:image/jpeg;base64,' + songMetadata.artworkBase64 
-                                  : '/logo.png';
-                              window.updateMediaSessionMetadata(
-                                  songMetadata.title,
-                                  songMetadata.artist,
-                                  artworkUrl
-                              );
+                         if (window.StateManager) {
+                             window.StateManager.updateState({ currentSongId: songId, currentSongData: songMetadata }, 'ResponsivePlayer');
                          }
+                         
+                          // Update cover image
+                          this.updateCoverImage(window.StateManager.getState());
+                         
+                          // Update media session metadata
+                          if (window.updateMediaSessionMetadata) {
+                               const artworkUrl = songMetadata.artworkBase64 
+                                   ? 'data:image/jpeg;base64,' + songMetadata.artworkBase64 
+                                   : '/logo.png';
+                               window.updateMediaSessionMetadata(
+                                   songMetadata.title,
+                                   songMetadata.artist,
+                                   artworkUrl
+                               );
+                          }
+                     }
+                 })
+                .catch(err => console.error('[ResponsivePlayer] Failed to fetch song data:', err))
+                .finally(() => {
+                    if (this._fetchingSongData === songId) {
+                        this._fetchingSongData = null;
                     }
-                })
-                .catch(err => console.error('[ResponsivePlayer] Failed to fetch song data:', err));
+                });
         },
         
         /**

@@ -67,9 +67,11 @@
                      data-genre="{genreCarousel.genreName}"
                      onclick="window.selectItem({json.apply(item)}, 'details')">
                     <div class="card-image-container">
-                        <img class="card-image" 
+                        <img class="card-image is-skeleton" 
                               src="/api/video/thumbnail/{item.id}"
-                             alt="{item.title ?: item.seriesTitle}">
+                             alt="{item.title ?: item.seriesTitle}"
+                             onload="this.classList.remove('is-skeleton')"
+                             onerror="this.classList.remove('is-skeleton')">
                         
                         <!-- Genre Badge -->
                         <div class="genre-badge" style="background: {genreCarousel.color ?: '#3273dc'};">
@@ -136,9 +138,11 @@
             {#for item in newReleases}
             <div class="streaming-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
                 <div class="card-image-container">
-                    <img class="card-image" 
+                    <img class="card-image is-skeleton" 
                          src="/api/video/thumbnail/{item.id}" 
-                         alt="{item.title ?: item.seriesTitle}">
+                         alt="{item.title ?: item.seriesTitle}"
+                         onload="this.classList.remove('is-skeleton')"
+                         onerror="this.classList.remove('is-skeleton')">
                     <div class="card-play-overlay">
                         <div class="card-play-btn">
                             <i class="pi pi-play"></i>
@@ -183,9 +187,11 @@
             {#for item in continueWatching}
             <div class="streaming-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
                 <div class="card-image-container">
-                    <img class="card-image" 
+                    <img class="card-image is-skeleton" 
                          src="/api/video/thumbnail/{item.id}" 
-                         alt="{item.title ?: item.seriesTitle}">
+                         alt="{item.title ?: item.seriesTitle}"
+                         onload="this.classList.remove('is-skeleton')"
+                         onerror="this.classList.remove('is-skeleton')">
                     <div class="card-play-overlay">
                         <div class="card-play-btn">
                             <i class="pi pi-play"></i>

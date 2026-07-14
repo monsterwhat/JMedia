@@ -24,7 +24,8 @@
         var muteKey = 'jmedia_video_mute_' + profileId;
 
         /* ---------- Build stream URL ---------- */
-        var streamUrl = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4';
+        var streamUrl = document.getElementById('customPlayer').dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
+        var streamType = streamUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
 
         /* ---------- Initialize Video.js with native controls ---------- */
         var vjsPlayer = videojs(videoEl, {
@@ -36,7 +37,7 @@
                 nativeAudioTracks: false,
                 nativeVideoTracks: false
             },
-            sources: [{ src: streamUrl, type: 'video/mp4' }]
+            sources: [{ src: streamUrl, type: streamType }]
         });
 
         /* Restore volume/mute from localStorage with exponential curve (matching JMedia default player) */
@@ -312,9 +313,29 @@
             }
         }, true);
 
+        /* ---------- Stream status reporting for live channels ---------- */
+        var _liveChannelId = container.dataset.liveChannelId;
+        var _statusReported = false;
+
+        function _reportStreamStatus(status) {
+            if (_statusReported || !_liveChannelId) return;
+            _statusReported = true;
+            fetch('/api/video/m3u/channels/' + _liveChannelId + '/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: status })
+            }).catch(function(err) {
+                console.warn('[VideoJsAdapter] Failed to report stream status:', err);
+            });
+        }
+
         /* ---------- Video.js Events ---------- */
         vjsPlayer.on('play', function() {
             PlayerUtils?.requestWakeLock?.();
+        });
+
+        vjsPlayer.on('playing', function() {
+            _reportStreamStatus('working');
         });
 
         vjsPlayer.on('pause', function() {
@@ -339,6 +360,7 @@
             }
             PlayerUtils?.releaseWakeLock?.();
             console.error('[VideoJsAdapter] Player error:', err);
+            _reportStreamStatus('dead');
         });
 
         /* ---------- Volume persistence with exponential curve (matching JMedia default player) ---------- */

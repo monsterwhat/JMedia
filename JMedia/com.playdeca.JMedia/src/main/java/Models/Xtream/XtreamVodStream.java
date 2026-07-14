@@ -21,8 +21,8 @@ public class XtreamVodStream {
     @JsonProperty("rating")
     public String rating;
 
-    @JsonProperty("rating_5plus")
-    public double rating5plus;
+    @JsonProperty("rating_5based")
+    public double rating5based;
 
     @JsonProperty("added")
     public String added;
@@ -38,4 +38,13 @@ public class XtreamVodStream {
 
     @JsonProperty("direct_source")
     public String directSource = "";
+
+    @JsonProperty("epg_channel_id")
+    public String epgChannelId = "";
+
+    @JsonProperty("tv_archive")
+    public int tvArchive = 0;
+
+    @JsonProperty("tv_archive_duration")
+    public int tvArchiveDuration = 0;
 }

@@ -271,8 +271,17 @@
             <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
         </header>
         <section class="modal-card-body" id="editModalBody">
-            <div class="is-flex is-justify-content-center p-6">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
+            <div class="p-4">
+                <div class="skeleton-lines mb-4" style="width: 120px;"><div></div></div>
+                <div class="skeleton-block is-skeleton mb-4" style="height: 2.5em;"></div>
+                <div class="skeleton-lines mb-4" style="width: 80px;"><div></div></div>
+                <div class="skeleton-block is-skeleton mb-4" style="height: 2.5em;"></div>
+                <div class="skeleton-lines mb-4" style="width: 100px;"><div></div></div>
+                <div class="skeleton-block is-skeleton mb-4" style="height: 2.5em;"></div>
+                <div class="is-flex" style="gap: 0.75rem;">
+                    <div class="skeleton-block is-skeleton" style="height: 2.5em; width: 100px;"></div>
+                    <div class="skeleton-block is-skeleton" style="height: 2.5em; width: 100px;"></div>
+                </div>
             </div>
         </section>
     </div>

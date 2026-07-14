@@ -12,6 +12,10 @@
         // Track last song to avoid unnecessary image updates
         lastSongId: null,
         
+        // Track last song ID for which artwork was actually applied
+        // (separate from lastSongId because artwork arrives asynchronously)
+        _lastArtworkSongId: null,
+        
         /**
          * Initialize UI updater
          */
@@ -128,39 +132,54 @@
                 }
             }
             
-            // 5. Update cover image, favicon, and page title ONLY when song actually changes
-            if (state.currentSongId && state.currentSongId !== this.lastSongId) {
-                this.lastSongId = state.currentSongId;
-                const currentSong = {
-                    id: state.currentSongId,
-                    title: state.songName || 'Unknown',
-                    artist: state.artistName || state.artist || 'Unknown Artist',
-                    artworkBase64: state.currentSongData?.artworkBase64,
-                    flac: state.currentSongData?.flac
-                };
-                console.log('[UIUpdater] Song changed, updating images:', currentSong.title);
-                if (window.ImageManager) {
-                    window.ImageManager.updateImages(currentSong, null, null);
-                } else {
-                 // Fallback: Update directly if ImageManager not ready
-                 const coverEl = document.getElementById('songCoverImage');
-                 const faviconEl = document.getElementById('favicon');
-                 const pageTitleEl = document.getElementById('pageTitle');
-                 const artworkUrl = currentSong.artworkBase64 
-                     ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 
-                     : '/logo.png';
-                 if (coverEl) coverEl.src = artworkUrl;
-                 if (faviconEl) faviconEl.href = artworkUrl;
-                 if (!window.videoPlaying && pageTitleEl) pageTitleEl.innerText = `${currentSong.title} - ${currentSong.artist}`;
-                }
+            // 5. Update cover image, favicon, and page title
+            const currentSongId = state.currentSongId;
+            if (currentSongId) {
+                const songChanged = String(currentSongId) !== String(this.lastSongId);
+                const artworkAvailable = !!state.currentSongData?.artworkBase64;
+                const artworkArrived = artworkAvailable && String(currentSongId) !== String(this._lastArtworkSongId);
                 
-                // FLAC indicator on playback bar artwork
-                const playerContainer = document.querySelector('.persistent-music-player');
-                if (playerContainer) {
-                    if (currentSong.flac) {
-                        playerContainer.classList.add('is-flac');
+                if (songChanged || artworkArrived) {
+                    if (songChanged) {
+                        this.lastSongId = currentSongId;
+                    }
+                    
+                    const currentSong = {
+                        id: currentSongId,
+                        title: state.songName || 'Unknown',
+                        artist: state.artistName || state.artist || 'Unknown Artist',
+                        artworkBase64: state.currentSongData?.artworkBase64,
+                        flac: state.currentSongData?.flac
+                    };
+                    
+                    if (currentSong.artworkBase64) {
+                        this._lastArtworkSongId = currentSongId;
+                    }
+                    
+                    console.log('[UIUpdater] Updating images for song:', currentSong.title, '| artworkBase64:', !!currentSong.artworkBase64);
+                    if (window.ImageManager) {
+                        window.ImageManager.updateImages(currentSong, null, null);
                     } else {
-                        playerContainer.classList.remove('is-flac');
+                     // Fallback: Update directly if ImageManager not ready
+                     const coverEl = document.getElementById('songCoverImage');
+                     const faviconEl = document.getElementById('favicon');
+                     const pageTitleEl = document.getElementById('pageTitle');
+                     const artworkUrl = currentSong.artworkBase64 
+                         ? 'data:image/jpeg;base64,' + currentSong.artworkBase64 
+                         : '/logo.png';
+                     if (coverEl) coverEl.src = artworkUrl;
+                     if (faviconEl) faviconEl.href = artworkUrl;
+                     if (!window.videoPlaying && pageTitleEl) pageTitleEl.innerText = `${currentSong.title} - ${currentSong.artist}`;
+                    }
+                    
+                    // FLAC indicator on playback bar artwork
+                    const playerContainer = document.querySelector('.persistent-music-player');
+                    if (playerContainer) {
+                        if (currentSong.flac) {
+                            playerContainer.classList.add('is-flac');
+                        } else {
+                            playerContainer.classList.remove('is-flac');
+                        }
                     }
                 }
             }

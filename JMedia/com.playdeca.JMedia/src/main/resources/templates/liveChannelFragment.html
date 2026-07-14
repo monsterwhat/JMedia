@@ -1,0 +1,546 @@
+<div class="live-channel-page">
+    <div class="external-video-header">
+        <h2 class="title is-4 mb-2">
+            <i class="pi pi-desktop" style="color: #48c774;"></i> Live TV
+        </h2>
+        <p class="has-text-grey-light is-size-7">Browse and watch live TV channels imported via M3U playlists.</p>
+    </div>
+
+    <!-- Profile / Playlist selector -->
+    <div class="columns is-mobile is-vcentered mb-4" style="flex-wrap:wrap;gap:0.75rem;">
+        <div class="column is-narrow">
+            <label class="label is-small mb-0">Playlist</label>
+            <div class="select is-small">
+                <select id="liveTvPlaylistSelect" onchange="liveChannelManager.onPlaylistChange()">
+                    <option value="">All Playlists</option>
+                </select>
+            </div>
+        </div>
+        <div class="column is-narrow">
+            <div class="field has-addons mb-0" style="margin-top:1.1rem;">
+                <div class="control">
+                    <input class="input is-small" type="text" id="liveTvSearchInput" placeholder="Search channels..." oninput="liveChannelManager.search(this.value)">
+                </div>
+                <div class="control">
+                    <button class="button is-small is-link is-light" onclick="document.getElementById('liveTvSearchInput').value=''; liveChannelManager.search('');">
+                        <i class="pi pi-times"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="column is-narrow">
+            <label class="label is-small mb-0" style="visibility:hidden;">-</label>
+                <button class="button is-small is-link is-light" onclick="videoSPA.switchSection('external')">
+                <i class="pi pi-plus mr-1"></i> Import
+            </button>
+        </div>
+        <div class="column is-narrow">
+            <label class="label is-small mb-0" style="visibility:hidden;">-</label>
+                <button class="button is-small is-warning is-light" id="checkStatusBtn" onclick="liveChannelManager.checkStatus()">
+                <i class="pi pi-sync mr-1"></i> Check Status
+            </button>
+        </div>
+    </div>
+
+    <!-- Status filter + Favorites toggle + Channel count -->
+    <div class="mb-3" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+        <span class="has-text-grey is-size-7" style="margin-right:0.25rem;">Status:</span>
+        <button class="button is-small is-link is-rounded active" data-status="all" onclick="liveChannelManager.filterStatus('all')">All</button>
+        <button class="button is-small is-dark is-light is-rounded" data-status="working" onclick="liveChannelManager.filterStatus('working')"><span style="color:#48c774;margin-right:2px;">&#10003;</span> Working</button>
+        <button class="button is-small is-dark is-light is-rounded" data-status="unchecked" onclick="liveChannelManager.filterStatus('unchecked')"><span style="color:#aaa;margin-right:2px;">&#8987;</span> Unchecked</button>
+        <button class="button is-small is-dark is-light is-rounded" data-status="dead" onclick="liveChannelManager.filterStatus('dead')"><span style="color:#f14668;margin-right:2px;">&#10007;</span> Dead</button>
+        <div style="width:1px;height:1.2rem;background:rgba(255,255,255,0.1);margin:0 0.25rem;"></div>
+        <button class="button is-small is-dark is-light is-rounded" id="liveTvFavToggle" onclick="liveChannelManager.toggleFavoritesOnly()">
+            <i class="pi pi-star" style="margin-right:2px;"></i> Favorites
+        </button>
+        <div style="flex:1;"></div>
+        <span id="liveTvChannelCount" class="has-text-grey is-size-7"></span>
+    </div>
+
+    <!-- Group filter bar (horizontal scrollable pills) -->
+    <div id="liveTvGroupBar" class="mb-4" style="display:flex;gap:0.5rem;overflow-x:auto;padding-bottom:0.5rem;flex-wrap:wrap;">
+        <button class="button is-small is-link is-rounded active" data-group="all" onclick="liveChannelManager.filterGroup('all')">All</button>
+    </div>
+
+    <!-- Channel grid -->
+    <div id="liveTvChannelGrid" class="standard-grid">
+    </div>
+
+    <!-- Empty state -->
+    <div id="liveTvEmptyState" class="has-text-centered py-6" style="display:none;">
+        <p class="has-text-grey"><i class="pi pi-video" style="font-size:3rem;"></i><br><br>No live TV channels imported yet.</p>
+        <button class="button is-link" onclick="videoSPA.switchSection('external')">Import Playlist</button>
+    </div>
+
+    <div id="liveChannelContextMenu" class="context-menu" style="display:none;position:fixed;z-index:9999;"></div>
+</div>
+
+<script>
+    var liveChannelManager = {
+        channels: [],
+        filteredChannels: [],
+        allGroups: [],
+        currentGroup: 'all',
+        currentStatus: 'all',
+        showFavoritesOnly: false,
+        currentSearch: '',
+        currentPlaylistId: '',
+        groupsExpanded: false,
+        totalChannelCount: 0,
+        currentPage: 1,
+        pageSize: 100,
+        hasMore: false,
+        totalCount: 0,
+        isLoading: false,
+        _scrollObserver: null,
+
+        init: async function() {
+            await this.loadPlaylists();
+            await this.loadChannels();
+        },
+
+        loadPlaylists: async function() {
+            var select = document.getElementById('liveTvPlaylistSelect');
+            try {
+                var response = await fetch('/api/video/m3u/playlists');
+                var result = await response.json();
+                if (result.success && result.data) {
+                    var liveTvPlaylists = result.data.filter(function(p) {
+                        return p.type === 'LIVE_TV' || p.type === 'MIXED';
+                    });
+                    liveTvPlaylists.forEach(function(pl) {
+                        var opt = document.createElement('option');
+                        opt.value = pl.id;
+                        var count = pl.channelCount != null ? ' (' + pl.channelCount + ')' : '';
+                        opt.textContent = (pl.name || 'Unnamed') + count;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('[LiveChannel] Failed to load playlists:', err);
+            }
+        },
+
+        loadGroups: async function() {
+            var bar = document.getElementById('liveTvGroupBar');
+            var params = this.currentPlaylistId ? '?playlistId=' + this.currentPlaylistId : '';
+            try {
+                var response = await fetch('/api/video/m3u/groups' + params);
+                var result = await response.json();
+                if (result.success && result.data) {
+                    this.allGroups = result.data;
+                    this.renderGroupBar();
+                }
+            } catch (err) {
+                console.error('[LiveChannel] Failed to load groups:', err);
+            }
+        },
+
+        renderGroupBar: function() {
+            var bar = document.getElementById('liveTvGroupBar');
+            var self = this;
+            var allBtn = '<button class="button is-small is-link is-rounded active" data-group="all" onclick="liveChannelManager.filterGroup(\'all\')">All</button>';
+            var groups = this.allGroups;
+            var collapsed = !this.groupsExpanded && groups.length > 10;
+            var visibleGroups = collapsed ? groups.slice(0, 10) : groups;
+            var hiddenCount = groups.length - 10;
+
+            var html = allBtn;
+            visibleGroups.forEach(function(group) {
+                var count = group.count ? ' (' + group.count + ')' : '';
+                html += '<button class="button is-small is-dark is-light is-rounded" data-group="' + self.escapeAttr(group.name) + '" onclick="liveChannelManager.filterGroup(\'' + self.escapeAttr(group.name).replace(/'/g, "\\'") + '\')">' + self.escapeHtml(group.name) + count + '</button>';
+            });
+            if (collapsed && hiddenCount > 0) {
+                html += '<button class="button is-small is-dark is-light is-rounded" onclick="liveChannelManager.expandGroups()" style="font-style:italic;">Show all (' + hiddenCount + ' more)</button>';
+            } else if (groups.length > 10 && this.groupsExpanded) {
+                html += '<button class="button is-small is-dark is-light is-rounded" onclick="liveChannelManager.collapseGroups()" style="font-style:italic;">Show less</button>';
+            }
+
+            bar.innerHTML = html;
+            this.restoreGroupSelection();
+        },
+
+        expandGroups: function() {
+            this.groupsExpanded = true;
+            this.renderGroupBar();
+        },
+
+        collapseGroups: function() {
+            this.groupsExpanded = false;
+            this.renderGroupBar();
+        },
+
+        restoreGroupSelection: function() {
+            if (this.currentGroup && this.currentGroup !== 'all') {
+                var btn = document.querySelector('#liveTvGroupBar .button[data-group="' + this.currentGroup + '"]');
+                if (btn) {
+                    btn.classList.remove('is-dark', 'is-light');
+                    btn.classList.add('is-link', 'active');
+                }
+            }
+        },
+
+        loadChannels: async function(page) {
+            page = page || 1;
+            var grid = document.getElementById('liveTvChannelGrid');
+            var emptyState = document.getElementById('liveTvEmptyState');
+
+            if (page === 1) {
+                grid.innerHTML = '';
+                this.currentPage = 1;
+            }
+
+            this.isLoading = true;
+            var params = new URLSearchParams();
+            if (this.currentPlaylistId) params.set('playlistId', this.currentPlaylistId);
+            if (this.currentGroup && this.currentGroup !== 'all') params.set('group', this.currentGroup);
+            if (this.currentSearch) params.set('search', this.currentSearch);
+            if (this.currentStatus && this.currentStatus !== 'all') params.set('status', this.currentStatus);
+            if (this.showFavoritesOnly) params.set('favorites', 'true');
+            params.set('limit', this.pageSize);
+            params.set('page', page);
+
+            try {
+                var response = await fetch('/api/video/m3u/channels?' + params.toString());
+                var result = await response.json();
+
+                if (result.success && result.data && result.data.length > 0) {
+                    this.hasMore = !!result.hasMore;
+                    this.totalCount = result.totalCount || result.data.length;
+                    this.currentPage = page;
+
+                    if (page === 1) {
+                        this.channels = result.data;
+                        this.filteredChannels = result.data;
+                    } else {
+                        this.channels = this.channels.concat(result.data);
+                        this.filteredChannels = this.filteredChannels.concat(result.data);
+                    }
+
+                    this.renderChannels(result.data, page > 1);
+                    this.updateChannelCount(this.totalCount);
+                    grid.style.display = '';
+                    emptyState.style.display = 'none';
+                    if (page === 1) await this.loadGroups();
+                } else {
+                    if (page === 1) {
+                        this.totalCount = 0;
+                        this.updateChannelCount(0);
+                        grid.style.display = 'none';
+                        emptyState.style.display = '';
+                        await this.loadGroups();
+                    }
+                    this.hasMore = false;
+                }
+            } catch (err) {
+                console.error('[LiveChannel] Failed to load channels:', err);
+                if (page === 1) {
+                    this.totalCount = 0;
+                    this.updateChannelCount(0);
+                    grid.style.display = 'none';
+                    emptyState.style.display = '';
+                }
+            } finally {
+                this.isLoading = false;
+                this.setupScrollSentinel();
+            }
+        },
+
+        updateChannelCount: function(total) {
+            var el = document.getElementById('liveTvChannelCount');
+            if (!el) return;
+            if (total > 0) {
+                var loaded = this.channels ? this.channels.length : total;
+                if (loaded < total) {
+                    el.textContent = 'Showing ' + loaded.toLocaleString() + ' of ' + total.toLocaleString() + ' channel' + (total !== 1 ? 's' : '');
+                } else {
+                    el.textContent = total.toLocaleString() + ' channel' + (total !== 1 ? 's' : '');
+                }
+            } else {
+                el.textContent = '';
+            }
+        },
+
+        renderChannels: function(channels, append) {
+            var grid = document.getElementById('liveTvChannelGrid');
+            var statusOrder = { working: 0, unchecked: 1, dead: 2 };
+            var sorted = channels.slice().sort(function(a, b) {
+                var sa = statusOrder[a.streamStatus] != null ? statusOrder[a.streamStatus] : 1;
+                var sb = statusOrder[b.streamStatus] != null ? statusOrder[b.streamStatus] : 1;
+                return sa - sb;
+            });
+            var html = sorted.map(function(ch) {
+                var posterHtml = ch.logoUrl
+                    ? '<img class="poster-img is-skeleton" src="' + liveChannelManager.escapeAttr(ch.logoUrl) + '" alt="' + liveChannelManager.escapeAttr(ch.name) + '" loading="lazy" onload="this.classList.remove(\'is-skeleton\')" onerror="this.classList.remove(\'is-skeleton\')">'
+                    : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);"><i class="pi pi-desktop" style="font-size:2.5rem;color:rgba(255,255,255,0.15);"></i></div>';
+                var favIcon = ch.isFavorite
+                    ? '<i class="pi pi-star-fill" style="color:#ffd43b;cursor:pointer;position:absolute;top:0.5rem;right:0.5rem;z-index:2;" onclick="event.stopPropagation();liveChannelManager.toggleFavorite(\'' + ch.id + '\')"></i>'
+                    : '<i class="pi pi-star" style="color:rgba(255,255,255,0.2);cursor:pointer;position:absolute;top:0.5rem;right:0.5rem;z-index:2;" onclick="event.stopPropagation();liveChannelManager.toggleFavorite(\'' + ch.id + '\')"></i>';
+                var statusDot = '';
+                if (ch.streamStatus === 'working') {
+                    statusDot = '<div style="position:absolute;top:0.5rem;left:0.5rem;z-index:2;width:10px;height:10px;border-radius:50%;background:#48c774;border:2px solid rgba(0,0,0,0.5);" title="Online"></div>';
+                } else if (ch.streamStatus === 'dead') {
+                    statusDot = '<div style="position:absolute;top:0.5rem;left:0.5rem;z-index:2;width:10px;height:10px;border-radius:50%;background:#f14668;border:2px solid rgba(0,0,0,0.5);" title="Offline"></div>';
+                } else {
+                    statusDot = '<div style="position:absolute;top:0.5rem;left:0.5rem;z-index:2;width:10px;height:10px;border-radius:50%;background:#555;border:2px solid rgba(0,0,0,0.5);" title="Unchecked"></div>';
+                }
+                var groupMeta = ch.groupTitle ? liveChannelManager.escapeHtml(ch.groupTitle) : 'Live';
+
+                return '<div class="standard-card" onclick="liveChannelManager.playChannel(\'' + ch.id + '\')" ' +
+                    'oncontextmenu="liveChannelManager.showContextMenu(event, this)"' +
+                    ' data-channel-id="' + ch.id + '"' +
+                    ' data-channel-name="' + liveChannelManager.escapeAttr(ch.name) + '"' +
+                    ' data-stream-url="' + liveChannelManager.escapeAttr(ch.streamUrl) + '"' +
+                    ' data-group-title="' + liveChannelManager.escapeAttr(ch.groupTitle || '') + '">' +
+                    '<div class="standard-card-poster">' +
+                    posterHtml +
+                    statusDot +
+                    favIcon +
+                    '<div class="standard-card-overlay">' +
+                    '<div class="standard-play-btn" onclick="event.stopPropagation();liveChannelManager.playChannel(\'' + ch.id + '\')">' +
+                    '<i class="pi pi-play"></i>' +
+                    '</div>' +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="standard-card-info">' +
+                    '<div class="standard-card-title" title="' + liveChannelManager.escapeAttr(ch.name) + '">' + liveChannelManager.escapeHtml(ch.name) + '</div>' +
+                    '<div class="standard-card-meta">' + groupMeta + '</div>' +
+                    '</div>' +
+                    '</div>';
+            }).join('');
+            if (append) {
+                var sentinel = grid.querySelector('.scroll-sentinel');
+                if (sentinel) sentinel.insertAdjacentHTML('beforebegin', html);
+                else grid.insertAdjacentHTML('beforeend', html);
+            } else {
+                grid.innerHTML = html;
+            }
+        },
+
+        setupScrollSentinel: function() {
+            var grid = document.getElementById('liveTvChannelGrid');
+            if (!grid) return;
+
+            if (this._scrollObserver) {
+                this._scrollObserver.disconnect();
+                this._scrollObserver = null;
+            }
+
+            var sentinel = grid.querySelector('.scroll-sentinel');
+            if (sentinel) sentinel.remove();
+
+            if (!this.hasMore) return;
+
+            sentinel = document.createElement('div');
+            sentinel.className = 'scroll-sentinel';
+            sentinel.style.height = '1px';
+            grid.appendChild(sentinel);
+
+            var self = this;
+            this._scrollObserver = new IntersectionObserver(function(entries) {
+                if (entries[0].isIntersecting && self.hasMore && !self.isLoading) {
+                    self.loadChannels(self.currentPage + 1);
+                }
+            }, { rootMargin: '200px' });
+            this._scrollObserver.observe(sentinel);
+        },
+
+        filterGroup: function(group) {
+            this.currentGroup = group;
+            this.currentPage = 1;
+            this.hasMore = false;
+            var buttons = document.querySelectorAll('#liveTvGroupBar .button');
+            buttons.forEach(function(btn) {
+                btn.classList.remove('is-link', 'active');
+                btn.classList.add('is-dark', 'is-light');
+            });
+            var activeBtn = document.querySelector('#liveTvGroupBar .button[data-group="' + group + '"]');
+            if (activeBtn) {
+                activeBtn.classList.remove('is-dark', 'is-light');
+                activeBtn.classList.add('is-link', 'active');
+            }
+            this.loadChannels(1);
+        },
+
+        search: function(query) {
+            this.currentSearch = query.trim();
+            this.currentPage = 1;
+            this.hasMore = false;
+            this.loadChannels(1);
+        },
+
+        filterStatus: function(status) {
+            this.currentStatus = status;
+            this.currentPage = 1;
+            this.hasMore = false;
+            var statusBtns = document.querySelectorAll('[data-status]');
+            statusBtns.forEach(function(btn) {
+                btn.classList.remove('is-link', 'active');
+                btn.classList.add('is-dark', 'is-light');
+            });
+            var activeBtn = document.querySelector('[data-status="' + status + '"]');
+            if (activeBtn) {
+                activeBtn.classList.remove('is-dark', 'is-light');
+                activeBtn.classList.add('is-link', 'active');
+            }
+            this.loadChannels(1);
+        },
+
+        toggleFavoritesOnly: function() {
+            this.showFavoritesOnly = !this.showFavoritesOnly;
+            this.currentPage = 1;
+            this.hasMore = false;
+            var btn = document.getElementById('liveTvFavToggle');
+            if (this.showFavoritesOnly) {
+                btn.classList.remove('is-dark', 'is-light');
+                btn.classList.add('is-warning');
+                btn.innerHTML = '<i class="pi pi-star-fill" style="margin-right:2px;"></i> Favorites';
+            } else {
+                btn.classList.remove('is-warning');
+                btn.classList.add('is-dark', 'is-light');
+                btn.innerHTML = '<i class="pi pi-star" style="margin-right:2px;"></i> Favorites';
+            }
+            this.loadChannels(1);
+        },
+
+        onPlaylistChange: function() {
+            this.currentPlaylistId = document.getElementById('liveTvPlaylistSelect').value;
+            this.currentPage = 1;
+            this.hasMore = false;
+            this.loadChannels(1);
+        },
+
+        playChannel: function(channelId) {
+            window.videoSPA.switchSection('playback', { liveChannelId: channelId });
+        },
+
+        toggleFavorite: async function(channelId) {
+            try {
+                var response = await fetch('/api/video/m3u/channels/' + channelId + '/favorite', { method: 'POST' });
+                var result = await response.json();
+                if (result.success) {
+                    liveChannelManager.currentPage = 1;
+                    liveChannelManager.hasMore = false;
+                    liveChannelManager.loadChannels(1);
+                }
+            } catch (err) {
+                console.error('[LiveChannel] Failed to toggle favorite:', err);
+            }
+        },
+
+        showContextMenu: function(e, el) {
+            e.preventDefault();
+            e.stopPropagation();
+            var menu = document.getElementById('liveChannelContextMenu');
+            var channelData = {
+                id: el.dataset.channelId,
+                name: el.dataset.channelName,
+                streamUrl: el.dataset.streamUrl,
+                groupTitle: el.dataset.groupTitle
+            };
+            liveChannelManager._contextChannel = channelData;
+            menu.innerHTML =
+                '<div class="context-menu-item" onclick="liveChannelManager.playChannel(\'' + channelData.id + '\');liveChannelManager.hideContextMenu();">' +
+                    '<i class="pi pi-play"></i><span>Play</span></div>' +
+                '<div class="context-menu-item" onclick="liveChannelManager.copyStreamUrl();">' +
+                    '<i class="pi pi-copy"></i><span>Copy Stream URL</span></div>' +
+                '<div class="context-menu-item" onclick="liveChannelManager.showChannelInfo();">' +
+                    '<i class="pi pi-info-circle"></i><span>Channel Info</span></div>' +
+                '<div class="context-menu-separator"></div>' +
+                '<div class="context-menu-item" style="color:#f14668;" onclick="liveChannelManager.deleteChannel(\'' + channelData.id + '\', \'' + liveChannelManager.escapeAttr(channelData.name).replace(/'/g, "\\'") + '\');">' +
+                    '<i class="pi pi-trash"></i><span>Delete Channel</span></div>';
+            menu.style.left = e.clientX + 'px';
+            menu.style.top = e.clientY + 'px';
+            menu.style.display = 'block';
+            var rect = menu.getBoundingClientRect();
+            if (rect.right > window.innerWidth) menu.style.left = (e.clientX - rect.width) + 'px';
+            if (rect.bottom > window.innerHeight) menu.style.top = (e.clientY - rect.height) + 'px';
+        },
+
+        hideContextMenu: function() {
+            var menu = document.getElementById('liveChannelContextMenu');
+            if (menu) menu.style.display = 'none';
+        },
+
+        deleteChannel: async function(channelId, channelName) {
+            liveChannelManager.hideContextMenu();
+            if (!confirm('Delete "' + channelName + '"?')) return;
+            try {
+                var response = await fetch('/api/video/m3u/channels/' + channelId, { method: 'DELETE' });
+                var result = await response.json();
+                if (result.success) {
+                    if (window.showToast) window.showToast('Channel deleted', 'success');
+                    liveChannelManager.currentPage = 1;
+                    liveChannelManager.hasMore = false;
+                    liveChannelManager.loadChannels(1);
+                } else {
+                    if (window.showToast) window.showToast(result.error || 'Failed to delete', 'danger');
+                }
+            } catch (err) {
+                console.error('[LiveChannel] Failed to delete channel:', err);
+                if (window.showToast) window.showToast('Delete failed', 'danger');
+            }
+        },
+
+        copyStreamUrl: function() {
+            liveChannelManager.hideContextMenu();
+            var ch = liveChannelManager._contextChannel;
+            if (!ch || !ch.streamUrl) return;
+            navigator.clipboard.writeText(ch.streamUrl).then(function() {
+                if (window.showToast) window.showToast('Stream URL copied', 'success');
+            }).catch(function() {
+                if (window.showToast) window.showToast('Copy failed', 'danger');
+            });
+        },
+
+        showChannelInfo: function() {
+            liveChannelManager.hideContextMenu();
+            var ch = liveChannelManager._contextChannel;
+            if (!ch) return;
+            var msg = 'Name: ' + (ch.name || 'N/A') +
+                '\nGroup: ' + (ch.groupTitle || 'N/A') +
+                '\nStream: ' + (ch.streamUrl || 'N/A');
+            alert(msg);
+        },
+
+        checkStatus: async function() {
+            var btn = document.getElementById('checkStatusBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="pi pi-spin pi-spinner mr-1"></i> Checking...'; }
+            try {
+                var response = await fetch('/api/video/m3u/check-status', { method: 'POST' });
+                var result = await response.json();
+                if (result.success) {
+                    if (window.showToast) window.showToast('Stream check started — refreshing in 10s...', 'info');
+                    setTimeout(function() {
+                        liveChannelManager.currentPage = 1;
+                        liveChannelManager.hasMore = false;
+                        liveChannelManager.loadChannels(1);
+                    }, 10000);
+                }
+            } catch (err) {
+                console.error('[LiveChannel] Failed to start status check:', err);
+                if (window.showToast) window.showToast('Failed to start check', 'danger');
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="pi pi-sync mr-1"></i> Check Status'; }
+            }
+        },
+
+        escapeHtml: function(str) {
+            if (!str) return '';
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        },
+
+        escapeAttr: function(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;');
+        }
+    };
+
+    document.addEventListener('click', function() { liveChannelManager.hideContextMenu(); });
+    document.addEventListener('scroll', function() { liveChannelManager.hideContextMenu(); }, { passive: true, capture: true });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') liveChannelManager.hideContextMenu(); });
+
+    liveChannelManager.init();
+</script>

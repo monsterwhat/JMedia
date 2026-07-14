@@ -1,9 +1,9 @@
 package Services;
 
 import Models.Video;
-import Utils.MediaPathResolver;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.annotation.PostConstruct;
+import jakarta.transaction.Transactional;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -95,22 +95,12 @@ public class RenameQueueProcessor {
     }
 
     private void processVideoRename(Long videoId) {
+        // Both thumbnailService.renameForExternalIds and storyboardService.renameForExternalIds
+        // are @Transactional and handle Video lookup internally — no need to fetch Video here.
         try {
-            Video video = Video.findById(videoId);
-            if (video == null) return;
-
-            String canonicalName = MediaPathResolver.resolveThumbnailName(video);
-            if (canonicalName == null) return;
-
-            // Check if the stored thumbnail path already matches canonical
-            if (video.thumbnailPath != null && video.thumbnailPath.endsWith(canonicalName)) {
-                return; // Already using canonical name
-            }
-
-            // Attempt rename via ThumbnailService
+            LOG.debug("Processing asset rename for video {}", videoId);
             thumbnailService.renameForExternalIds(videoId);
             storyboardService.renameForExternalIds(videoId);
-
         } catch (Exception e) {
             LOG.warn("Failed to rename assets for video {}: {}", videoId, e.getMessage());
         }
@@ -163,6 +153,7 @@ public class RenameQueueProcessor {
     }
 
     @Scheduled(cron = "0 0 3 * * ?")
+    @Transactional
     void scheduledStandardization() {
         LOG.info("Running scheduled daily asset standardization");
         queueAllVideos();

@@ -35,6 +35,8 @@
             window.batchRemoveEpisodes = (seriesIndex, seasonIndex) => this.batchRemoveEpisodes(seriesIndex, seasonIndex);
             window.showEditEntryModal = (entryId, notes) => this.showEditEntryModal(entryId, notes);
             window.submitEditEntry = () => this.submitEditEntry();
+            window.showChangeCoverModal = () => this.showChangeCoverModal();
+            window.submitChangeCover = (videoId) => this.submitChangeCover(videoId);
             window.initCollectionDragDrop = () => this.initCollectionDragDrop();
             window.updateEntryOrders = () => this.updateEntryOrders();
         }
@@ -670,6 +672,36 @@
                 }
             } catch (e) {
                 if (window.showToast) window.showToast('Error updating entry', 'danger');
+            }
+        }
+
+        showChangeCoverModal() {
+            const modal = document.getElementById('changeCoverModal');
+            if (modal) modal.classList.add('is-active');
+        }
+
+        async submitChangeCover(videoId) {
+            const collectionId = this.videoSPA?.currentParams?.collectionId;
+            if (!collectionId) { if (window.showToast) window.showToast('No collection selected', 'warning'); return; }
+            try {
+                const params = new URLSearchParams();
+                params.set('coverVideoId', String(videoId));
+                const res = await fetch('/api/collections/' + collectionId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params.toString()
+                });
+                const json = await res.json();
+                if (json.success) {
+                    const modal = document.getElementById('changeCoverModal');
+                    if (modal) modal.classList.remove('is-active');
+                    if (window.showToast) window.showToast('Cover image updated', 'success');
+                    window.switchSection('collectionEntries', {collectionId: collectionId});
+                } else {
+                    if (window.showToast) window.showToast(json.error || 'Failed to update cover', 'danger');
+                }
+            } catch (e) {
+                if (window.showToast) window.showToast('Error updating cover', 'danger');
             }
         }
 

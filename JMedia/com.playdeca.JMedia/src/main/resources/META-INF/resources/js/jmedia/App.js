@@ -20,9 +20,19 @@
                 layout.classList.add('collapsed');
             }
 
-            await this.applySidebarPref();
+            this.applyCachedSidebarPref();
+            this.applySidebarPref().catch(e => console.error('[App] Failed to load sidebar preference:', e));
+
             await this.checkAdmin();
             this.handleRoute();
+        }
+
+        applyCachedSidebarPref() {
+            const layout = document.getElementById('standard-layout');
+            if (!layout) return;
+            const cached = localStorage.getItem('sidebarPosition');
+            if (cached === 'right') layout.classList.add('sidebar-right');
+            else if (cached === 'left') layout.classList.remove('sidebar-right');
         }
 
         async checkAdmin() {
@@ -51,6 +61,7 @@
                         if (json.data === 'right') layout.classList.add('sidebar-right');
                         else layout.classList.remove('sidebar-right');
                     }
+                    localStorage.setItem('sidebarPosition', json.data);
                 }
             } catch (e) {
                 console.error('[App] Failed to load sidebar preference:', e);
@@ -102,7 +113,8 @@
             }
 
             const container = document.getElementById('app-content');
-            container.innerHTML = '<div class="has-text-centered p-6" style="margin-top: 100px;"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>';
+
+            container.innerHTML = this.getViewSkeleton(viewName);
 
             try {
                 const response = await fetch(`/views/${viewName}.html`);
@@ -112,6 +124,9 @@
                 document.body.className = `${viewName}-page`;
                 container.innerHTML = html;
                 this.currentView = viewName;
+
+                const viewLabels = { music: 'Music', video: 'Video', settings: 'Settings', import: 'Import' };
+                if (window.Breadcrumbs) window.Breadcrumbs.set([viewLabels[viewName] || viewName]);
 
                 const isVideoPage = viewName === 'video';
                 const musicPlayer = document.querySelector('.persistent-music-player') ||
@@ -179,6 +194,20 @@
                 console.error('Failed to load view:', error);
                 container.innerHTML = `<div class="notification is-danger">Failed to load view: ${error.message}</div>`;
             }
+        }
+
+        getViewSkeleton(viewName) {
+            var skeletons = {
+                music: '<div class="skeleton-shell"><div class="field has-addons m-2"><div class="control is-expanded"><div class="skeleton-block is-skeleton" style="height:2em;border-radius:999px;"></div></div><div class="control"><div class="skeleton-block is-skeleton" style="width:60px;height:2em;border-radius:999px;"></div></div></div><div class="is-flex is-flex-wrap-wrap px-3 py-2" style="gap:0.75rem;"><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div></div></div>',
+                video: '<div class="skeleton-shell">' +
+                    '<div class="mb-5 px-4"><div class="level is-mobile mb-3"><div class="level-left"><div class="level-item"><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="card is-skeleton" style="width:28px;height:28px;border-radius:6px;"></div><div class="skeleton-lines" style="width:200px;"><div></div></div></div></div></div><div class="level-right"><div class="level-item"><div class="buttons are-small"><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button></div></div></div></div><div class="is-flex" style="gap:1rem;overflow:hidden;"><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div></div></div>' +
+                    '<div class="mb-5 px-4"><div class="level is-mobile mb-3"><div class="level-left"><div class="level-item"><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="card is-skeleton" style="width:28px;height:28px;border-radius:6px;"></div><div class="skeleton-lines" style="width:240px;"><div></div></div></div></div></div><div class="level-right"><div class="level-item"><div class="buttons are-small"><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button></div></div></div></div><div class="is-flex" style="gap:1rem;overflow:hidden;"><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div></div></div>' +
+                    '<div class="mb-5 px-4"><div class="level is-mobile mb-3"><div class="level-left"><div class="level-item"><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="card is-skeleton" style="width:28px;height:28px;border-radius:6px;"></div><div class="skeleton-lines" style="width:180px;"><div></div></div></div></div></div><div class="level-right"><div class="level-item"><div class="buttons are-small"><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button></div></div></div></div><div class="is-flex" style="gap:1rem;overflow:hidden;"><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div></div></div>' +
+                    '</div>',
+                settings: '<div class="skeleton-shell" style="max-width:600px;margin:2rem auto;padding:1.5rem;"><div class="skeleton-block" style="height:2rem;width:40%;margin-bottom:1.5rem;"></div><div class="skeleton-lines mb-3"><div></div><div></div><div></div></div><div class="skeleton-block" style="height:3rem;width:100%;margin-bottom:1rem;"></div><div class="skeleton-lines mb-3"><div></div><div></div><div></div></div><div class="skeleton-block" style="height:3rem;width:100%;margin-bottom:1rem;"></div><div class="skeleton-lines mb-3"><div></div><div></div></div><div class="skeleton-block" style="height:3rem;width:200px;margin-top:1rem;"></div></div>',
+                import: '<div class="skeleton-shell" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;padding:1.5rem;"><div><div class="skeleton-block" style="height:180px;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div><div><div class="skeleton-block" style="height:180px;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div><div><div class="skeleton-block" style="height:180px;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div></div>'
+            };
+            return skeletons[viewName] || '<div class="has-text-centered p-6" style="margin-top:100px;"><i class="pi pi-spin pi-spinner" style="font-size:3rem;color:#48c774;"></i></div>';
         }
 
         executeScripts(container) {

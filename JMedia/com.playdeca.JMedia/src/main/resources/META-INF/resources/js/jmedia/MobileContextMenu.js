@@ -413,16 +413,22 @@
     JMedia.MobileContextMenu = MobileContextMenu;
     JMedia.CoverImageContextMenu = CoverImageContextMenu;
 
-    document.addEventListener('DOMContentLoaded', () => {
-        setTimeout(() => {
-            if (document.getElementById('mobileContextMenu')) {
-                window.mobileContextMenu = new MobileContextMenu();
-                window.coverImageContextMenu = new CoverImageContextMenu(window.mobileContextMenu);
-                console.log('[MobileContextMenu] All context menu features initialized');
-            } else {
-                console.warn('[MobileContextMenu] Context menu element not found');
-            }
-        }, 1000);
-    });
+    function tryInitContextMenu(retries = 30) {
+        if (document.getElementById('mobileContextMenu')) {
+            window.mobileContextMenu = new MobileContextMenu();
+            window.coverImageContextMenu = new CoverImageContextMenu(window.mobileContextMenu);
+            console.log('[MobileContextMenu] All context menu features initialized');
+        } else if (retries > 0) {
+            setTimeout(() => tryInitContextMenu(retries - 1), 200);
+        } else {
+            console.warn('[MobileContextMenu] Context menu element not found after retries');
+        }
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        tryInitContextMenu();
+    } else {
+        document.addEventListener('DOMContentLoaded', () => tryInitContextMenu());
+    }
 
 })(window);

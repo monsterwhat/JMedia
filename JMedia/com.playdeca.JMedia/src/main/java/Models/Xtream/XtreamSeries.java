@@ -36,9 +36,21 @@ public class XtreamSeries {
     @JsonProperty("rating")
     public String rating;
 
-    @JsonProperty("rating_5plus")
-    public double rating5plus;
+    @JsonProperty("rating_5based")
+    public double rating5based;
 
     @JsonProperty("category_id")
     public String categoryId;
+
+    @JsonProperty("stream_type")
+    public String streamType = "series";
+
+    @JsonProperty("epg_channel_id")
+    public String epgChannelId = "";
+
+    @JsonProperty("tv_archive")
+    public int tvArchive = 0;
+
+    @JsonProperty("tv_archive_duration")
+    public int tvArchiveDuration = 0;
 }

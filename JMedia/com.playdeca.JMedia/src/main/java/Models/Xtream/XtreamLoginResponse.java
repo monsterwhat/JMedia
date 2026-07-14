@@ -16,23 +16,34 @@ public class XtreamLoginResponse {
         public String message;
         public int auth;
         public String status;
-        public String exp_date;
-        public String is_trial;
-        public String active_cons;
-        public String created_at;
-        public String max_connections;
-        public java.util.List<String> allowed_output_formats;
+        @JsonProperty("exp_date")
+        public long expDate;
+        @JsonProperty("is_trial")
+        public int isTrial;
+        @JsonProperty("active_cons")
+        public int activeCons;
+        @JsonProperty("created_at")
+        public long createdAt;
+        @JsonProperty("max_connections")
+        public int maxConnections;
+        @JsonProperty("allowed_output_formats")
+        public java.util.List<String> allowedOutputFormats;
     }
 
     public static class ServerInfo {
         public String url;
         public String port;
-        public String https_port;
-        public String server_protocol;
-        public String rtmp_port;
+        @JsonProperty("https_port")
+        public String httpsPort;
+        @JsonProperty("server_protocol")
+        public String serverProtocol;
+        @JsonProperty("rtmp_port")
+        public String rtmpPort;
         public String timezone;
-        public long timestamp_now;
-        public String time_now;
+        @JsonProperty("timestamp_now")
+        public long timestampNow;
+        @JsonProperty("time_now")
+        public String timeNow;
         public String process;
     }
 }

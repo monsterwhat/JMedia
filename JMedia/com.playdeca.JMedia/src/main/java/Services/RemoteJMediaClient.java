@@ -16,7 +16,7 @@ import java.time.Duration;
 public class RemoteJMediaClient {
 
     public static final int CONNECT_TIMEOUT_SECONDS = 10;
-    public static final int READ_TIMEOUT_SECONDS = 60;
+    public static final int READ_TIMEOUT_SECONDS = 300;
 
     @Inject
     LoggingService log;
@@ -26,6 +26,7 @@ public class RemoteJMediaClient {
 
     public RemoteJMediaClient() {
         this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
                 .build();
         this.objectMapper = new ObjectMapper();
@@ -50,14 +51,30 @@ public class RemoteJMediaClient {
                 HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() == 401) {
-            throw new SecurityException("Authentication failed — invalid API key for remote server");
+            throw new SecurityException("Authentication failed - invalid API key for remote server");
         }
         if (response.statusCode() == 404) {
-            throw new Exception("Sync endpoint not found on remote server (404) — check server version");
+            throw new Exception("Sync endpoint not found on remote server (404) - check server version");
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            String body = response.body();
+            String detail = "";
+            if (body != null && !body.isBlank()) {
+                try {
+                    var json = objectMapper.readTree(body);
+                    if (json.has("details")) {
+                        detail = " details=" + json.get("details").asText();
+                    } else if (json.has("error")) {
+                        detail = " error=" + json.get("error").asText();
+                    } else if (json.has("message")) {
+                        detail = " message=" + json.get("message").asText();
+                    }
+                } catch (Exception ignored) {
+                    detail = " body=" + truncateBody(body);
+                }
+            }
             throw new Exception("Remote server returned HTTP " + response.statusCode()
-                    + ": " + truncateBody(response.body()));
+                    + " for url=" + truncateUrl(url) + detail);
         }
 
         return objectMapper.readValue(response.body(), SyncExchangeResponse.class);
@@ -103,6 +120,14 @@ public class RemoteJMediaClient {
     private String truncateBody(String body) {
         if (body == null) return "";
         return body.length() > 200 ? body.substring(0, 200) + "..." : body;
+    }
+
+    private String truncateUrl(String url) {
+        if (url == null) return "null";
+        // Strip query params and truncate to keep the origin + path readable
+        int queryIdx = url.indexOf('?');
+        String clean = queryIdx > 0 ? url.substring(0, queryIdx) : url;
+        return clean.length() > 100 ? clean.substring(0, 100) + "..." : clean;
     }
 
 }

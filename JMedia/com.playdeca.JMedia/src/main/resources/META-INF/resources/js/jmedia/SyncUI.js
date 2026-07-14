@@ -12,6 +12,8 @@
 
     JMedia.Sync = {
         _servers: [],
+        _progressInterval: null,
+        _progressPolling: false,
 
         loadAll: async function() {
             await Promise.all([
@@ -35,10 +37,13 @@
                     setChecked('syncVideoEnabled', s.syncVideoEnabled);
                     setChecked('syncTimelinesEnabled', s.syncTimelinesEnabled);
                     setChecked('syncPlaylistsEnabled', s.syncPlaylistsEnabled);
+                    setChecked('syncSubtitlesEnabled', s.syncSubtitlesEnabled);
                     const scheduleEl = document.getElementById('syncSchedule');
                     if (scheduleEl && s.syncSchedule) scheduleEl.value = s.syncSchedule;
                     const apiKeyEl = document.getElementById('syncApiKey');
                     if (apiKeyEl && s.syncApiKey) apiKeyEl.value = s.syncApiKey;
+                    const limitEl = document.getElementById('syncItemLimit');
+                    if (limitEl && s.syncItemLimit !== undefined) limitEl.value = s.syncItemLimit;
                 }
             } catch (e) {
                 console.error('[Sync] Error loading settings:', e);
@@ -118,7 +123,9 @@
                     syncVideoEnabled: document.getElementById('syncVideoEnabled')?.checked || false,
                     syncTimelinesEnabled: document.getElementById('syncTimelinesEnabled')?.checked || false,
                     syncPlaylistsEnabled: document.getElementById('syncPlaylistsEnabled')?.checked || false,
-                    syncApiKey: document.getElementById('syncApiKey')?.value || ''
+                    syncSubtitlesEnabled: document.getElementById('syncSubtitlesEnabled')?.checked || false,
+                    syncApiKey: document.getElementById('syncApiKey')?.value || '',
+                    syncItemLimit: parseInt(document.getElementById('syncItemLimit')?.value) || 0
                 };
                 const res = await fetch('/api/sync/settings', {
                     method: 'PUT',
@@ -153,6 +160,128 @@
                 btn.classList.remove('is-loading');
             }
         },
+
+        // ── Individual Sync Triggers ───────────────────────────────────────
+
+        triggerSync: async function() {
+            await JMedia.Sync.triggerSyncByType('ALL');
+        },
+
+        triggerSyncByType: async function(type) {
+            if (JMedia.Sync._progressPolling) {
+                if (window.showToast) window.showToast('Sync already in progress', 'warning');
+                return;
+            }
+
+            const limit = parseInt(document.getElementById('syncItemLimit')?.value) || 0;
+
+            try {
+                const res = await fetch('/api/sync/trigger', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: type, limit: limit })
+                });
+                const json = await res.json();
+                if (res.ok) {
+                    if (window.showToast) window.showToast(json.data?.message || type + ' sync started', 'success');
+                    JMedia.Sync.startProgressPolling();
+                }
+            } catch (e) {
+                if (window.showToast) window.showToast('Failed to trigger sync', 'error');
+            }
+        },
+
+        // ── Progress Polling ──────────────────────────────────────────────
+
+        startProgressPolling: function() {
+            if (JMedia.Sync._progressInterval) return;
+            JMedia.Sync._progressPolling = true;
+            JMedia.Sync._progressInterval = setInterval(JMedia.Sync.pollProgress, 2000);
+            JMedia.Sync.pollProgress();
+        },
+
+        stopProgressPolling: function() {
+            JMedia.Sync._progressPolling = false;
+            if (JMedia.Sync._progressInterval) {
+                clearInterval(JMedia.Sync._progressInterval);
+                JMedia.Sync._progressInterval = null;
+            }
+            const progressPanel = document.getElementById('syncProgressPanel');
+            if (progressPanel) progressPanel.style.display = 'none';
+        },
+
+        pollProgress: async function() {
+            try {
+                const res = await fetch('/api/sync/status');
+                const json = await res.json();
+                if (res.ok && json.data) {
+                    const s = json.data;
+                    const progressPanel = document.getElementById('syncProgressPanel');
+                    const statusPanel = document.getElementById('syncStatusPanel');
+                    const progressBar = document.getElementById('syncProgressBar');
+                    const progressCount = document.getElementById('syncProgressCount');
+                    const progressLabel = document.getElementById('syncProgressLabel');
+                    const progressDetail = document.getElementById('syncProgressDetail');
+
+                    if (s.inProgress && s.currentSync) {
+                        // Show progress panel
+                        if (progressPanel) progressPanel.style.display = '';
+                        if (statusPanel) statusPanel.style.display = 'none';
+
+                        const cs = s.currentSync;
+                        const total = cs.totalItems || 0;
+                        const processed = cs.itemsProcessed || 0;
+                        const typeLabel = JMedia.Sync.getTypeLabel(cs.type);
+
+                        if (progressLabel) progressLabel.textContent = typeLabel + ' — ' + (cs.serverName || 'Unknown');
+                        if (progressCount) progressCount.textContent = processed + ' / ' + total;
+
+                        if (progressBar) {
+                            if (total > 0) {
+                                const pct = Math.round((processed / total) * 100);
+                                progressBar.value = pct;
+                                progressBar.textContent = pct + '%';
+                            } else {
+                                progressBar.value = 0;
+                                progressBar.textContent = '0%';
+                            }
+                        }
+
+                        if (progressDetail) {
+                            progressDetail.textContent = 'Processing: ' + typeLabel.toLowerCase().replace(' sync', '');
+                        }
+
+                    } else {
+                        // Sync completed — show last sync status, hide progress
+                        if (progressPanel) progressPanel.style.display = 'none';
+                        if (statusPanel) statusPanel.style.display = '';
+                        JMedia.Sync.stopProgressPolling();
+                        // Refresh status and logs
+                        await Promise.all([
+                            JMedia.Sync.loadStatus(),
+                            JMedia.Sync.loadLogs()
+                        ]);
+                    }
+                }
+            } catch (e) {
+                console.error('[Sync] Progress poll error:', e);
+            }
+        },
+
+        getTypeLabel: function(type) {
+            const labels = {
+                'ALL': 'Full Sync',
+                'MUSIC_ONLY': 'Music Metadata Sync',
+                'VIDEO_ONLY': 'Video Metadata Sync',
+                'SUBTITLES_ONLY': 'Subtitles Sync',
+                'COLLECTIONS_ONLY': 'Collections Sync',
+                'PLAYLISTS_ONLY': 'Playlists Sync',
+                'TIMELINES_ONLY': 'Timelines Sync'
+            };
+            return labels[type] || type + ' Sync';
+        },
+
+        // ── Server Management ─────────────────────────────────────────────
 
         loadServers: async function() {
             const container = document.getElementById('syncServersList');
@@ -493,25 +622,7 @@
             }
         },
 
-        triggerSync: async function() {
-            const btn = document.getElementById('syncTriggerBtn');
-            if (!btn) return;
-            btn.disabled = true;
-            btn.classList.add('is-loading');
-            try {
-                const res = await fetch('/api/sync/trigger', { method: 'POST' });
-                const json = await res.json();
-                if (res.ok) {
-                    if (window.showToast) window.showToast(json.data?.message || 'Sync started', 'success');
-                    setTimeout(() => JMedia.Sync.loadStatus(), 2000);
-                }
-            } catch (e) {
-                if (window.showToast) window.showToast('Failed to trigger sync', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.classList.remove('is-loading');
-            }
-        },
+        // ── Status & Logs ─────────────────────────────────────────────────
 
         loadStatus: async function() {
             const panel = document.getElementById('syncStatusPanel');
@@ -521,29 +632,48 @@
                 const json = await res.json();
                 if (res.ok && json.data) {
                     const s = json.data;
+
+                    // If sync is in progress, the progress panel handles display
                     if (s.inProgress) {
-                        panel.innerHTML = '<div class="notification is-info is-light"><i class="pi pi-spin pi-spinner mr-2"></i> Sync in progress...</div>';
+                        panel.innerHTML = '<div class="notification is-info is-light"><i class="pi pi-spin pi-spinner mr-2"></i> Sync in progress... <span class="is-size-7">(see progress below)</span></div>';
                         return;
                     }
+
                     if (s.lastSync) {
                         const ls = s.lastSync;
-                        const statusColor = ls.status === 'completed' ? 'is-success' : ls.status === 'failed' ? 'is-danger' : 'is-warning';
+                        const statusColor = ls.status === 'SUCCESS' ? 'is-success' : ls.status === 'FAILED' ? 'is-danger' : 'is-warning';
+                        const syncTypeLabel = JMedia.Sync.getTypeLabel(ls.syncType);
+
+                        // Build detailed stats
+                        let statsHtml = '';
+                        if (ls.songsSent > 0 || ls.songsReceived > 0 || ls.songsUpdated > 0) {
+                            statsHtml += '<div><span class="has-text-weight-semibold">Music:</span> sent ' + ls.songsSent + ', received ' + ls.songsReceived + ', updated ' + ls.songsUpdated + '</div>';
+                        }
+                        if (ls.videosSent > 0 || ls.videosReceived > 0) {
+                            statsHtml += '<div><span class="has-text-weight-semibold">Videos:</span> sent ' + ls.videosSent + ', received ' + ls.videosReceived + '</div>';
+                        }
+                        if (ls.collectionsSent > 0 || ls.collectionsReceived > 0) {
+                            statsHtml += '<div><span class="has-text-weight-semibold">Collections:</span> sent ' + ls.collectionsSent + ', received ' + ls.collectionsReceived + '</div>';
+                        }
+                        if (ls.subtitlesSent > 0 || ls.subtitlesReceived > 0) {
+                            statsHtml += '<div><span class="has-text-weight-semibold">Subtitles:</span> sent ' + ls.subtitlesSent + ', received ' + ls.subtitlesReceived + '</div>';
+                        }
+
                         panel.innerHTML = `
                             <div class="card" style="background: rgba(255,255,255,0.05);">
                                 <div class="card-content p-3">
                                     <div class="level is-mobile mb-2">
                                         <div class="level-left">
                                             <span class="tag ${statusColor}">${escapeHtml(ls.status || 'unknown')}</span>
+                                            <span class="tag is-info is-light ml-1">${escapeHtml(syncTypeLabel)}</span>
                                         </div>
                                         <div class="level-right is-size-7 has-text-grey">
                                             ${ls.completedAt ? 'Completed: ' + new Date(ls.completedAt).toLocaleString() : ''}
                                         </div>
                                     </div>
-                                    <div class="is-size-7" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px;">
-                                        ${ls.songsSent !== undefined ? '<div>Sent: ' + ls.songsSent + '</div>' : ''}
-                                        ${ls.songsReceived !== undefined ? '<div>Received: ' + ls.songsReceived + '</div>' : ''}
-                                        ${ls.songsUpdated !== undefined ? '<div>Updated: ' + ls.songsUpdated + '</div>' : ''}
-                                        ${ls.songsCreated !== undefined ? '<div>Created: ' + ls.songsCreated + '</div>' : ''}
+                                    <div class="is-size-7" style="display: grid; gap: 2px;">
+                                        ${statsHtml || (ls.songsSent !== undefined ? '<div>Sent: ' + ls.songsSent + '</div>' : '')}
+                                        ${ls.itemsProcessed > 0 && ls.totalItems > 0 ? '<div>Progress: ' + ls.itemsProcessed + ' / ' + ls.totalItems + ' items</div>' : ''}
                                     </div>
                                     ${ls.error ? '<div class="mt-2 has-text-danger is-size-7">Error: ' + escapeHtml(ls.error) + '</div>' : ''}
                                 </div>
@@ -551,6 +681,15 @@
                         `;
                     } else {
                         panel.innerHTML = '<div class="has-text-centered p-4 has-text-grey">No sync status available.</div>';
+                    }
+
+                    // Update counts if available
+                    if (s.counts) {
+                        const counts = s.counts;
+                        const countEl = document.getElementById('syncItemCounts');
+                        if (countEl) {
+                            countEl.innerHTML = 'Music: ' + (counts.music || 0) + ' | Videos: ' + (counts.videos || 0) + ' | Collections: ' + (counts.collections || 0);
+                        }
                     }
                 }
             } catch (e) {
@@ -573,11 +712,14 @@
                     }
                     container.innerHTML = logs.map(log => {
                         const time = log.startedAt ? new Date(log.startedAt).toLocaleString() : '';
-                        const statusColor = log.status === 'completed' ? '#48c774' : log.status === 'failed' ? '#f14668' : '#ffdd57';
+                        const statusColor = log.status === 'SUCCESS' ? '#48c774' : log.status === 'FAILED' ? '#f14668' : '#ffdd57';
+                        const typeLabel = JMedia.Sync.getTypeLabel(log.syncType);
+                        const summary = log.errorMessage || (log.songsSent + ' songs, ' + log.videosSent + ' videos sent');
                         return `<div style="padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8rem;">
                             <span style="color: rgba(255,255,255,0.5);">${escapeHtml(time)}</span>
                             <span style="color: ${statusColor}; margin: 0 8px;">[${escapeHtml(log.status || '?')}]</span>
-                            <span>${escapeHtml(log.errorMessage || 'Sync completed')}</span>
+                            <span class="tag is-small is-info is-light" style="font-size: 0.7rem;">${escapeHtml(typeLabel)}</span>
+                            <span>${escapeHtml(summary)}</span>
                         </div>`;
                     }).join('');
                     container.scrollTop = container.scrollHeight;

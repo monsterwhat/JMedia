@@ -182,8 +182,10 @@ public class VideoExternalAPI {
                 return Response.status(Response.Status.BAD_GATEWAY).build();
             }
 
-            // For HLS playlists, rewrite segment URLs to go through proxy
-            if (contentType != null && (contentType.contains("m3u") || contentType.contains("vnd.apple.mpegurl"))) {
+            boolean isHlsContentType = contentType != null &&
+                    (contentType.contains("mpegurl") || contentType.contains("m3u8") || contentType.contains("m3u"));
+            boolean isHlsUrl = url.contains(".m3u8") || url.contains(".m3u");
+            if (isHlsContentType || isHlsUrl) {
                 String body = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 inputStream.close();
                 conn.disconnect();

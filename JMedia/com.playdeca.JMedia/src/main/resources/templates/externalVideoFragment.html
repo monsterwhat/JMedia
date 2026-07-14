@@ -100,11 +100,131 @@
         <div class="external-video-list-card">
             <h3 class="title is-6 mb-3">Saved Links</h3>
             <div id="externalVideoList">
-                <div class="has-text-centered has-text-grey p-4">
-                    <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem;"></i>
-                    <p class="mt-2">Loading...</p>
+                <div class="p-4">
+                    <div class="card is-skeleton mb-3" style="height:3.5rem;border-radius:8px;"></div>
+                    <div class="card is-skeleton mb-3" style="height:3.5rem;border-radius:8px;"></div>
+                    <div class="card is-skeleton mb-3" style="height:3.5rem;border-radius:8px;"></div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <hr class="my-5">
+    <div class="external-video-header mb-4">
+        <h3 class="title is-5 mb-1">
+            <i class="pi pi-link mr-2"></i>Import M3U/M3U8 Playlist
+        </h3>
+        <p class="has-text-grey-light is-size-7">Bulk import live TV channels, movies, or series from M3U/M3U8 playlist files.</p>
+    </div>
+
+    <div class="columns">
+        <div class="column is-5">
+            <div class="box">
+                <div class="field">
+                    <label class="label is-small">Playlist Type</label>
+                    <div class="control">
+                        <div class="select is-small is-fullwidth">
+                            <select id="m3uImportType">
+                                <option value="LIVE_TV">Live TV</option>
+                                <option value="VOD_MOVIE">VOD Movies</option>
+                                <option value="VOD_SERIES">VOD Series</option>
+                                <option value="MIXED">Mixed</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label is-small">Playlist Name <span class="has-text-grey-light is-size-7">(optional)</span></label>
+                    <div class="control">
+                        <input class="input" type="text" id="m3uPlaylistName" placeholder="e.g. My IPTV Playlist" maxlength="200">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label is-small">Playlist URL</label>
+                    <div class="control">
+                        <input class="input" type="url" id="m3uPlaylistUrl" placeholder="https://example.com/playlist.m3u">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label is-small">
+                        Raw M3U Text <span class="has-text-grey-light is-size-7">(alternative to URL)</span>
+                    </label>
+                    <div class="control">
+                        <textarea class="textarea is-small" id="m3uRawText" rows="4"
+                            placeholder="#EXTM3U&#10;#EXTINF:-1,Channel Name&#10;http://example.com/stream.m3u8"></textarea>
+                    </div>
+                </div>
+
+                <div class="field is-grouped">
+                    <div class="control">
+                        <button class="button is-success is-small" id="m3uImportBtn" onclick="m3uImportManager.importPlaylist()">
+                            <i class="pi pi-download mr-1"></i> Import
+                        </button>
+                    </div>
+                    <div class="control">
+                        <button class="button is-ghost is-small" onclick="m3uImportManager.resetForm()">Clear</button>
+                    </div>
+                </div>
+
+                <div id="m3uImportFeedback" class="mt-2" style="display: none;"></div>
+            </div>
+        </div>
+
+        <div class="column is-7">
+            <div class="box">
+                <h4 class="title is-6 mb-3">Imported Playlists</h4>
+                <div id="m3uPlaylistsList">
+                    <div class="p-4">
+                        <div class="card is-skeleton mb-3" style="height:3.5rem;border-radius:8px;"></div>
+                        <div class="card is-skeleton mb-3" style="height:3.5rem;border-radius:8px;"></div>
+                        <div class="card is-skeleton mb-3" style="height:3.5rem;border-radius:8px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="m3uEditModal">
+        <div class="modal-background" onclick="m3uImportManager.closeEditModal()"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title is-size-6">Edit Playlist</p>
+                <button class="delete" onclick="m3uImportManager.closeEditModal()"></button>
+            </header>
+            <section class="modal-card-body">
+                <div class="field">
+                    <label class="label is-small">Name</label>
+                    <div class="control">
+                        <input class="input" type="text" id="m3uEditName" maxlength="500">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label is-small">URL</label>
+                    <div class="control">
+                        <input class="input" type="url" id="m3uEditUrl">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label is-small">Type</label>
+                    <div class="control">
+                        <div class="select is-small is-fullwidth">
+                            <select id="m3uEditType">
+                                <option value="LIVE_TV">Live TV</option>
+                                <option value="VOD_MOVIE">VOD Movies</option>
+                                <option value="VOD_SERIES">VOD Series</option>
+                                <option value="MIXED">Mixed</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-success is-small" onclick="m3uImportManager.saveEditPlaylist()">Save</button>
+                <button class="button is-small" onclick="m3uImportManager.closeEditModal()">Cancel</button>
+            </footer>
         </div>
     </div>
 
@@ -112,6 +232,212 @@
 
 <script src="/js/video-external.js?v=1"></script>
 <script>
+    // M3U Import Manager
+    var m3uImportManager = {
+        importPlaylist: async function() {
+            var btn = document.getElementById('m3uImportBtn');
+            var feedback = document.getElementById('m3uImportFeedback');
+            var url = document.getElementById('m3uPlaylistUrl').value.trim();
+            var rawText = document.getElementById('m3uRawText').value.trim();
+            var name = document.getElementById('m3uPlaylistName').value.trim();
+            var type = document.getElementById('m3uImportType').value;
+
+            if (!url && !rawText) {
+                feedback.style.display = 'block';
+                feedback.innerHTML = '<div class="notification is-warning is-light is-small"><strong>Please provide</strong> either a URL or raw M3U text.</div>';
+                return;
+            }
+
+            btn.classList.add('is-loading');
+            btn.disabled = true;
+            feedback.style.display = 'none';
+
+            try {
+                var body = { type: type };
+                if (url) body.url = url;
+                if (rawText) body.rawText = rawText;
+                if (name) body.name = name;
+
+                var response = await fetch('/api/video/m3u/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                var result = await response.json();
+
+                feedback.style.display = 'block';
+                if (result.success) {
+                    var data = result.data || {};
+                    var channelCount = data.channelsCreated || 0;
+                    feedback.innerHTML = '<div class="notification is-success is-light is-small"><strong>Imported successfully!</strong> ' + channelCount + ' channel(s) added.</div>';
+                    m3uImportManager.resetForm();
+                    m3uImportManager.loadPlaylists();
+                } else {
+                    feedback.innerHTML = '<div class="notification is-danger is-light is-small"><strong>Import failed:</strong> ' + (result.error || 'Unknown error') + '</div>';
+                }
+            } catch (err) {
+                feedback.style.display = 'block';
+                feedback.innerHTML = '<div class="notification is-danger is-light is-small"><strong>Error:</strong> ' + err.message + '</div>';
+            } finally {
+                btn.classList.remove('is-loading');
+                btn.disabled = false;
+            }
+        },
+
+        loadPlaylists: async function() {
+            var container = document.getElementById('m3uPlaylistsList');
+            if (!container) return;
+            try {
+                var response = await fetch('/api/video/m3u/playlists');
+                var result = await response.json();
+
+                if (result.success && result.data && result.data.length > 0) {
+                    var rows = result.data.map(function(pl) {
+                        var typeLabels = { 'LIVE_TV': 'Live TV', 'VOD_MOVIE': 'Movies', 'VOD_SERIES': 'Series', 'MIXED': 'Mixed' };
+                        var typeTag = typeLabels[pl.type] || pl.type;
+                        var lastRefreshed = pl.lastRefreshed ? new Date(pl.lastRefreshed).toLocaleDateString() : 'Never';
+                        return '<tr>' +
+                            '<td><strong>' + m3uImportManager.escapeHtml(pl.name || 'Unnamed') + '</strong></td>' +
+                            '<td class="is-size-7 has-text-grey" title="' + m3uImportManager.escapeHtml(pl.url || '') + '">' + m3uImportManager.truncateUrl(pl.url) + '</td>' +
+                            '<td><span class="tag is-small is-info is-light">' + typeTag + '</span></td>' +
+                            '<td>' + (pl.channelCount || 0) + '</td>' +
+                            '<td class="is-size-7 has-text-grey">' + lastRefreshed + '</td>' +
+                            '<td>' +
+                                '<div class="buttons are-small">' +
+                                    '<button class="button is-small is-link is-light is-rounded" onclick="m3uImportManager.editPlaylist(\'' + pl.id + '\', \'' + m3uImportManager.escapeAttr(pl.name || '') + '\', \'' + m3uImportManager.escapeAttr(pl.url || '') + '\', \'' + m3uImportManager.escapeAttr(pl.type || '') + '\')" title="Edit"><i class="pi pi-pencil"></i></button>' +
+                                    '<button class="button is-small is-link is-light is-rounded" onclick="m3uImportManager.refreshPlaylist(\'' + pl.id + '\')" title="Refresh"><i class="pi pi-refresh"></i></button>' +
+                                    '<button class="button is-small is-danger is-light is-rounded" onclick="m3uImportManager.deletePlaylist(\'' + pl.id + '\')" title="Delete"><i class="pi pi-trash"></i></button>' +
+                                '</div>' +
+                            '</td>' +
+                            '</tr>';
+                    }).join('');
+
+                    container.innerHTML = '<div class="table-container"><table class="table is-fullwidth is-hoverable is-size-7"><thead><tr><th>Name</th><th>URL</th><th>Type</th><th>Channels</th><th>Last Refreshed</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+                } else {
+                    container.innerHTML = '<div class="has-text-centered p-4"><p class="has-text-grey"><i class="pi pi-inbox" style="font-size:2rem;"></i><br><br>No playlists imported yet.</p></div>';
+                }
+            } catch (err) {
+                container.innerHTML = '<div class="notification is-danger is-light is-small">Failed to load playlists: ' + err.message + '</div>';
+            }
+        },
+
+        refreshPlaylist: async function(id) {
+            try {
+                var response = await fetch('/api/video/m3u/refresh/' + id, { method: 'POST' });
+                var result = await response.json();
+                if (result.success) {
+                    if (window.showToast) window.showToast('Playlist refreshed', 'success');
+                    m3uImportManager.loadPlaylists();
+                } else {
+                    if (window.showToast) window.showToast(result.error || 'Refresh failed', 'danger');
+                }
+            } catch (err) {
+                if (window.showToast) window.showToast('Error refreshing playlist: ' + err.message, 'danger');
+            }
+        },
+
+        deletePlaylist: async function(id) {
+            if (!confirm('Delete this playlist and all its channels?')) return;
+            try {
+                var response = await fetch('/api/video/m3u/' + id, { method: 'DELETE' });
+                var result = await response.json();
+                if (result.success) {
+                    if (window.showToast) window.showToast('Playlist deleted', 'success');
+                    m3uImportManager.loadPlaylists();
+                } else {
+                    if (window.showToast) window.showToast(result.error || 'Delete failed', 'danger');
+                }
+            } catch (err) {
+                if (window.showToast) window.showToast('Error deleting playlist: ' + err.message, 'danger');
+            }
+        },
+
+        editPlaylist: function(id, name, url, type) {
+            m3uImportManager._editId = id;
+            document.getElementById('m3uEditName').value = name || '';
+            document.getElementById('m3uEditUrl').value = url || '';
+            var typeSelect = document.getElementById('m3uEditType');
+            for (var i = 0; i < typeSelect.options.length; i++) {
+                if (typeSelect.options[i].value === type) {
+                    typeSelect.selectedIndex = i;
+                    break;
+                }
+            }
+            document.getElementById('m3uEditModal').classList.add('is-active');
+        },
+
+        saveEditPlaylist: async function() {
+            var id = m3uImportManager._editId;
+            if (!id) return;
+            var name = document.getElementById('m3uEditName').value.trim();
+            var url = document.getElementById('m3uEditUrl').value.trim();
+            var type = document.getElementById('m3uEditType').value;
+            try {
+                var body = { name: name, url: url, type: type };
+                var response = await fetch('/api/video/m3u/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                var result = await response.json();
+                if (result.success) {
+                    if (window.showToast) window.showToast('Playlist updated', 'success');
+                    m3uImportManager.closeEditModal();
+                    m3uImportManager.loadPlaylists();
+                } else {
+                    if (window.showToast) window.showToast(result.error || 'Update failed', 'danger');
+                }
+            } catch (err) {
+                if (window.showToast) window.showToast('Error updating playlist: ' + err.message, 'danger');
+            }
+        },
+
+        closeEditModal: function() {
+            document.getElementById('m3uEditModal').classList.remove('is-active');
+            m3uImportManager._editId = null;
+        },
+
+        resetForm: function() {
+            document.getElementById('m3uPlaylistUrl').value = '';
+            document.getElementById('m3uRawText').value = '';
+            document.getElementById('m3uPlaylistName').value = '';
+            document.getElementById('m3uImportType').selectedIndex = 0;
+            var feedback = document.getElementById('m3uImportFeedback');
+            feedback.style.display = 'none';
+            feedback.innerHTML = '';
+        },
+
+        escapeHtml: function(str) {
+            if (!str) return '';
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        },
+
+        escapeAttr: function(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
+
+        truncateUrl: function(url) {
+            if (!url) return '-';
+            if (url.length > 40) return url.substring(0, 37) + '...';
+            return url;
+        }
+    };
+
+    // Load M3U playlists when external page loads
+    (function() {
+        var retry = function() {
+            if (typeof m3uImportManager !== 'undefined') {
+                m3uImportManager.loadPlaylists();
+            } else {
+                setTimeout(retry, 50);
+            }
+        };
+        retry();
+    })();
+
     (function() {
         var retry = function() {
             if (typeof initExternalVideoView === 'function') {

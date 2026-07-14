@@ -279,7 +279,8 @@
                         djExitTime: state.djExitTime,
                         djTransitionPlanned: state.djTransitionPlanned,
                         djTransitionConfidence: state.djTransitionConfidence,
-                        djTransitionReason: state.djTransitionReason
+                        djTransitionReason: state.djTransitionReason,
+                        crossfadeDuration: state.crossfadeDuration
                     },
                     source: 'websocket'
                 }

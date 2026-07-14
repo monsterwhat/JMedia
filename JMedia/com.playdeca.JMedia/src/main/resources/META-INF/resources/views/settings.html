@@ -1,4 +1,7 @@
 <main class="standard-content" id="mainContent">
+    <nav id="breadcrumb-nav" class="breadcrumb is-small is-centered has-arrow-separator" aria-label="breadcrumbs" style="display: none; margin-bottom: 0; align-items: center;">
+        <ul id="breadcrumb-list"></ul>
+    </nav>
     <div class="settings-main-wrapper">
         <div class="settings-main">
             <h1 class="title mb-6">Settings</h1>
@@ -516,9 +519,38 @@
                                 <label class="checkbox mr-4">
                                     <input type="checkbox" id="syncTimelinesEnabled"> Timelines
                                 </label>
-                                <label class="checkbox">
+                                <label class="checkbox mr-4">
                                     <input type="checkbox" id="syncPlaylistsEnabled"> Playlists
                                 </label>
+                                <label class="checkbox">
+                                    <input type="checkbox" id="syncSubtitlesEnabled"> Subtitles
+                                </label>
+                            </div>
+
+                            <hr>
+
+                            <!-- Sync Item Limit -->
+                            <div class="field">
+                                <label class="label">Item Limit</label>
+                                <div class="control">
+                                    <input id="syncItemLimit" class="input is-small" type="number" min="0" placeholder="0 = no limit" style="max-width: 120px;">
+                                </div>
+                                <p class="help">Maximum number of items to sync per category. Set to 0 for no limit.</p>
+                            </div>
+
+                            <hr>
+
+                            <!-- Individual Sync Triggers -->
+                            <h6 class="title is-6 mb-3">Quick Sync</h6>
+                            <p class="help mb-2">Trigger a sync for a specific category immediately.</p>
+                            <div class="field is-grouped is-grouped-multiline" style="gap: 6px;">
+                                <button class="button is-primary is-small" onclick="JMedia.Sync.triggerSyncByType('ALL')" title="Sync all enabled categories"><i class="pi pi-play mr-1"></i> Sync All</button>
+                                <button class="button is-info is-small" onclick="JMedia.Sync.triggerSyncByType('MUSIC_ONLY')" title="Sync only music metadata (titles, artists, albums, genres)"><i class="pi pi-music mr-1"></i> Music Metadata</button>
+                                <button class="button is-info is-small" onclick="JMedia.Sync.triggerSyncByType('VIDEO_ONLY')" title="Sync only video metadata (titles, descriptions, ratings)"><i class="pi pi-video mr-1"></i> Video Metadata</button>
+                                <button class="button is-info is-small" onclick="JMedia.Sync.triggerSyncByType('SUBTITLES_ONLY')" title="Sync only subtitle tracks"><i class="pi pi-closed-captioning mr-1"></i> Subtitles</button>
+                                <button class="button is-info is-small" onclick="JMedia.Sync.triggerSyncByType('COLLECTIONS_ONLY')" title="Sync only collections"><i class="pi pi-folder mr-1"></i> Collections</button>
+                                <button class="button is-info is-small" onclick="JMedia.Sync.triggerSyncByType('PLAYLISTS_ONLY')" title="Sync only playlists"><i class="pi pi-list mr-1"></i> Playlists</button>
+                                <button class="button is-info is-small" onclick="JMedia.Sync.triggerSyncByType('TIMELINES_ONLY')" title="Sync only timelines"><i class="pi pi-clock mr-1"></i> Timelines</button>
                             </div>
 
                             <hr>
@@ -557,11 +589,28 @@
                         <div class="level mb-3">
                             <div class="level-left"><h6 class="title is-6">Sync Status</h6></div>
                             <div class="level-right">
-                                <button id="syncTriggerBtn" class="button is-primary is-small" onclick="JMedia.Sync.triggerSync()"><i class="pi pi-play mr-1"></i> Sync Now</button>
+                                <button id="syncTriggerBtn" class="button is-primary is-small" onclick="JMedia.Sync.triggerSync()"><i class="pi pi-play mr-1"></i> Sync All</button>
                             </div>
                         </div>
                         <div id="syncStatusPanel" class="mb-4">
                             <div class="has-text-centered p-4 has-text-grey">No sync status available.</div>
+                        </div>
+                        <!-- Sync Progress -->
+                        <div id="syncProgressPanel" class="mb-4" style="display: none;">
+                            <div class="card" style="background: rgba(255,255,255,0.05);">
+                                <div class="card-content p-3">
+                                    <div class="level is-mobile mb-2">
+                                        <div class="level-left">
+                                            <span id="syncProgressLabel" class="has-text-weight-semibold">Sync in progress...</span>
+                                        </div>
+                                        <div class="level-right is-size-7 has-text-grey">
+                                            <span id="syncProgressCount">0 / 0</span>
+                                        </div>
+                                    </div>
+                                    <progress id="syncProgressBar" class="progress is-small is-info" value="0" max="100">0%</progress>
+                                    <div class="is-size-7 has-text-grey" id="syncProgressDetail"></div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Sync Logs -->

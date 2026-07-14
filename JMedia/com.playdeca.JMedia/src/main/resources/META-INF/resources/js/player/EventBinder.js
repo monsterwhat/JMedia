@@ -8,6 +8,26 @@
 
         bind() {
             const p = this.player;
+
+            var _liveChannelId = p.container.dataset.liveChannelId;
+            var _statusReported = false;
+            function _reportStreamStatus(status) {
+                if (_statusReported || !_liveChannelId) return;
+                _statusReported = true;
+                fetch('/api/video/m3u/channels/' + _liveChannelId + '/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: status })
+                }).catch(function(err) {
+                    console.warn('[SimplePlayer] Failed to report stream status:', err);
+                });
+            }
+
+            p.video.addEventListener('error', function() {
+                var err = p.video.error;
+                if (err && err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return;
+                _reportStreamStatus('dead');
+            });
             const toggle = (e) => {
                 if (e) e.stopPropagation();
                 if (p.video.paused) p.video.play().catch(() => {});
@@ -21,6 +41,7 @@
                 p.bigPlay.style.display = 'none';
                 p.container.classList.remove('paused');
                 p.controlsManager.showControls();
+                _reportStreamStatus('working');
                 if (p._stallTimer) clearTimeout(p._stallTimer);
                 p._stallTimer = setTimeout(() => {
                     if (p._destroyed) return;

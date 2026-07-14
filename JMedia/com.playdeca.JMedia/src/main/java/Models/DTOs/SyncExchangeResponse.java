@@ -5,6 +5,9 @@ import java.util.List;
 public class SyncExchangeResponse {
 
     public List<SyncSongData> songs;
+    public List<SyncVideoData> videos;
+    public List<SyncCollectionData> collections;
+    public List<SyncSubtitleData> subtitles;
     public List<String> updatedIds;
     public List<String> createdIds;
     public List<String> errors;

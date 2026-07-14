@@ -29,7 +29,10 @@ public class JMediaAuthFilter implements ContainerRequestFilter {
     private static final List<String> PUBLIC_ENDPOINTS = Arrays.asList(
             "/api/auth/login",
             "/api/auth/logout",
-            "/player_api.php"
+            "/player_api.php",
+            "/xmltv.php",
+            "/get.php",
+            "/api/epg/"
     );
 
     private static final List<String> STATIC_RESOURCES = Arrays.asList(

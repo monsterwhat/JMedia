@@ -7,7 +7,7 @@
 
     <div class="album-page-hero">
         <div class="album-page-artwork">
-            <img src="{artworkUrl.apply(albumArtwork)}" alt="{albumName}">
+            <img src="{artworkUrl.apply(albumArtwork)}" alt="{albumName}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
         </div>
         <div class="album-page-info">
             <h1 class="album-page-name">{albumName}</h1>
@@ -46,7 +46,7 @@
             {#for artist in recommendedArtists}
             <div class="album-page-recommended-item" onclick="window.showArtistPage('{artist.name}')">
                 <div class="album-page-recommended-artwork">
-                    <img src="{artworkUrl.apply(artist.artwork)}" loading="lazy" alt="{artist.name}">
+                    <img src="{artworkUrl.apply(artist.artwork)}" loading="lazy" alt="{artist.name}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                 </div>
                 <div class="album-page-recommended-info">
                     <div class="album-page-recommended-name">{artist.name}</div>

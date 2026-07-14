@@ -78,11 +78,13 @@
         <script src="/js/jmedia/QueueManager.js" defer></script>
         <script src="/js/jmedia/SongCache.js" defer></script>
         <script src="/js/jmedia/MusicIndex.js" defer></script>
+        <script src="/js/jmedia/MobileContextMenu.js" defer></script>
         <script src="/js/jmedia/MusicBarInit.js" defer></script>
         <script src="/js/jmedia/MediaSession.js" defer></script>
         <script src="/js/jmedia/HistoryManager.js" defer></script>
         <script src="/js/jmedia/PlaylistBar.js" defer></script>
         <script src="/js/jmedia/PlaylistBodyHelper.js" defer></script>
+        <script src="/js/jmedia/Breadcrumbs.js" defer></script>
         <script src="/js/jmedia/App.js" defer></script>
         <script src="/js/jmedia/MobileApp.js" defer></script>
         <script src="/js/subtitle-manager.js" defer></script>
@@ -90,7 +92,7 @@
 
     </head>
     <body class="music-page">
-        <div class="standard-layout" id="standard-layout">
+        <div class="standard-layout sidebar-right" id="standard-layout">
             
             <!-- Persistent Sidebar -->
             <aside class="standard-sidebar" id="standard-sidebar">
@@ -149,17 +151,21 @@
                              <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="window.switchSection('manage')">
                                  <i class="pi pi-cog"></i> <span>Manage Library</span>
                              </a>
-                              <a href="javascript:void(0)" class="nav-item" id="nav-needs-attention" onclick="window.switchSection('needsAttention')">
-                                  <i class="pi pi-exclamation-triangle" style="color: #ffa502;"></i> <span>Needs Attention</span>
-                              </a>
-                              <a href="javascript:void(0)" class="nav-item" id="nav-verification" onclick="window.switchSection('verification')">
-                                  <i class="pi pi-check-square" style="color: #48c774;"></i> <span>Verification</span>
-                              </a>
-                             <a href="javascript:void(0)" class="nav-item admin-only" id="nav-external" onclick="window.switchSection('external')">
-                                  <i class="pi pi-external-link"></i> <span>External Link</span>
-                                  <span class="tag is-small is-warning" style="margin-left: auto;">Beta</span>
-                              </a>
-                         </div>
+                               <a href="javascript:void(0)" class="nav-item" id="nav-needs-attention" onclick="window.switchSection('needsAttention')" title="Videos with missing or unmatched metadata that require review">
+                                   <i class="pi pi-exclamation-triangle" style="color: #ffa502;"></i> <span>Needs Attention</span>
+                               </a>
+                               <a href="javascript:void(0)" class="nav-item" id="nav-verification" onclick="window.switchSection('verification')" title="Recently imported videos awaiting metadata verification">
+                                   <i class="pi pi-check-square" style="color: #48c774;"></i> <span>Verification</span>
+                               </a>
+                              <a href="javascript:void(0)" class="nav-item admin-only" id="nav-external" onclick="window.switchSection('external')">
+                                   <i class="pi pi-external-link"></i> <span>External Link</span>
+                                   <span class="tag is-small is-warning" style="margin-left: auto;">Beta</span>
+                               </a>
+                              <a href="javascript:void(0)" class="nav-item" id="nav-liveTv" onclick="window.switchSection('liveTv')">
+                                    <i class="pi pi-desktop" style="color: #48c774;"></i> <span>Live TV</span>
+                                    <span class="tag is-small is-info" style="margin-left: auto;">New</span>
+                                </a>
+                          </div>
                     </div>
 
                     <!-- 3. Music Group (Primary for Music View) -->
@@ -261,10 +267,8 @@
 
             <!-- Main Content Area (Shell) -->
             <div class="standard-main">
-                
-                
                 <!-- Views will be injected here (Header + Content) -->
-                <div id="app-content" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"></div>
+                <div id="app-content" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"><div class="skeleton-shell"><div class="field has-addons m-2"><div class="control is-expanded"><div class="skeleton-block is-skeleton" style="height:2em;border-radius:999px;"></div></div><div class="control"><div class="skeleton-block is-skeleton" style="width:60px;height:2em;border-radius:999px;"></div></div></div><div class="is-flex is-flex-wrap-wrap px-3 py-2" style="gap:0.75rem;"><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div></div></div></div>
 
                 <!-- Persistent Player -->
                 <div id="musicPlayerContainer" class="persistent-music-player">
@@ -652,7 +656,7 @@
         </div>
         
         <script>
-            // Sidebar Toggle Logic
+             // Sidebar Toggle Logic
              document.addEventListener('DOMContentLoaded', () => {
                 const layout = document.getElementById('standard-layout');
                 const toggleBtn = document.getElementById('toggleSidebarBtn');
@@ -670,6 +674,13 @@
                     layout.classList.add('collapsed');
                 } else if (localStorage.getItem('sidebarCollapsed') === 'true') {
                     layout.classList.add('collapsed');
+                }
+
+                const sidebarPos = localStorage.getItem('sidebarPosition');
+                if (layout && sidebarPos === 'right') {
+                    layout.classList.add('sidebar-right');
+                } else if (layout && sidebarPos === 'left') {
+                    layout.classList.remove('sidebar-right');
                 }
             });
             

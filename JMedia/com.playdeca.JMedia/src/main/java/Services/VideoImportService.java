@@ -446,6 +446,56 @@ public class VideoImportService {
         loggingService.addLog("Video database reset completed");
     }
 
+    @Transactional
+    public int pruneMissingByType(String type) {
+        loggingService.addLog("Pruning missing " + type + " entries...");
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        Path libPath = videoLibraryPath != null ? Paths.get(videoLibraryPath) : null;
+
+        List<Video> videos = Video.list("type", type);
+        int prunedCount = 0;
+
+        for (Video video : videos) {
+            Path videoPath = Paths.get(video.path);
+            boolean exists = Files.exists(videoPath);
+
+            if (!exists && libPath != null) {
+                Path resolved = libPath.resolve(video.path);
+                if (Files.exists(resolved)) {
+                    exists = true;
+                }
+            }
+
+            if (!exists) {
+                LOGGER.info("Pruning missing {}: {} (file not found)", type, video.path);
+                deleteVideoWithRelations(video);
+                prunedCount++;
+            }
+        }
+
+        loggingService.addLog("Pruned " + prunedCount + " missing " + type + " entries.");
+        return prunedCount;
+    }
+
+    @Transactional
+    protected void deleteVideoWithRelations(Video video) {
+        Long videoId = video.id;
+
+        Models.VideoState.delete("video.id", videoId);
+        Models.VideoGenre.delete("video.id", videoId);
+        Models.SubtitleTrack.delete("video.id", videoId);
+        Models.AudioTrack.delete("video.id", videoId);
+        Models.CollectionEntry.delete("video.id", videoId);
+
+        // Delete VideoHistory referencing this media file before deleting MediaFile (FK constraint)
+        MediaFile mf = MediaFile.find("path", video.path).firstResult();
+        if (mf != null) {
+            VideoHistory.delete("mediaFile.id", mf.id);
+            mf.delete();
+        }
+        video.delete();
+    }
+
     private boolean isVideoFile(Path path) {
         String fileName = path.getFileName().toString().toLowerCase();
         return fileName.endsWith(".mp4") || fileName.endsWith(".mkv") || fileName.endsWith(".avi") ||

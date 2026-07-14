@@ -5,7 +5,7 @@
    hx-on::after-request="document.getElementById('globalSearchDropdown').style.display = 'none';">
     <div class="is-flex is-align-items-center">
         <figure class="image is-32x32 mr-2">
-            <img src="/api/music/stream/artwork/{suggestion.id}" alt="Artwork" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+            <img src="/api/music/stream/artwork/{suggestion.id}" alt="Artwork" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">
         </figure>
         <div>
             <p class="has-text-weight-semibold">{suggestion.title}</p>

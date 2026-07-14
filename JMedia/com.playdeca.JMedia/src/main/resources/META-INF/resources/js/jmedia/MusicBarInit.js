@@ -52,8 +52,8 @@
             const customPlayer = document.getElementById('customPlayer');
             const isActivePlayer = playerContainer || videoElement || customPlayer;
             const isVideoPath = window.location.pathname.startsWith('/video');
-            const musicPlayer = document.querySelector('.mobile-player') ||
-                               document.querySelector('.persistent-music-player') ||
+            const musicPlayer = document.querySelector('.persistent-music-player') ||
+                               document.querySelector('.mobile-player') ||
                                document.getElementById('musicPlayerContainer');
 
             if (isActivePlayer || isVideoPath) {
@@ -76,6 +76,7 @@
             } else if (window.videoPlaying === true) {
                 window.videoPlaying = false;
                 document.body.classList.remove('video-active');
+                document.body.setAttribute('data-video-active', 'false');
                 if (musicPlayer) {
                     musicPlayer.classList.remove('video-active');
                     musicPlayer.style.removeProperty('display');
@@ -184,6 +185,16 @@
                     artist: currentState.artist,
                     duration: currentState.duration
                 }, null, null, currentState.playing, currentState.currentTime || 0);
+                
+                // Initialize Media Session metadata for the restored song so media keys
+                // and OS lock-screen controls have valid metadata immediately.
+                // Normally this is set on 'songChanged', which doesn't fire on page load.
+                if (window.updateMediaSessionMetadata) {
+                    const artworkUrl = currentState.currentSongData && currentState.currentSongData.artworkBase64
+                        ? 'data:image/jpeg;base64,' + currentState.currentSongData.artworkBase64
+                        : '/logo.png';
+                    window.updateMediaSessionMetadata(currentState.songName, currentState.artist, artworkUrl);
+                }
             }
         },
 
@@ -223,6 +234,16 @@
             // causes the page to be suspended ~30s after screen lock. Without
             // handlers iOS manages the <audio> element natively for continuous
             // background playback, which is the behavior we want.
+            if (window.setupMediaSessionHandlers) {
+                const isIOS = window.PlayerUtils
+                    ? window.PlayerUtils.isIOS()
+                    : /iPhone|iPad|iPod|iPadOS/i.test(navigator.userAgent) ||
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+                      (navigator.platform === 'iPhone' || navigator.platform === 'iPad');
+                if (!isIOS) {
+                    window.setupMediaSessionHandlers(null, null, null);
+                }
+            }
         }
     };
 

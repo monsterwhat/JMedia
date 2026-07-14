@@ -30,40 +30,12 @@
             });
             
             // Check if DJ mode is already active on page load (restored state)
-            // Wait for StateManager to be ready
             const checkInitialState = () => {
                 if (window.StateManager) {
                     const state = window.StateManager.getState();
                     if (state && state.djModeActive) {
                         window.Helpers.log('[DJ] DJ mode already active on init, showing indicator');
                         this.updateDjIndicator('active');
-                        
-                        // IMPORTANT: Tell backend DJ Mode is active - restored state doesn't trigger backend
-                        // This ensures the server calculates transitions for this profile
-                        if (window.PlaybackController) {
-                            // Wait for profileId to be available
-                            const notifyBackend = () => {
-                                let profileId = window.StateManager.getProperty('profileId') || 
-                                              window.globalActiveProfileId || 
-                                              localStorage.getItem('activeProfileId');
-                                if (profileId && profileId !== 'undefined' && profileId !== 'null') {
-                                    const isActive = state.djModeActive === true;
-                                    console.log('[DJ] Restored DJ Mode - setting to', isActive, 'for profile', profileId);
-                                    // Use set endpoint to explicitly set On/Off (not toggle)
-                                    fetch(`/api/music/playback/dj-mode-set/${profileId}/${isActive}`, {
-                                        method: 'POST',
-                                        credentials: 'same-origin'
-                                    }).then(() => {
-                                        console.log('[DJ] Backend DJ mode set to', isActive);
-                                    }).catch(err => {
-                                        console.error('[DJ] Failed to set DJ mode:', err);
-                                    });
-                                } else {
-                                    setTimeout(notifyBackend, 100);
-                                }
-                            };
-                            setTimeout(notifyBackend, 200);
-                        }
                     }
                 } else {
                     setTimeout(checkInitialState, 50);
@@ -183,7 +155,7 @@
                 profileId: profileId,
                 streamUrl: '/api/music/stream/' + profileId + '/' + nextSongId,
                 reason: state.djTransitionReason || '',
-                crossfadeDuration: state.djCrossfadeDuration || 8
+                crossfadeDuration: state.crossfadeDuration || 8
             };
             
             // PRELOAD: Tell AudioEngine to preload the next song in the background player
@@ -310,7 +282,7 @@
                     fetch(`/api/music/playback/transition-started/${this.transitionData.profileId}`, { 
                         method: 'POST', 
                         credentials: 'same-origin' 
-                    });
+                    }).catch(err => console.error('[DJ] Failed to notify server of transition start', err));
                 }
                 return;
             }

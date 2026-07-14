@@ -1,18 +1,25 @@
-<div class="library-header is-flex is-align-items-center">
-    <script>
-        (function() {
-            videoSPA.backDestination = { 
-                section: 'seasons', 
-                params: { encodedTitle: '{encodedSeriesTitle}' } 
-            };
-        })();
-    </script>
-    <button class="back-btn mb-0 mr-5" onclick="videoSPA.goBack()">
-        <i class="pi pi-arrow-left"></i> Back
-    </button>
-    <div class="is-flex is-align-items-center">
-        <h1 class="library-title mb-0">{seriesTitle}</h1>
-        <span class="tag ml-4" style="background: var(--standard-accent); color: white; padding: 0.5rem 1rem; height: auto; border-radius: 8px; font-weight: bold;">SEASON {seasonNumber}</span>
+<script>
+    (function() {
+        videoSPA.backDestination = { 
+            section: 'seasons', 
+            params: { encodedTitle: '{encodedSeriesTitle}' } 
+        };
+    })();
+</script>
+
+<div class="series-hero" style="background-image: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(10,10,10,1)), url('{#if episodes.size > 0}/api/video/thumbnail/{episodes.get(0).id}{/if}'); margin: 0 2rem 2rem 2rem; border-radius: 16px; height: 45vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-color: #1a1a1a;">
+    <div class="series-hero-content">
+        <div class="mb-2" onclick="videoSPA.goBack()" style="cursor: pointer; display: inline-block; color: rgba(255,255,255,0.6); font-weight: 700; text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; transition: color 0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">
+            <i class="pi pi-chevron-left mr-1" style="font-size: 0.7rem;"></i> TV Shows
+        </div>
+
+        <h1 class="series-hero-title mb-4">{seriesTitle}</h1>
+
+        <div class="series-info-overlay">
+            <div class="series-meta-overlay">
+                <span class="tag is-info" style="background: var(--standard-accent); color: white; font-weight: bold; padding: 0.5rem 1rem; height: auto; border-radius: 8px;">SEASON {seasonNumber}</span>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -277,6 +284,52 @@ function toggleEpisodeWatched(videoId, el) {
 }
 .episode-entry.is-watched .episode-title-text {
     color: rgba(255,255,255,0.6);
+}
+
+/* Series hero header */
+.series-hero {
+    background-size: cover;
+    background-position: center 20%;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+}
+
+.series-hero-content {
+    width: 100%;
+    padding: 4rem 3rem 3rem;
+    position: relative;
+    background: linear-gradient(to top, rgba(10,10,10,1) 0%, rgba(10,10,10,0.4) 50%, transparent 100%);
+}
+
+.series-hero-title {
+    font-size: 4rem;
+    font-weight: 900;
+    color: white;
+    line-height: 1.1;
+    letter-spacing: -2px;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+    transform-origin: left;
+}
+
+.series-hero-title:hover {
+    transform: scale(1.03);
+    text-shadow: 0 4px 30px rgba(0,0,0,0.8);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.series-meta-overlay {
+    display: flex;
+    align-items: center;
+    color: white;
+}
+
+@media (max-width: 768px) {
+    .series-hero { height: 40vh; margin: 0 1rem 1rem 1rem !important; }
+    .series-hero-content { padding: 2rem 1.5rem 1.5rem; }
+    .series-hero-title { font-size: 2.2rem; letter-spacing: -1px; }
 }
 
 @media (max-width: 768px) {

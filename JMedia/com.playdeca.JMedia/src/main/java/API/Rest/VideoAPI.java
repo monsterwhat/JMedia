@@ -141,7 +141,7 @@ public class VideoAPI {
 
     @GET
     @Path("/thumbnail/{videoId}")
-    @Produces("image/webp")
+    @Produces("image/jpeg")
     public Response getThumbnail(@PathParam("videoId") Long videoId) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
@@ -157,7 +157,7 @@ public class VideoAPI {
                 File customThumbnail = new File(video.thumbnailPath);
                 if (customThumbnail.exists() && customThumbnail.isFile()) {
                     return Response.ok(customThumbnail)
-                            .header("Content-Type", "image/webp")
+                            .header("Content-Type", "image/jpeg")
                             .header("Cache-Control", "public, max-age=86400")
                             .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
                             .build();
@@ -188,7 +188,7 @@ public class VideoAPI {
             if (thumbnailUrl != null && Files.exists(java.nio.file.Paths.get(thumbnailUrl))) {
                 File thumbnailFile = java.nio.file.Paths.get(thumbnailUrl).toFile();
                 return Response.ok(thumbnailFile)
-                        .header("Content-Type", "image/webp")
+                        .header("Content-Type", "image/jpeg")
                         .header("Cache-Control", "public, max-age=86400")
                         .header("ETag", "\"" + thumbnailFile.lastModified() + "\"")
                         .build();

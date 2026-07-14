@@ -167,6 +167,9 @@
                     bottom: parseInt(document.getElementById('subtitleBottom').value)
                 });
             }
+            if (typeof window.reapplyAssSubtitleStyles === 'function') {
+                window.reapplyAssSubtitleStyles();
+            }
             this.toggle();
         }
 

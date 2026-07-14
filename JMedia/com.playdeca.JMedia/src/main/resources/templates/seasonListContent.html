@@ -46,7 +46,7 @@
                  onclick="window.switchSection('episodes', \{seriesTitle: '{encodedSeriesTitle}', seasonNumber: {season.seasonNumber}\})">
                 <div class="standard-card-poster">
                     {#if season.sampleVideoId}
-                        <img class="poster-img" src="/api/video/thumbnail/{season.sampleVideoId}" alt="Season {season.seasonNumber}" loading="lazy">
+                        <img class="poster-img is-skeleton" src="/api/video/thumbnail/{season.sampleVideoId}" alt="Season {season.seasonNumber}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     {#else}
                         <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
                             <i class="pi pi-image"></i>
@@ -68,6 +68,30 @@
         {/for}
     </div>
 {/if}
+</div>
+
+<div class="series-metadata-section" id="seriesMetadata">
+  <div class="series-metadata-inner">
+    <div class="series-metadata-text">
+      {#if seriesInfo.overview}
+      <p class="series-overview">{seriesInfo.overview}</p>
+      {/if}
+      <div class="info-meta-row">
+        {#if seriesInfo.releaseYear}<span>{seriesInfo.releaseYear}</span>{/if}
+        {#if seriesInfo.runtimeMins}<span>{seriesInfo.runtimeMins}m</span>{/if}
+        {#if seriesInfo.mpaaRating}<span class="mpaa-badge">{seriesInfo.mpaaRating}</span>{/if}
+      </div>
+      {#if seriesInfo.imdbRating || seriesInfo.tmdbRating || seriesInfo.metacriticRating}
+      <div class="info-separator"></div>
+      <div class="info-ratings">
+        {#if seriesInfo.imdbRating}<span class="rating-badge">IMDb: <strong>{seriesInfo.imdbRating}</strong></span>{/if}
+        {#if seriesInfo.tmdbRating}<span class="rating-badge tmdb">TMDB: <strong>{seriesInfo.tmdbRating}</strong></span>{/if}
+        {#if seriesInfo.metacriticRating}<span class="rating-badge">Metascore: <strong>{seriesInfo.metacriticRating}</strong></span>{/if}
+      </div>
+      {/if}
+      {#if seriesInfo.awards}<div class="info-credits"><strong>Awards:</strong> {seriesInfo.awards}</div>{/if}
+    </div>
+  </div>
 </div>
 
 <style>
@@ -135,9 +159,54 @@
     color: rgba(255,255,255,0.5);
 }
 
+/* Series metadata section */
+.series-metadata-section {
+    margin: 1rem 2rem 2rem 2rem;
+    padding: 1.5rem 2rem;
+    background: rgba(255,255,255,0.03);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.06);
+}
+
+.series-metadata-text {
+    max-width: 900px;
+}
+
+.series-metadata-text .series-overview {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 1rem;
+}
+
+.series-metadata-text .info-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 0.8rem;
+    align-items: center;
+}
+
+.series-metadata-text .info-ratings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    margin-bottom: 0.8rem;
+}
+
+.series-metadata-text .info-credits {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.6);
+    margin-top: 0.4rem;
+    line-height: 1.5;
+}
+
 @media (max-width: 768px) {
     .series-hero { height: 40vh; margin: 0 1rem 1rem 1rem !important; }
     .series-hero-content { padding: 2rem 1.5rem 1.5rem; }
     .series-hero-title { font-size: 2.2rem; letter-spacing: -1px; }
+    .series-metadata-section { margin: 1rem 1rem 2rem 1rem; padding: 1rem 1.25rem; }
 }
 </style>

@@ -426,48 +426,45 @@
                 this.replaceState(mergedState, 'restored');
                 window.Helpers.log('StateManager initialized from restored state:', mergedState);
                 
-                // If Smart Shuffle was restored, tell server to activate it
-                // This triggers server-side queue reordering by genre/BPM
-                if (restoredState.shuffleMode === 'SMART_SHUFFLE') {
-                    window.Helpers.log('StateManager: Restored Smart Shuffle - activating on server');
-                    let pid = null;
-                    if (window.globalActiveProfileId) {
-                        pid = window.globalActiveProfileId;
-                    } else {
-                        pid = localStorage.getItem('activeProfileId');
-                    }
-                    if (pid) {
-                        fetch(`/api/music/playback/shuffle/${pid}`, { 
-                            method: 'POST',
-                            credentials: 'include'
-                        }).then(() => {
-                            window.Helpers.log('StateManager: Smart Shuffle activated on server');
-                        }).catch(e => {
-                            console.warn('StateManager: Failed to activate Smart Shuffle:', e);
-                        });
-                    }
-                }
+                // Sync restored state to server — order matters to eliminate race conditions:
+                // dj-mode-set MUST complete BEFORE shuffle-set so the server already has
+                // djModeActive=true when setShuffle() reorganises the queue and plans the
+                // DJ transition. If shuffle-set fires first, its broadcast overwrites the
+                // client's locally-restored djModeActive=true with the server's stale false.
+                const needDjSync = restoredState.djModeActive === true;
+                const needShuffleSync = restoredState.shuffleMode === 'SMART_SHUFFLE';
+                const pid = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
                 
-                // If DJ Mode was restored, tell server to SET it (not toggle!)
-                // Using the set endpoint so it explicitly activates regardless of current server state
-                if (restoredState.djModeActive === true) {
-                    window.Helpers.log('StateManager: Restored DJ Mode - setting on server');
-                    let pid = null;
-                    if (window.globalActiveProfileId) {
-                        pid = window.globalActiveProfileId;
-                    } else {
-                        pid = localStorage.getItem('activeProfileId');
-                    }
-                    if (pid) {
-                        fetch(`/api/music/playback/dj-mode-set/${pid}/true`, { 
-                            method: 'POST',
-                            credentials: 'include'
-                        }).then(() => {
+                if (pid && (needDjSync || needShuffleSync)) {
+                    let syncChain = Promise.resolve();
+                    
+                    if (needDjSync) {
+                        window.Helpers.log('StateManager: Restored DJ Mode - setting on server');
+                        syncChain = syncChain.then(() =>
+                            fetch(`/api/music/playback/dj-mode-set/${pid}/true`, {
+                                method: 'POST',
+                                credentials: 'include'
+                            })
+                        ).then(() => {
                             window.Helpers.log('StateManager: DJ Mode set to active on server');
-                        }).catch(e => {
-                            console.warn('StateManager: Failed to set DJ Mode on server:', e);
                         });
                     }
+                    
+                    if (needShuffleSync) {
+                        window.Helpers.log('StateManager: Restored Smart Shuffle - activating on server');
+                        syncChain = syncChain.then(() =>
+                            fetch(`/api/music/playback/shuffle-set/${pid}/SMART_SHUFFLE`, {
+                                method: 'POST',
+                                credentials: 'include'
+                            })
+                        ).then(() => {
+                            window.Helpers.log('StateManager: Smart Shuffle activated on server');
+                        });
+                    }
+                    
+                    syncChain.catch(e => {
+                        console.warn('StateManager: Failed to sync restored state:', e);
+                    });
                 }
             } else {
                 window.Helpers.log('StateManager no restored state available');

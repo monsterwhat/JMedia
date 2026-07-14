@@ -1,5 +1,8 @@
 <main class="standard-content">
     <div class="music-main-wrapper" id="musicContentArea">
+        <nav id="breadcrumb-nav" class="breadcrumb is-small is-centered has-arrow-separator" aria-label="breadcrumbs" style="display: none; margin-bottom: 0; align-items: center;">
+            <ul id="breadcrumb-list"></ul>
+        </nav>
         <!-- Music Library Search -->
         <div id="mobileMusicSearchContainer" class="field has-addons m-2">
             <div class="control is-expanded">
@@ -78,12 +81,74 @@
             </div>
         </div>
 
-        <div id="mobileSongList" class="mobile-song-list"></div>
-        <div id="mobileAlbumContent" class="is-hidden"></div>
-        <div id="mobileGenreContent" class="is-hidden"></div>
-        <div id="mobilePlaylistContent" class="is-hidden"></div>
-        <div id="mobileQueueContent" class="is-hidden"></div>
-        <div id="mobileHistoryContent" class="is-hidden"></div>
+        <div id="mobileSongList" class="mobile-song-list">
+            <div class="skeleton-shell">
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:60px;"><div></div></div></div>
+            </div>
+        </div>
+        <div id="mobileAlbumContent" class="is-hidden">
+            <div class="skeleton-shell" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem;padding:1rem;">
+                <div><div class="skeleton-block" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div>
+                <div><div class="skeleton-block" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div>
+                <div><div class="skeleton-block" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div>
+                <div><div class="skeleton-block" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div>
+                <div><div class="skeleton-block" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div>
+                <div><div class="skeleton-block" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div><div></div></div></div>
+            </div>
+        </div>
+        <div id="mobileGenreContent" class="is-hidden">
+            <div class="skeleton-shell is-flex" style="flex-wrap:wrap;gap:0.75rem;padding:1rem;">
+                <div class="skeleton-block" style="width:130px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:100px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:150px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:110px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:140px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:120px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:90px;height:48px;border-radius:24px;"></div>
+                <div class="skeleton-block" style="width:160px;height:48px;border-radius:24px;"></div>
+            </div>
+        </div>
+        <div id="mobilePlaylistContent" class="is-hidden">
+            <div class="skeleton-shell">
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:4px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:4px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:4px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:4px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:4px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:4px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div></div>
+            </div>
+        </div>
+        <div id="mobileQueueContent" class="is-hidden">
+            <div class="skeleton-shell">
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+            </div>
+        </div>
+        <div id="mobileHistoryContent" class="is-hidden">
+            <div class="skeleton-shell">
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+                <div class="is-flex is-align-items-center px-3 py-2" style="gap:0.75rem;height:3.5rem;"><div class="card is-skeleton" style="width:48px;height:48px;border-radius:6px;flex-shrink:0;"></div><div class="skeleton-lines" style="flex:1;"><div></div><div></div></div><div class="skeleton-lines" style="width:80px;"><div></div></div></div>
+            </div>
+        </div>
     </div>
 
     <!-- Context Menus (Music specific) -->

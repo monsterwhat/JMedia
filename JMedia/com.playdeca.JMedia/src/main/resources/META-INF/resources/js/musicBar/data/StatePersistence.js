@@ -133,8 +133,7 @@
                     playing: currentState.playing,
                     duration: currentState.duration,
                     volume: currentState.volume,
-                    // Don't persist Smart Shuffle - it requires server-side queue reordering
-                    shuffleMode: (currentState.shuffleMode === 'SMART_SHUFFLE') ? 'OFF' : currentState.shuffleMode,
+                    shuffleMode: currentState.shuffleMode,
                     repeatMode: currentState.repeatMode,
                     djModeActive: currentState.djModeActive,
                     timestamp: Date.now(),

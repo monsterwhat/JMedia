@@ -50,23 +50,46 @@ public class SyncAPI {
 
     @POST
     @Path("/trigger")
-    public Response triggerSync() {
+    public Response triggerSync(Map<String, Object> data) {
         if (syncService.isSyncInProgress()) {
             return Response.ok(ApiResponse.success(Map.of(
                     "message", "Sync already in progress"
             ))).build();
         }
 
+        String syncType = "ALL";
+        int limit = 0;
+
+        if (data != null) {
+            if (data.containsKey("type")) {
+                syncType = ((String) data.get("type")).toUpperCase();
+            }
+            if (data.containsKey("limit")) {
+                limit = ((Number) data.get("limit")).intValue();
+            }
+        }
+
+        final String finalSyncType = syncType;
+        final int finalLimit = limit;
+
         new Thread(() ->
             io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(
-                () -> syncService.syncAllServers()
+                () -> syncService.syncAllServers(finalSyncType, finalLimit)
             ),
             "SyncTriggerThread"
         ).start();
 
         return Response.ok(ApiResponse.success(Map.of(
-                "message", "Sync started"
+                "message", "Sync started",
+                "type", syncType,
+                "limit", limit
         ))).build();
+    }
+
+    @POST
+    @Path("/trigger/{type}")
+    public Response triggerSyncByType(@PathParam("type") String type) {
+        return triggerSync(Map.of("type", type));
     }
 
     @GET
@@ -75,19 +98,48 @@ public class SyncAPI {
         Map<String, Object> status = new HashMap<>();
         status.put("inProgress", syncService.isSyncInProgress());
 
-        SyncLog lastLog = syncService.getLastSyncLog();
-        if (lastLog != null) {
-            status.put("lastSync", Map.of(
-                    "startedAt", lastLog.startedAt,
-                    "completedAt", lastLog.completedAt,
-                    "status", lastLog.status,
-                    "songsSent", lastLog.songsSent,
-                    "songsReceived", lastLog.songsReceived,
-                    "songsUpdated", lastLog.songsUpdated,
-                    "songsCreated", lastLog.songsCreated,
-                    "error", lastLog.errorMessage
+        if (syncService.isSyncInProgress()) {
+            status.put("currentSync", Map.of(
+                    "type", syncService.getCurrentSyncType(),
+                    "serverName", syncService.getCurrentServerName(),
+                    "totalItems", syncService.getCurrentTotalItems(),
+                    "itemsProcessed", syncService.getCurrentItemsProcessed()
             ));
         }
+
+        SyncLog lastLog = syncService.getLastSyncLog();
+        if (lastLog != null) {
+            Map<String, Object> lastSync = new HashMap<>();
+            lastSync.put("startedAt", lastLog.startedAt);
+            lastSync.put("completedAt", lastLog.completedAt);
+            lastSync.put("status", lastLog.status);
+            lastSync.put("syncType", lastLog.syncType);
+            lastSync.put("songsSent", lastLog.songsSent);
+            lastSync.put("songsReceived", lastLog.songsReceived);
+            lastSync.put("songsUpdated", lastLog.songsUpdated);
+            lastSync.put("songsCreated", lastLog.songsCreated);
+            lastSync.put("videosSent", lastLog.videosSent);
+            lastSync.put("videosReceived", lastLog.videosReceived);
+            lastSync.put("videosUpdated", lastLog.videosUpdated);
+            lastSync.put("collectionsSent", lastLog.collectionsSent);
+            lastSync.put("collectionsReceived", lastLog.collectionsReceived);
+            lastSync.put("playlistsSent", lastLog.playlistsSent);
+            lastSync.put("playlistsReceived", lastLog.playlistsReceived);
+            lastSync.put("subtitlesSent", lastLog.subtitlesSent);
+            lastSync.put("subtitlesReceived", lastLog.subtitlesReceived);
+            lastSync.put("totalItems", lastLog.totalItems);
+            lastSync.put("itemsProcessed", lastLog.itemsProcessed);
+            lastSync.put("error", lastLog.errorMessage);
+            status.put("lastSync", lastSync);
+        }
+
+        // Item counts
+        status.put("counts", Map.of(
+                "music", syncService.getMusicCount(),
+                "videos", syncService.getVideoCount(),
+                "collections", syncService.getCollectionCount(),
+                "subtitles", syncService.getSubtitleCount()
+        ));
 
         return Response.ok(ApiResponse.success(status)).build();
     }
@@ -103,7 +155,9 @@ public class SyncAPI {
         syncSettings.put("syncVideoEnabled", settings.getSyncVideoEnabled());
         syncSettings.put("syncTimelinesEnabled", settings.getSyncTimelinesEnabled());
         syncSettings.put("syncPlaylistsEnabled", settings.getSyncPlaylistsEnabled());
+        syncSettings.put("syncSubtitlesEnabled", settings.getSyncSubtitlesEnabled());
         syncSettings.put("syncApiKey", settings.getSyncApiKey());
+        syncSettings.put("syncItemLimit", settings.getSyncItemLimit());
         return Response.ok(ApiResponse.success(syncSettings)).build();
     }
 
@@ -131,8 +185,14 @@ public class SyncAPI {
         if (data.containsKey("syncPlaylistsEnabled")) {
             settings.setSyncPlaylistsEnabled(((Boolean) data.get("syncPlaylistsEnabled")));
         }
+        if (data.containsKey("syncSubtitlesEnabled")) {
+            settings.setSyncSubtitlesEnabled(((Boolean) data.get("syncSubtitlesEnabled")));
+        }
         if (data.containsKey("syncApiKey")) {
             settings.setSyncApiKey((String) data.get("syncApiKey"));
+        }
+        if (data.containsKey("syncItemLimit")) {
+            settings.setSyncItemLimit(((Number) data.get("syncItemLimit")).intValue());
         }
 
         settingsService.save(settings);
@@ -144,7 +204,9 @@ public class SyncAPI {
         syncSettings.put("syncVideoEnabled", settings.getSyncVideoEnabled());
         syncSettings.put("syncTimelinesEnabled", settings.getSyncTimelinesEnabled());
         syncSettings.put("syncPlaylistsEnabled", settings.getSyncPlaylistsEnabled());
+        syncSettings.put("syncSubtitlesEnabled", settings.getSyncSubtitlesEnabled());
         syncSettings.put("syncApiKey", settings.getSyncApiKey());
+        syncSettings.put("syncItemLimit", settings.getSyncItemLimit());
         return Response.ok(ApiResponse.success(syncSettings)).build();
     }
 

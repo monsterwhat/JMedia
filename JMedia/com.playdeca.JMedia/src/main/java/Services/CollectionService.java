@@ -89,11 +89,12 @@ public class CollectionService {
     }
 
     @Transactional
-    public MediaCollection update(Long id, String name, String description) {
+    public MediaCollection update(Long id, String name, String description, Long coverVideoId) {
         MediaCollection c = MediaCollection.findById(id);
         if (c == null) return null;
         if (name != null) c.name = name;
         if (description != null) c.description = description;
+        if (coverVideoId != null) c.coverVideoId = coverVideoId;
         em.merge(c);
         return c;
     }

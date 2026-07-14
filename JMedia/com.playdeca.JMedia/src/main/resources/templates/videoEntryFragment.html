@@ -22,7 +22,7 @@
 {#else}
 <div class="episode-entry{#if video.watched} is-watched{/if}" data-video-id="{video.id}" data-series-title="{video.seriesTitle}" data-season-number="{video.seasonNumber}" data-episode-number="{video.episodeNumber}" data-watch-progress="{video.watchProgressPercent ?: 0}" data-watched="{video.watched ?: false}" onclick="window.selectItem({video.id}, 'play')">
     <div class="episode-thumbnail">
-        <img src="/api/video/thumbnail/{video.id}" alt="{video.episodeTitle ?: video.title}" onerror="this.style.display='none'">
+        <img src="/api/video/thumbnail/{video.id}" alt="{video.episodeTitle ?: video.title}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none'; this.classList.remove('is-skeleton')">
         <div class="episode-play-overlay">
             <i class="pi pi-play"></i>
         </div>

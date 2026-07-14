@@ -265,6 +265,16 @@
             if (audioSelector && audioPlaceholder) {
                 audioPlaceholder.appendChild(audioSelector);
                 console.log('[SimplePlayer] Moved audioTrackSelector into player UI');
+
+                // Move the dropdown menu OUT of .controls-row so overflow-x:auto
+                // doesn't clip the absolutely-positioned menu (CSS spec forces
+                // overflow-y:auto when overflow-x is auto).
+                const audioMenu = document.getElementById('audioTrackMenu');
+                const controlsContainer = p.container.querySelector('.controls-container');
+                if (audioMenu && controlsContainer) {
+                    controlsContainer.appendChild(audioMenu);
+                    console.log('[SimplePlayer] Moved audioTrackMenu outside controls-row');
+                }
             }
 
             if (p.debugDialogClose) {

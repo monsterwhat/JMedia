@@ -18,7 +18,7 @@
          hx-get="/api/music/ui/mobile-genres-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
          hx-trigger="intersect once"
          hx-swap="outerHTML">
-        <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+        <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
     </div>
     {#else}
     <div class="scroll-end">— end —</div>

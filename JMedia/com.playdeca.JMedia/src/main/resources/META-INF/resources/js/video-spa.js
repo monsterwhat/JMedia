@@ -23,8 +23,10 @@ class VideoSPA {
             details: '/api/video/ui/details-fragment/{videoId}',
             playback: '/api/video/ui/playback-fragment?videoId={videoId}',
             external: '/api/video/external/fragment',
+            liveTv: '/api/video/ui/live-tv-fragment',
             collections: '/api/video/ui/collections-fragment',
-            collectionEntries: '/api/video/ui/collections/{collectionId}/entries-fragment'
+            collectionEntries: '/api/video/ui/collections/{collectionId}/entries-fragment',
+            liveTvPlayback: '/api/video/ui/live-channel-playback-fragment?channelId={channelId}'
             };
     }
     
@@ -44,7 +46,7 @@ class VideoSPA {
         console.log(`[VideoSPA] Switching to section: ${section}`, params);
         // Destroy current player to cleanup FFmpeg processes
         await this.destroyCurrentPlayer();
-        this.showLoading();
+        this.showLoading(section);
         
         if (!bypassHistory) {
             if (section === 'playback') {
@@ -76,6 +78,12 @@ class VideoSPA {
             return;
         }
 
+        // Handle live channel playback
+        if (section === 'playback' && params.liveChannelId) {
+            await this.playbackLiveChannel(params.liveChannelId, bypassHistory);
+            return;
+        }
+
         this.updateNavState(section);
         const apiUrl = this.buildApiUrl(section, params);
         try {
@@ -90,6 +98,7 @@ class VideoSPA {
 
             this.currentSection = section;
             this.currentParams = params;
+            this.updateBreadcrumbs();
         } catch (error) {
             this.handleError(error);
         }
@@ -161,6 +170,7 @@ class VideoSPA {
 
         this.currentSection = 'home';
         this.currentParams = {};
+        this.updateBreadcrumbs();
         this.hideLoading();
     }
 
@@ -219,6 +229,27 @@ class VideoSPA {
         }
     }
 
+    async playbackLiveChannel(channelId, bypassHistory = false) {
+        this.showLoading();
+        try {
+            const res = await fetch(`/api/video/ui/live-channel-playback-fragment?channelId=${channelId}`);
+            if (!res.ok) throw new Error('Channel not found');
+            const html = await res.text();
+
+            await this.destroyCurrentPlayer();
+            this.updateContent(html);
+            this.hideLoading();
+
+            if (!bypassHistory) {
+                history.pushState({ section: 'playback', params: { liveChannelId: channelId }, view: 'video' }, '', `/video?section=playback&liveChannelId=${channelId}`);
+            }
+            this.currentSection = 'playback';
+            this.currentParams = { liveChannelId: channelId };
+        } catch (error) {
+            this.handleError(error);
+        }
+    }
+
     buildExternalPlayerHtml(v) {
         /* Default: proxy-stream via SimplePlayer */
         const proxyUrl = '/api/video/external/proxy/stream?url=' + encodeURIComponent(v.url);
@@ -242,7 +273,7 @@ class VideoSPA {
             <script src="/js/player/Utils.js?v=3"><\/script>
             <script src="/js/player/StateManager.js"><\/script>
             <script src="/js/player/StreamManager.js"><\/script>
-            <script src="/js/player/UIBuilder.js?v=4"><\/script>
+            <script src="/js/player/UIBuilder.js?v=5"><\/script>
             <script src="/js/player/ControlsManager.js"><\/script>
             <script src="/js/player/FullscreenManager.js"><\/script>
             <script src="/js/player/SubtitleController.js"><\/script>
@@ -460,14 +491,189 @@ class VideoSPA {
         });
     }
     
-    showLoading() {
-        const el = document.getElementById('loading-state');
-        if (el) el.classList.add('active');
+    _decodeBcParam(str) {
+        if (!str) return '';
+        try { return decodeURIComponent(String(str).replace(/\+/g, ' ')); }
+        catch (e) { return String(str).replace(/\+/g, ' '); }
+    }
+
+    _ensureBreadcrumbInSpa() {
+        var spa = document.getElementById('spa-content');
+        if (!spa) return;
+        // Remove ALL existing breadcrumb-nav elements (stale ones in old animation clones, etc.)
+        document.querySelectorAll('#breadcrumb-nav').forEach(function(n) { n.remove(); });
+        // Determine target: carousels-section (home), library-header (sub-sections), or #spa-content
+        var target;
+        var carousels = document.getElementById('carousels-section');
+        if (carousels && spa.contains(carousels)) {
+            target = carousels;
+        } else {
+            var libHdr = spa.querySelector('.library-header');
+            if (libHdr) {
+                target = libHdr;
+                // Allow breadcrumb to sit above as a full row when shown
+                libHdr.style.flexWrap = 'wrap';
+            } else {
+                target = spa;
+            }
+        }
+        var nav = document.createElement('nav');
+        nav.id = 'breadcrumb-nav';
+        nav.className = 'breadcrumb is-small is-centered has-arrow-separator';
+        nav.setAttribute('aria-label', 'breadcrumbs');
+        nav.style.display = 'none';
+        nav.style.marginBottom = '0';
+        nav.style.alignItems = 'center';
+        nav.style.width = '100%';
+        nav.innerHTML = '<ul id="breadcrumb-list"></ul>';
+        target.insertBefore(nav, target.firstChild);
+    }
+
+    updateBreadcrumbs() {
+        if (!window.Breadcrumbs) return;
+        this._ensureBreadcrumbInSpa();
+        const section = this.currentSection;
+        const params = this.currentParams || {};
+        const self = this;
+        const bcHome = { label: 'Video', navigate: function() { self.goHome(); } };
+        const bcShows = { label: 'TV Shows', navigate: function() { self.switchSection('shows', {}); } };
+        const bcMovies = { label: 'Movies', navigate: function() { self.switchSection('movies', {}); } };
+        const labelMap = {
+            movies: 'Movies', shows: 'TV Shows',
+            history: 'History', watchlist: 'Watchlist', manage: 'Manage Library',
+            needsAttention: 'Needs Attention', verification: 'Verification',
+            details: 'Details', external: 'External Link',
+            collections: 'Collections', adminHistory: 'All History',
+            suggestion: 'Suggestions', adminSuggestions: 'All Suggestions',
+            manageSeries: 'Manage Series',
+            liveTv: 'Live TV',
+            liveTvPlayback: 'Live TV'
+        };
+
+        if (section === 'seasons' && params.encodedTitle) {
+            window.Breadcrumbs.set([
+                bcHome, bcShows,
+                this._decodeBcParam(params.encodedTitle)
+            ]);
+        } else if (section === 'episodes' && params.seriesTitle && params.seasonNumber) {
+            var decoded = this._decodeBcParam(params.seriesTitle);
+            var epBack = { label: decoded, navigate: function() {
+                self.switchSection('seasons', { encodedTitle: encodeURIComponent(decoded) });
+            }};
+            window.Breadcrumbs.set([
+                bcHome, bcShows, epBack,
+                'Season ' + params.seasonNumber
+            ]);
+        } else if (section === 'folder-episodes' && params.seriesTitle && params.seasonNumber && params.folderName) {
+            var decoded = this._decodeBcParam(params.seriesTitle);
+            var fepBack = { label: decoded, navigate: function() {
+                self.switchSection('seasons', { encodedTitle: encodeURIComponent(decoded) });
+            }};
+            window.Breadcrumbs.set([
+                bcHome, bcShows, fepBack,
+                'Season ' + params.seasonNumber,
+                this._decodeBcParam(params.folderName)
+            ]);
+        } else if (section === 'playback' && params.videoId) {
+            var player = document.getElementById('customPlayer');
+            if (player) {
+                var pType = (player.getAttribute('data-type') || '').toLowerCase();
+                var pSeries = player.getAttribute('data-series-title') || '';
+                var pSeason = player.getAttribute('data-season-number') || '';
+                var pTitle = player.getAttribute('data-title') || 'Now Playing';
+                if (pType === 'episode' && pSeries) {
+                    var pDecoded = self._decodeBcParam(pSeries);
+                    var pBack = { label: pDecoded, navigate: function() {
+                        self.switchSection('seasons', { encodedTitle: encodeURIComponent(pDecoded) });
+                    }};
+                    var pSeasonNav = { label: 'Season ' + pSeason, navigate: function() {
+                        self.switchSection('episodes', { seriesTitle: encodeURIComponent(pSeries), seasonNumber: parseInt(pSeason, 10) || 1 });
+                    }};
+                    window.Breadcrumbs.set([
+                        bcHome, bcShows, pBack,
+                        pSeasonNav,
+                        pTitle
+                    ]);
+                } else {
+                    window.Breadcrumbs.set([bcHome, pTitle]);
+                }
+            } else {
+                window.Breadcrumbs.set([bcHome, 'Now Playing']);
+            }
+        } else if (section === 'collectionEntries') {
+            var name = document.querySelector('.series-hero-title')?.textContent?.trim()
+                    || 'Collection';
+            window.Breadcrumbs.set([bcHome, name]);
+        } else if (section === 'details') {
+            var titleEl = document.querySelector('.title-section h1');
+            var movieTitle = titleEl ? titleEl.textContent.trim() : (params.videoTitle || 'Details');
+            window.Breadcrumbs.set([bcHome, movieTitle]);
+        } else if (section === 'home' || !labelMap[section]) {
+            window.Breadcrumbs.set(['Video']);
+        } else {
+            window.Breadcrumbs.set([bcHome, labelMap[section]]);
+        }
+    }
+
+    getSectionSkeleton(section) {
+        var cardGrid = '';
+        for (var i = 0; i < 8; i++) {
+            cardGrid += '<div class="standard-card"><div class="standard-card-poster"><div class="skeleton-block is-skeleton" style="width:100%;height:100%;border-radius:0;"></div></div><div class="standard-card-info" style="padding:0.75rem;"><div class="skeleton-lines"><div></div><div style="width:60%;"></div></div></div></div>';
+        }
+
+        var wideCardGrid = '';
+        for (var j = 0; j < 8; j++) {
+            wideCardGrid += '<div class="column is-12-mobile is-6-tablet is-4-desktop is-3-widescreen"><div class="manage-grid-card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);border-radius:12px;overflow:hidden;"><div style="aspect-ratio:16/9;"><div class="skeleton-block is-skeleton" style="width:100%;height:100%;border-radius:0;"></div></div><div class="p-3"><div class="skeleton-lines"><div></div><div style="width:50%;"></div></div></div></div></div>';
+        }
+
+        var headerSkel = '<div class="library-header is-flex is-justify-content-between is-align-items-center" style="flex-wrap:wrap;gap:1rem;"><div><div class="skeleton-block is-skeleton" style="height:1.8rem;width:140px;margin-bottom:0.5rem;"></div><div class="skeleton-block is-skeleton" style="height:1rem;width:80px;"></div></div><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="skeleton-block is-skeleton" style="height:2.2em;width:250px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:2.2em;width:130px;border-radius:999px;"></div></div></div>';
+
+        var heroSkel = '<div style="margin:0 2rem 2rem;border-radius:16px;height:45vh;background:#1a1a1a;display:flex;align-items:flex-end;overflow:hidden;"><div style="width:100%;padding:4rem 3rem;background:linear-gradient(to top,rgba(10,10,10,1),rgba(10,10,10,0.4),transparent);"><div class="skeleton-block is-skeleton mb-3" style="height:1rem;width:120px;border-radius:4px;"></div><div class="skeleton-block is-skeleton mb-4" style="height:4rem;width:450px;border-radius:8px;"></div><div class="skeleton-block is-skeleton" style="height:1.6rem;width:160px;border-radius:4px;"></div></div></div>';
+
+        var seasonCardGrid = '';
+        for (var si = 0; si < 6; si++) {
+            seasonCardGrid += '<div class="standard-card"><div class="standard-card-poster"><div class="skeleton-block is-skeleton" style="width:100%;height:100%;border-radius:0;"></div></div><div class="standard-card-info" style="padding:0.75rem;"><div class="skeleton-lines"><div></div><div style="width:50%;"></div></div><div class="skeleton-block is-skeleton" style="height:4px;width:100%;margin-top:8px;border-radius:2px;"></div></div></div>';
+        }
+
+        var episodeCardGrid = '';
+        for (var ei = 0; ei < 6; ei++) {
+            episodeCardGrid += '<div class="episode-entry" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);border-radius:12px;overflow:hidden;"><div style="aspect-ratio:16/9;"><div class="skeleton-block is-skeleton" style="width:100%;height:100%;border-radius:0;"></div></div><div style="padding:1.25rem;"><div class="is-flex is-align-items-start mb-2" style="gap:0.75rem;"><div class="skeleton-block is-skeleton" style="width:32px;height:20px;border-radius:4px;flex-shrink:0;"></div><div style="flex:1;"><div class="skeleton-lines"><div></div><div style="width:60%;"></div></div></div></div></div></div>';
+        }
+
+        var skeletons = {
+            movies: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>',
+            shows: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>',
+            history: '<div class="standard-grid">' + cardGrid + '</div>',
+            watchlist: '<div class="standard-grid">' + cardGrid + '</div>',
+            collections: '<div class="standard-grid">' + cardGrid + '</div>',
+            manage: '<div class="library-header is-flex is-justify-content-between is-align-items-center" style="flex-wrap:wrap;gap:1rem;"><div><div class="skeleton-block is-skeleton" style="height:1.8rem;width:160px;margin-bottom:0.5rem;"></div><div class="skeleton-block is-skeleton" style="height:1rem;width:80px;"></div></div><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="skeleton-block is-skeleton" style="height:2.2em;width:250px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:2.2em;width:90px;border-radius:999px;"></div></div></div><div class="columns is-multiline mt-4">' + wideCardGrid + '</div>',
+            needsAttention: '<div class="library-header is-flex is-justify-content-between is-align-items-center"><div><div class="skeleton-block is-skeleton" style="height:1.8rem;width:180px;margin-bottom:0.5rem;"></div></div><div class="skeleton-block is-skeleton" style="height:2.2em;width:250px;border-radius:999px;"></div></div><div class="columns is-multiline mt-4">' + wideCardGrid + '</div>',
+            collectionEntries: '<div style="margin:0 2rem 2rem;border-radius:16px;height:40vh;background:#1a1a1a;display:flex;align-items:flex-end;padding:3rem;"><div><div class="skeleton-block is-skeleton mb-3" style="height:1rem;width:120px;border-radius:4px;"></div><div class="skeleton-block is-skeleton" style="height:3.5rem;width:350px;border-radius:6px;margin-bottom:0.75rem;"></div><div class="skeleton-block is-skeleton" style="height:1.2rem;width:200px;border-radius:4px;"></div></div></div><div style="padding:0 2rem;"><div class="skeleton-block is-skeleton" style="height:2em;width:300px;border-radius:999px;margin-bottom:1.5rem;"></div>' + Array(5).fill('<div class="is-flex is-align-items-center mb-3" style="gap:1rem;"><div class="skeleton-block is-skeleton" style="width:100px;height:56px;border-radius:8px;flex-shrink:0;"></div><div style="flex:1;"><div class="skeleton-lines"><div style="width:60%;"></div><div style="width:40%;"></div></div></div><div class="skeleton-block is-skeleton" style="width:32px;height:32px;border-radius:50%;"></div></div>').join('') + '</div>',
+            seasons: heroSkel + '<div class="standard-grid" style="padding:0 1rem;">' + seasonCardGrid + '</div>',
+            episodes: heroSkel + '<div class="episodes-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem;padding:1rem;">' + episodeCardGrid + '</div>',
+            'folder-episodes': heroSkel + '<div class="episodes-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem;padding:1rem;">' + episodeCardGrid + '</div>',
+            details: '<div class="detail-container" style="display:flex;gap:4rem;padding:3rem;margin:1rem;min-height:calc(100vh - 200px);"><div class="poster-section" style="flex:0 0 400px;"><div class="skeleton-block is-skeleton" style="width:100%;aspect-ratio:2/3;border-radius:16px;"></div></div><div class="info-section" style="flex:1;display:flex;flex-direction:column;gap:2rem;"><div class="skeleton-block is-skeleton" style="height:2.5rem;width:120px;border-radius:8px;"></div><div><div class="skeleton-block is-skeleton" style="height:4.5rem;width:550px;border-radius:8px;margin-bottom:0.75rem;"></div><div class="skeleton-block is-skeleton" style="height:1.2rem;width:350px;border-radius:4px;"></div></div><div class="is-flex" style="gap:1rem;"><div class="skeleton-block is-skeleton" style="width:90px;height:60px;border-radius:8px;"></div><div class="skeleton-block is-skeleton" style="width:90px;height:60px;border-radius:8px;"></div></div><div class="is-flex" style="gap:1rem;"><div class="skeleton-block is-skeleton" style="height:3rem;width:160px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:3rem;width:160px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:3rem;width:160px;border-radius:999px;"></div></div><div class="skeleton-lines" style="max-width:800px;"><div></div><div></div><div style="width:70%;"></div></div><div class="is-flex mt-2" style="gap:0.5rem;"><div class="skeleton-block is-skeleton" style="height:2rem;width:90px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:2rem;width:110px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:2rem;width:70px;border-radius:999px;"></div></div></div></div>',
+            adminHistory: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>',
+            external: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>',
+            liveTv: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>'
+        };
+        return skeletons[section] || null;
+    }
+
+    showLoading(section) {
         this._loadingStartTime = Date.now();
         if (this._loadingTimer) {
             clearTimeout(this._loadingTimer);
             this._loadingTimer = null;
         }
+        var contentDiv = document.getElementById('spa-content');
+        var skeleton = section && this.getSectionSkeleton(section);
+        if (contentDiv && skeleton) {
+            contentDiv.innerHTML = skeleton;
+            return;
+        }
+        var el = document.getElementById('loading-state');
+        if (el) el.classList.add('active');
     }
     
     hideLoading() {
@@ -527,18 +733,22 @@ class VideoSPA {
     }
 
     async applySidebarPreference() {
+        const layout = document.getElementById('standard-layout');
+        const cached = localStorage.getItem('sidebarPosition');
+        if (layout) {
+            if (cached === 'right') layout.classList.add('sidebar-right');
+            else if (cached === 'left') layout.classList.remove('sidebar-right');
+        }
+
         try {
             const profileId = localStorage.getItem('activeProfileId') || '1';
             const res = await fetch(`/api/settings/${profileId}/sidebar-position`);
             const json = await res.json();
-            if (res.ok && json.data) {
-                const layout = document.getElementById('standard-layout');
-                if (layout) {
-                    if (json.data === 'right') {
-                        layout.classList.add('sidebar-right');
-                    } else {
-                        layout.classList.remove('sidebar-right');
-                    }
+            if (res.ok && json.data && layout) {
+                if (json.data === 'right') {
+                    layout.classList.add('sidebar-right');
+                } else {
+                    layout.classList.remove('sidebar-right');
                 }
             }
         } catch (e) {

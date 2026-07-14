@@ -114,10 +114,22 @@
                                 <p><strong>Full Scan</strong> - Reloads all videos (may update metadata)</p>
                                 <p class="has-text-grey is-size-7">Slower - re-processes all files, may update titles/descriptions</p>
                             </div>
+                            <hr>
+                            <p class="mb-4"><strong>Targeted Scans</strong> - Scan and clean a specific media type:</p>
+                            <div class="content">
+                                <p><strong>Re-scan TV Shows</strong> - Scans all video files, prunes missing episodes, finds new ones</p>
+                                <p class="has-text-grey is-size-7">Removes DB entries for episodes whose files no longer exist</p>
+                            </div>
+                            <div class="content mt-4">
+                                <p><strong>Re-scan Movies</strong> - Scans all video files, prunes missing movies, finds new ones</p>
+                                <p class="has-text-grey is-size-7">Checks file existence - removes missing, adds newly detected movies</p>
+                            </div>
                         </section>
-                        <footer class="modal-card-foot">
+                        <footer class="modal-card-foot" style="flex-wrap: wrap; gap: 0.5rem;">
                             <button class="button is-info" onclick="window.scanVideos('update')">Update Scan</button>
                             <button class="button is-warning" onclick="window.scanVideos('full')">Full Scan</button>
+                            <button class="button is-success" onclick="window.scanTvShows()">Re-scan TV Shows</button>
+                            <button class="button is-danger" onclick="window.scanMovies()">Re-scan Movies</button>
                             <button class="button" onclick="window.closeScanVideoDialog()">Cancel</button>
                         </footer>
                     </div>
@@ -146,6 +158,42 @@
                     if(window.showToast) window.showToast(`Video ${mode} scan started`, "success");
                 } else {
                     if(window.showToast) window.showToast("Failed to start scan", "error");
+                }
+            } catch (e) {
+                if(window.showToast) window.showToast("Error: " + e.message, "error");
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        },
+
+        scanTvShows: async function() {
+            JMedia.Settings.closeScanVideoDialog();
+            const btn = document.getElementById('scanVideoLibrary');
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch('/api/video/scan/tvshows', {method: "POST"});
+                if (res.ok) {
+                    if(window.showToast) window.showToast("TV shows scan started - pruning missing, finding new", "success");
+                } else {
+                    if(window.showToast) window.showToast("Failed to start TV shows scan", "error");
+                }
+            } catch (e) {
+                if(window.showToast) window.showToast("Error: " + e.message, "error");
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        },
+
+        scanMovies: async function() {
+            JMedia.Settings.closeScanVideoDialog();
+            const btn = document.getElementById('scanVideoLibrary');
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch('/api/video/scan/movies', {method: "POST"});
+                if (res.ok) {
+                    if(window.showToast) window.showToast("Movies scan started - pruning missing, finding new", "success");
+                } else {
+                    if(window.showToast) window.showToast("Failed to start movies scan", "error");
                 }
             } catch (e) {
                 if(window.showToast) window.showToast("Error: " + e.message, "error");
@@ -410,6 +458,19 @@
                     if (targetEl) targetEl.classList.add('is-active');
 
                     console.log('[Settings] Tab clicked:', target);
+
+                    if (window.Breadcrumbs) {
+                        var tabNames = {
+                            'library-management': 'Library', 'import-installation': 'Import Setup',
+                            'playlist-creator': 'Playlists', 'logs': 'Logs',
+                            'user-management': 'Users', 'session-management': 'Sessions',
+                            'ai-subtitle-generator': 'AI Subtitles', 'sync-configuration': 'Sync'
+                        };
+                        window.Breadcrumbs.set([
+                            { label: 'Settings', navigate: function() { window.app.navigate('/settings'); } },
+                            tabNames[target] || target
+                        ]);
+                    }
 
                     if (target === 'import-installation') JMedia.Settings.loadInstallationStatus();
                     if (target === 'user-management' && window.loadUsers) window.loadUsers();
@@ -799,6 +860,8 @@
     window.showScanVideoDialog = JMedia.Settings.showScanVideoDialog;
     window.closeScanVideoDialog = JMedia.Settings.closeScanVideoDialog;
     window.scanVideos = JMedia.Settings.scanVideos;
+    window.scanTvShows = JMedia.Settings.scanTvShows;
+    window.scanMovies = JMedia.Settings.scanMovies;
     window.reloadMetadata = JMedia.Settings.reloadMetadata;
     window.fixAlbums = JMedia.Settings.fixAlbums;
     window.writeMetadata = JMedia.Settings.writeMetadata;

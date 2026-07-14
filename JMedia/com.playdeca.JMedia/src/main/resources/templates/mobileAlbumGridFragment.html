@@ -8,7 +8,7 @@
     {#for a in albums}
     <div class="mobile-album-card" style="--i: {a_index};" data-album-name="{a.name}" onclick="window.showAlbumPage(this.dataset.albumName)">
         <div class="mobile-album-artwork">
-            <img src="/api/music/stream/artwork/{a.firstSongId}" loading="lazy" alt="{a.name}" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+            <img src="/api/music/stream/artwork/{a.firstSongId}" loading="lazy" alt="{a.name}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">
         </div>
         <div class="mobile-album-name">{a.name}</div>
         <div class="mobile-album-artist">{a.artist ?: "Unknown Artist"}</div>
@@ -21,7 +21,7 @@
          hx-get="/api/music/ui/mobile-albums-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
          hx-trigger="intersect once"
          hx-swap="outerHTML">
-        <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+        <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
     </div>
     {#else}
     <div class="scroll-end">— end —</div>

@@ -5,8 +5,31 @@
 
     JMedia.MusicIndex = {};
 
-    // Pre-existing bug in legacy code: updateNavBackBtn was never defined anywhere
-    window.updateNavBackBtn = window.updateNavBackBtn || function(){};
+    function _bcMusicHome() { window.loadMobilePlaylistSongs(0); }
+    window._musicBreadcrumb = [{ label: 'Music', navigate: _bcMusicHome }];
+    window.updateNavBackBtn = function() {
+        if (!window.Breadcrumbs) return;
+        window.Breadcrumbs.set(window._musicBreadcrumb);
+    };
+    function musicBreadcrumbReset() {
+        window._musicBreadcrumb = [{ label: 'Music', navigate: _bcMusicHome }];
+        if (window.Breadcrumbs) window.Breadcrumbs.set(window._musicBreadcrumb);
+    }
+    function musicBreadcrumbPush(label, navigate) {
+        if (!window.Breadcrumbs) return;
+        var last = window._musicBreadcrumb[window._musicBreadcrumb.length - 1];
+        if (last && last.label === label) return;
+        window._musicBreadcrumb.push({
+            label: label,
+            navigate: typeof navigate === 'function' ? navigate : undefined
+        });
+        window.Breadcrumbs.set(window._musicBreadcrumb);
+    }
+    function musicBreadcrumbPop() {
+        if (!window.Breadcrumbs) return;
+        if (window._musicBreadcrumb.length > 1) window._musicBreadcrumb.pop();
+        window.Breadcrumbs.set(window._musicBreadcrumb);
+    }
 
     JMedia.MusicIndex.loadPlaylists = function() {
         const profileId = JMedia.Helpers.getActiveProfileId();
@@ -214,6 +237,22 @@
 
         const profileId = JMedia.Helpers.getActiveProfileId();
         if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/mobile-tbody/${profileId}/${id}`, { target: '#mobileSongList', swap: 'innerHTML' });
+
+        if (window.Breadcrumbs) {
+            if (id === 0) {
+                window._musicBreadcrumb = [{ label: 'Music', navigate: _bcMusicHome }];
+                window.Breadcrumbs.set(window._musicBreadcrumb);
+            } else {
+                (function(pid) {
+                    var name = document.getElementById('nav-playlist-' + pid)?.querySelector('span')?.textContent || 'Playlist';
+                    window._musicBreadcrumb = [
+                        { label: 'Music', navigate: _bcMusicHome },
+                        { label: name, navigate: function() { window.loadMobilePlaylistSongs(pid); } }
+                    ];
+                    window.Breadcrumbs.set(window._musicBreadcrumb);
+                })(id);
+            }
+        }
     };
 
     window.switchToTab = function(tab) {
@@ -246,6 +285,16 @@
             targetEl.classList.remove('is-hidden');
             const profileId = JMedia.Helpers.getActiveProfileId();
             if (window.htmx) window.htmx.ajax('GET', `/api/music/ui/${endpoint}/${profileId}`, { target: `#${targetId}`, swap: 'innerHTML' });
+        }
+        if (window.Breadcrumbs) {
+            (function(t) {
+                var label = { albums: 'Albums', genres: 'Genres', playlists: 'Playlists', queue: 'Queue' }[t] || 'History';
+                window._musicBreadcrumb = [
+                    { label: 'Music', navigate: _bcMusicHome },
+                    { label: label, navigate: function() { window.switchToTab(t); } }
+                ];
+                window.Breadcrumbs.set(window._musicBreadcrumb);
+            })(tab);
         }
         updateNavBackBtn();
     };
@@ -387,6 +436,7 @@
                 target: '#mobileSongList', swap: 'innerHTML'
             });
         }
+        musicBreadcrumbPush('Now Playing', function() { window.showMobileSongList(); });
     };
 
     window.loadGenreSongs = function(genre) {
@@ -410,6 +460,7 @@
                 });
             }
         }
+        (function(g) { musicBreadcrumbPush(g || 'Genre', function() { window.loadGenreSongs(g); }); })(genre);
     };
 
     window.showMobileGenreGrid = function() {
@@ -428,6 +479,7 @@
         if (window.htmx) {
             window.htmx.ajax('GET', url, { target: '#mobileSongList', swap: 'innerHTML' });
         }
+        musicBreadcrumbPop();
     };
 
     window.playSongFromDetail = function(songId) {
@@ -476,6 +528,7 @@
                 target: '#mobileSongList', swap: 'innerHTML'
             });
         }
+        (function(a) { musicBreadcrumbPush(a, function() { window.showArtistPage(a); }); })(artistName);
     };
 
     window.showAlbumPage = function(albumName) {
@@ -497,6 +550,7 @@
                 target: '#mobileSongList', swap: 'innerHTML'
             });
         }
+        (function(a) { musicBreadcrumbPush(a, function() { window.showAlbumPage(a); }); })(albumName);
     };
 
     window.playAlbum = function(firstSongId) {

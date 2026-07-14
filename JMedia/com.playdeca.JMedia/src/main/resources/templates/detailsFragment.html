@@ -16,9 +16,11 @@
     
     <!-- Poster Section -->
     <div class="poster-section">
-        <img class="poster-image" 
+        <img class="poster-image is-skeleton" 
              src="/api/video/thumbnail/{item.id}" 
-             alt="{item.title ?: item.seriesTitle ?: 'Video'}">
+             alt="{item.title ?: item.seriesTitle ?: 'Video'}"
+             onload="this.classList.remove('is-skeleton')"
+             onerror="this.classList.remove('is-skeleton')">
         <div class="play-button" onclick="window.selectItem({item.id}, 'play')">
             <i class="pi pi-play"></i>
         </div>

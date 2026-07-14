@@ -2,7 +2,7 @@
 <div class="mobile-playlist-card" style="--i: {p_index};" onclick="loadMobilePlaylistSongs({p.id})">
     <div class="mobile-playlist-artwork">
         {#if p.firstSongId}
-        <img src="/api/music/stream/artwork/{p.firstSongId}" loading="lazy" alt="{p.name}" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''">
+        <img src="/api/music/stream/artwork/{p.firstSongId}" loading="lazy" alt="{p.name}" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.onerror=null; this.src='/logo.png'; this.alt=''; this.classList.remove('is-skeleton')">
         {#else}
         <i class="pi pi-list"></i>
         {/if}
@@ -16,7 +16,7 @@
      hx-get="/api/music/ui/mobile-playlists-more/{profileId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}"
      hx-trigger="intersect once"
      hx-swap="outerHTML">
-    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+    <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
 </div>
 {#else}
 <div class="scroll-end">— end —</div>

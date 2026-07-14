@@ -36,7 +36,7 @@
 
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
-        var streamUrl = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4';
+        var streamUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
 
         var profileId = localStorage.getItem('activeProfileId') || '1';
         var volumeKey = 'jmedia_video_volume_' + profileId;
@@ -322,12 +322,11 @@
                     videoAttr: { 'crossorigin': 'anonymous' }
                 };
 
-                /* Register @oplayer/ui for native controls */
-                if (typeof OUI !== 'undefined') {
-                    if (settingsToggleBtn) settingsToggleBtn.style.display = 'none';
+                    /* Register @oplayer/ui for native controls */
+                    if (typeof OUI !== 'undefined') {
+                        if (settingsToggleBtn) settingsToggleBtn.style.display = 'none';
 
-                    player = OPlayer.make('#' + oplayerContainer.id, oplayerOptions)
-                        .use([OUI({
+                        var oPlugins = [OUI({
                             icons: {
                                 next: '<svg style="transform:scale(0.7)" viewBox="0 0 1024 1024"><path d="M743.36 427.52L173.76 119.04A96 96 0 0 0 32 203.52v616.96a96 96 0 0 0 141.76 84.48l569.6-308.48a96 96 0 0 0 0-168.96zM960 96a32 32 0 0 0-32 32v768a32 32 0 0 0 64 0V128a32 32 0 0 0-32-32z"/></svg>',
                                 previous: '<svg style="transform:scale(0.7)" viewBox="0 0 1024 1024"><g transform="translate(1024,0) scale(-1,1)"><path d="M743.36 427.52L173.76 119.04A96 96 0 0 0 32 203.52v616.96a96 96 0 0 0 141.76 84.48l569.6-308.48a96 96 0 0 0 0-168.96zM960 96a32 32 0 0 0-32 32v768a32 32 0 0 0 64 0V128a32 32 0 0 0-32-32z"/></g></svg>'
@@ -432,8 +431,19 @@
                                     }
                                 }
                             ]
-                        })])
-                        .create();
+                        })];
+
+                        if (typeof OHls !== 'undefined') {
+                            var hlsLibUrl = 'https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js';
+                            oPlugins.push(OHls({ library: hlsLibUrl }));
+                            console.log('[OPlayerAdapter] HLS plugin registered');
+                        } else {
+                            console.warn('[OPlayerAdapter] @oplayer/hls not loaded — HLS streams may not play');
+                        }
+
+                        player = OPlayer.make('#' + oplayerContainer.id, oplayerOptions)
+                            .use(oPlugins)
+                            .create();
 
                     /* Expose OPlayer instance globally for subtitle API integration */
                     window.__oplayerPlayer = player;
@@ -497,6 +507,7 @@
                          * grid sprite sheets. We implement our own pixel-based approach
                          * matching the working simple-player storyboard logic.          */
                         (function() {
+                            if (container.dataset.type === 'live') return;
                             var sbUrl = '/api/video/storyboard/' + encodeURIComponent(videoId);
                             var metaUrl = sbUrl + '/metadata';
                             var sbMeta = null;
@@ -593,6 +604,22 @@
             }
         }
 
+        /* ---------- Stream status reporting for live channels ---------- */
+        var _liveChannelId = container.dataset.liveChannelId;
+        var _statusReported = false;
+
+        function _reportStreamStatus(status) {
+            if (_statusReported || !_liveChannelId) return;
+            _statusReported = true;
+            fetch('/api/video/m3u/channels/' + _liveChannelId + '/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: status })
+            }).catch(function(err) {
+                console.warn('[OPlayerAdapter] Failed to report stream status:', err);
+            });
+        }
+
         /* ---------- Suppress transient MEDIA_ERR_SRC_NOT_SUPPORTED ---------- */
         /* fMP4 streaming sends a 2-byte probe response ([0,0]) before real
            data is available.  Safari fires MEDIA_ERR_SRC_NOT_SUPPORTED (code 4)
@@ -615,6 +642,7 @@
 
             video.addEventListener('play', function() {
                 PlayerUtils?.requestWakeLock?.();
+                _reportStreamStatus('working');
             });
 
             video.addEventListener('pause', function() {
@@ -625,6 +653,7 @@
                 /* MEDIA_ERR_SRC_NOT_SUPPORTED is suppressed at the container
                    level above.  If we get here it is a real error. */
                 PlayerUtils?.releaseWakeLock?.();
+                _reportStreamStatus('dead');
             });
 
             video.addEventListener('ended', function() {

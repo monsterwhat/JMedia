@@ -1,333 +1,121 @@
 package API.Rest;
 
-import API.ApiResponse;
-import Controllers.PlaybackController;
-import Models.Playlist;
-import Models.Profile;
-import Models.Song;
-import Models.DTOs.TextPlaylistRequest;
-import Models.DTOs.TextPlaylistResponse;
-import Services.PlaylistService;
-import Services.ProfileService;
-import Services.SongService;
+import Models.LiveChannel;
+import Models.User;
+import Services.AuthService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
-import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
+import jakarta.ws.rs.core.UriInfo;
+
 import java.util.List;
-import java.util.Map;
-import java.util.Arrays;
+import java.util.Optional;
 
-@Path("/api/music/playlists")
-@Consumes(MediaType.APPLICATION_JSON)
-@Produces(MediaType.APPLICATION_JSON)
-public class PlaylistAPI {
+@Path("/get.php")
+public class PlaylistApi {
 
     @Inject
-    private PlaybackController playbackController;
-    
-    @Inject
-    private PlaylistService playlistService;
-    
-    @Inject
-    private ProfileService profileService;
-    
-    @Inject private SongService songService;
+    AuthService authService;
+
+    @Context
+    UriInfo uriInfo;
 
     @GET
-    @Path("/{profileId}")
-    public Response listPlaylists(@PathParam("profileId") Long profileId) { 
-        try {
-            List<Playlist> playlists = getPlaylistsByProfileId(profileId);
-            if (playlists == null) {
-                playlists = new ArrayList<>();
-            }
-            return Response.ok(ApiResponse.success(playlists)).build();
-        } catch (Exception e) {
-            System.err.println("[ERROR] Error fetching playlists: " + e.getMessage()); 
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error fetching playlists: " + e.getMessage())).build();
+    public Response generatePlaylist(
+            @QueryParam("username") String username,
+            @QueryParam("password") String password,
+            @QueryParam("type") String type,
+            @QueryParam("output") String output) {
+
+        Optional<User> userOpt = authService.authenticate(username, password);
+        if (userOpt.isEmpty()) {
+            return Response.status(Response.Status.FORBIDDEN).build();
         }
+
+        String playlistType = (type != null && !type.isBlank()) ? type : "m3u";
+        String outputFormat = (output != null && !output.isBlank()) ? output : "m3u8";
+
+        List<LiveChannel> channels = LiveChannel.listAll();
+
+        String playlist = buildPlaylist(channels, username, password, playlistType, outputFormat);
+
+        String fileName = "m3u_plus".equals(playlistType) ? "playlist.m3u8" : "playlist.m3u";
+        String contentType = "m3u_plus".equals(playlistType)
+                ? "application/vnd.apple.mpegurl"
+                : "audio/x-mpegurl";
+
+        return Response.ok(playlist, contentType)
+                .header("Content-Disposition", "attachment; filename=\"" + fileName + "\"")
+                .build();
     }
 
-    @GET
-    @Path("/{id}")
-    public Response getPlaylist(@PathParam("id") Long id) {
-        try {
-            Playlist playlist = playlistService.findByIdRegardlessOfHidden(id);
-            if (playlist == null) {
-                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
+    private String buildPlaylist(List<LiveChannel> channels, String username, String password,
+                                 String type, String outputFormat) {
+        StringBuilder sb = new StringBuilder();
+        String epgUrl = getExternalBaseUri() + "xmltv.php?username=" + urlEncode(username) + "&password=" + urlEncode(password);
+        sb.append("#EXTM3U x-tvg-url=\"").append(epgUrl).append("\"\n");
+
+        boolean isM3uPlus = "m3u_plus".equals(type);
+
+        for (LiveChannel ch : channels) {
+            if ("dead".equals(ch.streamStatus)) continue;
+            String displayName = ch.name != null ? ch.name : "Unknown";
+            String tvgId = ch.tvgId != null ? ch.tvgId : "";
+            String tvgName = ch.tvgName != null ? ch.tvgName : displayName;
+            String logoUrl = ch.logoUrl != null ? ch.logoUrl : "";
+            String groupTitle = ch.groupTitle != null ? ch.groupTitle : "Uncategorized";
+
+            sb.append("#EXTINF:-1");
+            sb.append(" tvg-id=\"").append(escapeAttribute(tvgId)).append("\"");
+            sb.append(" tvg-name=\"").append(escapeAttribute(tvgName)).append("\"");
+            sb.append(" tvg-logo=\"").append(escapeAttribute(logoUrl)).append("\"");
+
+            if (isM3uPlus && ch.channelNumber != null) {
+                sb.append(" tvg-chno=\"").append(ch.channelNumber).append("\"");
             }
-            return Response.ok(ApiResponse.success(playlist)).build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error fetching playlist: " + e.getMessage())).build();
+
+            sb.append(" group-title=\"").append(escapeAttribute(groupTitle)).append("\"");
+            sb.append(",").append(escapeDisplayName(displayName));
+            sb.append("\n");
+
+            sb.append("/live/").append(username).append("/").append(password);
+            sb.append("/").append(ch.id).append(".").append(outputFormat);
+            sb.append("\n");
         }
+
+        return sb.toString();
     }
 
-    @POST
-    @Path("/")
-    public Response createPlaylist(Playlist playlist) {
-        try {
-            if (playlist == null || playlist.getName() == null || playlist.getName().isBlank()) {
-                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Name required")).build();
-            }
-            if (playlist.getSongs() == null) {
-                playlist.setSongs(new ArrayList<>());
-            }
-            playbackController.createPlaylist(playlist);
-            return Response.status(Response.Status.CREATED).entity(ApiResponse.success(playlist)).build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error creating playlist: " + e.getMessage())).build();
-        }
+    private String escapeAttribute(String value) {
+        return value.replace("&", "&amp;")
+                    .replace("\"", "&quot;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;");
     }
 
-    @PUT
-    @Path("/{id}")
-    public Response updatePlaylist(@PathParam("id") Long id, Playlist playlist) {
-        try {
-            Playlist existingPlaylist = playlistService.find(id);
-            if (existingPlaylist == null) {
-                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
-            }
-            existingPlaylist.setName(playlist.getName());
-            existingPlaylist.setDescription(playlist.getDescription());
-            existingPlaylist.setSongs(playlist.getSongs() != null ? playlist.getSongs() : new ArrayList<>());
-            playlistService.save(existingPlaylist);
-            return Response.ok(ApiResponse.success(existingPlaylist)).build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error updating playlist: " + e.getMessage())).build();
-        }
+    private String escapeDisplayName(String value) {
+        return value.replace("&", "&amp;")
+                    .replace(",", "&#44;")
+                    .replace("\n", " ")
+                    .replace("\r", "");
     }
 
-    @DELETE
-    @Path("/{id}")
-    @Consumes(MediaType.WILDCARD)
-    public Response deletePlaylist(@PathParam("id") Long id) {
-        try {
-            Playlist playlist = playlistService.find(id);
-            if (playlist == null) {
-                return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Playlist not found")).build();
-            }
-            
-            List<Profile> allProfiles = profileService.findAll();
-            for (Profile profile : allProfiles) {
-                if (profile.isPlaylistHidden(id)) {
-                    profile.removeHiddenPlaylist(id);
-                    profile.persist();
-                }
-            }
-            
-            playbackController.deletePlaylist(playlist);
-            return Response.ok(ApiResponse.success("deleted"))
-                    .header("HX-Trigger", "delete-playlist")
-                    .build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error deleting playlist: " + e.getMessage())).build();
+    private String getExternalBaseUri() {
+        if (uriInfo.getBaseUri().getHost().equals("localhost")
+                || uriInfo.getBaseUri().getHost().equals("127.0.0.1")) {
+            return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost")
+                    + ":" + uriInfo.getBaseUri().getPort() + "/";
         }
+        return uriInfo.getBaseUri().toString();
     }
 
-    @POST
-    @Path("/{playlistId}/songs/{songId}/{profileId}")
-    public Response addSongToPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid, @PathParam("profileId") Long profileId) {
+    private String urlEncode(String value) {
+        if (value == null) return "";
         try {
-            Playlist p = playlistService.find(pid);
-            Song s = songService.find(sid);
-            if (p.getSongs().stream().noneMatch(song -> song.id.equals(sid))) {
-                p.getSongs().add(s);
-            }
-            playlistService.save(p);
-            return Response.ok(ApiResponse.success(p)).build();
+            return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error adding song to playlist: " + e.getMessage())).build();
+            return value;
         }
-    }
-
-    @DELETE
-    @Path("/{playlistId}/songs/{songId}")
-    @Consumes(MediaType.WILDCARD)
-    public Response removeSongFromPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid) {
-        try {
-            Playlist p = playlistService.find(pid);
-            p.getSongs().removeIf(song -> song.id.equals(sid));
-            playlistService.save(p);
-            return Response.ok().build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error removing song from playlist: " + e.getMessage())).build();
-        }
-    }
-
-    @POST
-    @Path("/{playlistId}/songs/{songId}/toggle/{profileId}")
-    @Consumes(MediaType.WILDCARD)
-    public Response toggleSongInPlaylist(@PathParam("playlistId") Long pid, @PathParam("songId") Long sid, @PathParam("profileId") Long profileId) {
-        try {
-            Playlist p = playlistService.find(pid);
-            Song s = songService.find(sid);
-            
-            boolean songExistsInPlaylist = p.getSongs().stream().anyMatch(song -> song.id.equals(sid));
-            
-            if (songExistsInPlaylist) {
-                p.getSongs().removeIf(song -> song.id.equals(sid));
-            } else {
-                p.getSongs().add(s);
-            }
-            playlistService.save(p);
-            return Response.ok().build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error toggling song in playlist: " + e.getMessage())).build();
-        }
-    }
-
-    @POST
-    @Path("/{playlistId}/toggle-shared")
-    @Consumes(MediaType.APPLICATION_JSON)
-    public Response togglePlaylistShared(@PathParam("playlistId") Long playlistId, Map<String, Object> request) {
-        try {
-            Boolean isShared = (Boolean) request.get("isShared");
-            Playlist playlist = playlistService.find(playlistId);
-            if (playlist != null) {
-                playlist.setIsGlobal(isShared);
-                playlistService.save(playlist);
-                return Response.ok(ApiResponse.success("Playlist shared status updated"))
-                        .header("HX-Trigger", "playlist-list-refresh")
-                        .build();
-            } else {
-                return Response.status(Response.Status.NOT_FOUND)
-                        .entity(ApiResponse.error("Playlist not found"))
-                        .build();
-            }
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Error updating playlist: " + e.getMessage()))
-                    .build();
-        }
-    }
-
-    @POST
-    @Path("/create-from-text/{profileId}")
-    public Response createPlaylistFromText(@PathParam("profileId") Long profileId, TextPlaylistRequest request) {
-        try {
-            if (request == null || request.getPlaylistName() == null || request.getPlaylistName().isBlank()) {
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("Playlist name is required"))
-                        .build();
-            }
-
-            if (request.getTextLines() == null || request.getTextLines().isEmpty()) {
-                return Response.status(Response.Status.BAD_REQUEST)
-                        .entity(ApiResponse.error("Text lines are required"))
-                        .build();
-            }
-
-            Profile profile = profileService.findById(profileId);
-            if (profile == null) {
-                return Response.status(Response.Status.NOT_FOUND)
-                        .entity(ApiResponse.error("Profile not found"))
-                        .build();
-            }
-
-            // Create new playlist
-            Playlist playlist = new Playlist();
-            playlist.setName(request.getPlaylistName());
-            playlist.setDescription(request.getDescription());
-            playlist.setProfile(profile);
-            playlist.setIsGlobal(false); // User-specific playlist
-            playlist.setSongs(new ArrayList<>());
-
-            List<String> unmatchedLines = new ArrayList<>();
-            int matchedSongs = 0;
-
-            // Process each line to find songs
-            for (String line : request.getTextLines()) {
-                if (line == null || line.trim().isBlank()) {
-                    continue;
-                }
-
-                String trimmedLine = line.trim();
-                Song foundSong = null;
-
-                // Try different parsing strategies
-                if (trimmedLine.contains(",")) {
-                    // Format: "Song Name, Album, Artist" or "Song Name, Artist"
-                    String[] parts = trimmedLine.split(",", -1);
-                    if (parts.length >= 2) {
-                        String songName = parts[0].trim();
-                        String artist = parts[parts.length - 1].trim(); // Last part is usually artist
-                        foundSong = songService.findByTitleAndArtist(songName, artist);
-                    }
-                } else if (trimmedLine.contains(" - ")) {
-                    // Format: "Song Name - Artist" or "Artist - Song Name"
-                    String[] parts = trimmedLine.split(" - ", -1);
-                    if (parts.length == 2) {
-                        String part1 = parts[0].trim();
-                        String part2 = parts[1].trim();
-                        
-                        // Try both orders
-                        foundSong = songService.findByTitleAndArtist(part1, part2);
-                        if (foundSong == null) {
-                            foundSong = songService.findByTitleAndArtist(part2, part1);
-                        }
-                    }
-                } else {
-                    // Just search by title or artist
-                    foundSong = songService.findByTitleAndArtist(trimmedLine, "");
-                    if (foundSong == null) {
-                        foundSong = songService.findByTitleAndArtist("", trimmedLine);
-                    }
-                }
-
-                if (foundSong != null) {
-                    // Check if song already in playlist to avoid duplicates
-                    final var finalFoundSong = foundSong;
-                    boolean alreadyInPlaylist = playlist.getSongs().stream()
-                            .anyMatch(song -> song.id.equals(finalFoundSong.id));
-                    if (!alreadyInPlaylist) {
-                        playlist.getSongs().add(foundSong);
-                        matchedSongs++;
-                    }
-                } else {
-                    unmatchedLines.add(trimmedLine);
-                }
-            }
-
-            // Save the playlist
-            playlistService.save(playlist);
-
-            // Create response
-            TextPlaylistResponse response = new TextPlaylistResponse();
-            response.setPlaylist(playlist);
-            response.setTotalLines(request.getTextLines().size());
-            response.setMatchedSongs(matchedSongs);
-            response.setUnmatchedLines(unmatchedLines);
-            
-            if (matchedSongs > 0) {
-                response.setMessage(String.format("Playlist '%s' created with %d songs out of %d lines", 
-                    playlist.getName(), matchedSongs, request.getTextLines().size()));
-            } else {
-                response.setMessage(String.format("No matching songs found for playlist '%s'", playlist.getName()));
-            }
-
-            return Response.ok(ApiResponse.success(response)).build();
-
-        } catch (Exception e) {
-            System.err.println("[ERROR] Error creating playlist from text: " + e.getMessage());
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(ApiResponse.error("Error creating playlist from text: " + e.getMessage()))
-                    .build();
-        }
-    }
-
-    private List<Playlist> getPlaylistsByProfileId(Long profileId) {
-        if (profileId == null) {
-            return new java.util.ArrayList<>();
-        }
-
-        Profile profile = profileService.findById(profileId);
-        if (profile == null) {
-            return new java.util.ArrayList<>();
-        }
-
-        // Return playlists for this profile (user's playlists + global playlists)
-        return playlistService.findAllForProfile(profile);
     }
 }

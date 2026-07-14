@@ -24,11 +24,16 @@
                     <tbody hx-get="/api/music/ui/tbody/{profileId}/0?search={searchQuery}"
                            hx-trigger="load"
                            hx-swap="innerHTML"
-                           hx-indicator="#loadingRow">
-                        <tr id="loadingRow" class="htmx-indicator">
-                            <td colspan="6" class="has-text-centered py-4">
-                                <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
-                                <p>Loading songs...</p>
+                           hx-indicator="#loadingRows">
+                        <tr id="loadingRows" class="htmx-indicator">
+                            <td colspan="6" style="padding: 0;">
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <tr><td class="is-skeleton" style="height: 3rem; width: 40px;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem; width: 120px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td></tr>
+                                    <tr><td class="is-skeleton" style="height: 3rem; width: 40px;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem; width: 120px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td></tr>
+                                    <tr><td class="is-skeleton" style="height: 3rem; width: 40px;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem; width: 120px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td></tr>
+                                    <tr><td class="is-skeleton" style="height: 3rem; width: 40px;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem; width: 120px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td></tr>
+                                    <tr><td class="is-skeleton" style="height: 3rem; width: 40px;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem;"></td><td class="is-skeleton" style="height: 3rem; width: 120px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td><td class="is-skeleton" style="height: 3rem; width: 80px;"></td></tr>
+                                </table>
                             </td>
                         </tr>
                     </tbody>

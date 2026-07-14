@@ -144,6 +144,22 @@ public class PlaybackAPI {
     }
 
     @POST
+    @Path("/shuffle-set/{profileId}/{mode}")
+    public Response setShuffle(@PathParam("profileId") Long profileId, @PathParam("mode") String mode, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        try {
+            PlaybackState.ShuffleMode shuffleMode = PlaybackState.ShuffleMode.valueOf(mode.toUpperCase());
+            playbackController.setShuffle(userProfile.id, shuffleMode);
+            return Response.ok(ApiResponse.success("Shuffle mode set to " + shuffleMode)).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("Invalid shuffle mode: " + mode))
+                    .build();
+        }
+    }
+
+    @POST
     @Path("/dj-mode/{profileId}")
     public Response toggleDjMode(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);

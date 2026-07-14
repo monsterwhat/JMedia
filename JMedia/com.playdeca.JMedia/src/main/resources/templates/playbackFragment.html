@@ -3,6 +3,7 @@
 
 {#if defaultPlayer == 'simple'}
 {#include subtitleSettingsComponent}{/include}
+{#include audioTrackSelector}{/include}
 <div class="player-container paused" id="customPlayer"
       data-video-id="{item.id}"
       data-title="{item.title ?: item.seriesTitle}"
@@ -41,7 +42,7 @@
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/StateManager.js"></script>
 <script src="/js/player/StreamManager.js"></script>
-<script src="/js/player/UIBuilder.js?v=4"></script>
+<script src="/js/player/UIBuilder.js?v=5"></script>
 <script src="/js/player/ControlsManager.js"></script>
 <script src="/js/player/FullscreenManager.js"></script>
 <script src="/js/player/SubtitleController.js"></script>
@@ -223,6 +224,8 @@
 {#else}
 <script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@oplayer/hls@latest/dist/index.min.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/oplayer-adapter.js?v=4"></script>
 <script src="/js/test-player-common.js"></script>
@@ -265,7 +268,7 @@
           {#if item.mediaType == 'external'}
           <div class="underplayer-card-gradient">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
           {#else}
-          <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'; this.classList.remove('is-skeleton')">
           <div class="underplayer-card-gradient" style="display:none">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
           {/if}
           {#if item.isCurrent}
@@ -336,7 +339,7 @@
     <div class="underplayer-movie-layout">
       {#if item.id}
       <div class="underplayer-movie-poster">
-        <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy">
+        <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
       </div>
       {/if}
       <div class="underplayer-movie-info">

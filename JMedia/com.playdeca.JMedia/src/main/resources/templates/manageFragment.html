@@ -40,7 +40,7 @@
                  style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden; cursor: pointer;">
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
-                    <img src="/api/video/thumbnail/{show.representativeId}" style="width: 100%; height: 100%; object-fit: cover;">
+                    <img src="/api/video/thumbnail/{show.representativeId}" class="is-skeleton" style="width: 100%; height: 100%; object-fit: cover;" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--standard-accent); border: 1px solid var(--standard-accent);">
                         SHOW
                     </div>
@@ -66,7 +66,7 @@
                  style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; height: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden;">
                 
                 <div class="card-image-wrapper" style="position: relative; aspect-ratio: 16/9; overflow: hidden;">
-                    <img src="/api/video/thumbnail/{video.id}" style="width: 100%; height: 100%; object-fit: cover;">
+                    <img src="/api/video/thumbnail/{video.id}" class="is-skeleton" style="width: 100%; height: 100%; object-fit: cover;" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                     <div class="card-type-badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; color: var(--standard-accent); border: 1px solid var(--standard-accent);">
                         {video.type.toUpperCase()}
                     </div>
@@ -122,8 +122,17 @@
             <button class="delete" aria-label="close" onclick="closeEditModal()"></button>
         </header>
         <section class="modal-card-body" id="editModalBody">
-            <div class="is-flex is-justify-content-center p-6">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem; color: var(--standard-accent);"></i>
+            <div class="p-4">
+                <div class="skeleton-lines mb-4" style="width: 120px;"><div></div></div>
+                <div class="skeleton-block is-skeleton mb-4" style="height: 2.5em;"></div>
+                <div class="skeleton-lines mb-4" style="width: 80px;"><div></div></div>
+                <div class="skeleton-block is-skeleton mb-4" style="height: 2.5em;"></div>
+                <div class="skeleton-lines mb-4" style="width: 100px;"><div></div></div>
+                <div class="skeleton-block is-skeleton mb-4" style="height: 2.5em;"></div>
+                <div class="is-flex" style="gap: 0.75rem;">
+                    <div class="skeleton-block is-skeleton" style="height: 2.5em; width: 100px;"></div>
+                    <div class="skeleton-block is-skeleton" style="height: 2.5em; width: 100px;"></div>
+                </div>
             </div>
         </section>
     </div>

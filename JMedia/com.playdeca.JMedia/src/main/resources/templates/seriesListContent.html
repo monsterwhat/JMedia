@@ -69,7 +69,7 @@
                      onclick="window.switchSection('seasons', \{encodedTitle: '{entry.encodedTitle}'\})">
                     <div class="standard-card-poster">
                         {#if entry.sampleVideoId}
-                            <img class="poster-img" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy">
+                            <img class="poster-img is-skeleton" src="/api/video/thumbnail/{entry.sampleVideoId}" alt="{entry.rawTitle}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
                         {#else}
                             <div class="carousel-empty-state" style="height: 100%; padding: 1rem;">
                                 <i class="pi pi-image"></i>
@@ -94,7 +94,7 @@
                  hx-get="/api/video/ui/shows-fragment-more?page={nextPage}&limit={limit}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}{#if search}&search={search}{/if}"
                  hx-trigger="intersect once"
                  hx-swap="outerHTML">
-                <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+                <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
             </div>
             {#else}
             <div class="scroll-end">— end —</div>

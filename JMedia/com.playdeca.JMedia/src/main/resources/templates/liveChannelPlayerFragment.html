@@ -1,0 +1,155 @@
+<link rel="stylesheet" href="/css/player.css"/>
+<link rel="stylesheet" href="/css/subtitle-styling.css"/>
+
+{#if defaultPlayer == 'simple'}
+<div class="player-container paused" id="customPlayer"
+      data-live-channel-id="{channelId}"
+      data-title="{channelName}"
+      data-external-url="{streamUrl}"
+      data-type="live"
+      data-start-time="0">
+    <div class="video-wrapper">
+        <video id="videoElement" crossorigin="anonymous" playsinline autoplay></video>
+    </div>
+</div>
+
+<script src="/js/player/Utils.js?v=3"></script>
+<script src="/js/player/StateManager.js"></script>
+<script src="/js/player/StreamManager.js"></script>
+<script src="/js/player/UIBuilder.js?v=5"></script>
+<script src="/js/player/ControlsManager.js"></script>
+<script src="/js/player/FullscreenManager.js"></script>
+<script src="/js/player/EventBinder.js?v=4"></script>
+<script src="/js/player/KeyboardShortcuts.js"></script>
+<script src="/js/player/SkipController.js"></script>
+<script src="/js/player/ProgressReporter.js"></script>
+<script src="/js/player/NavigationManager.js"></script>
+<script src="/js/simple-player.js"></script>
+<script>
+    (function() {
+        console.log("[Playback] Initializing SimplePlayer for live channel...");
+        var tryInit = function() {
+            if (window.SimplePlayer) {
+                new window.SimplePlayer({
+                    containerId: 'customPlayer',
+                    videoId: 'videoElement',
+                    currentVideoId: 'live-{channelId}'
+                });
+            } else {
+                setTimeout(tryInit, 50);
+            }
+        };
+        tryInit();
+    })();
+</script>
+{#else}
+<div class="player-container" id="customPlayer"
+      data-live-channel-id="{channelId}"
+      data-title="{channelName}"
+      data-external-url="{streamUrl}"
+      data-type="live"
+      data-start-time="0">
+
+    <div class="video-wrapper">
+        {#if defaultPlayer == 'oplayer'}
+        <div id="oplayerContainer" class="oplayer-wrapper"></div>
+        {#else}
+        <video id="videoElement" class="video-js vjs-default-skin" crossorigin="anonymous" playsinline autoplay></video>
+        {/if}
+    </div>
+
+    <!-- Back button -->
+    <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;">
+        <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
+    </div>
+
+    <!-- Settings toggle button -->
+    <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings" style="position:absolute;top:15px;right:15px;z-index:1000;background:rgba(0,0,0,0.6);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);font-size:1.2rem;">
+        <i class="pi pi-cog"></i>
+    </button>
+
+    <!-- Settings/Subtitle menu -->
+    <div class="subtitle-menu settings-menu" id="subtitleMenu">
+        <div class="settings-page active" data-page="main">
+            <div class="menu-header">Settings</div>
+            <div class="settings-item" data-page="player">
+                <span>Video Player</span>
+                <i class="pi pi-chevron-right"></i>
+            </div>
+        </div>
+        <div class="settings-page" data-page="player">
+            <div class="settings-back"><i class="pi pi-chevron-left"></i> Video Player</div>
+            <div class="quality-options" id="playerOptions">
+                <button class="quality-btn player-option" data-player="simple"{#if defaultPlayer == 'simple'} style="border-color:#48c774;color:#48c774;"{/if}>JMedia Player</button>
+                <button class="quality-btn player-option" data-player="videojs"{#if defaultPlayer == 'videojs'} style="border-color:#48c774;color:#48c774;"{/if}>Video.js</button>
+                <button class="quality-btn player-option" data-player="oplayer"{#if defaultPlayer == 'oplayer'} style="border-color:#48c774;color:#48c774;"{/if}>OPlayer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{#if defaultPlayer == 'videojs'}
+<link href="https://vjs.zencdn.net/8.17.4/video-js.css" rel="stylesheet">
+<script src="https://vjs.zencdn.net/8.17.4/video.min.js"></script>
+<script src="/js/player/Utils.js?v=3"></script>
+<script src="/js/player/videojs-adapter.js?v=4"></script>
+<script src="/js/test-player-common.js"></script>
+<script>
+    (function() {
+        console.log("[Playback] Initializing Video.js for live channel...");
+        var videoId = '{channelId}';
+        var tryInit = function() {
+            if (window.videojs && window.initVideoJsAdapter) {
+                initVideoJsAdapter(videoId);
+            } else {
+                setTimeout(tryInit, 50);
+            }
+        };
+        tryInit();
+    })();
+</script>
+{#else}
+<script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@oplayer/hls@latest/dist/index.min.js"></script>
+<script src="/js/player/Utils.js?v=3"></script>
+<script src="/js/player/oplayer-adapter.js?v=4"></script>
+<script src="/js/test-player-common.js"></script>
+<script>
+    (function() {
+        console.log("[Playback] Initializing OPlayer for live channel...");
+        var videoId = '{channelId}';
+        var tryInit = function() {
+            if (window.OPlayer && window.initOPlayerAdapter) {
+                initOPlayerAdapter(videoId);
+            } else {
+                setTimeout(tryInit, 50);
+            }
+        };
+        tryInit();
+    })();
+</script>
+{/if}
+{/if}
+
+<!-- Channel info section -->
+<div class="underplayer-info-section">
+    <div class="underplayer-info-block">
+        <div class="underplayer-movie-layout">
+            {#if logoUrl}
+            <div class="underplayer-movie-poster">
+                <img src="{logoUrl}" alt="{channelName}" loading="lazy" onerror="this.style.display='none'">
+            </div>
+            {/if}
+            <div class="underplayer-movie-info">
+                <h2>{channelName}</h2>
+                <div class="info-meta-row">
+                    {#if groupTitle}<span>{groupTitle}</span>{/if}
+                    {#if country}<span>{country}</span>{/if}
+                    <span class="live-badge" style="background:#48c774;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">LIVE</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

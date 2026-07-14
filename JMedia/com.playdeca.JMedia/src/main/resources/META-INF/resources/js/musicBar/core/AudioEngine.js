@@ -228,7 +228,7 @@
             const nextPlayer = this.getInactivePlayer();
             const url = `/api/music/stream/${profileId}/${songId}`;
             
-            if (nextPlayer.src.indexOf(url) === -1) {
+            if (!nextPlayer.src.endsWith(url)) {
                 window.Helpers.log('AudioEngine: Preloading ' + songId + ' at ' + startTime + 's');
                 
                 // Track when preload is ready via canplay event
@@ -265,14 +265,15 @@
         },
 
         crossfadeTo: function(songId, entryTime, duration) {
-            if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
-            
             const currentPlayer = this.getActivePlayer();
             const nextPlayer = this.getInactivePlayer();
             const currentGain = this.getActiveGain();
             const nextGain = this.getInactiveGain();
             const fadeTime = duration || 8;
-            const now = this.ctx ? this.ctx.currentTime : 0;
+            
+            // Swap active player immediately so getActivePlayer() returns the
+            // fading-in player during the crossfade (Bug D fix)
+            this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
             
             // Get profile ID - must have a valid one
             let profileId = null;
@@ -300,6 +301,13 @@
                 return;
             }
             
+            // Guard against re-entrant crossfade (Bug E fix)
+            if (this._isCrossfading) {
+                console.log('[AudioEngine crossfadeTo] Crossfade already in progress, ignoring re-entry');
+                return;
+            }
+            this._isCrossfading = true;
+            
             // Mark current player as DJ-transitioned so its onended doesn't trigger auto-next
             // This prevents the old song's natural end from skipping to next after crossfade
             currentPlayer._djTransitioned = true;
@@ -307,7 +315,7 @@
             // ENSURE the next player has the correct source if not already preloaded
             if (songId) {
                 const url = `/api/music/stream/${profileId}/${songId}`;
-                if (nextPlayer.src.indexOf(url) === -1) {
+                if (!nextPlayer.src.endsWith(url)) {
                     window.Helpers.log('AudioEngine: Loading ' + songId + ' during crossfade');
                     nextPlayer.src = url;
                 }
@@ -347,170 +355,197 @@
             // CRITICAL: The combined volume must NEVER exceed targetVolume
             // Both players must start at 0 to guarantee this, otherwise currentVol (which can be
             // higher than user's current targetVolume) causes momentary volume spike
-            if (this.ctx) {
-                const now = this.ctx.currentTime;
-                
-                // CRITICAL: Also reset the HTML5 audio element volumes to prevent them from
-                // contributing independently to the output
-                console.log('[AudioEngine crossfade] BEFORE - currentPlayer.volume:', currentPlayer.volume, 'nextPlayer.volume:', nextPlayer.volume);
-                console.log('[AudioEngine crossfade] BEFORE - currentGain.gain:', currentGain.gain.value, 'nextGain.gain:', nextGain.gain.value);
-                
-                // Set element volumes - current player muted (cut), next player at targetVolume
-                // Web Audio gain nodes will fade from 0 to targetVolume during transition
-                currentPlayer.volume = 0;
-                nextPlayer.volume = targetVolume;  // Use user's actual volume level
-                
-                // Cancel any pending events
-                currentGain.gain.cancelScheduledValues(now);
-                nextGain.gain.cancelScheduledValues(now);
-                
-                // CRITICAL FIX: Start BOTH at 0, not the old currentVol
-                // This guarantees combined volume never exceeds targetVolume at any point
-                currentGain.gain.setValueAtTime(0, now);
-                nextGain.gain.setValueAtTime(0, now);
-                
-                // Fade out: 0 -> 0 (no change to fade out track)
-                // Fade in: 0 -> targetVolume
-                currentGain.gain.linearRampToValueAtTime(0, now + fadeTime);
-                nextGain.gain.linearRampToValueAtTime(targetVolume, now + fadeTime);
-                
-                console.log('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', using zero-start crossfade');
-                console.log('[AudioEngine crossfade] Schedule: currentGain 0 -> 0, nextGain 0 -> ' + targetVolume + ' over ' + fadeTime + 's');
-            } else {
-                // Fallback: HTML5 Volume Fading (Mobile/Safari)
-                // CRITICAL: Both must start at 0 to prevent volume spike
-                currentPlayer.volume = 0;
-                nextPlayer.volume = 0;
-                
-                const steps = 40;
-                const interval = (fadeTime * 1000) / steps;
-                
-                let currentStep = 0;
-                const fadeInterval = setInterval(() => {
-                    currentStep++;
+            var self = this;
+            var scheduleGainRamps = function() {
+                if (self.ctx) {
+                    const now = self.ctx.currentTime;
                     
-                    // Simple linear crossfade to targetVolume
-                    const progress = currentStep / steps;
+                    // CRITICAL: Also reset the HTML5 audio element volumes to prevent them from
+                    // contributing independently to the output
+                    console.log('[AudioEngine crossfade] BEFORE - currentPlayer.volume:', currentPlayer.volume, 'nextPlayer.volume:', nextPlayer.volume);
+                    console.log('[AudioEngine crossfade] BEFORE - currentGain.gain:', currentGain.gain.value, 'nextGain.gain:', nextGain.gain.value);
                     
-                    // Both start at 0 - old player stays at 0, new fades in to targetVolume
+                    // Set element volumes - current player muted (cut), next player at targetVolume
+                    // Web Audio gain nodes will fade from 0 to targetVolume during transition
                     currentPlayer.volume = 0;
-                    nextPlayer.volume = targetVolume * progress;
+                    nextPlayer.volume = targetVolume;  // Use user's actual volume level
                     
-                    if (currentStep >= steps) {
-                        clearInterval(fadeInterval);
-                    }
-                }, interval);
-            }
-
-            // 3. Execute play and swap
-            // Verify entry time is set correctly before playing
-            const actualTime = nextPlayer.currentTime || 0;
-            if (Math.abs(actualTime - seekTime) > 1) {
-                console.log('[AudioEngine] Correcting entry time: was', actualTime, 's, seeking to', seekTime, 's');
-                nextPlayer.currentTime = seekTime;
-            }
-            
-            nextPlayer.play().then(() => {
-                setTimeout(() => {
-                    currentPlayer.pause();
-                    currentPlayer.src = '';
+                    // Cancel any pending events
+                    currentGain.gain.cancelScheduledValues(now);
+                    nextGain.gain.cancelScheduledValues(now);
                     
-                    if (this.ctx) {
-                        // CRITICAL: Cancel any ongoing gain curves before setting new values
-                        const now = this.ctx.currentTime;
-                        currentGain.gain.cancelScheduledValues(now);
-                        currentGain.gain.setValueAtTime(0, now);
+                    // CRITICAL FIX: Start BOTH at 0, not the old currentVol
+                    // This guarantees combined volume never exceeds targetVolume at any point
+                    currentGain.gain.setValueAtTime(0, now);
+                    nextGain.gain.setValueAtTime(0, now);
+                    
+                    // Fade out: 0 -> 0 (no change to fade out track)
+                    // Fade in: 0 -> targetVolume
+                    currentGain.gain.linearRampToValueAtTime(0, now + fadeTime);
+                    nextGain.gain.linearRampToValueAtTime(targetVolume, now + fadeTime);
+                    
+                    console.log('[AudioEngine crossfade] AFTER - targetVolume=' + targetVolume + ', using zero-start crossfade');
+                    console.log('[AudioEngine crossfade] Schedule: currentGain 0 -> 0, nextGain 0 -> ' + targetVolume + ' over ' + fadeTime + 's');
+                } else {
+                    // Fallback: HTML5 Volume Fading (Mobile/Safari)
+                    // CRITICAL: Both must start at 0 to prevent volume spike
+                    currentPlayer.volume = 0;
+                    nextPlayer.volume = 0;
+                    
+                    const steps = 40;
+                    const interval = (fadeTime * 1000) / steps;
+                    
+                    let currentStep = 0;
+                    const fadeInterval = setInterval(() => {
+                        currentStep++;
                         
-                        // Also explicitly cancel nextGain curves
-                        nextGain.gain.cancelScheduledValues(now);
-                    } else {
+                        // Simple linear crossfade to targetVolume
+                        const progress = currentStep / steps;
+                        
+                        // Both start at 0 - old player stays at 0, new fades in to targetVolume
                         currentPlayer.volume = 0;
-                        nextPlayer.volume = targetVolume;
-                    }
+                        nextPlayer.volume = targetVolume * progress;
+                        
+                        if (currentStep >= steps) {
+                            clearInterval(fadeInterval);
+                        }
+                    }, interval);
+                }
+            };
 
-                    this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
-                    window.Helpers.log('AudioEngine: Crossfade finalized');
-                    
-                    const newPlayer = this.getActivePlayer();
-                    const newGain = this.getActiveGain();
-                    
-                    // Clear crossfade flag to re-enable progress bar updates
+            // Wait for the next player to be ready before starting the transition.
+            // This prevents intermittent audio when gain ramps are scheduled before
+            // the audio element has buffered enough to play (Bug A fix).
+            var startPlayback = () => {
+                // Resume AudioContext if suspended, then schedule ramps
+                // gain ramps are scheduled on the Web Audio timeline so they fire at the correct
+                // time relative to context.currentTime once the context resumes
+                if (self.ctx && self.ctx.state === 'suspended') {
+                    self.ctx.resume().then(scheduleGainRamps).catch(function() { scheduleGainRamps(); });
+                } else {
+                    scheduleGainRamps();
+                }
+
+                // 3. Execute play and swap
+                // Verify entry time is set correctly before playing
+                const actualTime = nextPlayer.currentTime || 0;
+                if (Math.abs(actualTime - seekTime) > 1) {
+                    console.log('[AudioEngine] Correcting entry time: was', actualTime, 's, seeking to', seekTime, 's');
+                    nextPlayer.currentTime = seekTime;
+                }
+                
+                nextPlayer.play().then(() => {
+                    setTimeout(() => {
+                        currentPlayer.pause();
+                        currentPlayer.src = '';
+                        
+                        if (this.ctx) {
+                            // CRITICAL: Cancel any ongoing gain curves before setting new values
+                            const now = this.ctx.currentTime;
+                            currentGain.gain.cancelScheduledValues(now);
+                            currentGain.gain.setValueAtTime(0, now);
+                            
+                            // Also explicitly cancel nextGain curves
+                            nextGain.gain.cancelScheduledValues(now);
+                        } else {
+                            currentPlayer.volume = 0;
+                            nextPlayer.volume = targetVolume;
+                        }
+
+                        window.Helpers.log('AudioEngine: Crossfade finalized');
+                        
+                        const newPlayer = this.getActivePlayer();
+                        const newGain = this.getActiveGain();
+                        
+                        // Clear crossfade flag to re-enable progress bar updates
+                        if (window.SynchronizationManager) {
+                            window.SynchronizationManager.setFlag('isCrossfading', false);
+                        }
+                        
+                        // Update DJ indicator back to active (transition complete)
+                        if (window.DjTransitionManager) {
+                            window.DjTransitionManager.transitionPrepared = false;
+                            window.DjTransitionManager.isTransitioning = false;
+                            window.DjTransitionManager.transitionData = null;
+                            // Clear the monitor timer
+                            if (window.DjTransitionManager.monitorTimer) {
+                                clearInterval(window.DjTransitionManager.monitorTimer);
+                                window.DjTransitionManager.monitorTimer = null;
+                            }
+                            window.DjTransitionManager.updateDjIndicator('complete');
+                        }
+                        
+                        // FINAL STATE UPDATE: Use seekTime (entry position), not currentTime after playing
+                        // The currentTime has been advancing during the fade, so we must use the original entry position
+                        if (window.StateManager) {
+                            window.StateManager.updateState({ 
+                                duration: newPlayer.duration || 0,
+                                currentTime: seekTime  // Use entry time, not currentTime after fade
+                            }, 'audioEngine');
+                            window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
+                        }
+                        
+                        // Apply final volume — use pending volume if user changed it during crossfade
+                        var finalVolume = targetVolume;
+                        if (this._pendingVolume !== null) {
+                            finalVolume = window.Helpers.clamp(this._pendingVolume, 0, 1);
+                            this._pendingVolume = null;
+                            window.Helpers.log('AudioEngine: Applying pending volume ' + finalVolume + ' after crossfade');
+                        }
+                        
+                        // MUST set both the gain node AND the HTML5 audio element volume
+                        if (this.ctx) {
+                            // Get current time first to cancel all future events
+                            const now = this.ctx.currentTime;
+                            
+                            // Cancel any remaining curves and set exact target value
+                            newGain.gain.cancelScheduledValues(now);
+                            newGain.gain.setValueAtTime(finalVolume, now);
+                            newGain.gain.value = finalVolume; // Force immediate value as well
+                            
+                            // Also set HTML5 element volume
+                            newPlayer.volume = finalVolume;
+                            
+                            window.Helpers.log('AudioEngine: Set gain to ' + finalVolume + ', player volume to ' + finalVolume);
+                        } else {
+                            newPlayer.volume = finalVolume;
+                        }
+                        
+                        // Also update StateManager's volume to match what we set (ensure consistency)
+                        if (window.StateManager) {
+                            window.StateManager.updateState({ volume: finalVolume }, 'audioEngine');
+                        }
+                        
+                        // Force sync the slider to the correct position
+                        if (window.TimeController) {
+                            window.TimeController.updateSliderFromState(seekTime, newPlayer.duration);
+                        }
+                        
+                        // Request state save after crossfade completes to persist any volume changes
+                        window.dispatchEvent(new CustomEvent('requestStateSave', {
+                            detail: { source: 'audioEngine', includeCurrentTime: false }
+                        }));
+                        
+                        this._isCrossfading = false;
+                    }, (fadeTime + 0.1) * 1000);
+                }).catch(e => {
+                    console.error('AudioEngine: Crossfade play failed', e);
+                    this._isCrossfading = false;
                     if (window.SynchronizationManager) {
                         window.SynchronizationManager.setFlag('isCrossfading', false);
                     }
-                    
-                    // Update DJ indicator back to active (transition complete)
-                    if (window.DjTransitionManager) {
-                        window.DjTransitionManager.transitionPrepared = false;
-                        window.DjTransitionManager.isTransitioning = false;
-                        window.DjTransitionManager.transitionData = null;
-                        // Clear the monitor timer
-                        if (window.DjTransitionManager.monitorTimer) {
-                            clearInterval(window.DjTransitionManager.monitorTimer);
-                            window.DjTransitionManager.monitorTimer = null;
-                        }
-                        window.DjTransitionManager.updateDjIndicator('complete');
-                    }
-                    
-                    // FINAL STATE UPDATE: Use seekTime (entry position), not currentTime after playing
-                    // The currentTime has been advancing during the fade, so we must use the original entry position
-                    if (window.StateManager) {
-                        window.StateManager.updateState({ 
-                            duration: newPlayer.duration || 0,
-                            currentTime: seekTime  // Use entry time, not currentTime after fade
-                        }, 'audioEngine');
-                        window.Helpers.log('AudioEngine: Final state sync complete. Duration: ' + newPlayer.duration + ', time: ' + seekTime);
-                    }
-                    
-                    // Apply final volume — use pending volume if user changed it during crossfade
-                    var finalVolume = targetVolume;
-                    if (this._pendingVolume !== null) {
-                        finalVolume = window.Helpers.clamp(this._pendingVolume, 0, 1);
-                        this._pendingVolume = null;
-                        window.Helpers.log('AudioEngine: Applying pending volume ' + finalVolume + ' after crossfade');
-                    }
-                    
-                    // MUST set both the gain node AND the HTML5 audio element volume
-                    if (this.ctx) {
-                        // Get current time first to cancel all future events
-                        const now = this.ctx.currentTime;
-                        
-                        // Cancel any remaining curves and set exact target value
-                        newGain.gain.cancelScheduledValues(now);
-                        newGain.gain.setValueAtTime(finalVolume, now);
-                        newGain.gain.value = finalVolume; // Force immediate value as well
-                        
-                        // Also set HTML5 element volume
-                        newPlayer.volume = finalVolume;
-                        
-                        window.Helpers.log('AudioEngine: Set gain to ' + finalVolume + ', player volume to ' + finalVolume);
-                    } else {
-                        newPlayer.volume = finalVolume;
-                    }
-                    
-                    // Also update StateManager's volume to match what we set (ensure consistency)
-                    if (window.StateManager) {
-                        window.StateManager.updateState({ volume: finalVolume }, 'audioEngine');
-                    }
-                    
-                    // Force sync the slider to the correct position
-                    if (window.TimeController) {
-                        window.TimeController.updateSliderFromState(seekTime, newPlayer.duration);
-                    }
-                    
-                    // Request state save after crossfade completes to persist any volume changes
-                    window.dispatchEvent(new CustomEvent('requestStateSave', {
-                        detail: { source: 'audioEngine', includeCurrentTime: false }
-                    }));
-                }, (fadeTime + 0.1) * 1000);
-            }).catch(e => {
-                console.error('AudioEngine: Crossfade play failed', e);
-                this.activePlayer = (this.activePlayer === 1 ? 2 : 1);
-                if (window.SynchronizationManager) {
-                    window.SynchronizationManager.setFlag('isCrossfading', false);
-                }
-                nextPlayer.play().catch(() => {});
-            });
+                    nextPlayer.play().catch(() => {});
+                });
+            };
+
+            if (nextPlayer.readyState >= 2) { // HAVE_CURRENT_DATA — enough buffered to play
+                startPlayback();
+            } else {
+                nextPlayer.addEventListener('canplay', function onReady() {
+                    nextPlayer.removeEventListener('canplay', onReady);
+                    startPlayback();
+                });
+            }
         },
 
         setVolume: function(volume, source = 'unknown') {
@@ -696,11 +731,25 @@
                 const inactivePlayer = this.getInactivePlayer();
                 const targetUrl = this.getStreamUrl(currentSong.id);
                 
-                if ((activePlayer && activePlayer.src.indexOf(targetUrl) !== -1) ||
-                    (inactivePlayer && inactivePlayer.src.indexOf(targetUrl) !== -1)) {
+                if ((activePlayer && activePlayer.src.endsWith(targetUrl)) ||
+                    (inactivePlayer && inactivePlayer.src.endsWith(targetUrl))) {
                     window.Helpers.log('AudioEngine: Ignoring setSource during active crossfade for song ' + currentSong.id);
                     return true;
                 }
+            }
+
+            // NON-DJ CROSSFADE: When crossfade is enabled and we're not in DJ mode,
+            // smoothly fade from current song to the new song instead of a hard cut
+            const state = window.StateManager?.getState();
+            const crossfadeDuration = state?.crossfadeDuration;
+            const isPlaying = state?.playing;
+            if (currentSong && currentSong.id && crossfadeDuration > 0 && !state?.djModeActive && isPlaying) {
+                window.Helpers.log('AudioEngine: Non-DJ crossfade triggered for song ' + currentSong.id + ' (' + crossfadeDuration + 's)');
+                // Preload the next song in the inactive player
+                this.preloadSong(currentSong.id, backendTime || 0);
+                // Initiate crossfade
+                this.crossfadeTo(currentSong.id, backendTime || 0, crossfadeDuration);
+                return true;
             }
 
             return SynchronizationManager.executeAtomic('audio', profileId, (opId) => {

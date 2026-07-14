@@ -115,6 +115,10 @@ public class VideoUiApi {
     Template subtitleTrackSelector;
     @Inject @io.quarkus.qute.Location("subtitleSettingsComponent.html")
     Template subtitleSettingsComponent;
+    @Inject @io.quarkus.qute.Location("liveChannelFragment.html")
+    Template liveChannelFragment;
+    @Inject @io.quarkus.qute.Location("liveChannelPlayerFragment.html")
+    Template liveChannelPlayerFragment;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -612,6 +616,21 @@ public class VideoUiApi {
                 seasonProgress.put(entry.seasonNumber(), new SeasonProgress(watched, total));
             }
 
+            // Build series metadata from first episode (scalar fields only; lazy Hibernate collections need a service method)
+            Map<String, Object> seriesInfo = new LinkedHashMap<>();
+            if (sampleVideo != null) {
+                seriesInfo.put("overview", sampleVideo.overview != null ? sampleVideo.overview : (sampleVideo.description != null ? sampleVideo.description : ""));
+                seriesInfo.put("releaseYear", sampleVideo.releaseYear);
+                seriesInfo.put("runtimeMins", sampleVideo.runtimeMins);
+                seriesInfo.put("mpaaRating", sampleVideo.mpaaRating != null ? sampleVideo.mpaaRating : "");
+                seriesInfo.put("imdbRating", sampleVideo.imdbRating);
+                seriesInfo.put("tmdbRating", sampleVideo.tmdbRating);
+                seriesInfo.put("metacriticRating", sampleVideo.metacriticRating);
+                seriesInfo.put("awards", sampleVideo.awards != null ? sampleVideo.awards : "");
+            }
+            seriesInfo.put("seriesTitle", decodedTitle);
+            seriesInfo.put("totalSeasons", seasons.size());
+
             return seasonListContent
                     .data("seriesTitle", decodedTitle)
                     .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
@@ -619,6 +638,7 @@ public class VideoUiApi {
                     .data("seasonProgress", seasonProgress)
                     .data("sampleVideo", sampleVideo)
                     .data("lastPlayedVideo", lastPlayedVideo)
+                    .data("seriesInfo", seriesInfo)
                     .render();
         } catch (Exception e) {
             LOG.error("Error rendering seasons fragment for show {}: {}", seriesTitle, e.getMessage(), e);
@@ -967,6 +987,13 @@ public class VideoUiApi {
                 .data("hasMore", hasMore)
                 .data("search", search)
                 .render();
+    }
+
+    @GET
+    @Path("/live-tv-fragment")
+    @Blocking
+    public String getLiveTvFragment() {
+        return liveChannelFragment.render();
     }
 
     @GET
@@ -1440,7 +1467,48 @@ public class VideoUiApi {
         if (parts.length == 1) return parts[0].substring(0, Math.min(2, parts[0].length())).toUpperCase();
         return (parts[0].charAt(0) + "" + parts[parts.length - 1].charAt(0)).toUpperCase();
     }
-    
+    // ==================== LIVE CHANNEL PLAYBACK ====================
+
+    @GET
+    @Path("/live-channel-playback-fragment")
+    @Blocking
+    public String getLiveChannelPlaybackFragment(@QueryParam("channelId") Long channelId) {
+        if (channelId == null) {
+            return "<div class='notification is-warning'>No channel specified</div>";
+        }
+
+        Models.LiveChannel channel = Models.LiveChannel.findById(channelId);
+        if (channel == null) {
+            return "<div class='notification is-warning'>Channel not found</div>";
+        }
+
+        String streamUrl = channel.streamUrl;
+        if (streamUrl == null || streamUrl.isBlank()) {
+            return "<div class='notification is-danger'>Channel has no stream URL</div>";
+        }
+        String proxyUrl = "/api/video/external/proxy/stream?url=" + java.net.URLEncoder.encode(streamUrl, java.nio.charset.StandardCharsets.UTF_8);
+
+        String defaultPlayer = "simple";
+        try {
+            Models.Settings settings = settingsService.getOrCreateSettings();
+            if (settings.getDefaultPlayer() != null && !settings.getDefaultPlayer().isBlank()) {
+                defaultPlayer = settings.getDefaultPlayer();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to resolve default player, using simple: " + e.getMessage());
+        }
+
+        return liveChannelPlayerFragment
+                .data("channelId", channel.id)
+                .data("channelName", channel.name != null ? channel.name : "Live Channel")
+                .data("streamUrl", proxyUrl)
+                .data("logoUrl", channel.logoUrl != null ? channel.logoUrl : "")
+                .data("groupTitle", channel.groupTitle != null ? channel.groupTitle : "")
+                .data("country", channel.country != null ? channel.country : "")
+                .data("defaultPlayer", defaultPlayer)
+                .render();
+    }
+
     private String formatDateTime(java.time.LocalDateTime dt) {
         if (dt == null) return "";
         java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a");

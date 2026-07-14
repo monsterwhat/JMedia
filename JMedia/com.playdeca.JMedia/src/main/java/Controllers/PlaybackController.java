@@ -792,6 +792,50 @@ public class PlaybackController {
     }
 
     /**
+     * Directly sets shuffle mode (not a toggle).
+     * Used by the frontend to restore Smart Shuffle on page reload.
+     */
+    public synchronized void setShuffle(Long profileId, PlaybackState.ShuffleMode mode) {
+        PlaybackState state = getState(profileId);
+        PlaybackState.ShuffleMode currentMode = state.getShuffleMode();
+        if (currentMode == null) {
+            currentMode = PlaybackState.ShuffleMode.OFF;
+        }
+
+        if (currentMode == mode) {
+            // Already in the desired mode — still broadcast to ensure client sync
+            updateState(profileId, state, true);
+            return;
+        }
+
+        // Clear any stale DJ transition plan before reorganizing the queue
+        clearDjTransitionPlan(state);
+
+        switch (mode) {
+            case SHUFFLE:
+                playbackQueueController.initShuffle(state, profileId);
+                break;
+            case SMART_SHUFFLE:
+                playbackQueueController.initSmartShuffle(state, profileId);
+                break;
+            case OFF:
+            default:
+                playbackQueueController.clearShuffle(state, profileId);
+                break;
+        }
+
+        state.setShuffleMode(mode);
+
+        // Re-plan DJ transition for the reorganized queue if DJ mode is active
+        if (Boolean.TRUE.equals(state.getDjModeActive())) {
+            planNextDjTransition(state, profileId);
+        }
+
+        currentSettings.addLog("Shuffle mode set to: " + mode);
+        updateState(profileId, state, true);
+    }
+
+    /**
      * Cycles through shuffle modes: OFF, SHUFFLE, SMART_SHUFFLE
      */
     public synchronized void toggleShuffle(Long profileId) {

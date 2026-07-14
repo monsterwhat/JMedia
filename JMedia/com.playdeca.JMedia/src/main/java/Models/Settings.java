@@ -90,6 +90,8 @@ public class Settings extends PanacheEntity {
     private Boolean syncVideoEnabled = false;
     private Boolean syncTimelinesEnabled = false;
     private Boolean syncPlaylistsEnabled = false;
+    private Boolean syncSubtitlesEnabled = false;
+    private Integer syncItemLimit = 0; // 0 = no limit
 
     private String defaultPlayer = "oplayer";
 
@@ -498,12 +500,28 @@ public class Settings extends PanacheEntity {
         this.syncPlaylistsEnabled = syncPlaylistsEnabled;
     }
 
+    public Boolean getSyncSubtitlesEnabled() {
+        return syncSubtitlesEnabled != null ? syncSubtitlesEnabled : false;
+    }
+
+    public void setSyncSubtitlesEnabled(Boolean syncSubtitlesEnabled) {
+        this.syncSubtitlesEnabled = syncSubtitlesEnabled;
+    }
+
     public String getSyncApiKey() {
         return syncApiKey;
     }
 
     public void setSyncApiKey(String syncApiKey) {
         this.syncApiKey = syncApiKey;
+    }
+
+    public Integer getSyncItemLimit() {
+        return syncItemLimit != null ? syncItemLimit : 0;
+    }
+
+    public void setSyncItemLimit(Integer syncItemLimit) {
+        this.syncItemLimit = syncItemLimit;
     }
 
     public String getTmdbApiKey() {

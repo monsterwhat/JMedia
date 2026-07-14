@@ -90,9 +90,10 @@ public class CollectionApi {
     @Path("/{id}")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response updateCollection(@Context HttpHeaders headers,
-                                     @PathParam("id") Long id,
-                                     @FormParam("name") String name,
-                                     @FormParam("description") String description) {
+                                      @PathParam("id") Long id,
+                                      @FormParam("name") String name,
+                                      @FormParam("description") String description,
+                                      @FormParam("coverVideoId") Long coverVideoId) {
         boolean isAdmin = checkAdmin(headers);
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
@@ -101,7 +102,10 @@ public class CollectionApi {
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
-        var updated = collectionService.update(id, name, description);
+        if (coverVideoId != null && !isAdmin)
+            return Response.status(403).entity(ApiResponse.error("Only admins can change cover image")).build();
+
+        var updated = collectionService.update(id, name, description, coverVideoId);
         if (updated == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
         return Response.ok(ApiResponse.success(updated)).build();
     }

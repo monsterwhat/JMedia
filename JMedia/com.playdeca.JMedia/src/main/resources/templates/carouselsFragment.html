@@ -64,9 +64,11 @@
         <div class="carousel" id="newReleasesCarousel">
             {#for item in newReleases}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
-                <img class="card-image" 
+                <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
-                     alt="{item.title ?: item.seriesTitle}">
+                     alt="{item.title ?: item.seriesTitle}"
+                     onload="this.classList.remove('is-skeleton')"
+                     onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
                 </div>
@@ -107,9 +109,11 @@
         <div class="carousel" id="continueWatchingCarousel">
             {#for item in continueWatching}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
-                <img class="card-image" 
+                <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
-                     alt="{item.title ?: item.seriesTitle}">
+                     alt="{item.title ?: item.seriesTitle}"
+                     onload="this.classList.remove('is-skeleton')"
+                     onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
                 </div>
@@ -153,9 +157,11 @@
         <div class="carousel" id="trendingCarousel">
             {#for item in trending}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
-                <img class="card-image" 
+                <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
-                     alt="{item.title ?: item.seriesTitle}">
+                     alt="{item.title ?: item.seriesTitle}"
+                     onload="this.classList.remove('is-skeleton')"
+                     onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
                 </div>
@@ -196,9 +202,11 @@
         <div class="carousel" id="moviesCarousel">
             {#for item in movies}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
-                <img class="card-image" 
+                <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
-                     alt="{item.title}">
+                     alt="{item.title}"
+                     onload="this.classList.remove('is-skeleton')"
+                     onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
                 </div>
@@ -239,9 +247,11 @@
         <div class="carousel" id="tvShowsCarousel">
             {#for item in tvShows}
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'details')">
-                <img class="card-image" 
+                <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
-                     alt="{item.seriesTitle}">
+                     alt="{item.seriesTitle}"
+                     onload="this.classList.remove('is-skeleton')"
+                     onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
                     <i class="pi pi-play"></i>
                 </div>

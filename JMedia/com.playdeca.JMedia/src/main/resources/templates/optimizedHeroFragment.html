@@ -2,11 +2,11 @@
 {#if featured != null && featured.size > 0}
 <div class="standard-spotlight">
     <!-- Blurred Background -->
-    <img class="spotlight-bg" src="/api/video/thumbnail/{featured[0].id}" alt="">
+    <img class="spotlight-bg is-skeleton" src="/api/video/thumbnail/{featured[0].id}" alt="" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
     
     <div class="spotlight-content">
         <!-- Prominent Poster -->
-        <img class="spotlight-poster" src="/api/video/thumbnail/{featured[0].id}" alt="{featured[0].title ?: featured[0].seriesTitle}">
+        <img class="spotlight-poster is-skeleton" src="/api/video/thumbnail/{featured[0].id}" alt="{featured[0].title ?: featured[0].seriesTitle}" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
         
         <div class="spotlight-info">
             <div class="spotlight-badge">FEATURED</div>

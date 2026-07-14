@@ -187,6 +187,71 @@
 /* Enhanced responsive behavior */
 @media (min-width: 768px) {
     .mobile-main {
-        height: calc(100vh - 140px); /* Adjust for desktop layout */
+        height: calc(100vh - 140px);
     }
 }
+
+:root {
+    --bulma-skeleton-background: var(--bulma-border);
+    --bulma-skeleton-radius: var(--bulma-radius-small, 4px);
+    --bulma-skeleton-block-min-height: 4.5em;
+    --bulma-skeleton-lines-gap: 0.75em;
+    --bulma-skeleton-line-height: 0.75em;
+}
+
+[data-theme="dark"] {
+    --bulma-skeleton-background: rgba(255, 255, 255, 0.06);
+}
+
+.is-skeleton,
+.skeleton-block,
+.skeleton-lines > div,
+.has-skeleton:after {
+    background-size: 200% 100% !important;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite !important;
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.scroll-loader {
+    display: block;
+    width: 100%;
+    padding: 1rem;
+}
+
+.skeleton-scroll-loader {
+    display: block;
+    height: 3rem;
+    border-radius: var(--bulma-skeleton-radius);
+    background: var(--bulma-skeleton-background);
+    background-size: 200% 100% !important;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite !important;
+    margin: 0 auto;
+    max-width: 200px;
+}
+
+.skeleton-shell {
+    position: relative;
+    width: 100%;
+}
+
+.skeleton-shell.is-loaded {
+    animation: skeleton-fadeout 0.3s ease-out forwards;
+}
+
+@keyframes skeleton-fadeout {
+    to { opacity: 0; pointer-events: none; }
+}
+
+.skeleton-carousel-row {
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.skeleton-carousel-row .skeleton-lines {
+    margin-bottom: 1rem;
+}
+

@@ -65,7 +65,13 @@
                     console.error('[SimplePlayer] Failed to fetch raw subtitle:', res.status);
                     return;
                 }
-                const content = await res.text();
+                let content = await res.text();
+
+                // Apply user's saved style preferences (font, size, color) to ASS content
+                const savedStyle = JSON.parse(localStorage.getItem('jmedia_subtitle_style') || '{}');
+                if (savedStyle.size || savedStyle.color || savedStyle.font) {
+                    content = this.applyStyleToAssContent(content, savedStyle);
+                }
 
                 let canvas = document.getElementById('assCanvas');
                 if (!canvas) {
@@ -95,8 +101,40 @@
                 });
 
                 console.log('[SimplePlayer] JASSUB renderer initialized');
+                p.lastSelectedTrackId = trackId;
             } catch (e) {
                 console.error('[SimplePlayer] ASS subtitle init failed:', e);
+            }
+        }
+
+        hexToAssColor(hex) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return '&H00' +
+                b.toString(16).padStart(2, '0').toUpperCase() +
+                g.toString(16).padStart(2, '0').toUpperCase() +
+                r.toString(16).padStart(2, '0').toUpperCase();
+        }
+
+        applyStyleToAssContent(content, style) {
+            const fontSize = style.size || 20;
+            const colorHex = style.color || '#ffffff';
+            const assColor = this.hexToAssColor(colorHex);
+            const fontName = (style.font || "'Segoe UI'").replace(/['"]/g, '').split(',')[0].trim();
+
+            return content.replace(/^(Style:\s*[^,]*),([^,]*),([^,]*),([^,]*),/gm,
+                (match, prefix, oldFont, oldSize, oldColor) => {
+                    return `${prefix},${fontName},${fontSize},${assColor},`;
+                }
+            );
+        }
+
+        reapplyAssStyles() {
+            const p = this.player;
+            if (p && p.jassubRenderer && p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off') {
+                console.log('[SimplePlayer] Reapplying ASS subtitle styles');
+                this.initAssSubtitle(p.lastSelectedTrackId);
             }
         }
 
@@ -174,77 +212,82 @@
                                 }
 
                                 if (t.id !== 'off') {
-                                    const track = document.createElement('track');
-                                    track.kind = 'subtitles';
+                                    const isAss = t.format === 'ass' || t.format === 'ssa';
+                                    if (isAss) {
+                                        this.initAssSubtitle(t.id);
+                                    } else {
+                                        const track = document.createElement('track');
+                                        track.kind = 'subtitles';
 
-                                    const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
+                                        const correction = localStorage.getItem('jmedia_subtitle_correction') || 0;
 
-                                    const startOffset = p.streamStartOffset || 0;
-                                    let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
-                                    if (parseFloat(correction) !== 0) {
-                                        src += `&correction=${correction}`;
-                                    }
-
-                                    track.src = src;
-                                    track.srclang = t.language || 'en';
-                                    track.label = t.displayName || 'Subtitle';
-                                    track.default = true;
-                                    track.id = 'subtitle-track-' + t.id;
-                                    p.video.appendChild(track);
-
-                                    const setupTrack = () => {
-                                        const tracksArr = Array.from(p.video.textTracks || []);
-                                        console.log('[SimplePlayer] Available textTracks:', tracksArr.map(tr => ({ label: tr.label, mode: tr.mode, kind: tr.kind })));
-
-                                        let textTrack = tracksArr.find(tr => tr.label === (t.displayName || 'Subtitle'));
-
-                                        if (!textTrack) {
-                                            textTrack = tracksArr.find(tr => tr.kind === 'subtitles' && tr.mode !== 'disabled');
+                                        const startOffset = p.streamStartOffset || 0;
+                                        let src = `/api/video/subtitles/track/${t.id}?start=${startOffset}`;
+                                        if (parseFloat(correction) !== 0) {
+                                            src += `&correction=${correction}`;
                                         }
 
-                                        if (textTrack) {
-                                            console.log('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
-                                            textTrack.mode = 'showing';
+                                        track.src = src;
+                                        track.srclang = t.language || 'en';
+                                        track.label = t.displayName || 'Subtitle';
+                                        track.default = true;
+                                        track.id = 'subtitle-track-' + t.id;
+                                        p.video.appendChild(track);
 
-                                            const updateFF = () => {
-                                                if (window.subtitleManager && /Firefox/i.test(navigator.userAgent)) {
-                                                    const activeCues = textTrack.activeCues;
-                                                    const overlay = document.getElementById('firefox-subtitle-overlay');
-                                                    if (overlay) {
-                                                        if (activeCues && activeCues.length > 0) {
-                                                            overlay.innerHTML = Array.from(activeCues).map(c => c.text).join('\n');
-                                                            overlay.classList.add('active');
-                                                        } else {
-                                                            overlay.classList.remove('active');
+                                        const setupTrack = () => {
+                                            const tracksArr = Array.from(p.video.textTracks || []);
+                                            console.log('[SimplePlayer] Available textTracks:', tracksArr.map(tr => ({ label: tr.label, mode: tr.mode, kind: tr.kind })));
+
+                                            let textTrack = tracksArr.find(tr => tr.label === (t.displayName || 'Subtitle'));
+
+                                            if (!textTrack) {
+                                                textTrack = tracksArr.find(tr => tr.kind === 'subtitles' && tr.mode !== 'disabled');
+                                            }
+
+                                            if (textTrack) {
+                                                console.log('[SimplePlayer] Setting textTrack to showing:', textTrack.label);
+                                                textTrack.mode = 'showing';
+
+                                                const updateFF = () => {
+                                                    if (window.subtitleManager && /Firefox/i.test(navigator.userAgent)) {
+                                                        const activeCues = textTrack.activeCues;
+                                                        const overlay = document.getElementById('firefox-subtitle-overlay');
+                                                        if (overlay) {
+                                                            if (activeCues && activeCues.length > 0) {
+                                                                overlay.innerHTML = Array.from(activeCues).map(c => c.text).join('\n');
+                                                                overlay.classList.add('active');
+                                                            } else {
+                                                                overlay.classList.remove('active');
+                                                            }
                                                         }
                                                     }
-                                                }
-                                            };
+                                                };
 
-                                            textTrack.oncuechange = (e) => {
+                                                textTrack.oncuechange = (e) => {
+                                                    updateFF();
+                                                    if (textTrack.activeCues && textTrack.activeCues.length > 0) {
+                                                        console.log('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
+                                                    }
+                                                };
+
                                                 updateFF();
-                                                if (textTrack.activeCues && textTrack.activeCues.length > 0) {
-                                                    console.log('[SimplePlayer] Active cues:', Array.from(textTrack.activeCues).map(c => c.text));
-                                                }
-                                            };
+                                            } else {
+                                                console.log('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracksArr.length);
+                                                setTimeout(setupTrack, 200);
+                                            }
+                                        };
 
-                                            updateFF();
-                                        } else {
-                                            console.log('[SimplePlayer] TextTrack not found yet, retrying... Available:', tracksArr.length);
-                                            setTimeout(setupTrack, 200);
-                                        }
-                                    };
+                                        track.addEventListener('load', () => {
+                                            console.log('[SimplePlayer] Track element loaded');
+                                            setTimeout(setupTrack, 100);
+                                        });
 
-                                    track.addEventListener('load', () => {
-                                        console.log('[SimplePlayer] Track element loaded');
-                                        setTimeout(setupTrack, 100);
-                                    });
+                                        track.addEventListener('error', (err) => {
+                                            console.error('[SimplePlayer] Track load error:', err);
+                                        });
 
-                                    track.addEventListener('error', (err) => {
-                                        console.error('[SimplePlayer] Track load error:', err);
-                                    });
-
-                                    setTimeout(setupTrack, 500);
+                                        setTimeout(setupTrack, 500);
+                                    }
                                 } else {
                                     console.log('[SimplePlayer] Subtitles turned OFF');
                                 }
@@ -325,6 +368,13 @@
             if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off' && window.subtitleManager) {
                 setTimeout(() => window.subtitleManager.applyGlobalStyle(window.subtitleManager.getStyle()), 300);
             }
+        }
+    };
+
+    window.reapplyAssSubtitleStyles = function() {
+        const p = window.currentPlayerInstance;
+        if (p && p.subtitleController && typeof p.subtitleController.reapplyAssStyles === 'function') {
+            p.subtitleController.reapplyAssStyles();
         }
     };
 })(window);

@@ -106,7 +106,8 @@ public class CollectionUiApi {
     @Path("/collections/{collectionId}/entries-fragment")
     @Blocking
     @Transactional
-    public String getCollectionEntriesFragment(@PathParam("collectionId") Long collectionId) {
+    public String getCollectionEntriesFragment(@Context HttpHeaders headers,
+                                                @PathParam("collectionId") Long collectionId) {
         var collection = collectionService.getCollection(collectionId);
         if (collection == null) {
             return "<div class='notification is-danger'>Collection not found</div>";
@@ -123,11 +124,26 @@ public class CollectionUiApi {
         }
         var organized = collectionService.organizeActiveVideos(videoEntryMap, externalVideoEntryMap);
 
+        // Hero thumbnail: use manual coverVideoId, or first video entry, or null
+        Long heroImageId = collection.coverVideoId;
+        if (heroImageId == null) {
+            for (var entry : entries) {
+                if (entry.video != null) {
+                    heroImageId = entry.video.id;
+                    break;
+                }
+            }
+        }
+
+        boolean isAdmin = checkAdmin(headers);
+
         return collectionEntriesContent
                 .data("collection", collection)
                 .data("entries", entries)
                 .data("movies", organized.get("movies"))
                 .data("seriesList", organized.get("seriesList"))
+                .data("heroImageId", heroImageId)
+                .data("isAdmin", isAdmin)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
     }

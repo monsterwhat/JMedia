@@ -10,10 +10,10 @@
             {#for entry in queue}
             <div class="video-queue-item" data-video-id="{entry.video.id}" data-queue-index="{entry.index}">
                 <div class="video-queue-thumbnail">
-                    <img src="/api/video/thumbnail/{entry.video.id}" 
+                    <img src="/api/video/thumbnail/{entry.video.id}" class="is-skeleton" 
                          alt="{entry.video.title ?: entry.video.seriesTitle}"
                          loading="lazy"
-                         onerror="this.style.display='none'">
+                         onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none'; this.classList.remove('is-skeleton')">
                     <div class="video-queue-play-btn" onclick="playVideo({entry.video.id})">
                         <i class="pi pi-play"></i>
                     </div>

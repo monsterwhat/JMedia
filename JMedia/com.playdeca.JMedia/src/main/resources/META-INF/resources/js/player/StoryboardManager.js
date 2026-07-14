@@ -8,6 +8,7 @@
 
         async loadStoryboard() {
             const p = this.player;
+            if (p.container && (p.container.dataset.type === 'live' || p.container.dataset.type === 'external')) return;
             try {
                 const res = await fetch(`/api/video/storyboard/${p.videoId}/metadata`);
                 if (res.ok) {

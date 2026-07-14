@@ -255,6 +255,9 @@ class SubtitleManager {
 
         localStorage.setItem('jmedia_subtitle_style', JSON.stringify(style));
         this.applyGlobalStyle(style);
+        if (typeof window.reapplyAssSubtitleStyles === 'function') {
+            window.reapplyAssSubtitleStyles();
+        }
         if (window.showToast) window.showToast('Style saved!', 'success');
     }
 
@@ -270,6 +273,9 @@ class SubtitleManager {
         
         localStorage.setItem('jmedia_subtitle_style', JSON.stringify(defaults));
         this.loadStyle();
+        if (typeof window.reapplyAssSubtitleStyles === 'function') {
+            window.reapplyAssSubtitleStyles();
+        }
         if (window.showToast) window.showToast('Reset to defaults', 'info');
     }
 

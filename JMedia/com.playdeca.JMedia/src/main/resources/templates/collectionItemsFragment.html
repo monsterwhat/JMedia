@@ -2,7 +2,7 @@
 <div class="standard-card" onclick="window.switchSection('collectionEntries', \{collectionId: {c.id}\})">
     <div class="standard-card-poster">
         {#if c.coverVideoId}
-            <img class="poster-img" src="/api/video/thumbnail/{c.coverVideoId}" alt="{c.name}" loading="lazy">
+            <img class="poster-img is-skeleton" src="/api/video/thumbnail/{c.coverVideoId}" alt="{c.name}" loading="lazy" onload="this.classList.remove('is-skeleton')" onerror="this.classList.remove('is-skeleton')">
         {#else}
             <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);">
                 <i class="pi pi-th-large" style="font-size:2.5rem;opacity:0.4;"></i>
@@ -34,7 +34,7 @@
      hx-get="/api/video/ui/collections-fragment-more?page={nextPage}&limit={limit}"
      hx-trigger="intersect once"
      hx-swap="outerHTML">
-    <span class="htmx-indicator scroll-loader"><i class="pi pi-spin pi-spinner"></i> Loading more...</span>
+    <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
 </div>
 {#else}
 <div class="scroll-end">— end —</div>
