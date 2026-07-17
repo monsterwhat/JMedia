@@ -19,9 +19,13 @@
         var assCanvas   = document.getElementById('assCanvas');
         var settingsToggleBtn = document.getElementById('settingsToggleBtn');
 
-        var profileId = localStorage.getItem('activeProfileId') || '1';
+        var profileId = localStorage.getItem('activeProfileId');
         var volumeKey = 'jmedia_video_volume_' + profileId;
         var muteKey = 'jmedia_video_mute_' + profileId;
+
+        var _applyingServerState = false;
+        var _destroyed = false;
+        var _wsManager = null;
 
         /* ---------- Build stream URL ---------- */
         var streamUrl = document.getElementById('customPlayer').dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
@@ -53,6 +57,9 @@
                 vjsPlayer.currentTime(savedTime);
             });
         }
+
+        /* ---------- WebSocket state sync ---------- */
+        _initWebSocket();
 
         /* ---------- Settings Menu Navigation ---------- */
         subtitleMenu.addEventListener('click', function(e) {
@@ -93,7 +100,7 @@
                     playerOpt.style.borderColor = '#48c774';
                     playerOpt.style.color = '#48c774';
                     if (window.Toast) window.Toast.info('Switching to ' + playerName + '...');
-                    var profileId = localStorage.getItem('activeProfileId') || '1';
+                    var profileId = localStorage.getItem('activeProfileId');
                     fetch('/api/settings/' + profileId + '/default-player', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -329,8 +336,112 @@
             });
         }
 
+        function _initWebSocket() {
+            if (!window.VideoWebSocketManager) return;
+            var pid = localStorage.getItem('activeProfileId');
+            if (!pid) return;
+            _wsManager = new window.VideoWebSocketManager({
+                profileId: pid,
+                onStateUpdate: function(state) {
+                    if (!state || _destroyed || !videoEl) return;
+                    _applyingServerState = true;
+                    try {
+                        // Source-reload: if server selected a different video, reinit player for the new source
+                        if (state.currentVideoId && state.currentVideoId.toString() !== videoId.toString()) {
+                            var newId = state.currentVideoId;
+                            var newUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4');
+                            videoId = newId;  // update the closure variable
+                            var newType = newUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
+                            vjsPlayer.src({ src: newUrl, type: newType });
+                            // Restore volume/mute
+                            var savedVol = Math.pow(parseFloat(localStorage.getItem(volumeKey) || '0.7'), 2);
+                            var savedMute = localStorage.getItem(muteKey) === 'true';
+                            vjsPlayer.volume(savedVol);
+                            vjsPlayer.muted(savedMute);
+                            if (state.playing) {
+                                vjsPlayer.play().catch(function() {});
+                            }
+                            return;  // still hits the finally block
+                        }
+                        if (state.playing && videoEl.paused) {
+                            videoEl.play().catch(function() {});
+                        } else if (!state.playing && !videoEl.paused) {
+                            videoEl.pause();
+                        }
+                        if (typeof state.currentTime === 'number') {
+                            var drift = Math.abs(videoEl.currentTime - state.currentTime);
+                            if (drift > 3) {
+                                videoEl.currentTime = state.currentTime;
+                            }
+                        }
+                    } finally {
+                        _applyingServerState = false;
+                    }
+                },
+                onCommand: function(msg) {
+                    if (!vjsPlayer || _destroyed) return;
+                    if (msg.type === 'select-subtitle') {
+                        var idx = msg.payload && msg.payload.index;
+                        if (idx == null) return;
+                        var maxAttempts = 25;
+                        var attempt = 0;
+                        function trySelect() {
+                            if (_destroyed) return;
+                            var tracks = vjsPlayer.textTracks();
+                            if (tracks && tracks.length > 0) {
+                                for (var i = 0; i < tracks.length; i++) {
+                                    if (i === idx) {
+                                        tracks[i].mode = 'showing';
+                                    } else {
+                                        tracks[i].mode = 'hidden';
+                                    }
+                                }
+                                return;
+                            }
+                            if (attempt < maxAttempts) {
+                                attempt++;
+                                setTimeout(trySelect, 200);
+                            }
+                        }
+                        trySelect();
+                    } else if (msg.type === 'select-audio') {
+                        var idx = msg.payload && msg.payload.index;
+                        if (idx == null) return;
+                        var maxAttempts = 25;
+                        var attempt = 0;
+                        function trySelect() {
+                            if (_destroyed) return;
+                            var audioTracks = vjsPlayer.audioTracks();
+                            if (audioTracks && audioTracks.length > 0) {
+                                for (var i = 0; i < audioTracks.length; i++) {
+                                    audioTracks[i].enabled = (i === idx);
+                                }
+                                return;
+                            }
+                            if (attempt < maxAttempts) {
+                                attempt++;
+                                setTimeout(trySelect, 200);
+                            }
+                        }
+                        trySelect();
+                    }
+                }
+            });
+            _wsManager.connect();
+        }
+
+        function _broadcastState() {
+            if (!_wsManager || !_wsManager.connected || _applyingServerState || _destroyed || !videoEl) return;
+            _wsManager.send('state', {
+                currentVideoId: videoId,
+                playing: !videoEl.paused,
+                currentTime: videoEl.currentTime || 0
+            });
+        }
+
         /* ---------- Video.js Events ---------- */
         vjsPlayer.on('play', function() {
+            _broadcastState();
             PlayerUtils?.requestWakeLock?.();
         });
 
@@ -340,6 +451,11 @@
 
         vjsPlayer.on('pause', function() {
             PlayerUtils?.releaseWakeLock?.();
+            _broadcastState();
+        });
+
+        vjsPlayer.on('timeupdate', function() {
+            _broadcastState();
         });
 
         vjsPlayer.on('ended', function() {
@@ -415,5 +531,11 @@
                 PlayerUtils?.requestWakeLock?.();
             }
         });
+
+        window.destroyVideoJsAdapter = function() {
+            _destroyed = true;
+            if (_wsManager) { _wsManager.disconnect(); _wsManager = null; }
+            if (vjsPlayer && typeof vjsPlayer.dispose === 'function') { vjsPlayer.dispose(); }
+        };
     };
 })();
