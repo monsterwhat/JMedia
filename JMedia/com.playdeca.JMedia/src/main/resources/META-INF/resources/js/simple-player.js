@@ -99,6 +99,8 @@ if (typeof window.SimplePlayer === 'undefined') {
             this._boundKeydown = (e) => this.keyboardShortcuts.handleKeydown(e);
             window.addEventListener('keydown', this._boundKeydown);
 
+            this._initWebSocket();
+
             this.externalUrl = this.container.dataset.externalUrl || null;
             this.externalOriginalUrl = this.container.dataset.externalOriginalUrl || null;
             this.externalId = this.container.dataset.externalId || null;
@@ -269,8 +271,128 @@ if (typeof window.SimplePlayer === 'undefined') {
         _syncSubtitleForNativeFullscreen() { this.subtitleController.syncForNativeFullscreen(); }
         _restoreSubtitlesAfterFullscreen() { this.subtitleController.restoreAfterFullscreen(); }
 
+        _initWebSocket() {
+            if (!window.VideoWebSocketManager) return;
+            const profileId = this.container.dataset.profileId || localStorage.getItem('activeProfileId');
+            if (!profileId) return;
+
+            this._wsManager = new window.VideoWebSocketManager({
+                profileId: profileId,
+                onStateUpdate: (state) => {
+                    if (!state || this._destroyed) return;
+                    this._applyingServerState = true;
+                    try {
+                        // Source-reload: if server selected a different video, reinit player for the new source
+                        if (state.currentVideoId && state.currentVideoId.toString() !== this.videoId.toString()) {
+                            const newId = state.currentVideoId;
+                            this.videoId = newId;
+                            this.video.src = `/api/video/stream/${encodeURIComponent(newId)}.mp4?trace=${Date.now()}`;
+                            this.video.load();
+                            // Restore volume/mute from localStorage
+                            const vol = parseFloat(localStorage.getItem('jmedia_video_volume_' + profileId) || '0.7');
+                            const mute = localStorage.getItem('jmedia_video_mute_' + profileId) === 'true';
+                            this.video.volume = vol;
+                            this.video.muted = mute;
+                            if (state.playing) {
+                                this.video.play().catch(() => {});
+                            }
+                            return;  // still hits the finally block
+                        }
+                        if (state.playing && this.video.paused) {
+                            this.video.play().catch(() => {});
+                        } else if (!state.playing && !this.video.paused) {
+                            this.video.pause();
+                        }
+                        if (typeof state.currentTime === 'number') {
+                            const drift = Math.abs(this.video.currentTime - state.currentTime);
+                            if (drift > 3) {
+                                this.video.currentTime = state.currentTime;
+                            }
+                        }
+                    } finally {
+                        this._applyingServerState = false;
+                    }
+                },
+                onCommand: (msg) => {
+                    if (this._destroyed) return;
+                    if (msg.type === 'select-subtitle') {
+                        const idx = msg.payload?.index;
+                        if (idx == null) return;
+                        const maxAttempts = 25;
+                        let attempt = 0;
+                        const trySelect = () => {
+                            if (this._destroyed) return;
+                            const options = this.container.querySelectorAll('.subtitle-option:not(#sub-off)');
+                            if (options.length > 0 && options[idx]) {
+                                options[idx].click();
+                                return;
+                            }
+                            if (attempt < maxAttempts) {
+                                attempt++;
+                                setTimeout(trySelect, 200);
+                            }
+                        };
+                        trySelect();
+                    } else if (msg.type === 'select-audio') {
+                        const idx = msg.payload?.index;
+                        if (idx == null) return;
+                        const maxAttempts = 25;
+                        let attempt = 0;
+                        const trySelect = () => {
+                            if (this._destroyed) return;
+                            const tracks = this.streamMgr?.getAudioTracks?.() || [];
+                            if (tracks.length > 0 && tracks[idx]) {
+                                this.streamMgr.setAudioTrack(tracks[idx].id);
+                                return;
+                            }
+                            if (attempt < maxAttempts) {
+                                attempt++;
+                                setTimeout(trySelect, 200);
+                            }
+                        };
+                        trySelect();
+                    }
+                }
+            });
+
+            this._wsManager.connect();
+        }
+
+        _broadcastState() {
+            if (!this._wsManager || !this._wsManager.connected || this._applyingServerState) return;
+
+            const playing = !this.video.paused;
+
+            const subtitleEls = this.container.querySelectorAll('.subtitle-option:not(#sub-off)');
+            const subtitleTracks = Array.from(subtitleEls).map(el => ({
+                id: el.getAttribute('data-id'),
+                label: el.textContent.trim()
+            }));
+            const activeSubIdx = Array.from(subtitleEls).findIndex(el => el.classList.contains('active'));
+            const audioTracks = this.streamMgr?.getAudioTracks?.() || [];
+
+            this._wsManager.send('state', {
+                currentVideo: {
+                    id: this.videoId,
+                    title: this.container.dataset.title || '',
+                    seriesTitle: this.container.dataset.seriesTitle || '',
+                    seasonNumber: parseInt(this.container.dataset.seasonNumber || '0'),
+                    episodeNumber: parseInt(this.container.dataset.episodeNumber || '0'),
+                    duration: parseFloat(this.container.dataset.duration || 0),
+                    thumbnailPath: this.videoId ? `/api/video/thumbnail/${this.videoId}` : ''
+                },
+                playing: playing,
+                currentTime: this.video.currentTime,
+                availableSubtitleTracks: subtitleTracks,
+                activeSubtitleTrackIndex: activeSubIdx >= 0 ? activeSubIdx : -1,
+                availableAudioTracks: audioTracks,
+                activeAudioTrackIndex: audioTracks.findIndex(t => t.isActive)
+            });
+        }
+
         destroy() {
             this._destroyed = true;
+            if (this._wsManager) this._wsManager.disconnect();
             this.subtitleController.destroyAssSubtitle();
             clearInterval(this._prog);
             this.progressReporter.setMusicSuspended(false);
