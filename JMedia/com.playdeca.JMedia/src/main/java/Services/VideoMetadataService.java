@@ -201,33 +201,36 @@ public class VideoMetadataService {
             return seriesImdbIdCache.get(searchTitle);
         }
         
-        try {
-            LOG.info("Searching for Show IMDb ID for: {}", searchTitle);
-            String searchUrl = String.format(IMDB_DEV_SEARCH_URL, URLEncoder.encode(searchTitle, StandardCharsets.UTF_8));
-            JsonNode searchRoot = fetchJson(searchUrl);
-            
-            if (searchRoot != null && searchRoot.path("titles").isArray()) {
-                for (JsonNode res : searchRoot.path("titles")) {
-                    String type = res.path("type").asText();
-                    
-                    // Prefer TV Series matches for episodes
-                    if ("episode".equalsIgnoreCase(video.type) && !type.toLowerCase().contains("tv")) continue;
-                    
-                    String id = res.path("id").asText();
-                    if (id != null && !id.isBlank()) {
-                        LOG.info("Matched series ID via IMDb Dev API: {} -> {}", searchTitle, id);
-                        seriesImdbIdCache.put(searchTitle, id);
+        Settings settings = settingsService.getOrCreateSettings();
+        if (Boolean.TRUE.equals(settings.getImdbDevEnabled())) {
+            try {
+                LOG.info("Searching for Show IMDb ID for: {}", searchTitle);
+                String searchUrl = String.format(IMDB_DEV_SEARCH_URL, URLEncoder.encode(searchTitle, StandardCharsets.UTF_8));
+                JsonNode searchRoot = fetchJson(searchUrl);
+                
+                if (searchRoot != null && searchRoot.path("titles").isArray()) {
+                    for (JsonNode res : searchRoot.path("titles")) {
+                        String type = res.path("type").asText();
                         
-                        // Update the series metadata if this is a series lookup
-                        if ("episode".equalsIgnoreCase(video.type)) {
-                            videoService.updateSeriesMetadata(video.seriesTitle, null, null, id);
+                        // Prefer TV Series matches for episodes
+                        if ("episode".equalsIgnoreCase(video.type) && !type.toLowerCase().contains("tv")) continue;
+                        
+                        String id = res.path("id").asText();
+                        if (id != null && !id.isBlank()) {
+                            LOG.info("Matched series ID via IMDb Dev API: {} -> {}", searchTitle, id);
+                            seriesImdbIdCache.put(searchTitle, id);
+                            
+                            // Update the series metadata if this is a series lookup
+                            if ("episode".equalsIgnoreCase(video.type)) {
+                                videoService.updateSeriesMetadata(video.seriesTitle, null, null, id);
+                            }
+                            return id;
                         }
-                        return id;
                     }
                 }
+            } catch (Exception e) {
+                LOG.warn("Failed to find series IMDb ID: {}", e.getMessage());
             }
-        } catch (Exception e) {
-            LOG.warn("Failed to find series IMDb ID: {}", e.getMessage());
         }
         
         // Final fallback: check the older API service if the new one failed
@@ -399,7 +402,8 @@ public class VideoMetadataService {
         if (seriesName == null || seriesName.isBlank() || season == null || ep == null) return;
 
         // 1. TMDB: search show → episode details
-        if (tmdbKey != null && !tmdbKey.isBlank()) {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (Boolean.TRUE.equals(settings.getTmdbEnabled()) && tmdbKey != null && !tmdbKey.isBlank()) {
             try {
                 String searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey,
                         URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
@@ -424,6 +428,7 @@ public class VideoMetadataService {
         }
 
         // 2. IMDb Dev: find show IMDb ID → fetch episode list
+        if (Boolean.TRUE.equals(settings.getImdbDevEnabled())) {
         try {
             String showImdbId = findSeriesImdbId(video);
             if (showImdbId != null && !showImdbId.isBlank()) {
@@ -452,11 +457,13 @@ public class VideoMetadataService {
         } catch (Exception e) {
             LOG.warn("IMDb Dev preview failed for {}: {}", video.id, e.getMessage());
         }
+        }
 
     }
 
     private void previewMovie(Video video, VerificationPreview preview, String tmdbKey) {
-        if (tmdbKey != null && !tmdbKey.isBlank()) {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (Boolean.TRUE.equals(settings.getTmdbEnabled()) && tmdbKey != null && !tmdbKey.isBlank()) {
             try {
                 String query = URLEncoder.encode(video.title != null ? video.title : video.filename, StandardCharsets.UTF_8);
                 String searchUrl = String.format(TMDB_SEARCH_MOVIE, tmdbKey, query);
@@ -484,6 +491,11 @@ public class VideoMetadataService {
     }
 
     private void enrichWithImdbDevMetadata(Models.Video video) {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getImdbDevEnabled())) {
+            LOG.info("IMDb Dev disabled in settings, skipping IMDb Dev enrichment");
+            return;
+        }
         try {
             // 1. Ensure we have the Series/Show IMDb ID first
             if (video.showImdbId == null || video.showImdbId.isBlank()) {
@@ -743,6 +755,11 @@ public class VideoMetadataService {
     }
 
     private void enrichWithOmdbMetadata(Models.Video video, String apiKey) {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getOmdbEnabled())) {
+            LOG.info("OMDb disabled in settings, skipping OMDb enrichment");
+            return;
+        }
         try {
             String url = (video.imdbId != null && !video.imdbId.isBlank()) ? 
                 String.format(OMDB_URL, apiKey, video.imdbId) :
@@ -768,6 +785,11 @@ public class VideoMetadataService {
     }
 
     private void enrichMovieMetadata(Video video, String apiKey) throws IOException, InterruptedException {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            LOG.info("TMDB disabled in settings, skipping movie metadata enrichment");
+            return;
+        }
         if (video.tmdbId == null) {
             String query = URLEncoder.encode(video.title, StandardCharsets.UTF_8);
             String url = String.format(TMDB_SEARCH_MOVIE, apiKey, query);
@@ -802,6 +824,11 @@ public class VideoMetadataService {
     }
 
     private void enrichEpisodeMetadata(Video video, String apiKey) throws IOException, InterruptedException {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            LOG.info("TMDB disabled in settings, skipping episode metadata enrichment");
+            return;
+        }
         String showTmdbId = null;
         if (video.seriesTitle != null) {
             String searchUrl = String.format(TMDB_SEARCH_TV, apiKey, URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
@@ -840,6 +867,8 @@ public class VideoMetadataService {
     public Optional<String> fetchPosterUrl(String type, String title, Integer year) {
         if (title == null || title.isBlank()) return Optional.empty();
         
+        Settings settings = settingsService.getOrCreateSettings();
+        if (Boolean.TRUE.equals(settings.getTmdbEnabled())) {
         String tmdbKey = getApiKey();
         if (tmdbKey != null && !tmdbKey.isBlank()) {
             try {
@@ -858,8 +887,10 @@ public class VideoMetadataService {
                 LOG.warn("TMDb artwork fetch failed for {}: {}", title, e.getMessage());
             }
         }
+        }
 
         // Fallback to TVMaze (No key required)
+        if (Boolean.TRUE.equals(settings.getTvmazeEnabled())) {
         try {
             String url = String.format(TVMAZE_SEARCH, URLEncoder.encode(title, StandardCharsets.UTF_8));
             JsonNode root = fetchJson(url);
@@ -874,6 +905,7 @@ public class VideoMetadataService {
         } catch (Exception e) {
             LOG.warn("TVMaze artwork fetch failed for {}: {}", title, e.getMessage());
         }
+        }
 
         return Optional.empty();
     }
@@ -883,6 +915,11 @@ public class VideoMetadataService {
      */
     public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber) {
         if (seriesTitle == null || seriesTitle.isBlank()) return Optional.empty();
+        
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            return Optional.empty();
+        }
         
         String tmdbKey = getApiKey();
         if (tmdbKey == null || tmdbKey.isBlank()) {

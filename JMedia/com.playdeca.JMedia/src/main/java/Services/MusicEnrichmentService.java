@@ -1,5 +1,6 @@
 package Services;
 
+import Models.Settings;
 import Models.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -44,6 +45,9 @@ public class MusicEnrichmentService {
 
     @Inject
     AlbumArtService albumArtService;
+
+    @Inject
+    SettingsService settingsService;
     
     @PersistenceContext
     EntityManager em;
@@ -86,6 +90,12 @@ public class MusicEnrichmentService {
             return;
         }
 
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getEnableMetadataEnrichment())) {
+            LOGGER.info("Metadata enrichment disabled by user settings, skipping for: {} - {}", artist, title);
+            return;
+        }
+
         boolean needsMusicBrainz = song.getMusicbrainzId() == null;
         boolean needsAcousticBrainz = song.getMusicbrainzId() != null && 
             (song.getBpm() <= 0 || (song.getGenre() == null || song.getGenre().isBlank()));
@@ -98,127 +108,143 @@ public class MusicEnrichmentService {
         }
 
         if (needsMusicBrainz) {
-            try {
-                MusicBrainzResult result = searchMusicBrainz(artist, title);
-                if (result != null) {
-                    if (result.mbid() != null) {
-                        song.setMusicbrainzId(result.mbid());
+            if (!Boolean.TRUE.equals(settings.getMusicBrainzEnabled())) {
+                LOGGER.info("MusicBrainz disabled by user settings, skipping for: {} - {}", artist, title);
+            } else {
+                try {
+                    MusicBrainzResult result = searchMusicBrainz(artist, title);
+                    if (result != null) {
+                        if (result.mbid() != null) {
+                            song.setMusicbrainzId(result.mbid());
+                        }
+                        if (result.genre() != null && !result.genre().isBlank() && 
+                            (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
+                            song.setGenre(result.genre());
+                        }
+                        song.setUpdatedAt(java.time.LocalDateTime.now());
+                        em.merge(song);
+                        LOGGER.info("Enriched song from MusicBrainz: {} - {}", artist, title);
                     }
-                    if (result.genre() != null && !result.genre().isBlank() && 
-                        (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
-                        song.setGenre(result.genre());
-                    }
-                    song.setUpdatedAt(java.time.LocalDateTime.now());
-                    em.merge(song);
-                    LOGGER.info("Enriched song from MusicBrainz: {} - {}", artist, title);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to query MusicBrainz for {} - {}", artist, title, e);
                 }
-            } catch (Exception e) {
-                LOGGER.error("Failed to query MusicBrainz for {} - {}", artist, title, e);
-            }
 
-            try {
-                Thread.sleep(MUSICBRAINZ_REQUEST_DELAY.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+                try {
+                    Thread.sleep(MUSICBRAINZ_REQUEST_DELAY.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
         }
 
         String mbid = song.getMusicbrainzId();
         if (mbid != null && (song.getBpm() <= 0 || overwriteBasicInfo)) {
-            try {
-                AcousticBrainzResult result = getAcousticBrainz(mbid);
-                if (result != null) {
-                    if (result.bpm() > 0) {
-                        song.setBpm(result.bpm());
+            if (!Boolean.TRUE.equals(settings.getAcousticBrainzEnabled())) {
+                LOGGER.info("AcousticBrainz disabled by user settings, skipping for MBID: {}", mbid);
+            } else {
+                try {
+                    AcousticBrainzResult result = getAcousticBrainz(mbid);
+                    if (result != null) {
+                        if (result.bpm() > 0) {
+                            song.setBpm(result.bpm());
+                        }
+                        song.setUpdatedAt(java.time.LocalDateTime.now());
+                        em.merge(song);
+                        LOGGER.info("Enriched BPM from AcousticBrainz for {} - {}", artist, title);
                     }
-                    song.setUpdatedAt(java.time.LocalDateTime.now());
-                    em.merge(song);
-                    LOGGER.info("Enriched BPM from AcousticBrainz for {} - {}", artist, title);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to query AcousticBrainz for MBID: {}", mbid, e);
                 }
-            } catch (Exception e) {
-                LOGGER.error("Failed to query AcousticBrainz for MBID: {}", mbid, e);
-            }
 
-            try {
-                Thread.sleep(ACOUSTICBRAINZ_REQUEST_DELAY.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                try {
+                    Thread.sleep(ACOUSTICBRAINZ_REQUEST_DELAY.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
 
         if (needsDeezer || overwriteBasicInfo) {
-            try {
-                DeezerResult result = searchDeezer(artist, title);
-                if (result != null) {
-                    boolean updated = false;
-                    
-                    if (overwriteBasicInfo) {
-                        if (result.artist() != null && !result.artist().isBlank()) {
-                            song.setArtist(result.artist());
+            if (!Boolean.TRUE.equals(settings.getDeezerEnabled())) {
+                LOGGER.info("Deezer disabled by user settings, skipping for: {} - {}", artist, title);
+            } else {
+                try {
+                    DeezerResult result = searchDeezer(artist, title);
+                    if (result != null) {
+                        boolean updated = false;
+                        
+                        if (overwriteBasicInfo) {
+                            if (result.artist() != null && !result.artist().isBlank()) {
+                                song.setArtist(result.artist());
+                                updated = true;
+                            }
+                            if (result.title() != null && !result.title().isBlank()) {
+                                song.setTitle(result.title());
+                                updated = true;
+                            }
+                            if (result.album() != null && !result.album().isBlank()) {
+                                song.setAlbum(result.album());
+                                updated = true;
+                            }
+                        }
+                        
+                        if (result.genre() != null && !result.genre().isBlank() && 
+                            (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
+                            song.setGenre(result.genre());
                             updated = true;
                         }
-                        if (result.title() != null && !result.title().isBlank()) {
-                            song.setTitle(result.title());
-                            updated = true;
+                        
+                        if (result.artworkUrl() != null && !result.artworkUrl().isBlank() && song.getArtworkBase64() == null) {
+                            String base64 = downloadArtwork(result.artworkUrl());
+                            if (base64 != null) {
+                                song.setArtworkBase64(base64);
+                                updated = true;
+                            }
                         }
-                        if (result.album() != null && !result.album().isBlank()) {
-                            song.setAlbum(result.album());
-                            updated = true;
-                        }
-                    }
-                    
-                    if (result.genre() != null && !result.genre().isBlank() && 
-                        (song.getGenre() == null || song.getGenre().isBlank() || "Unknown Genre".equals(song.getGenre()))) {
-                        song.setGenre(result.genre());
-                        updated = true;
-                    }
-                    
-                    if (result.artworkUrl() != null && !result.artworkUrl().isBlank() && song.getArtworkBase64() == null) {
-                        String base64 = downloadArtwork(result.artworkUrl());
-                        if (base64 != null) {
-                            song.setArtworkBase64(base64);
-                            updated = true;
+                        
+                        if (updated) {
+                            song.setUpdatedAt(java.time.LocalDateTime.now());
+                            em.merge(song);
+                            LOGGER.info("Enriched song from Deezer: {} - {}", artist, title);
                         }
                     }
-                    
-                    if (updated) {
-                        song.setUpdatedAt(java.time.LocalDateTime.now());
-                        em.merge(song);
-                        LOGGER.info("Enriched song from Deezer: {} - {}", artist, title);
-                    }
+                } catch (Exception e) {
+                    LOGGER.error("Failed to query Deezer for {} - {}", artist, title, e);
                 }
-            } catch (Exception e) {
-                LOGGER.error("Failed to query Deezer for {} - {}", artist, title, e);
-            }
 
-            try {
-                Thread.sleep(DEEZER_REQUEST_DELAY.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                try {
+                    Thread.sleep(DEEZER_REQUEST_DELAY.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
 
         if ((needsTheAudioDb || overwriteBasicInfo) && song.getArtworkBase64() == null) {
-            try {
-                TheAudioDbResult result = searchTheAudioDb(artist, title);
-                if (result != null && result.artworkUrl() != null && !result.artworkUrl().isBlank()) {
-                    String base64 = downloadArtwork(result.artworkUrl());
-                    if (base64 != null) {
-                        song.setArtworkBase64(base64);
-                        song.setUpdatedAt(java.time.LocalDateTime.now());
-                        em.merge(song);
-                        LOGGER.info("Enriched artwork from TheAudioDB for {} - {}", artist, title);
+            if (!Boolean.TRUE.equals(settings.getTheAudioDbEnabled())) {
+                LOGGER.info("TheAudioDB disabled by user settings, skipping for: {} - {}", artist, title);
+            } else {
+                try {
+                    TheAudioDbResult result = searchTheAudioDb(artist, title);
+                    if (result != null && result.artworkUrl() != null && !result.artworkUrl().isBlank()) {
+                        String base64 = downloadArtwork(result.artworkUrl());
+                        if (base64 != null) {
+                            song.setArtworkBase64(base64);
+                            song.setUpdatedAt(java.time.LocalDateTime.now());
+                            em.merge(song);
+                            LOGGER.info("Enriched artwork from TheAudioDB for {} - {}", artist, title);
+                        }
                     }
+                } catch (Exception e) {
+                    LOGGER.error("Failed to query TheAudioDB for {} - {}", artist, title, e);
                 }
-            } catch (Exception e) {
-                LOGGER.error("Failed to query TheAudioDB for {} - {}", artist, title, e);
-            }
 
-            try {
-                Thread.sleep(THEAUDIODB_REQUEST_DELAY.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                try {
+                    Thread.sleep(THEAUDIODB_REQUEST_DELAY.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }
@@ -247,86 +273,112 @@ public class MusicEnrichmentService {
         int resultBpm = 0;
         boolean isEnriched = false;
 
-        try {
-            MusicBrainzResult mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
-            if (mbResult != null) {
-                if (mbResult.mbid() != null) {
-                    sources.add("MusicBrainz");
-                }
-                if (mbResult.genre() != null && !mbResult.genre().isBlank()) {
-                    resultGenre = mbResult.genre();
-                    isEnriched = true;
-                }
-            }
-
-            Thread.sleep(MUSICBRAINZ_REQUEST_DELAY.toMillis());
-        } catch (Exception e) {
-            LOGGER.error("Failed to query MusicBrainz for {} - {}", parsedArtist, parsedTitle, e);
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getEnableMetadataEnrichment())) {
+            LOGGER.info("Metadata enrichment disabled by user settings, skipping for: {} - {}", parsedArtist, parsedTitle);
+            return new EnrichedMetadataResult(null, null, null, null, null, 0, false, sources);
         }
 
-        try {
-            DeezerResult deezerResult = searchDeezer(parsedArtist, parsedTitle);
-            if (deezerResult != null) {
-                sources.add("Deezer");
-                isEnriched = true;
-                
-                if (deezerResult.artist() != null && !deezerResult.artist().isBlank()) {
-                    resultArtist = deezerResult.artist();
+        if (Boolean.TRUE.equals(settings.getMusicBrainzEnabled())) {
+            try {
+                MusicBrainzResult mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
+                if (mbResult != null) {
+                    if (mbResult.mbid() != null) {
+                        sources.add("MusicBrainz");
+                    }
+                    if (mbResult.genre() != null && !mbResult.genre().isBlank()) {
+                        resultGenre = mbResult.genre();
+                        isEnriched = true;
+                    }
                 }
-                if (deezerResult.title() != null && !deezerResult.title().isBlank()) {
-                    resultTitle = deezerResult.title();
-                }
-                if (deezerResult.album() != null && !deezerResult.album().isBlank()) {
-                    resultAlbum = deezerResult.album();
-                }
-                if (deezerResult.genre() != null && !deezerResult.genre().isBlank()) {
-                    resultGenre = deezerResult.genre();
-                }
-                if (deezerResult.artworkUrl() != null && !deezerResult.artworkUrl().isBlank()) {
-                    resultArtworkUrl = deezerResult.artworkUrl();
-                }
-            }
 
-            Thread.sleep(DEEZER_REQUEST_DELAY.toMillis());
-        } catch (Exception e) {
-            LOGGER.error("Failed to query Deezer for {} - {}", parsedArtist, parsedTitle, e);
+                Thread.sleep(MUSICBRAINZ_REQUEST_DELAY.toMillis());
+            } catch (Exception e) {
+                LOGGER.error("Failed to query MusicBrainz for {} - {}", parsedArtist, parsedTitle, e);
+            }
+        } else {
+            LOGGER.info("MusicBrainz disabled by user settings, skipping for: {} - {}", parsedArtist, parsedTitle);
+        }
+
+        if (Boolean.TRUE.equals(settings.getDeezerEnabled())) {
+            try {
+                DeezerResult deezerResult = searchDeezer(parsedArtist, parsedTitle);
+                if (deezerResult != null) {
+                    sources.add("Deezer");
+                    isEnriched = true;
+                    
+                    if (deezerResult.artist() != null && !deezerResult.artist().isBlank()) {
+                        resultArtist = deezerResult.artist();
+                    }
+                    if (deezerResult.title() != null && !deezerResult.title().isBlank()) {
+                        resultTitle = deezerResult.title();
+                    }
+                    if (deezerResult.album() != null && !deezerResult.album().isBlank()) {
+                        resultAlbum = deezerResult.album();
+                    }
+                    if (deezerResult.genre() != null && !deezerResult.genre().isBlank()) {
+                        resultGenre = deezerResult.genre();
+                    }
+                    if (deezerResult.artworkUrl() != null && !deezerResult.artworkUrl().isBlank()) {
+                        resultArtworkUrl = deezerResult.artworkUrl();
+                    }
+                }
+
+                Thread.sleep(DEEZER_REQUEST_DELAY.toMillis());
+            } catch (Exception e) {
+                LOGGER.error("Failed to query Deezer for {} - {}", parsedArtist, parsedTitle, e);
+            }
+        } else {
+            LOGGER.info("Deezer disabled by user settings, skipping for: {} - {}", parsedArtist, parsedTitle);
         }
 
         if (resultArtworkUrl == null || resultArtworkUrl.isBlank()) {
-            try {
-                TheAudioDbResult taDbResult = searchTheAudioDb(parsedArtist, parsedTitle);
-                if (taDbResult != null && taDbResult.artworkUrl() != null && !taDbResult.artworkUrl().isBlank()) {
-                    sources.add("TheAudioDB");
-                    resultArtworkUrl = taDbResult.artworkUrl();
-                    isEnriched = true;
-                }
+            if (!Boolean.TRUE.equals(settings.getTheAudioDbEnabled())) {
+                LOGGER.info("TheAudioDB disabled by user settings, skipping for: {} - {}", parsedArtist, parsedTitle);
+            } else {
+                try {
+                    TheAudioDbResult taDbResult = searchTheAudioDb(parsedArtist, parsedTitle);
+                    if (taDbResult != null && taDbResult.artworkUrl() != null && !taDbResult.artworkUrl().isBlank()) {
+                        sources.add("TheAudioDB");
+                        resultArtworkUrl = taDbResult.artworkUrl();
+                        isEnriched = true;
+                    }
 
-                Thread.sleep(THEAUDIODB_REQUEST_DELAY.toMillis());
-            } catch (Exception e) {
-                LOGGER.error("Failed to query TheAudioDB for {} - {}", parsedArtist, parsedTitle, e);
+                    Thread.sleep(THEAUDIODB_REQUEST_DELAY.toMillis());
+                } catch (Exception e) {
+                    LOGGER.error("Failed to query TheAudioDB for {} - {}", parsedArtist, parsedTitle, e);
+                }
             }
         }
 
         String mbid = null;
-        try {
-            MusicBrainzResult mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
-            if (mbResult != null && mbResult.mbid() != null) {
-                mbid = mbResult.mbid();
+        if (Boolean.TRUE.equals(settings.getMusicBrainzEnabled())) {
+            try {
+                MusicBrainzResult mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
+                if (mbResult != null && mbResult.mbid() != null) {
+                    mbid = mbResult.mbid();
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to get MBID for {} - {}", parsedArtist, parsedTitle, e);
             }
-        } catch (Exception e) {
-            LOGGER.error("Failed to get MBID for {} - {}", parsedArtist, parsedTitle, e);
+        } else {
+            LOGGER.info("MusicBrainz disabled by user settings, skipping MBID lookup for: {} - {}", parsedArtist, parsedTitle);
         }
 
         if (mbid != null) {
-            try {
-                AcousticBrainzResult abResult = getAcousticBrainz(mbid);
-                if (abResult != null && abResult.bpm() > 0) {
-                    sources.add("AcousticBrainz");
-                    resultBpm = abResult.bpm();
-                    isEnriched = true;
+            if (!Boolean.TRUE.equals(settings.getAcousticBrainzEnabled())) {
+                LOGGER.info("AcousticBrainz disabled by user settings, skipping for MBID: {}", mbid);
+            } else {
+                try {
+                    AcousticBrainzResult abResult = getAcousticBrainz(mbid);
+                    if (abResult != null && abResult.bpm() > 0) {
+                        sources.add("AcousticBrainz");
+                        resultBpm = abResult.bpm();
+                        isEnriched = true;
+                    }
+                } catch (Exception e) {
+                    LOGGER.error("Failed to query AcousticBrainz for MBID: {}", mbid, e);
                 }
-            } catch (Exception e) {
-                LOGGER.error("Failed to query AcousticBrainz for MBID: {}", mbid, e);
             }
         }
 

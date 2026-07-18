@@ -197,6 +197,17 @@ public class SettingsService {
             settings.setVideoLibraryPath(System.getProperty("user.home") + File.separator + "Videos");
         }
 
+        if (settings.getTmdbEnabled() == null) settings.setTmdbEnabled(true);
+        if (settings.getOmdbEnabled() == null) settings.setOmdbEnabled(true);
+        if (settings.getImdbDevEnabled() == null) settings.setImdbDevEnabled(true);
+        if (settings.getTvmazeEnabled() == null) settings.setTvmazeEnabled(true);
+        if (settings.getIntroDbEnabled() == null) settings.setIntroDbEnabled(true);
+        if (settings.getMusicBrainzEnabled() == null) settings.setMusicBrainzEnabled(true);
+        if (settings.getAcousticBrainzEnabled() == null) settings.setAcousticBrainzEnabled(true);
+        if (settings.getDeezerEnabled() == null) settings.setDeezerEnabled(true);
+        if (settings.getTheAudioDbEnabled() == null) settings.setTheAudioDbEnabled(true);
+        if (settings.getOpenSubtitlesEnabled() == null) settings.setOpenSubtitlesEnabled(true);
+
         return settings;
     }
 

@@ -45,6 +45,12 @@ public class SubtitleDownloadService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public List<SubtitleSearchResult> searchSubtitles(Video video, String language, String userQuery) throws Exception {
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getOpenSubtitlesEnabled())) {
+            LOG.info("OpenSubtitles is disabled in settings, skipping search");
+            return new ArrayList<>();
+        }
+
         // OpenSubtitles requires 3-letter ISO 639-2 language codes (e.g., 'eng' instead of 'en')
         String osLanguage = mapToThreeLetterLanguage(language);
 
@@ -169,6 +175,12 @@ public class SubtitleDownloadService {
 
     public String downloadSubtitleWithLang(Video video, String fileId, String lang) {
         try {
+            Settings settings = settingsService.getOrCreateSettings();
+            if (!Boolean.TRUE.equals(settings.getOpenSubtitlesEnabled())) {
+                LOG.info("OpenSubtitles is disabled in settings, skipping download");
+                return null;
+            }
+
             LOG.info("Downloading subtitle from OpenSubtitles.org with ID: " + fileId + " (" + lang + ")");
 
             String videoPathStr = video.path;

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.smallrye.faulttolerance.api.CircuitBreakerName;
 import io.smallrye.faulttolerance.api.RateLimit;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.eclipse.microprofile.faulttolerance.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,9 @@ import lombok.Data;
 public class EnhancedFreeMetadataService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(EnhancedFreeMetadataService.class);
+
+    @Inject
+    Services.SettingsService settingsService;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -80,56 +84,71 @@ public class EnhancedFreeMetadataService {
             }
 
             // Primary: MusicBrainz search with retries
-            try {
-                // MusicBrainz allows only 1 request per second. 
-                // Adding a small sleep here to prevent rate limiting during batch processing.
-                try { Thread.sleep(1100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                
-                Optional<MusicBrainzData> mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
-                if (mbResult.isPresent()) {
-                    mergeMusicBrainzResult(result, mbResult.get());
-                    result.addApiResult("MusicBrainz", ApiResult.SUCCESS, System.currentTimeMillis() - startTime);
-                    LOGGER.info("Found MusicBrainz data: {} - {}", mbResult.get().artist, mbResult.get().title);
-                } else {
-                    result.addApiResult("MusicBrainz", ApiResult.NO_DATA, System.currentTimeMillis() - startTime);
+            if (!Boolean.TRUE.equals(settingsService.getOrCreateSettings().getMusicBrainzEnabled())) {
+                LOGGER.info("MusicBrainz disabled by user settings, skipping");
+                result.addApiResult("MusicBrainz", ApiResult.SKIPPED, 0);
+            } else {
+                try {
+                    // MusicBrainz allows only 1 request per second. 
+                    // Adding a small sleep here to prevent rate limiting during batch processing.
+                    try { Thread.sleep(1100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    
+                    Optional<MusicBrainzData> mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
+                    if (mbResult.isPresent()) {
+                        mergeMusicBrainzResult(result, mbResult.get());
+                        result.addApiResult("MusicBrainz", ApiResult.SUCCESS, System.currentTimeMillis() - startTime);
+                        LOGGER.info("Found MusicBrainz data: {} - {}", mbResult.get().artist, mbResult.get().title);
+                    } else {
+                        result.addApiResult("MusicBrainz", ApiResult.NO_DATA, System.currentTimeMillis() - startTime);
+                    }
+                } catch (ApiException e) {
+                    result.addApiResult("MusicBrainz", ApiResult.fromException(e), System.currentTimeMillis() - startTime);
+                    updateApiAvailability("MusicBrainz", false);
+                    LOGGER.warn("MusicBrainz API failed: {}", e.getMessage());
                 }
-            } catch (ApiException e) {
-                result.addApiResult("MusicBrainz", ApiResult.fromException(e), System.currentTimeMillis() - startTime);
-                updateApiAvailability("MusicBrainz", false);
-                LOGGER.warn("MusicBrainz API failed: {}", e.getMessage());
             }
 
             // Secondary: Deezer for album art and additional genres
-            try {
-                Optional<DeezerData> deezerResult = searchDeezer(parsedArtist, parsedTitle);
-                if (deezerResult.isPresent()) {
-                    mergeDeezerResult(result, deezerResult.get());
-                    result.addApiResult("Deezer", ApiResult.SUCCESS, System.currentTimeMillis() - startTime);
-                    LOGGER.info("Added data from Deezer");
-                } else {
-                    result.addApiResult("Deezer", ApiResult.NO_DATA, System.currentTimeMillis() - startTime);
+            if (!Boolean.TRUE.equals(settingsService.getOrCreateSettings().getDeezerEnabled())) {
+                LOGGER.info("Deezer disabled by user settings, skipping");
+                result.addApiResult("Deezer", ApiResult.SKIPPED, 0);
+            } else {
+                try {
+                    Optional<DeezerData> deezerResult = searchDeezer(parsedArtist, parsedTitle);
+                    if (deezerResult.isPresent()) {
+                        mergeDeezerResult(result, deezerResult.get());
+                        result.addApiResult("Deezer", ApiResult.SUCCESS, System.currentTimeMillis() - startTime);
+                        LOGGER.info("Added data from Deezer");
+                    } else {
+                        result.addApiResult("Deezer", ApiResult.NO_DATA, System.currentTimeMillis() - startTime);
+                    }
+                } catch (ApiException e) {
+                    result.addApiResult("Deezer", ApiResult.fromException(e), System.currentTimeMillis() - startTime);
+                    updateApiAvailability("Deezer", false);
+                    LOGGER.warn("Deezer API failed: {}", e.getMessage());
                 }
-            } catch (ApiException e) {
-                result.addApiResult("Deezer", ApiResult.fromException(e), System.currentTimeMillis() - startTime);
-                updateApiAvailability("Deezer", false);
-                LOGGER.warn("Deezer API failed: {}", e.getMessage());
             }
 
             // Tertiary: TheAudioDB for backup album art
             if (!result.hasAlbumArt()) {
-                try {
-                    Optional<TheAudioDbData> audioDbResult = searchTheAudioDb(parsedArtist, parsedTitle);
-                    if (audioDbResult.isPresent()) {
-                        mergeTheAudioDbResult(result, audioDbResult.get());
-                        result.addApiResult("TheAudioDB", ApiResult.SUCCESS, System.currentTimeMillis() - startTime);
-                        LOGGER.info("Added backup album art from TheAudioDB");
-                    } else {
-                        result.addApiResult("TheAudioDB", ApiResult.NO_DATA, System.currentTimeMillis() - startTime);
+                if (!Boolean.TRUE.equals(settingsService.getOrCreateSettings().getTheAudioDbEnabled())) {
+                    LOGGER.info("TheAudioDB disabled by user settings, skipping");
+                    result.addApiResult("TheAudioDB", ApiResult.SKIPPED, 0);
+                } else {
+                    try {
+                        Optional<TheAudioDbData> audioDbResult = searchTheAudioDb(parsedArtist, parsedTitle);
+                        if (audioDbResult.isPresent()) {
+                            mergeTheAudioDbResult(result, audioDbResult.get());
+                            result.addApiResult("TheAudioDB", ApiResult.SUCCESS, System.currentTimeMillis() - startTime);
+                            LOGGER.info("Added backup album art from TheAudioDB");
+                        } else {
+                            result.addApiResult("TheAudioDB", ApiResult.NO_DATA, System.currentTimeMillis() - startTime);
+                        }
+                    } catch (ApiException e) {
+                        result.addApiResult("TheAudioDB", ApiResult.fromException(e), System.currentTimeMillis() - startTime);
+                        updateApiAvailability("TheAudioDB", false);
+                        LOGGER.warn("TheAudioDB API failed: {}", e.getMessage());
                     }
-                } catch (ApiException e) {
-                    result.addApiResult("TheAudioDB", ApiResult.fromException(e), System.currentTimeMillis() - startTime);
-                    updateApiAvailability("TheAudioDB", false);
-                    LOGGER.warn("TheAudioDB API failed: {}", e.getMessage());
                 }
             }
 
@@ -637,7 +656,7 @@ public class EnhancedFreeMetadataService {
 
     // Enhanced result class and enums
     public enum ApiResult {
-        SUCCESS, TIMEOUT, UNAVAILABLE, PARSE_ERROR, RATE_LIMIT, NO_DATA, UNKNOWN_ERROR;
+        SUCCESS, TIMEOUT, UNAVAILABLE, PARSE_ERROR, RATE_LIMIT, NO_DATA, SKIPPED, UNKNOWN_ERROR;
 
         public static ApiResult fromException(Exception e) {
             if (e.getCause() instanceof ApiTimeoutException) {

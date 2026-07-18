@@ -1,8 +1,10 @@
 package Services;
 
+import Models.Settings;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,6 +19,9 @@ import java.util.Optional;
 public class IntroDbService {
 
     private static final Logger LOG = LoggerFactory.getLogger(IntroDbService.class);
+    
+    @Inject
+    SettingsService settingsService;
     
     // Source 1: Newest segments endpoint
     private static final String API_URL_SEGMENTS = "https://api.introdb.app/segments";
@@ -47,6 +52,12 @@ public class IntroDbService {
      */
     public Optional<MediaMetadata> fetchAllMetadata(String imdbId, int season, int episode) {
         if (imdbId == null || imdbId.isBlank()) return Optional.empty();
+
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getIntroDbEnabled())) {
+            LOG.info("IntroDB disabled in settings, skipping IntroDB fetch");
+            return Optional.empty();
+        }
 
         // 1. Try Source 1 (/segments)
         LOG.info("IntroDB: Attempting fetch from /segments for {} S{}E{}", imdbId, season, episode);
