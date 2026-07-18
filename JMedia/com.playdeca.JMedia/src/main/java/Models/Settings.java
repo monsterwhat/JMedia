@@ -74,8 +74,24 @@ public class Settings extends PanacheEntity {
     private Integer djModeCrossfadeSeconds = 8; // Longer crossfade during DJ mode
     
     // Metadata enrichment during reload
-    private Boolean enableMetadataEnrichment = true; // Enrich missing metadata from external APIs during reload
+    private Boolean enableMetadataEnrichment = true; // Enrich missing metadata from external APIs during reload (deprecated: use per-source toggles)
     private Boolean enableBpmExtraction = true; // Extract BPM using FFmpeg during reload
+    
+    // Video metadata source toggles
+    private Boolean tmdbEnabled = true;        // TMDB movie/TV metadata + artwork (requires tmdbApiKey)
+    private Boolean omdbEnabled = true;        // OMDb ratings + details (requires omdbApiKey)
+    private Boolean imdbDevEnabled = true;     // IMDb Dev API (free, series ID lookup)
+    private Boolean tvmazeEnabled = true;      // TVMaze (free, show/poster fallback)
+    private Boolean introDbEnabled = true;     // IntroDB (free, intro/outro timestamps)
+    
+    // Music metadata source toggles
+    private Boolean musicBrainzEnabled = true;     // MusicBrainz (rate-limited: 1 req/sec)
+    private Boolean acousticBrainzEnabled = true;  // AcousticBrainz (BPM, audio analysis)
+    private Boolean deezerEnabled = true;          // Deezer (album art, genres)
+    private Boolean theAudioDbEnabled = true;      // TheAudioDB (backup album art)
+    
+    // Subtitle source toggle
+    private Boolean openSubtitlesEnabled = true;   // OpenSubtitles.org subtitle search/download
     
     // Video auto-skip settings
     private Boolean autoSkipIntro = false;
@@ -563,5 +579,38 @@ public class Settings extends PanacheEntity {
     public void setThumbnailPreferApi(Boolean thumbnailPreferApi) {
         this.thumbnailPreferApi = thumbnailPreferApi;
     }
-      
+
+    // Video metadata source toggles
+    public Boolean getTmdbEnabled() { return tmdbEnabled != null ? tmdbEnabled : true; }
+    public void setTmdbEnabled(Boolean tmdbEnabled) { this.tmdbEnabled = tmdbEnabled; }
+
+    public Boolean getOmdbEnabled() { return omdbEnabled != null ? omdbEnabled : true; }
+    public void setOmdbEnabled(Boolean omdbEnabled) { this.omdbEnabled = omdbEnabled; }
+
+    public Boolean getImdbDevEnabled() { return imdbDevEnabled != null ? imdbDevEnabled : true; }
+    public void setImdbDevEnabled(Boolean imdbDevEnabled) { this.imdbDevEnabled = imdbDevEnabled; }
+
+    public Boolean getTvmazeEnabled() { return tvmazeEnabled != null ? tvmazeEnabled : true; }
+    public void setTvmazeEnabled(Boolean tvmazeEnabled) { this.tvmazeEnabled = tvmazeEnabled; }
+
+    public Boolean getIntroDbEnabled() { return introDbEnabled != null ? introDbEnabled : true; }
+    public void setIntroDbEnabled(Boolean introDbEnabled) { this.introDbEnabled = introDbEnabled; }
+
+    // Music metadata source toggles
+    public Boolean getMusicBrainzEnabled() { return musicBrainzEnabled != null ? musicBrainzEnabled : true; }
+    public void setMusicBrainzEnabled(Boolean musicBrainzEnabled) { this.musicBrainzEnabled = musicBrainzEnabled; }
+
+    public Boolean getAcousticBrainzEnabled() { return acousticBrainzEnabled != null ? acousticBrainzEnabled : true; }
+    public void setAcousticBrainzEnabled(Boolean acousticBrainzEnabled) { this.acousticBrainzEnabled = acousticBrainzEnabled; }
+
+    public Boolean getDeezerEnabled() { return deezerEnabled != null ? deezerEnabled : true; }
+    public void setDeezerEnabled(Boolean deezerEnabled) { this.deezerEnabled = deezerEnabled; }
+
+    public Boolean getTheAudioDbEnabled() { return theAudioDbEnabled != null ? theAudioDbEnabled : true; }
+    public void setTheAudioDbEnabled(Boolean theAudioDbEnabled) { this.theAudioDbEnabled = theAudioDbEnabled; }
+
+    // Subtitle source toggle
+    public Boolean getOpenSubtitlesEnabled() { return openSubtitlesEnabled != null ? openSubtitlesEnabled : true; }
+    public void setOpenSubtitlesEnabled(Boolean openSubtitlesEnabled) { this.openSubtitlesEnabled = openSubtitlesEnabled; }
+
 }

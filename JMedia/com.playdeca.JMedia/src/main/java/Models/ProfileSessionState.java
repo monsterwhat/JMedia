@@ -41,4 +41,11 @@ public class ProfileSessionState extends PanacheEntity {
     // Audio preference fields for cross-episode memory
     public String preferredAudioLanguage;
     public Long defaultAudioTrackId;
+
+    // Desktop player page open detection (set true when playback section mounts on desktop, false on unmount/beforeunload)
+    public boolean desktopPlayerOpen;
+
+    // Timestamp of last command-originated state update (seek, toggle, etc.)
+    // Used to prevent stale client reports from overwriting commanded positions.
+    public long lastUpdateTime;
 }

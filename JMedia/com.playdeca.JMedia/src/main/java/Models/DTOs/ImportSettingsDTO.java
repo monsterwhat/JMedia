@@ -35,6 +35,20 @@ public class ImportSettingsDTO {
     private Settings.YtDlpUpdateChannel youtubeUpdateChannel;
     private String youtubePlayerClient;
     private String tmdbApiKey;
+
+    // Metadata source toggle fields
+    private Boolean tmdbEnabled;
+    private Boolean omdbEnabled;
+    private Boolean imdbDevEnabled;
+    private Boolean tvmazeEnabled;
+    private Boolean introDbEnabled;
+    private Boolean musicBrainzEnabled;
+    private Boolean acousticBrainzEnabled;
+    private Boolean deezerEnabled;
+    private Boolean theAudioDbEnabled;
+    private Boolean openSubtitlesEnabled;
+    private String omdbApiKey;
+    private String openSubtitlesApiKey;
     
     // Getters and setters for Lombok issues
     public Settings.DownloadSource getPrimarySource() { return primarySource; }
@@ -104,4 +118,41 @@ public class ImportSettingsDTO {
 
     public String getTmdbApiKey() { return tmdbApiKey; }
     public void setTmdbApiKey(String tmdbApiKey) { this.tmdbApiKey = tmdbApiKey; }
+
+    // Metadata source toggle getters and setters
+    public Boolean getTmdbEnabled() { return tmdbEnabled; }
+    public void setTmdbEnabled(Boolean tmdbEnabled) { this.tmdbEnabled = tmdbEnabled; }
+    
+    public Boolean getOmdbEnabled() { return omdbEnabled; }
+    public void setOmdbEnabled(Boolean omdbEnabled) { this.omdbEnabled = omdbEnabled; }
+    
+    public Boolean getImdbDevEnabled() { return imdbDevEnabled; }
+    public void setImdbDevEnabled(Boolean imdbDevEnabled) { this.imdbDevEnabled = imdbDevEnabled; }
+    
+    public Boolean getTvmazeEnabled() { return tvmazeEnabled; }
+    public void setTvmazeEnabled(Boolean tvmazeEnabled) { this.tvmazeEnabled = tvmazeEnabled; }
+    
+    public Boolean getIntroDbEnabled() { return introDbEnabled; }
+    public void setIntroDbEnabled(Boolean introDbEnabled) { this.introDbEnabled = introDbEnabled; }
+    
+    public Boolean getMusicBrainzEnabled() { return musicBrainzEnabled; }
+    public void setMusicBrainzEnabled(Boolean musicBrainzEnabled) { this.musicBrainzEnabled = musicBrainzEnabled; }
+    
+    public Boolean getAcousticBrainzEnabled() { return acousticBrainzEnabled; }
+    public void setAcousticBrainzEnabled(Boolean acousticBrainzEnabled) { this.acousticBrainzEnabled = acousticBrainzEnabled; }
+    
+    public Boolean getDeezerEnabled() { return deezerEnabled; }
+    public void setDeezerEnabled(Boolean deezerEnabled) { this.deezerEnabled = deezerEnabled; }
+    
+    public Boolean getTheAudioDbEnabled() { return theAudioDbEnabled; }
+    public void setTheAudioDbEnabled(Boolean theAudioDbEnabled) { this.theAudioDbEnabled = theAudioDbEnabled; }
+    
+    public Boolean getOpenSubtitlesEnabled() { return openSubtitlesEnabled; }
+    public void setOpenSubtitlesEnabled(Boolean openSubtitlesEnabled) { this.openSubtitlesEnabled = openSubtitlesEnabled; }
+    
+    public String getOmdbApiKey() { return omdbApiKey; }
+    public void setOmdbApiKey(String omdbApiKey) { this.omdbApiKey = omdbApiKey; }
+    
+    public String getOpenSubtitlesApiKey() { return openSubtitlesApiKey; }
+    public void setOpenSubtitlesApiKey(String openSubtitlesApiKey) { this.openSubtitlesApiKey = openSubtitlesApiKey; }
 }
