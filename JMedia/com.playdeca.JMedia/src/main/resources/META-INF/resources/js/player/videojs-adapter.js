@@ -379,9 +379,15 @@
                     }
                 },
                 onCommand: function(msg) {
+                    console.log('[VideojsAdapter onCommand]', msg.type, msg.payload);
+                    var cmd = msg;
+                    if (msg && msg.type === 'command' && msg.payload) {
+                        cmd = { type: msg.payload.commandType, payload: msg.payload.commandPayload || {} };
+                    }
+                    var ctype = cmd.type;
                     if (!vjsPlayer || _destroyed) return;
-                    if (msg.type === 'select-subtitle') {
-                        var idx = msg.payload && msg.payload.index;
+                    if (ctype === 'select-subtitle') {
+                        var idx = cmd.payload && cmd.payload.index;
                         if (idx == null) return;
                         var maxAttempts = 25;
                         var attempt = 0;
@@ -389,6 +395,7 @@
                             if (_destroyed) return;
                             var tracks = vjsPlayer.textTracks();
                             if (tracks && tracks.length > 0) {
+                                if (idx === -1) { for (var i=0;i<tracks.length;i++){ tracks[i].mode='hidden'; } return; }
                                 for (var i = 0; i < tracks.length; i++) {
                                     if (i === idx) {
                                         tracks[i].mode = 'showing';
@@ -404,8 +411,8 @@
                             }
                         }
                         trySelect();
-                    } else if (msg.type === 'select-audio') {
-                        var idx = msg.payload && msg.payload.index;
+                    } else if (ctype === 'select-audio') {
+                        var idx = cmd.payload && cmd.payload.index;
                         if (idx == null) return;
                         var maxAttempts = 25;
                         var attempt = 0;
@@ -424,6 +431,15 @@
                             }
                         }
                         trySelect();
+                    } else if (ctype === 'toggle-play') {
+                        if (_destroyed || !vjsPlayer) return;
+                        if (vjsPlayer.paused()) vjsPlayer.play(); else vjsPlayer.pause();
+                    } else if (ctype === 'seek') {
+                        if (_destroyed || !vjsPlayer) return;
+                        var t = cmd.payload && cmd.payload.value;
+                        if (typeof t === 'number' && isFinite(t)) {
+                            try { vjsPlayer.currentTime(t); } catch (e) {}
+                        }
                     }
                 }
             });
@@ -435,7 +451,8 @@
             _wsManager.send('state', {
                 currentVideoId: videoId,
                 playing: !videoEl.paused,
-                currentTime: videoEl.currentTime || 0
+                currentTime: videoEl.currentTime || 0,
+                profileId: (pid ? Number(pid) : null)
             });
         }
 

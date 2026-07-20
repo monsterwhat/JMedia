@@ -1,0 +1,431 @@
+/* ── Remote panel base ─────────────────────────────────────── */
+
+.remote-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    background: var(--jmedia-bg, #1a1a2e);
+    color: var(--jmedia-text, #eee);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow: hidden;
+}
+
+/* ── Header (text-only, no thumbnail) ─────────────────────── */
+
+.remote-header {
+    margin-bottom: 20px;
+}
+
+.remote-series-label {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.55;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 4px;
+    line-height: 1.2;
+}
+
+.remote-title-label {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* ── Progress bar (tappable / draggable) ──────────────────── */
+
+.remote-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+}
+
+.remote-time-current,
+.remote-time-duration {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    min-width: 40px;
+    user-select: none;
+    opacity: 0.7;
+}
+
+.remote-time-current {
+    text-align: right;
+}
+
+.remote-progress-bar {
+    flex: 1;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    position: relative;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.remote-progress-fill {
+    height: 100%;
+    background: var(--jmedia-accent, #1db954);
+    border-radius: 5px;
+    width: 0;
+    pointer-events: none;
+}
+
+.remote-progress-bar.dragging .remote-progress-fill {
+    transition: none;
+}
+
+.remote-progress-bar:hover .remote-progress-fill {
+    height: 100%;
+}
+
+.remote-progress-bar:hover {
+    height: 14px;
+}
+
+/* ── Playback controls ────────────────────────────────────── */
+
+.remote-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 28px;
+}
+
+.remote-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 10px;
+    border-radius: 50%;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    min-width: 48px;
+    min-height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    position: relative;
+}
+
+.remote-btn:active {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.remote-btn svg {
+    flex-shrink: 0;
+    display: block;
+}
+
+/* ── Skip buttons (15s / 30s with label) ──────────────────── */
+
+.remote-btn-skip {
+    flex-direction: column;
+    gap: 1px;
+}
+
+.remote-btn-label {
+    font-size: 10px;
+    font-weight: 500;
+    opacity: 0.55;
+    line-height: 1;
+    user-select: none;
+    letter-spacing: 0.3px;
+}
+
+/* ── Play / Pause button (perfect circle) ─────────────────── */
+
+.remote-play {
+    background: var(--jmedia-accent, #1db954);
+    color: #fff;
+    min-width: 64px;
+    min-height: 64px;
+    padding: 0;
+    border-radius: 50%;
+}
+
+.remote-play:active {
+    background: var(--jmedia-accent-hover, #18a34a);
+}
+
+.remote-play-svg {
+    display: block;
+}
+
+/* ── Track selectors ──────────────────────────────────────── */
+
+.remote-selectors {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.remote-selector {
+    position: relative;
+}
+
+.remote-selector-toggle {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+}
+
+.remote-selector-toggle svg {
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.remote-selector-list {
+    display: none;
+    max-height: 200px;
+    overflow-y: auto;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    margin-top: 4px;
+}
+
+.remote-selector-list.open {
+    display: block;
+}
+
+.remote-selector-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.remote-selector-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+
+.remote-selector-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+}
+
+.remote-selector-item:last-child {
+    border-bottom: none;
+}
+
+.remote-selector-item:active {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.remote-selector-item.active {
+    color: var(--jmedia-accent, #1db954);
+    font-weight: 600;
+}
+
+/* ── Episodes section ─────────────────────────────────────── */
+
+.remote-episodes-section {
+    margin-top: 16px;
+}
+
+.remote-episodes-toggle {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    min-height: 48px;
+}
+
+.remote-episodes-toggle:active {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.remote-episodes-list {
+    display: none;
+    margin-top: 4px;
+}
+
+.remote-episodes-list.open {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    max-height: 50vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+}
+
+.remote-episodes-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.remote-episodes-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+
+.remote-episode-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    flex-shrink: 0;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.remote-episode-card:active {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.remote-episode-card.active {
+    background: rgba(29, 185, 84, 0.12);
+    border-color: rgba(29, 185, 84, 0.3);
+}
+
+.remote-episode-thumb {
+    position: relative;
+    width: 100px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.remote-episode-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.remote-episode-play-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.remote-episode-card:active .remote-episode-play-overlay {
+    opacity: 1;
+}
+
+.remote-episode-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.remote-episode-progress-bar {
+    height: 100%;
+    background: var(--jmedia-accent, #1db954);
+}
+
+.remote-episode-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.remote-episode-badge {
+    display: inline-block;
+    background: var(--jmedia-accent, #1db954);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    width: fit-content;
+    text-transform: uppercase;
+}
+
+.remote-episode-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.remote-episode-card.active .remote-episode-title {
+    color: var(--jmedia-accent, #1db954);
+}
+
+.remote-episode-duration {
+    font-size: 11px;
+    opacity: 0.5;
+}
+
+/* ── Disconnected overlay ─────────────────────────────────── */
+
+.remote-disconnected {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    z-index: 1000;
+}
+
+.remote-disconnected-content {
+    text-align: center;
+}
+
+.remote-disconnected-icon {
+    margin-bottom: 16px;
+    opacity: 0.8;
+}
+
+.remote-disconnected-text {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.remote-disconnected-sub {
+    font-size: 14px;
+    opacity: 0.6;
+}

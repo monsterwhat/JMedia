@@ -26,7 +26,8 @@ class VideoSPA {
             liveTv: '/api/video/ui/live-tv-fragment',
             collections: '/api/video/ui/collections-fragment',
             collectionEntries: '/api/video/ui/collections/{collectionId}/entries-fragment',
-            liveTvPlayback: '/api/video/ui/live-channel-playback-fragment?channelId={channelId}'
+            liveTvPlayback: '/api/video/ui/live-channel-playback-fragment?channelId={channelId}',
+            nowPlaying: '/api/video/ui/now-playing-fragment'
             };
     }
     
@@ -44,8 +45,11 @@ class VideoSPA {
 
     async switchSection(section, params = {}, bypassHistory = false) {
         console.log(`[VideoSPA] Switching to section: ${section}`, params);
+        this.resetNowPlayingController();
         // Destroy current player to cleanup FFmpeg processes
-        await this.destroyCurrentPlayer();
+        if (section !== 'nowPlaying') {
+            await this.destroyCurrentPlayer();
+        }
         this.showLoading(section);
         
         if (!bypassHistory) {
@@ -89,6 +93,9 @@ class VideoSPA {
         try {
             const html = await this.fetchContent(apiUrl);
             this.updateContent(html);
+            if (section === 'nowPlaying') {
+                this.ensureNowPlayingController();
+            }
             this.hideLoading();
             
             if (!bypassHistory) {
@@ -339,6 +346,11 @@ class VideoSPA {
         }
         window.currentPlayerInstance = null;
         window.player = null;
+
+        if (window.videoSidebarController) {
+            window.videoSidebarController.destroy();
+            window.videoSidebarController = null;
+        }
     }
     
     updateNavState(section) {
@@ -547,7 +559,8 @@ class VideoSPA {
             suggestion: 'Suggestions', adminSuggestions: 'All Suggestions',
             manageSeries: 'Manage Series',
             liveTv: 'Live TV',
-            liveTvPlayback: 'Live TV'
+            liveTvPlayback: 'Live TV',
+            nowPlaying: 'Now Playing'
         };
 
         if (section === 'seasons' && params.encodedTitle) {
@@ -789,6 +802,42 @@ class VideoSPA {
                     this.goHome(true);
                 }
             }
+        }
+    }
+
+    ensureNowPlayingController() {
+        // Belt-and-suspenders: guarantee a live VideoSidebarController exists for the Now Playing
+        // view, even if the template's inline script was skipped or failed to load.
+        if (window.videoSidebarController) return;
+        if (window.VideoSidebarController) {
+            window.videoSidebarController = new window.VideoSidebarController();
+            return;
+        }
+        if (window.__npControllerScriptLoading) return;
+        window.__npControllerScriptLoading = true;
+        const s = document.createElement('script');
+        s.src = '/js/video/VideoSidebarController.js';
+        document.head.appendChild(s);
+        let attempts = 0;
+        const pollId = setInterval(() => {
+            if (window.VideoSidebarController) {
+                clearInterval(pollId);
+                if (!window.videoSidebarController) {
+                    window.videoSidebarController = new window.VideoSidebarController();
+                }
+                window.__npControllerScriptLoading = false;
+            } else if (++attempts >= 20) {
+                clearInterval(pollId);
+                window.__npControllerScriptLoading = false;
+                console.warn('[VideoSPA] ensureNowPlayingController: VideoSidebarController failed to load after 20 attempts');
+            }
+        }, 50);
+    }
+
+    resetNowPlayingController() {
+        if (window.videoSidebarController) {
+            try { window.videoSidebarController.destroy(); } catch (e) { /* ignore */ }
+            window.videoSidebarController = null;
         }
     }
     

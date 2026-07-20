@@ -131,6 +131,24 @@ public class VideoController {
         }
     }
 
+    public synchronized void reportClientState(Long profileId, Long videoId, boolean playing, double currentTime) {
+        if (videoId == null) return;
+        Profile profile = (profileId != null) ? Profile.findById(profileId) : null;
+        ProfileSessionState st;
+        if (profile != null) {
+            st = ProfileSessionState.find("profile", profile).firstResult();
+            if (st == null) { st = new ProfileSessionState(); st.profile = profile; }
+        } else {
+            st = getState(); // fallback to existing getOrCreate path
+        }
+        if (st == null) return;
+        st.currentVideoId = videoId;
+        st.playing = playing;
+        st.currentTime = currentTime;
+        if (playing) startPlaybackTimer(); else stopPlaybackTimer();
+        updateState(st, false);
+    }
+
     public synchronized void selectVideo(Long id) {
         selectVideo(id, null);
     }

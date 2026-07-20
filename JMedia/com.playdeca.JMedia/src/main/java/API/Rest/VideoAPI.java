@@ -1246,9 +1246,29 @@ public class VideoAPI {
             @PathParam("seasonNumber") Integer seasonNumber) {
         List<Models.Video> episodes = Models.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", "episode", seriesTitle, seasonNumber);
         List<Models.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(seriesTitle, seasonNumber);
+        com.fasterxml.jackson.databind.node.ArrayNode epArr = mapper.createArrayNode();
+        for (Models.Video v : episodes) {
+            com.fasterxml.jackson.databind.node.ObjectNode o = mapper.createObjectNode();
+            o.put("id", v.id);
+            o.put("episodeNumber", v.episodeNumber != null ? v.episodeNumber : 0);
+            o.put("seasonNumber", v.seasonNumber != null ? v.seasonNumber : 0);
+            o.put("episodeTitle", v.episodeTitle != null ? v.episodeTitle : (v.title != null ? v.title : ""));
+            o.put("title", v.title != null ? v.title : "");
+            epArr.add(o);
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode extArr = mapper.createArrayNode();
+        for (Models.ExternalVideo ev : externalEpisodes) {
+            com.fasterxml.jackson.databind.node.ObjectNode o = mapper.createObjectNode();
+            o.put("id", ev.id);
+            o.put("episodeNumber", ev.episodeNumber != null ? ev.episodeNumber : 0);
+            o.put("seasonNumber", ev.seasonNumber != null ? ev.seasonNumber : 0);
+            o.put("episodeTitle", ev.episodeTitle != null ? ev.episodeTitle : (ev.title != null ? ev.title : ""));
+            o.put("title", ev.title != null ? ev.title : "");
+            extArr.add(o);
+        }
         com.fasterxml.jackson.databind.node.ObjectNode root = mapper.createObjectNode();
-        root.set("episodes", mapper.valueToTree(episodes));
-        root.set("externalEpisodes", mapper.valueToTree(externalEpisodes));
+        root.set("episodes", epArr);
+        root.set("externalEpisodes", extArr);
         return Response.ok(root).build();
     }
 

@@ -27,12 +27,15 @@
         <link rel="stylesheet" href="/css/video-cards.css">
         <link rel="stylesheet" href="/css/jmedia-unified.css">
         <link rel="stylesheet" href="/css/subtitle-styling.css">
+        <link rel="stylesheet" href="/css/video-sidebar.css">
         <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
 
         <!-- SPA Scripts -->
         <script src="/js/CollectionManager.js" defer></script>
+        <script src="/js/video/VideoWebSocketManager.js" defer></script>
         <script src="/js/video-spa.js" defer></script>
         <script src="/js/videoContextMenu.js" defer></script>
+    <script src="/js/video/VideoSidebarController.js" defer></script>
         
         <!-- Legacy/Shared Scripts (Loaded globally) -->
         <!-- Modular Music Bar System (Migrated from legacy monolith) -->
@@ -165,7 +168,10 @@
                                     <i class="pi pi-desktop" style="color: #48c774;"></i> <span>Live TV</span>
                                     <span class="tag is-small is-info" style="margin-left: auto;">New</span>
                                 </a>
-                          </div>
+                              <a href="javascript:void(0)" class="nav-item" id="nav-now-playing" onclick="window.switchSection('nowPlaying')">
+                                    <i class="pi pi-play"></i> <span>Now Playing</span>
+                                </a>
+                           </div>
                     </div>
 
                     <!-- 3. Music Group (Primary for Music View) -->

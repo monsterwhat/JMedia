@@ -44,6 +44,8 @@
 
         var player = null;
         var video = null;
+        var _destroyed = false;
+        var _wsManager = null;
 
         /* ---------- Settings Menu Navigation ---------- */
         onTap(subtitleMenu, function(e) {
@@ -296,6 +298,119 @@
                     break;
             }
         }, true);
+
+        /* ---------- WebSocket state sync ---------- */
+        function _initWebSocket() {
+            if (!window.VideoWebSocketManager) return;
+            var pid = localStorage.getItem('activeProfileId');
+            if (!pid) return;
+            _wsManager = new window.VideoWebSocketManager({
+                profileId: pid,
+                onCommand: function(msg) {
+                    console.log('[OplayerAdapter onCommand]', msg.type, msg.payload);
+                    var cmd = msg;
+                    if (msg && msg.type === 'command' && msg.payload) {
+                        cmd = { type: msg.payload.commandType, payload: msg.payload.commandPayload || {} };
+                    }
+                    var ctype = cmd.type;
+                    if (_destroyed) return;
+
+                    if (ctype === 'select-subtitle') {
+                        var idx = cmd.payload && cmd.payload.index;
+                        if (idx == null) return;
+
+                        function applyOplayerSubtitle() {
+                            if (_destroyed) return;
+                            var oplayer = window.__oplayerPlayer;
+                            if (!oplayer || !oplayer.context || !oplayer.context.ui || !oplayer.context.ui.subtitle) {
+                                return false; // OPlayer or subtitle API not ready yet
+                            }
+                            try {
+                                if (idx === -1) {
+                                    oplayer.context.ui.subtitle.changeSource([]);
+                                    console.log('[OplayerAdapter] Subtitles OFF (native)');
+                                    return true;
+                                }
+                                var tracks = (window.testPlayerFeatures && window.testPlayerFeatures._subtitleTracks) || [];
+                                if (!tracks || !tracks[idx]) return false; // track list not loaded yet
+                                var oplayerSubs = tracks.map(function (t) {
+                                    return {
+                                        name: t.displayName || t.filename || ('Track ' + t.id),
+                                        src: '/api/video/subtitles/track/' + t.id,
+                                        default: (t.id === tracks[idx].id)
+                                    };
+                                });
+                                oplayer.context.ui.subtitle.changeSource(oplayerSubs);
+                                console.log('[OplayerAdapter] Subtitle selected (native) idx=' + idx + ' id=' + tracks[idx].id);
+                                return true;
+                            } catch (e) {
+                                console.error('[OplayerAdapter] OPlayer subtitle changeSource failed:', e);
+                                return true; // don't retry on hard error
+                            }
+                        }
+
+                        var maxAttempts = 25, attempt = 0;
+                        (function tryApply() {
+                            if (_destroyed) return;
+                            if (applyOplayerSubtitle()) return;
+                            if (attempt < maxAttempts) {
+                                attempt++;
+                                setTimeout(tryApply, 200);
+                            } else {
+                                console.warn('[OplayerAdapter] Subtitle apply timed out (OPlayer/tracks not ready)');
+                                if (video && video.textTracks && video.textTracks.length > 0) {
+                                    if (idx === -1) {
+                                        for (var z = 0; z < video.textTracks.length; z++) video.textTracks[z].mode = 'hidden';
+                                        return;
+                                    }
+                                    for (var i = 0; i < video.textTracks.length; i++) {
+                                        if (video.textTracks[i].kind === 'subtitles' || video.textTracks[i].kind === 'captions') {
+                                            video.textTracks[i].mode = (i === idx) ? 'showing' : 'hidden';
+                                        }
+                                    }
+                                }
+                            }
+                        })();
+
+                    } else if (ctype === 'select-audio') {
+                        var idx = cmd.payload && cmd.payload.index;
+                        if (idx == null) return;
+
+                        var maxAttempts = 25;
+                        var attempt = 0;
+                        function trySelect() {
+                            if (_destroyed) return;
+
+                            if (video && video.audioTracks && video.audioTracks.length > 0) {
+                                if (video.audioTracks[idx]) {
+                                    for (var i = 0; i < video.audioTracks.length; i++) {
+                                        video.audioTracks[i].enabled = (i === idx);
+                                    }
+                                    return;
+                                }
+                            }
+
+                            if (attempt < maxAttempts) {
+                                attempt++;
+                                setTimeout(trySelect, 200);
+                            }
+                        }
+                        trySelect();
+
+                    } else if (ctype === 'toggle-play') {
+                        if (_destroyed || !video) return;
+                        if (video.paused) { if (video.play) video.play(); } else { if (video.pause) video.pause(); }
+                    } else if (ctype === 'seek') {
+                        if (_destroyed || !video) return;
+                        var t = cmd.payload && cmd.payload.value;
+                        if (typeof t === 'number' && isFinite(t)) {
+                            try { video.currentTime = t; } catch (e) {}
+                        }
+                    }
+                }
+            });
+            _wsManager.connect();
+        }
 
         /* ---------- Initialize OPlayer ---------- */
         function initPlayer() {
@@ -635,6 +750,16 @@
             }
         }, true);
 
+        function _broadcastState() {
+            if (!_wsManager || !_wsManager.connected || _destroyed || !video) return;
+            _wsManager.send('state', {
+                currentVideoId: videoId,
+                playing: !video.paused,
+                currentTime: video.currentTime || 0,
+                profileId: (localStorage.getItem('activeProfileId') ? Number(localStorage.getItem('activeProfileId')) : null)
+            });
+        }
+
         function onVideoReady(vid) {
             video = vid;
 
@@ -643,10 +768,12 @@
             video.addEventListener('play', function() {
                 PlayerUtils?.requestWakeLock?.();
                 _reportStreamStatus('working');
+                _broadcastState();
             });
 
             video.addEventListener('pause', function() {
                 PlayerUtils?.releaseWakeLock?.();
+                _broadcastState();
             });
 
             video.addEventListener('error', function() {
@@ -815,6 +942,8 @@
             if (window.TestPlayerFeatures) {
                 window.testPlayerFeatures = new window.TestPlayerFeatures(videoId, oAdapter);
             }
+
+            _initWebSocket();
         }
 
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
@@ -829,6 +958,14 @@
                 PlayerUtils?.requestWakeLock?.();
             }
         });
+
+        window.destroyOPlayerAdapter = function() {
+            _destroyed = true;
+            if (_wsManager) { _wsManager.disconnect(); _wsManager = null; }
+            if (player && typeof player.destroy === 'function') {
+                player.destroy();
+            }
+        };
     };
 
 })();

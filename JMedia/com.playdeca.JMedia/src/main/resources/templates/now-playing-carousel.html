@@ -1,0 +1,52 @@
+{#if hasCarousel}
+<div class="underplayer-carousel-section">
+  <div class="underplayer-carousel-header">
+    <h3>{carouselTitle}</h3>
+  </div>
+  <div class="underplayer-carousel-container">
+    <button class="underplayer-nav-btn left" onclick="window.scrollNpCarousel('left')"><i class="pi pi-chevron-left"></i></button>
+    <div class="underplayer-carousel" id="npCarousel">
+      {#for item in carouselItems}
+      <div class="underplayer-card {#if item.isCurrent}carousel-card-current{/if}"
+           data-video-id="{item.id}"
+           data-entry-id="{item.entryId}"
+           data-collection-id="{item.collectionId}"
+           data-media-type="{item.mediaType ?: 'video'}"
+           onclick="underplayerPlayCard(this)">
+        <div class="underplayer-card-thumb">
+          {#if item.mediaType == 'external'}
+          <div class="underplayer-card-gradient">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
+          {#else}
+          <img src="/api/video/thumbnail/{item.id}" alt="" loading="lazy" class="is-skeleton" onload="this.classList.remove('is-skeleton')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'; this.classList.remove('is-skeleton')">
+          <div class="underplayer-card-gradient" style="display:none">{#if item.title.length > 0}{item.title.substring(0,1)}{#else}?{/if}</div>
+          {/if}
+          {#if item.isCurrent}
+          <div class="underplayer-card-now-playing"><i class="pi pi-play"></i></div>
+          {/if}
+        </div>
+        <div class="underplayer-card-info">
+          <div class="underplayer-card-title">{item.title ?: item.seriesTitle}</div>
+          {#if item.type == 'episode' || item.type == 'Episode'}
+          <div class="underplayer-card-meta">S{item.seasonNumber}E{item.episodeNumber}</div>
+          {/if}
+        </div>
+      </div>
+      {/for}
+    </div>
+    <button class="underplayer-nav-btn right" onclick="window.scrollNpCarousel('right')"><i class="pi pi-chevron-right"></i></button>
+  </div>
+</div>
+{/if}
+
+{#if hasCarousel}
+<script>
+(function() {
+    var carousel = document.getElementById('npCarousel');
+    var current = carousel && carousel.querySelector('.carousel-card-current');
+    if (carousel && current) {
+        var scrollTarget = current.offsetLeft - (carousel.clientWidth / 2) + (current.offsetWidth / 2);
+        carousel.scrollLeft = Math.max(0, scrollTarget);
+    }
+})();
+</script>
+{/if}

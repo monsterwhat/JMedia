@@ -82,7 +82,15 @@ public class VideoSocket {
                         break;
                     case "previous": // Added previous action for video
                         videoController.previous();
-                        break; 
+                        break;
+                    case "state": // Client reports its current playback state
+                        Long profileId = payload.has("profileId") ? payload.get("profileId").asLong() : null;
+                        Long videoId = payload.has("currentVideoId") ? payload.get("currentVideoId").asLong() : (payload.has("currentVideo") && payload.get("currentVideo").has("id") ? payload.get("currentVideo").get("id").asLong() : null);
+                        if (videoId == null) return;
+                        boolean playing = payload.get("playing").asBoolean();
+                        double currentTime = payload.has("currentTime") ? payload.get("currentTime").asDouble() : 0.0;
+                        videoController.reportClientState(profileId, videoId, playing, currentTime);
+                        break;
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -121,6 +129,25 @@ public class VideoSocket {
             webSocketManager.broadcastToVideo(mapper.writeValueAsString(message));
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Broadcast a command to all connected video WebSocket clients.
+     * Used by REST endpoints to trigger actions like subtitle/audio switching.
+     * Sends message in format: {"type":"command","payload":{"commandType":"...","commandPayload":{...}}}
+     */
+    public void broadcastCommand(String commandType, JsonNode commandPayload) {
+        try {
+            ObjectNode message = mapper.createObjectNode();
+            message.put("type", "command");
+            ObjectNode payload = mapper.createObjectNode();
+            payload.put("commandType", commandType);
+            payload.set("commandPayload", commandPayload);
+            message.set("payload", payload);
+            webSocketManager.broadcastToVideo(mapper.writeValueAsString(message));
+        } catch (Exception e) {
+            System.err.println("[VideoSocket] Error broadcasting command: " + e.getMessage());
         }
     }
 }

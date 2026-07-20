@@ -38,6 +38,9 @@ public class VideoPlaybackAPI {
     
     @Inject
     org.eclipse.microprofile.context.ManagedExecutor executor;
+    
+    @Inject
+    API.WS.VideoSocket videoSocket;
 
     @POST
     @Path("/toggle")
@@ -45,6 +48,7 @@ public class VideoPlaybackAPI {
     public Response togglePlay() {
         try {
             videoController.togglePlay();
+            videoSocket.broadcastCommand("toggle-play", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
             return Response.ok("{\"success\":true,\"message\":\"Playback toggled\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -58,7 +62,6 @@ public class VideoPlaybackAPI {
     public Response playVideo(@PathParam("videoId") Long videoId, @QueryParam("startTime") Double startTime) {
         try {
             videoController.selectVideo(videoId, startTime);
-            videoController.togglePlay(); // Ensure playing
             
             // Check if we need to enrich with IntroDB data on-demand
             executor.submit(() -> {
@@ -129,6 +132,7 @@ public class VideoPlaybackAPI {
     public Response nextVideo() {
         try {
             videoController.next();
+            videoSocket.broadcastCommand("next", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
             return Response.ok("{\"success\":true,\"message\":\"Next video\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -142,6 +146,7 @@ public class VideoPlaybackAPI {
     public Response previousVideo() {
         try {
             videoController.previous();
+            videoSocket.broadcastCommand("previous", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
             return Response.ok("{\"success\":true,\"message\":\"Previous video\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -155,6 +160,9 @@ public class VideoPlaybackAPI {
     public Response seekTo(@PathParam("seconds") double seconds) {
         try {
             videoController.setSeconds(seconds);
+            com.fasterxml.jackson.databind.node.ObjectNode seekPayload = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+            seekPayload.put("value", seconds);
+            videoSocket.broadcastCommand("seek", seekPayload);
             return Response.ok("{\"success\":true,\"message\":\"Seeked to " + seconds + " seconds\",\"position\":" + seconds + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -225,7 +233,7 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response getCurrentVideo() {
         try {
-            var currentState = profileSessionStateService.getOrCreate();
+            var currentState = videoController.getState();
             if (currentState == null) {
                 return Response.ok("{\"success\":true,\"video\":null,\"message\":\"No current video\"}").build();
             }
@@ -248,6 +256,7 @@ public class VideoPlaybackAPI {
                    .append("\"title\":\"").append(safeString(title)).append("\",")
                    .append("\"seriesTitle\":\"").append(safeString(seriesTitle)).append("\",")
                    .append("\"episodeTitle\":\"").append(safeString(episodeTitle)).append("\",")
+                   .append("\"seasonNumber\":").append(video != null && video.seasonNumber != null ? video.seasonNumber : "null").append(",")
                    .append("\"currentTime\":").append(currentState.currentTime).append(",")
                    .append("\"duration\":").append(duration).append(",")
                    .append("\"playing\":").append(currentState.playing).append(",")
@@ -344,6 +353,160 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"previousVideoId\":" + (prev != null ? prev.id : "null") + "}").build();
         } catch (Exception e) {
             return Response.ok("{\"previousVideoId\":null}").build();
+        }
+    }
+
+    // ==================== SUBTITLE/AUDIO TRACK SELECTION ====================
+
+    @POST
+    @Path("/select-subtitle")
+    @Blocking
+    public Response selectSubtitle(@QueryParam("videoId") Long videoId,
+                                   String body) {
+        try {
+            if (videoId == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                       .entity("{\"success\":false,\"error\":\"videoId required\"}").build();
+            }
+            
+            Video video = Video.findById(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                       .entity("{\"success\":false,\"error\":\"Video not found\"}").build();
+            }
+            
+            com.fasterxml.jackson.databind.ObjectMapper objMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode bodyNode = objMapper.readTree(body);
+            int index = bodyNode.has("index") ? bodyNode.get("index").asInt(-1) : -1;
+            
+            com.fasterxml.jackson.databind.node.ObjectNode payload = objMapper.createObjectNode();
+            payload.put("index", index);
+            videoSocket.broadcastCommand("select-subtitle", payload);
+            
+            return Response.ok("{\"success\":true}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+        }
+    }
+
+    @POST
+    @Path("/select-audio")
+    @Blocking
+    public Response selectAudio(@QueryParam("videoId") Long videoId,
+                                String body) {
+        try {
+            if (videoId == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                       .entity("{\"success\":false,\"error\":\"videoId required\"}").build();
+            }
+            
+            Video video = Video.findById(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                       .entity("{\"success\":false,\"error\":\"Video not found\"}").build();
+            }
+            
+            com.fasterxml.jackson.databind.ObjectMapper objMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode bodyNode = objMapper.readTree(body);
+            int index = bodyNode.has("index") ? bodyNode.get("index").asInt(0) : 0;
+            
+            com.fasterxml.jackson.databind.node.ObjectNode payload = objMapper.createObjectNode();
+            payload.put("index", index);
+            videoSocket.broadcastCommand("select-audio", payload);
+            
+            return Response.ok("{\"success\":true}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+        }
+    }
+
+    @GET
+    @Path("/subtitle-tracks")
+    @Blocking
+    public Response getSubtitleTracks(@QueryParam("videoId") Long videoId) {
+        try {
+            if (videoId == null) {
+                return Response.ok("{\"tracks\":[],\"activeTrackId\":null}").build();
+            }
+            
+            Video video = Video.findById(videoId);
+            if (video == null || video.subtitleTracks == null || video.subtitleTracks.isEmpty()) {
+                return Response.ok("{\"tracks\":[],\"activeTrackId\":null}").build();
+            }
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"tracks\":[");
+            boolean first = true;
+            Long activeTrackId = null;
+            for (Models.SubtitleTrack track : video.subtitleTracks) {
+                if (!track.isActive) continue;
+                if (!first) sb.append(",");
+                first = false;
+                sb.append("{")
+                  .append("\"id\":").append(track.id).append(",")
+                  .append("\"languageCode\":\"").append(safeString(track.languageCode)).append("\",")
+                  .append("\"languageName\":\"").append(safeString(track.languageName)).append("\",")
+                  .append("\"displayName\":\"").append(safeString(track.displayName)).append("\",")
+                  .append("\"isForced\":").append(track.isForced).append(",")
+                  .append("\"isSDH\":").append(track.isSDH).append(",")
+                  .append("\"isDefault\":").append(track.isDefault).append(",")
+                  .append("\"trackIndex\":").append(track.trackIndex != null ? track.trackIndex : "null")
+                  .append("}");
+                if (track.isDefault && activeTrackId == null) {
+                    activeTrackId = track.id;
+                }
+            }
+            sb.append("],\"activeTrackId\":").append(activeTrackId != null ? activeTrackId : "null").append("}");
+            
+            return Response.ok(sb.toString()).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+        }
+    }
+
+    @GET
+    @Path("/audio-tracks")
+    @Blocking
+    public Response getAudioTracks(@QueryParam("videoId") Long videoId) {
+        try {
+            if (videoId == null) {
+                return Response.ok("{\"tracks\":[],\"activeTrackId\":null}").build();
+            }
+            
+            Video video = Video.findById(videoId);
+            if (video == null || video.audioTracks == null || video.audioTracks.isEmpty()) {
+                return Response.ok("{\"tracks\":[],\"activeTrackId\":null}").build();
+            }
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"tracks\":[");
+            boolean first = true;
+            Long activeTrackId = null;
+            for (Models.AudioTrack track : video.audioTracks) {
+                if (!track.isActive) continue;
+                if (!first) sb.append(",");
+                first = false;
+                sb.append("{")
+                  .append("\"id\":").append(track.id).append(",")
+                  .append("\"languageCode\":\"").append(safeString(track.languageCode)).append("\",")
+                  .append("\"languageName\":\"").append(safeString(track.languageName)).append("\",")
+                  .append("\"displayName\":\"").append(safeString(track.displayName)).append("\",")
+                  .append("\"isDefault\":").append(track.isDefault).append(",")
+                  .append("\"trackIndex\":").append(track.trackIndex != null ? track.trackIndex : "null")
+                  .append("}");
+                if (track.isDefault && activeTrackId == null) {
+                    activeTrackId = track.id;
+                }
+            }
+            sb.append("],\"activeTrackId\":").append(activeTrackId != null ? activeTrackId : "null").append("}");
+            
+            return Response.ok(sb.toString()).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
         }
     }
 }

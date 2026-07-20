@@ -119,6 +119,10 @@ public class VideoUiApi {
     Template liveChannelFragment;
     @Inject @io.quarkus.qute.Location("liveChannelPlayerFragment.html")
     Template liveChannelPlayerFragment;
+    @Inject @io.quarkus.qute.Location("now-playing.html")
+    Template nowPlayingTemplate;
+    @Inject @io.quarkus.qute.Location("now-playing-carousel.html")
+    Template nowPlayingCarouselTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -1506,6 +1510,53 @@ public class VideoUiApi {
                 .data("groupTitle", channel.groupTitle != null ? channel.groupTitle : "")
                 .data("country", channel.country != null ? channel.country : "")
                 .data("defaultPlayer", defaultPlayer)
+                .render();
+    }
+
+    @GET
+    @Path("/now-playing-fragment")
+    @Blocking
+    public String nowPlayingFragment() {
+        return nowPlayingTemplate.render();
+    }
+
+    @GET
+    @Path("/now-playing-carousel")
+    @Blocking
+    @Transactional
+    public String nowPlayingCarousel(@QueryParam("videoId") Long videoId) {
+        Models.Video item = videoService.find(videoId);
+        if (item == null) return "";
+        List<Map<String, Object>> carouselItems = new ArrayList<>();
+        String carouselTitle = "";
+        String videoType = item.type != null ? item.type.toLowerCase() : "";
+        if (videoType.contains("episode") && item.seriesTitle != null && !item.seriesTitle.isBlank()) {
+            carouselTitle = "Episodes — " + item.seriesTitle;
+            List<Video> episodes = videoService.findEpisodesForSeries(item.seriesTitle);
+            int idx = 0;
+            for (Video ep : episodes) {
+                Map<String, Object> ci = new LinkedHashMap<>();
+                ci.put("id", ep.id);
+                ci.put("title", ep.title != null ? ep.title : "");
+                ci.put("seriesTitle", ep.seriesTitle != null ? ep.seriesTitle : "");
+                ci.put("seasonNumber", ep.seasonNumber != null ? ep.seasonNumber : 0);
+                ci.put("episodeNumber", ep.episodeNumber != null ? ep.episodeNumber : 0);
+                ci.put("type", ep.type != null ? ep.type : "");
+                ci.put("mediaType", "video");
+                ci.put("thumbnailPath", ep.thumbnailPath);
+                boolean isCurrent = ep.id.equals(videoId);
+                ci.put("isCurrent", isCurrent);
+                ci.put("entryId", null);
+                ci.put("collectionId", null);
+                carouselItems.add(ci);
+                idx++;
+            }
+        }
+        boolean hasCarousel = !carouselItems.isEmpty();
+        return nowPlayingCarouselTemplate
+                .data("carouselItems", carouselItems)
+                .data("carouselTitle", carouselTitle)
+                .data("hasCarousel", hasCarousel)
                 .render();
     }
 

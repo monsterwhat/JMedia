@@ -77,7 +77,6 @@ public class CollectionPlaybackAPI {
                 videoIds.size(), startIndex);
 
         videoController.selectVideo(videoIds.get(startIndex), 0.0);
-        videoController.togglePlay();
 
         return Response.ok(ApiResponse.success(Map.of(
             "videoId", videoIds.get(startIndex),

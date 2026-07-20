@@ -314,14 +314,21 @@ if (typeof window.SimplePlayer === 'undefined') {
                     }
                 },
                 onCommand: (msg) => {
+                    console.log('[SimplePlayer onCommand]', msg.type, msg.payload);
+                    var cmd = msg;
+                    if (msg && msg.type === 'command' && msg.payload) {
+                        cmd = { type: msg.payload.commandType, payload: msg.payload.commandPayload || {} };
+                    }
+                    var ctype = cmd.type;
                     if (this._destroyed) return;
-                    if (msg.type === 'select-subtitle') {
-                        const idx = msg.payload?.index;
+                    if (ctype === 'select-subtitle') {
+                        const idx = cmd.payload && cmd.payload.index;
                         if (idx == null) return;
                         const maxAttempts = 25;
                         let attempt = 0;
                         const trySelect = () => {
                             if (this._destroyed) return;
+                            if (idx === -1) { this.turnOffSubtitles && this.turnOffSubtitles(); return; }
                             const options = this.container.querySelectorAll('.subtitle-option:not(#sub-off)');
                             if (options.length > 0 && options[idx]) {
                                 options[idx].click();
@@ -333,8 +340,8 @@ if (typeof window.SimplePlayer === 'undefined') {
                             }
                         };
                         trySelect();
-                    } else if (msg.type === 'select-audio') {
-                        const idx = msg.payload?.index;
+                    } else if (ctype === 'select-audio') {
+                        const idx = cmd.payload && cmd.payload.index;
                         if (idx == null) return;
                         const maxAttempts = 25;
                         let attempt = 0;
@@ -351,6 +358,16 @@ if (typeof window.SimplePlayer === 'undefined') {
                             }
                         };
                         trySelect();
+                    } else if (ctype === 'toggle-play') {
+                        if (this._destroyed) return;
+                        if (this.video.paused) this.video.play().catch(() => {});
+                        else this.video.pause();
+                    } else if (ctype === 'seek') {
+                        if (this._destroyed) return;
+                        const t = cmd.payload && cmd.payload.value;
+                        if (typeof t === 'number' && isFinite(t)) {
+                            try { this.video.currentTime = t; } catch (e) {}
+                        }
                     }
                 }
             });
@@ -383,6 +400,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 },
                 playing: playing,
                 currentTime: this.video.currentTime,
+                profileId: (profileId ? Number(profileId) : null),
                 availableSubtitleTracks: subtitleTracks,
                 activeSubtitleTrackIndex: activeSubIdx >= 0 ? activeSubIdx : -1,
                 availableAudioTracks: audioTracks,

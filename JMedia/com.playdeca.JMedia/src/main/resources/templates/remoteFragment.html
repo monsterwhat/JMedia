@@ -1,0 +1,26 @@
+<div id="videoRemoteContainer" 
+     data-profile-id="{profileId}"
+     style="height: 100vh; overflow: hidden;">
+</div>
+
+<link rel="stylesheet" href="/css/video-remote.css">
+<script src="/js/video/VideoRemoteController.js"></script>
+<script>
+(function() {
+    function tryInit() {
+        if (window.VideoRemoteController) {
+            const container = document.getElementById('videoRemoteContainer');
+            const profileId = container.getAttribute('data-profile-id');
+            if (profileId) {
+                window.videoRemoteInstance = new window.VideoRemoteController({
+                    containerId: 'videoRemoteContainer',
+                    profileId: profileId
+                });
+            }
+            return;
+        }
+        setTimeout(tryInit, 50);
+    }
+    tryInit();
+})();
+</script>
