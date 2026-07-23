@@ -113,6 +113,15 @@
     <button class="cinema-dock-item" id="settingsDockBtn" title="Settings" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-gear"></i></button>
   </nav>
   <button class="cinema-dock-search" id="searchDockBtn" title="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
+  <!-- Search Bar (replaces nav when searching) -->
+  <div class="cinema-search-bar" id="searchBar">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input class="cinema-search-input" id="searchInput" type="text" placeholder="Search movies, shows..." autocomplete="off">
+    <button class="cinema-search-close" onclick="closeSearch()" aria-label="Close search">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <div class="cinema-search-dropdown" id="searchDropdown"></div>
+  </div>
 </div>
 
 <!-- Details Modal -->
@@ -284,21 +293,7 @@
   </div>
 </div>
 
-<!-- Search Overlay -->
-<div class="cinema-search-overlay" id="searchOverlay">
-  <div class="cinema-search-panel">
-    <button class="cinema-search-close" onclick="closeSearchOverlay()" aria-label="Close search">
-      <i class="fa-solid fa-xmark"></i>
-    </button>
-    <img class="cinema-search-backdrop" id="searchBackdrop" src="" alt="">
-    <div class="cinema-search-input-wrap">
-      <i class="fa-solid fa-magnifying-glass"></i>
-      <input class="cinema-search-input" id="searchInput" type="text" placeholder="Search movies, shows..." aria-label="Search videos" autocomplete="off">
-    </div>
-    <div class="cinema-search-results" id="searchResults"></div>
-    <div class="cinema-search-hint" id="searchHint">Start typing to search your library...</div>
-  </div>
-</div>
+
 
 <script>
 // ============================================================
@@ -840,7 +835,7 @@ async function toggleWatchlist(videoId) {
 // Dock + Search Wiring
 // ============================================================
 document.getElementById('settingsDockBtn')?.addEventListener('click', openSettingsModal);
-document.getElementById('searchDockBtn')?.addEventListener('click', openSearchOverlay);
+document.getElementById('searchDockBtn')?.addEventListener('click', openSearch);
 
 // Dock active state
 document.querySelectorAll('.cinema-dock-item').forEach(item => {
@@ -851,7 +846,7 @@ document.querySelectorAll('.cinema-dock-item').forEach(item => {
 });
 
 // ============================================================
-// Search Overlay
+// Inline Dock Search
 // ============================================================
 function debounce(fn, ms) {
   let timer;
@@ -861,108 +856,78 @@ function debounce(fn, ms) {
   };
 }
 
-function openSearchOverlay() {
-  const overlay = document.getElementById('searchOverlay');
-  if (!overlay) return;
-  overlay.classList.add('active');
-  document.body.style.overflow = 'hidden';
+function openSearch() {
   const dock = document.querySelector('.cinema-dock');
-  if (dock) { dock.style.opacity = '0'; dock.style.pointerEvents = 'none'; dock.style.transform = 'translateX(-50%) translateY(20px)'; }
+  if (dock) dock.classList.add('searching');
   const input = document.getElementById('searchInput');
-  if (input) {
-    input.value = '';
-    input.focus();
-  }
-  const backdrop = document.getElementById('searchBackdrop');
-  const firstCard = document.querySelector('.cinema-card');
-  if (backdrop && firstCard) {
-    const vid = firstCard.dataset.videoId;
-    if (vid) backdrop.src = '/api/video/thumbnail/' + vid;
-  }
+  if (input) { input.value = ''; input.focus(); }
 }
 
-function closeSearchOverlay() {
-  const overlay = document.getElementById('searchOverlay');
-  if (!overlay) return;
-  overlay.classList.remove('active');
-  document.body.style.overflow = '';
+function closeSearch() {
   const dock = document.querySelector('.cinema-dock');
-  if (dock) { dock.style.opacity = ''; dock.style.pointerEvents = ''; dock.style.transform = ''; }
+  if (dock) dock.classList.remove('searching');
   const input = document.getElementById('searchInput');
   if (input) input.value = '';
-  const results = document.getElementById('searchResults');
-  if (results) results.innerHTML = '';
-  const hint = document.getElementById('searchHint');
-  if (hint) hint.style.display = '';
+  const dropdown = document.getElementById('searchDropdown');
+  if (dropdown) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); }
 }
 
 async function performSearch(query) {
-  const results = document.getElementById('searchResults');
-  const hint = document.getElementById('searchHint');
-  if (!results || !hint) return;
-
+  const dropdown = document.getElementById('searchDropdown');
+  if (!dropdown) return;
   const q = query.trim().toLowerCase();
-  if (!q) {
-    results.innerHTML = '';
-    hint.style.display = '';
-    hint.textContent = 'Start typing to search your library...';
-    return;
-  }
-
-  hint.style.display = 'none';
-
+  if (!q) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); return; }
   const allVideos = await fetchJSON('/api/video/videos');
-  if (!Array.isArray(allVideos)) {
-    hint.style.display = '';
-    hint.textContent = 'No results found.';
-    return;
-  }
-
+  if (!Array.isArray(allVideos)) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); return; }
   const matches = allVideos.filter(v => {
     const title = (v.title || '').toLowerCase();
     const series = (v.seriesTitle || '').toLowerCase();
     return title.includes(q) || series.includes(q);
-  });
-
-  if (!matches.length) {
-    results.innerHTML = '';
-    hint.style.display = '';
-    hint.textContent = 'No results found.';
-    return;
-  }
-
-  results.innerHTML = matches.slice(0, 40).map(v => createCardHTML(v)).join('');
-  results.querySelectorAll('.cinema-card').forEach(card => {
-    card.onclick = () => {
-      const id = parseInt(card.dataset.videoId, 10);
-      closeSearchOverlay();
-      openDetails(id);
-    };
-  });
+  }).slice(0, 20);
+  if (!matches.length) { dropdown.innerHTML = '<div class="cinema-search-hint">No results found.</div>'; dropdown.classList.add('visible'); return; }
+  dropdown.innerHTML = matches.map(v => {
+    const id = v.id;
+    const title = v.title || v.seriesTitle || 'Untitled';
+    const type = v.type === 'movie' ? 'Movie' : 'TV';
+    const year = v.releaseYear ? ` • ${v.releaseYear}` : '';
+    return `<button class="cinema-search-result" onclick="closeSearch(); openDetails(${id})">
+      <img class="cinema-search-result-thumb" src="/api/video/thumbnail/${id}" alt="" loading="lazy">
+      <div class="cinema-search-result-info">
+        <div class="cinema-search-result-title">${title}</div>
+        <div class="cinema-search-result-sub">${type}${year}</div>
+      </div>
+    </button>`;
+  }).join('');
+  dropdown.classList.add('visible');
 }
 
 document.getElementById('searchInput')?.addEventListener('input', debounce(function(e) {
   performSearch(e.target.value);
-}, 300));
-
-document.getElementById('searchOverlay')?.addEventListener('click', (e) => {
-  if (e.target.classList.contains('cinema-search-overlay')) {
-    closeSearchOverlay();
-  }
-});
+}, 250));
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    const searchOverlay = document.getElementById('searchOverlay');
-    const settingsModal = document.getElementById('settings-modal');
-    const detailsModal = document.getElementById('cinema-modal');
+    const dock = document.querySelector('.cinema-dock');
+    if (dock && dock.classList.contains('searching')) {
+      closeSearch();
+    } else {
+      const settingsModal = document.getElementById('settings-modal');
+      const detailsModal = document.getElementById('cinema-modal');
+      if (settingsModal?.classList.contains('active')) {
+        closeSettingsModal();
+      } else if (detailsModal?.classList.contains('active')) {
+        closeModal();
+      }
+    }
+  }
+});
 
-    if (searchOverlay?.classList.contains('active')) {
-      closeSearchOverlay();
-    } else if (settingsModal?.classList.contains('active')) {
-      closeSettingsModal();
-    } else if (detailsModal?.classList.contains('active')) {
-      closeModal();
+document.addEventListener('click', (e) => {
+  const dock = document.querySelector('.cinema-dock');
+  if (dock && dock.classList.contains('searching')) {
+    const searchBar = document.getElementById('searchBar');
+    if (searchBar && !searchBar.contains(e.target)) {
+      closeSearch();
     }
   }
 });
