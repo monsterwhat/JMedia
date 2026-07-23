@@ -441,6 +441,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .cinema-dock-nav {
@@ -718,22 +719,23 @@ html, body {
 }
 
 /* ============================================================
-   Search Overlay
+   Search Overlay - Immersive Shiopa-style
    ============================================================ */
 
 .cinema-search-overlay {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.80);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.3s ease, visibility 0.3s ease;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
+  padding: 0;
 }
 
 .cinema-search-overlay.active {
@@ -743,41 +745,67 @@ html, body {
 }
 
 .cinema-search-panel {
-  width: 100%;
-  max-width: 720px;
-  margin-top: 80px;
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0 0 1rem 1rem;
-  padding: 1.5rem;
-  max-height: calc(100vh - 80px);
+  position: fixed;
+  inset-x: 0;
+  bottom: 0;
+  height: 90vh;
+  background: rgba(18, 18, 22, 0.92);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none;
+  border-radius: 1.5rem 1.5rem 0 0;
+  padding: 2rem 2.5rem 2rem;
   overflow-y: auto;
-  transform: translateY(-20px);
-  transition: transform 0.3s ease;
+  transform: translateY(100%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 -24px 80px rgba(0, 0, 0, 0.6), 0 -8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .cinema-search-overlay.active .cinema-search-panel {
   transform: translateY(0);
 }
 
+/* Desktop: centered modal */
+@media (min-width: 769px) {
+  .cinema-search-panel {
+    left: 50%;
+    top: 50%;
+    bottom: auto;
+    width: 850px;
+    max-height: 85vh;
+    border-radius: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transform: translate(-50%, -50%) translateY(100%);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .cinema-search-overlay.active .cinema-search-panel {
+    transform: translate(-50%, -50%);
+  }
+}
+
 .cinema-search-input-wrap {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  background: rgba(255, 255, 255, 0.08);
+  gap: 0.875rem;
+  background: rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0.875rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.cinema-search-input-wrap:focus-within {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.10);
 }
 
 .cinema-search-input-wrap i {
   color: var(--cinema-text-dim);
-  font-size: 1rem;
+  font-size: 1.125rem;
   flex-shrink: 0;
 }
 
@@ -787,7 +815,7 @@ html, body {
   border: none;
   outline: none;
   color: var(--cinema-text);
-  font-size: 1rem;
+  font-size: 1.125rem;
   font-family: inherit;
 }
 
@@ -799,36 +827,47 @@ html, body {
   position: absolute;
   top: 1rem;
   right: 1rem;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   border: none;
   border-radius: 50%;
   color: var(--cinema-text);
   font-size: 1.25rem;
   cursor: pointer;
   transition: background 0.2s ease;
-  z-index: 10;
+  z-index: 310;
 }
 
 .cinema-search-close:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.cinema-search-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(40px) brightness(0.3);
+  z-index: -1;
+  pointer-events: none;
 }
 
 .cinema-search-results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1.25rem;
 }
 
 .cinema-search-hint {
   text-align: center;
-  padding: 3rem 1rem;
+  padding: 4rem 1rem;
   color: var(--cinema-text-dim);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
 /* ============================================================
@@ -854,6 +893,10 @@ html, body {
   cursor: pointer;
   transition: all 0.2s ease;
   font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
 }
 
 .cinema-settings-tab:hover {
@@ -940,6 +983,121 @@ html, body {
   font-size: 0.875rem;
   min-width: 2.5rem;
   text-align: right;
+}
+
+/* Settings Modal - Text Inputs */
+.cinema-settings-input {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cinema-text);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+  max-width: 280px;
+}
+
+.cinema-settings-input:focus {
+  border-color: var(--cinema-accent);
+}
+
+.cinema-settings-input::placeholder {
+  color: var(--cinema-text-dim);
+  opacity: 0.6;
+}
+
+/* Settings Modal - Action Buttons */
+.cinema-settings-action-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: var(--cinema-accent);
+  color: #000;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.cinema-settings-action-btn:hover {
+  background: var(--cinema-accent-hover);
+}
+
+.cinema-settings-action-btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--cinema-text);
+}
+
+.cinema-settings-action-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Settings Modal - Button Row */
+.cinema-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* Settings Modal - Link Button */
+.cinema-settings-link {
+  color: var(--cinema-accent);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.cinema-settings-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* Settings Modal - Version Info */
+.cinema-settings-version {
+  color: var(--cinema-text-dim);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.cinema-settings-version strong {
+  color: var(--cinema-text);
+  font-weight: 600;
+}
+
+/* Settings Modal - Scrollable Panel */
+.cinema-settings-panel.active {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.cinema-settings-panel.active::-webkit-scrollbar {
+  width: 4px;
+}
+
+.cinema-settings-panel.active::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+/* Settings Modal - Divider */
+.cinema-settings-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 0.5rem 0;
+}
+
+/* Settings Modal - Status Text */
+.cinema-settings-status {
+  font-size: 0.75rem;
+  color: var(--cinema-text-dim);
+  font-style: italic;
 }
 
 /* ============================================================
@@ -1136,28 +1294,33 @@ html, body {
    SPA Shell Overrides for Cinema Mode
    ============================================================ */
 
+body.cinema-mode #standard-layout {
+  display: block !important;
+  height: auto !important;
+  overflow: visible !important;
+  position: relative !important;
+}
+
 body.cinema-mode .standard-sidebar {
   display: none !important;
 }
 
 body.cinema-mode .standard-main {
-  margin-left: 0 !important;
+  display: block !important;
+  height: auto !important;
+  overflow: visible !important;
+  flex: none !important;
+}
+
+body.cinema-mode #app-content {
+  display: block !important;
+  height: auto !important;
+  overflow-y: visible !important;
+  flex: none !important;
 }
 
 body.cinema-mode .persistent-music-player {
   display: none !important;
-}
-
-body.cinema-mode #app-content {
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-  flex: unset !important;
-  min-height: unset !important;
-  height: auto !important;
-}
-
-body.cinema-mode .standard-layout {
-  overflow: visible !important;
 }
 
 .cinema-content {

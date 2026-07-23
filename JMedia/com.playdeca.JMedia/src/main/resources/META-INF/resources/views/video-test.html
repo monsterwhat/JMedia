@@ -13,11 +13,7 @@
   <div class="cinema-nav-left">
     <a href="/" class="cinema-nav-logo">JMedia</a>
   </div>
-  <div class="cinema-nav-right">
-    <button class="cinema-nav-search" id="topSearchBtn">
-      <i class="fa-solid fa-magnifying-glass"></i>
-    </button>
-  </div>
+
 </nav>
 
 <!-- Hero Section -->
@@ -151,9 +147,12 @@
   <div class="cinema-modal-content" style="padding: 2rem;">
     <h2 class="cinema-modal-title">Settings</h2>
     <div class="cinema-settings-tabs">
-      <button class="cinema-settings-tab active" data-tab="appearance" onclick="switchSettingsTab('appearance')">Appearance</button>
-      <button class="cinema-settings-tab" data-tab="player" onclick="switchSettingsTab('player')">Player</button>
-      <button class="cinema-settings-tab" data-tab="playback" onclick="switchSettingsTab('playback')">Playback</button>
+      <button class="cinema-settings-tab active" data-tab="appearance" onclick="switchSettingsTab('appearance')"><i class="fa-solid fa-palette"></i> Appearance</button>
+      <button class="cinema-settings-tab" data-tab="player" onclick="switchSettingsTab('player')"><i class="fa-solid fa-play"></i> Player</button>
+      <button class="cinema-settings-tab" data-tab="playback" onclick="switchSettingsTab('playback')"><i class="fa-solid fa-forward"></i> Playback</button>
+      <button class="cinema-settings-tab" data-tab="library" onclick="switchSettingsTab('library')"><i class="fa-solid fa-folder-open"></i> Library</button>
+      <button class="cinema-settings-tab" data-tab="import" onclick="switchSettingsTab('import')"><i class="fa-solid fa-download"></i> Import</button>
+      <button class="cinema-settings-tab" data-tab="about" onclick="switchSettingsTab('about')"><i class="fa-solid fa-circle-info"></i> About</button>
     </div>
 
     <div class="cinema-settings-panel active" id="settings-panel-appearance">
@@ -174,6 +173,14 @@
           <span class="cinema-settings-label">Video Player</span>
           <select class="cinema-settings-select" id="player-select" onchange="savePlayerSetting(this.value)">
             <option value="jmedia">JMedia Player</option>
+            <option value="videojs">Video.js</option>
+            <option value="oplayer">OPlayer</option>
+          </select>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Default Video Player</span>
+          <select class="cinema-settings-select" id="default-player-select" onchange="saveDefaultPlayerSetting(this.value)">
+            <option value="simple">JMedia Player</option>
             <option value="videojs">Video.js</option>
             <option value="oplayer">OPlayer</option>
           </select>
@@ -204,15 +211,86 @@
         </div>
       </div>
     </div>
+
+    <div class="cinema-settings-panel" id="settings-panel-library">
+      <div class="cinema-settings-section">
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Music Library Path</span>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <input type="text" class="cinema-settings-input" id="cinema-music-lib-path" placeholder="(not set)">
+            <button class="cinema-settings-action-btn secondary" onclick="browseMusicLibrary()">Browse</button>
+          </div>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Video Library Path</span>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <input type="text" class="cinema-settings-input" id="cinema-video-lib-path" placeholder="(not set)">
+            <button class="cinema-settings-action-btn secondary" onclick="browseVideoLibrary()">Browse</button>
+          </div>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">TMDb API Key</span>
+          <input type="password" class="cinema-settings-input" id="cinema-tmdb-api-key" placeholder="API Key">
+        </div>
+        <div class="cinema-settings-divider"></div>
+        <div class="cinema-settings-row" style="border-bottom:none;">
+          <div class="cinema-settings-actions">
+            <button class="cinema-settings-action-btn" onclick="scanMusicLibrary()">Scan Music</button>
+            <button class="cinema-settings-action-btn" onclick="scanVideoLibrary()">Scan Videos</button>
+            <button class="cinema-settings-action-btn secondary" onclick="reloadMusicMetadata()">Reload Music Metadata</button>
+            <button class="cinema-settings-action-btn secondary" onclick="reloadVideoMetadata()">Reload Video Metadata</button>
+          </div>
+        </div>
+        <div class="cinema-settings-status" id="library-action-status"></div>
+      </div>
+    </div>
+
+    <div class="cinema-settings-panel" id="settings-panel-import">
+      <div class="cinema-settings-section">
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Output Format</span>
+          <select class="cinema-settings-select" id="cinema-output-format" onchange="saveImportSettings()">
+            <option value="mp3">MP3</option>
+            <option value="m4a">M4A</option>
+            <option value="flac">FLAC</option>
+            <option value="opus">OPUS</option>
+          </select>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Download Threads</span>
+          <input type="number" class="cinema-settings-input" id="cinema-download-threads" min="1" max="10" style="max-width:80px; text-align:center;" onchange="saveImportSettings()">
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Search Threads</span>
+          <input type="number" class="cinema-settings-input" id="cinema-search-threads" min="1" max="10" style="max-width:80px; text-align:center;" onchange="saveImportSettings()">
+        </div>
+      </div>
+    </div>
+
+    <div class="cinema-settings-panel" id="settings-panel-about">
+      <div class="cinema-settings-section">
+        <div class="cinema-settings-row" style="border-bottom:none; flex-direction:column; align-items:flex-start; gap:0.5rem;">
+          <div class="cinema-settings-version">
+            <strong>JMedia</strong><br>
+            Version: <span id="cinema-version">checking...</span>
+          </div>
+        </div>
+        <div class="cinema-settings-divider"></div>
+        <div class="cinema-settings-row" style="border-bottom:none;">
+          <a class="cinema-settings-link" href="/settings" target="_blank">Open Full Settings Page &rarr;</a>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- Search Overlay -->
 <div class="cinema-search-overlay" id="searchOverlay">
-  <button class="cinema-search-close" onclick="closeSearchOverlay()" aria-label="Close search">
-    <i class="fa-solid fa-xmark"></i>
-  </button>
   <div class="cinema-search-panel">
+    <button class="cinema-search-close" onclick="closeSearchOverlay()" aria-label="Close search">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <img class="cinema-search-backdrop" id="searchBackdrop" src="" alt="">
     <div class="cinema-search-input-wrap">
       <i class="fa-solid fa-magnifying-glass"></i>
       <input class="cinema-search-input" id="searchInput" type="text" placeholder="Search movies, shows..." aria-label="Search videos" autocomplete="off">
@@ -227,18 +305,50 @@
 // Cinema Mode: force-fix SPA shell for scrollable cinema content
 // ============================================================
 (function() {
-  document.body.classList.add('cinema-mode');
-  var sidebar = document.getElementById('standard-sidebar');
-  if (sidebar) sidebar.style.display = 'none';
-  var player = document.getElementById('musicPlayerContainer');
-  if (player) player.style.display = 'none';
-  // Force ALL flex parents to be simple block layout
-  var stdLayout = document.getElementById('standard-layout');
-  if (stdLayout) stdLayout.setAttribute('style', 'display:block !important; overflow:visible !important; margin-left:0 !important;');
-  var stdMain = document.querySelector('.standard-main');
-  if (stdMain) stdMain.setAttribute('style', 'display:block !important; flex:none !important; overflow:visible !important; margin-left:0 !important; min-height:unset !important; height:auto !important;');
-  var appContent = document.getElementById('app-content');
-  if (appContent) appContent.setAttribute('style', 'display:block !important; flex:none !important; overflow-y:auto !important; overflow-x:hidden !important; min-height:unset !important; height:auto !important; -webkit-overflow-scrolling:touch !important;');
+  function applyCinemaOverrides() {
+    document.body.classList.add('cinema-mode');
+    var sidebar = document.getElementById('standard-sidebar');
+    if (sidebar) sidebar.style.display = 'none';
+    var player = document.getElementById('musicPlayerContainer');
+    if (player) player.style.display = 'none';
+
+    var stdLayout = document.getElementById('standard-layout');
+    if (stdLayout) {
+      stdLayout.style.display = 'block';
+      stdLayout.style.height = 'auto';
+      stdLayout.style.overflow = 'visible';
+      stdLayout.style.position = 'relative';
+      stdLayout.style.marginLeft = '0';
+    }
+    var stdMain = document.querySelector('.standard-main');
+    if (stdMain) {
+      stdMain.style.display = 'block';
+      stdMain.style.height = 'auto';
+      stdMain.style.overflow = 'visible';
+      stdMain.style.flex = 'none';
+      stdMain.style.marginLeft = '0';
+    }
+    var appContent = document.getElementById('app-content');
+    if (appContent) {
+      appContent.style.display = 'block';
+      appContent.style.height = 'auto';
+      appContent.style.overflowY = 'visible';
+      appContent.style.overflowX = 'hidden';
+      appContent.style.flex = 'none';
+    }
+  }
+
+  applyCinemaOverrides();
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyCinemaOverrides);
+  }
+
+  var observer = new MutationObserver(function() {
+    applyCinemaOverrides();
+  });
+  var root = document.getElementById('app-content') || document.body;
+  observer.observe(root, { childList: true, subtree: true });
 })();
 
 // ============================================================
@@ -524,6 +634,14 @@ function savePlayerSetting(value) {
   }).catch(() => {});
 }
 
+function saveDefaultPlayerSetting(value) {
+  fetch('/api/settings/video-libraries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ defaultVideoPlayer: value })
+  }).catch(() => {});
+}
+
 function updateCrossfadeDisplay(value) {
   const display = document.getElementById('crossfade-value');
   if (display) display.textContent = `${value}s`;
@@ -533,6 +651,65 @@ function updateCrossfadeDisplay(value) {
 function toggleAutoSkip(type, el) {
   el.classList.toggle('active');
   saveSettingsDebounced();
+}
+
+function setLibraryStatus(msg) {
+  const el = document.getElementById('library-action-status');
+  if (el) {
+    el.textContent = msg;
+    if (msg) setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 4000);
+  }
+}
+
+function browseMusicLibrary() {
+  window.open('/settings', '_blank');
+}
+
+function browseVideoLibrary() {
+  window.open('/settings', '_blank');
+}
+
+async function scanMusicLibrary() {
+  setLibraryStatus('Scanning music...');
+  try {
+    const r = await fetch('/api/settings/scan-music', { method: 'POST' });
+    setLibraryStatus(r.ok ? 'Music scan started.' : 'Scan failed.');
+  } catch { setLibraryStatus('Scan request failed.'); }
+}
+
+async function scanVideoLibrary() {
+  setLibraryStatus('Scanning videos...');
+  try {
+    const r = await fetch('/api/video/reload-metadata', { method: 'POST' });
+    setLibraryStatus(r.ok ? 'Video scan started.' : 'Scan failed.');
+  } catch { setLibraryStatus('Scan request failed.'); }
+}
+
+async function reloadMusicMetadata() {
+  setLibraryStatus('Reloading music metadata...');
+  try {
+    const r = await fetch('/api/settings/reload-metadata', { method: 'POST' });
+    setLibraryStatus(r.ok ? 'Metadata reload started.' : 'Reload failed.');
+  } catch { setLibraryStatus('Reload request failed.'); }
+}
+
+async function reloadVideoMetadata() {
+  setLibraryStatus('Reloading video metadata...');
+  try {
+    const r = await fetch('/api/video/reload-metadata', { method: 'POST' });
+    setLibraryStatus(r.ok ? 'Video metadata reload started.' : 'Reload failed.');
+  } catch { setLibraryStatus('Reload request failed.'); }
+}
+
+async function saveImportSettings() {
+  const fmt = document.getElementById('cinema-output-format')?.value || 'mp3';
+  const dlThreads = parseInt(document.getElementById('cinema-download-threads')?.value, 10) || 1;
+  const srchThreads = parseInt(document.getElementById('cinema-search-threads')?.value, 10) || 1;
+  fetch('/api/settings/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outputFormat: fmt, downloadThreads: dlThreads, searchThreads: srchThreads })
+  }).catch(() => {});
 }
 
 let _saveSettingsTimer;
@@ -559,14 +736,35 @@ function saveSettings() {
       skipOutro
     })
   }).catch(() => {});
+
+  const musicPath = document.getElementById('cinema-music-lib-path')?.value;
+  const videoPath = document.getElementById('cinema-video-lib-path')?.value;
+  const tmdbKey = document.getElementById('cinema-tmdb-api-key')?.value;
+  if (musicPath || videoPath || tmdbKey) {
+    fetch('/api/settings/video-libraries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ musicLibraryPath: musicPath, videoLibraryPath: videoPath, tmdbApiKey: tmdbKey })
+    }).catch(() => {});
+  }
 }
 
 async function loadSettings() {
   try {
     const libData = await fetchJSON('/api/settings/video-libraries');
-    if (libData && libData.videoPlayer) {
-      const select = document.getElementById('player-select');
-      if (select) select.value = libData.videoPlayer;
+    if (libData) {
+      if (libData.videoPlayer) {
+        const select = document.getElementById('player-select');
+        if (select) select.value = libData.videoPlayer;
+      }
+      const defaultSel = document.getElementById('default-player-select');
+      if (defaultSel && libData.defaultVideoPlayer) defaultSel.value = libData.defaultVideoPlayer;
+      const musicInput = document.getElementById('cinema-music-lib-path');
+      if (musicInput && libData.musicLibraryPath) musicInput.value = libData.musicLibraryPath;
+      const videoInput = document.getElementById('cinema-video-lib-path');
+      if (videoInput && libData.videoLibraryPath) videoInput.value = libData.videoLibraryPath;
+      const tmdbInput = document.getElementById('cinema-tmdb-api-key');
+      if (tmdbInput && libData.tmdbApiKey) tmdbInput.value = libData.tmdbApiKey;
     }
   } catch (e) {}
 
@@ -587,6 +785,29 @@ async function loadSettings() {
       }
     }
   } catch (e) {}
+
+  try {
+    const impData = await fetchJSON('/api/settings/import');
+    if (impData) {
+      const fmt = document.getElementById('cinema-output-format');
+      if (fmt && impData.outputFormat) fmt.value = impData.outputFormat;
+      const dl = document.getElementById('cinema-download-threads');
+      if (dl && impData.downloadThreads) dl.value = impData.downloadThreads;
+      const srch = document.getElementById('cinema-search-threads');
+      if (srch && impData.searchThreads) srch.value = impData.searchThreads;
+    }
+  } catch (e) {}
+
+  try {
+    const verData = await fetchJSON('/api/update/latest');
+    const verEl = document.getElementById('cinema-version');
+    if (verEl) {
+      verEl.textContent = verData?.version || 'unknown';
+    }
+  } catch (e) {
+    const verEl = document.getElementById('cinema-version');
+    if (verEl) verEl.textContent = 'unknown';
+  }
 }
 
 // ============================================================
@@ -620,7 +841,6 @@ async function toggleWatchlist(videoId) {
 // ============================================================
 document.getElementById('settingsDockBtn')?.addEventListener('click', openSettingsModal);
 document.getElementById('searchDockBtn')?.addEventListener('click', openSearchOverlay);
-document.getElementById('topSearchBtn')?.addEventListener('click', openSearchOverlay);
 
 // Dock active state
 document.querySelectorAll('.cinema-dock-item').forEach(item => {
@@ -646,10 +866,18 @@ function openSearchOverlay() {
   if (!overlay) return;
   overlay.classList.add('active');
   document.body.style.overflow = 'hidden';
+  const dock = document.querySelector('.cinema-dock');
+  if (dock) { dock.style.opacity = '0'; dock.style.pointerEvents = 'none'; dock.style.transform = 'translateX(-50%) translateY(20px)'; }
   const input = document.getElementById('searchInput');
   if (input) {
     input.value = '';
     input.focus();
+  }
+  const backdrop = document.getElementById('searchBackdrop');
+  const firstCard = document.querySelector('.cinema-card');
+  if (backdrop && firstCard) {
+    const vid = firstCard.dataset.videoId;
+    if (vid) backdrop.src = '/api/video/thumbnail/' + vid;
   }
 }
 
@@ -658,6 +886,8 @@ function closeSearchOverlay() {
   if (!overlay) return;
   overlay.classList.remove('active');
   document.body.style.overflow = '';
+  const dock = document.querySelector('.cinema-dock');
+  if (dock) { dock.style.opacity = ''; dock.style.pointerEvents = ''; dock.style.transform = ''; }
   const input = document.getElementById('searchInput');
   if (input) input.value = '';
   const results = document.getElementById('searchResults');
