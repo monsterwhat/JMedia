@@ -731,11 +731,6 @@ html, body {
   visibility: hidden;
   pointer-events: none;
   transition: opacity 0.35s ease, visibility 0.35s ease;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  overflow-y: auto;
-  padding: 0;
 }
 
 .cinema-search-overlay.active {
