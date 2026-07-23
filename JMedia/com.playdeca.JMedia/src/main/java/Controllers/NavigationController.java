@@ -37,6 +37,12 @@ public class NavigationController {
     }
     
     @GET
+    @Path("/video-test")
+    public Response serveVideoTest() {
+        return servePage("index.html", "Video test page (SPA)");
+    }
+    
+    @GET
     @Path("/setup")
     public Response serveSetup() {
         return servePage("setup.html", "Setup page");

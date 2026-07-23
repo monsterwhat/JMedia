@@ -7,6 +7,7 @@
         constructor() {
             this.routes = {
                 '/': 'music', '/music': 'music', '/video': 'video',
+                '/video-test': 'video-test',
                 '/settings': 'settings', '/import': 'import'
             };
             this.currentView = null;
@@ -87,7 +88,8 @@
         handleRoute() {
             const path = window.location.pathname;
             let viewName = this.routes[path] || 'music';
-            if (path.startsWith('/video')) viewName = 'video';
+            if (path.startsWith('/video-test')) viewName = 'video-test';
+            else if (path.startsWith('/video')) viewName = 'video';
             if (path.startsWith('/settings')) viewName = 'settings';
             if (path.startsWith('/import')) viewName = 'import';
             this.loadView(viewName);
@@ -128,7 +130,7 @@
                 const viewLabels = { music: 'Music', video: 'Video', settings: 'Settings', import: 'Import' };
                 if (window.Breadcrumbs) window.Breadcrumbs.set([viewLabels[viewName] || viewName]);
 
-                const isVideoPage = viewName === 'video';
+                const isVideoPage = viewName === 'video' || viewName === 'video-test';
                 const musicPlayer = document.querySelector('.persistent-music-player') ||
                                    document.querySelector('.mobile-player') ||
                                    document.getElementById('musicPlayerContainer');
@@ -265,7 +267,7 @@
             if (videoSubNav) videoSubNav.style.display = isVideo ? 'block' : 'none';
 
             if (viewName === 'music') document.getElementById('nav-music')?.classList.add('active');
-            if (viewName === 'video') {
+            if (viewName === 'video' || viewName === 'video-test') {
                 const urlParams = new URLSearchParams(window.location.search);
                 const section = urlParams.get('section') || 'home';
                 const sidebarItems = ['movies', 'shows', 'history', 'watchlist', 'manage', 'adminHistory'];

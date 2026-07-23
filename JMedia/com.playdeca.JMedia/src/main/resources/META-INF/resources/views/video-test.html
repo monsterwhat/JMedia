@@ -11,7 +11,7 @@
 <!-- Glass Navbar -->
 <nav class="cinema-nav">
   <div class="cinema-nav-left">
-    <a href="/" class="cinema-nav-logo">JMedia</a>
+    <a href="/" class="cinema-nav-logo"><img src="/logo.png" alt="JMedia" class="cinema-nav-logo-img"></a>
   </div>
 
 </nav>
@@ -27,12 +27,13 @@
   
   <div class="cinema-hero-content" id="hero-content">
     <div class="cinema-hero-badge">
-      <i class="fa-solid fa-fire" style="color: #ef4444;"></i> Featured
+      <i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching
     </div>
     <h1 class="cinema-hero-title" id="hero-title">Loading...</h1>
     <div class="cinema-hero-rating">
       <span class="cinema-hero-rating-stars" id="hero-stars"></span>
       <span class="cinema-hero-rating-value" id="hero-rating"></span>
+      <span class="cinema-hero-rating-year" id="hero-year"></span>
     </div>
     <div class="cinema-hero-meta" id="hero-meta"></div>
     <p class="cinema-hero-desc" id="hero-desc"></p>
@@ -40,12 +41,15 @@
       <button class="cinema-hero-play" id="hero-play-btn">
         <i class="fa-solid fa-play"></i> Play
       </button>
-      <button class="cinema-hero-secondary" id="hero-watchlist-btn" title="Add to Watchlist">
-        <i class="fa-solid fa-plus"></i>
-      </button>
-      <button class="cinema-hero-secondary" id="hero-info-btn" title="More Info">
-        <i class="fa-solid fa-circle-info"></i>
-      </button>
+      <div class="cinema-hero-secondary-group">
+        <button class="cinema-hero-secondary" id="hero-watchlist-btn" title="Add to Watchlist">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+        <div class="cinema-hero-secondary-divider"></div>
+        <button class="cinema-hero-secondary" id="hero-info-btn" title="More Info">
+          <i class="fa-solid fa-circle-info"></i>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -59,45 +63,60 @@
   <section class="cinema-section" id="section-continue-watching" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">Continue Watching</h2>
-      <a href="#" class="cinema-section-see-all">See All</a>
     </div>
-    <div class="cinema-carousel scrollbar-hide" id="continue-watching-carousel"></div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="continue-watching-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
   </section>
 
   <!-- Recently Updated Section -->
   <section class="cinema-section" id="section-recently-updated" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">Recently Updated</h2>
-      <a href="#" class="cinema-section-see-all">See All</a>
     </div>
-    <div class="cinema-carousel scrollbar-hide" id="recently-updated-carousel"></div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="recently-updated-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="recently-updated-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="recently-updated-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
   </section>
 
   <!-- Trending Now Section -->
   <section class="cinema-section" id="section-trending" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">Trending Now</h2>
-      <a href="#" class="cinema-section-see-all">See All</a>
     </div>
-    <div class="cinema-carousel scrollbar-hide" id="trending-carousel"></div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="trending-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="trending-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="trending-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
   </section>
 
   <!-- Movies Section -->
   <section class="cinema-section" id="section-movies" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">Movies</h2>
-      <a href="#" class="cinema-section-see-all">See All</a>
     </div>
-    <div class="cinema-carousel scrollbar-hide" id="movies-carousel"></div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="movies-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
   </section>
 
   <!-- TV Shows Section -->
   <section class="cinema-section" id="section-tvshows" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">TV Shows</h2>
-      <a href="#" class="cinema-section-see-all">See All</a>
     </div>
-    <div class="cinema-carousel scrollbar-hide" id="tvshows-carousel"></div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="tvshows-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
   </section>
 </main>
 
@@ -130,19 +149,29 @@
   <button class="cinema-modal-close" onclick="closeModal()">
     <i class="fa-solid fa-xmark"></i>
   </button>
-  <img class="cinema-modal-backdrop-img" id="modal-backdrop-img"
-       src="" alt="Backdrop">
-  <div class="cinema-modal-content">
-    <h2 class="cinema-modal-title" id="modal-title"></h2>
-    <div class="cinema-modal-meta" id="modal-meta"></div>
-    <p class="cinema-modal-desc" id="modal-desc"></p>
-    <div class="cinema-modal-actions">
-      <button class="cinema-hero-play" id="modal-play-btn">
-        <i class="fa-solid fa-play"></i> Play Now
-      </button>
-      <button class="cinema-hero-secondary" id="modal-watchlist-btn" title="Add to Watchlist">
-        <i class="fa-solid fa-plus"></i>
-      </button>
+  <div class="cinema-modal-scroll">
+    <!-- Blurred background layer -->
+    <div class="cinema-modal-bg-blur" id="modal-bg-blur"></div>
+    <!-- Hero area -->
+    <div class="cinema-modal-hero">
+      <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
+    </div>
+    <!-- Content -->
+    <div class="cinema-modal-content">
+      <h2 class="cinema-modal-title" id="modal-title"></h2>
+      <div class="cinema-modal-meta-row" id="modal-meta-row"></div>
+      <div class="cinema-modal-desc-wrapper">
+        <p class="cinema-modal-desc" id="modal-desc"></p>
+        <button class="cinema-modal-desc-toggle" id="modal-desc-toggle" onclick="toggleDescription()" style="display:none;">more...</button>
+      </div>
+      <div class="cinema-modal-actions">
+        <button class="cinema-modal-play" id="modal-play-btn">
+          <i class="fa-solid fa-play"></i> Play Now
+        </button>
+        <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -400,7 +429,7 @@ function createCardHTML(video) {
   const id = video.id;
   const title = video.title || video.seriesTitle || 'Untitled';
   const year = video.releaseYear || '';
-  const type = video.type === 'episode' ? (video.seriesTitle || 'TV') : (video.type === 'movie' ? 'Movie' : 'Video');
+  const rating = video.imdbRating || video.tmdbRating || '';
   const imgSrc = getThumbnailUrl(id);
   return `
     <div class="cinema-card" data-video-id="${id}" data-type="${video.type || 'movie'}" data-title="${title.replace(/"/g, '&quot;')}" onclick="openDetails(${id})">
@@ -413,7 +442,7 @@ function createCardHTML(video) {
         </div>
       </div>
       <div class="cinema-card-title">${title}</div>
-      <div class="cinema-card-meta">${year} &bull; ${type}</div>
+      <div class="cinema-card-meta"><i class="fa-solid fa-star" style="font-size: 0.7rem;"></i> ${rating} ${year}</div>
     </div>
   `;
 }
@@ -449,10 +478,13 @@ function updateHero(index) {
     rating.textContent = item.imdbRating || item.tmdbRating || '';
     stars.innerHTML = renderStars(parseFloat(item.imdbRating || item.tmdbRating || 0));
 
+    const yearEl = document.getElementById('hero-year');
     const year = item.releaseYear || '';
+    if (yearEl) yearEl.textContent = year ? '\u00A0\u2022\u00A0' + year : '';
+
     const duration = formatDuration(item.duration);
     const type = item.type === 'movie' ? 'Movie' : 'TV Show';
-    meta.innerHTML = [year, duration, type].filter(Boolean).map(s => `<span>${s}</span><span class="cinema-hero-meta-divider"></span>`).join('');
+    meta.innerHTML = [duration, type].filter(Boolean).map(s => `<span>${s}</span><span class="cinema-hero-meta-divider"></span>`).join('');
     meta.lastElementChild?.remove();
 
     // Update play button
@@ -549,6 +581,7 @@ async function loadCinemaData() {
     renderCarousel('movies-carousel', movies.slice(0, 20));
     renderCarousel('tvshows-carousel', tvShows.slice(0, 20));
     renderCarousel('trending-carousel', trending);
+    updateCarouselArrows();
 
     // Continue watching: would need correct API endpoint
   }
@@ -571,18 +604,70 @@ async function loadCinemaData() {
 function openDetails(videoId) {
   fetchJSON(`/api/video/${videoId}`).then(data => {
     if (!data) return;
-    document.getElementById('modal-backdrop-img').src = getThumbnailUrl(videoId);
+
+    // Hero image — prefer wider images
+    const heroUrl = getThumbnailUrl(videoId);
+    const backdropImg = document.getElementById('modal-backdrop-img');
+    if (backdropImg) backdropImg.src = heroUrl;
+
+    // Blurred background
+    const bgBlur = document.getElementById('modal-bg-blur');
+    if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
+
+    // Title
     document.getElementById('modal-title').textContent = data.title || data.seriesTitle || '';
-    document.getElementById('modal-desc').textContent = data.description || '';
+
+    // Meta row: star rating + year + type
+    const rating = data.imdbRating || data.tmdbRating || '';
     const year = data.releaseYear || '';
     const duration = formatDuration(data.duration);
     const type = data.type === 'movie' ? 'Movie' : 'TV Show';
-    document.getElementById('modal-meta').innerHTML = [year, duration, type].filter(Boolean).join(' &bull; ');
+
+    let metaHtml = '';
+    if (rating) metaHtml += `<span class="meta-badge"><i class="fa-solid fa-star" style="font-size:0.7rem;"></i> ${rating}</span>`;
+    if (year) metaHtml += `<span class="meta-badge">${year}</span>`;
+    if (type) metaHtml += `<span class="meta-badge">${type}</span>`;
+    if (duration) metaHtml += `<span class="meta-badge">${duration}</span>`;
+
+    const metaRow = document.getElementById('modal-meta-row');
+    if (metaRow) metaRow.innerHTML = metaHtml;
+
+    // Description with expand toggle
+    const desc = data.description || '';
+    const descEl = document.getElementById('modal-desc');
+    const descToggle = document.getElementById('modal-desc-toggle');
+    if (descEl) {
+      descEl.textContent = desc;
+      descEl.classList.remove('expanded');
+    }
+    if (descToggle) {
+      descToggle.style.display = desc.length > 150 ? 'inline' : 'none';
+      descToggle.textContent = 'more...';
+    }
+
+    // Buttons
     document.getElementById('modal-play-btn').onclick = () => playVideo(data);
     document.getElementById('modal-watchlist-btn').onclick = () => toggleWatchlist(videoId);
+
+    // Open modal
     document.getElementById('cinema-modal-backdrop').classList.add('active');
     document.getElementById('cinema-modal').classList.add('active');
   });
+}
+
+function toggleDescription() {
+  const desc = document.getElementById('modal-desc');
+  const toggle = document.getElementById('modal-desc-toggle');
+  if (!desc || !toggle) return;
+
+  const isExpanded = desc.classList.contains('expanded');
+  if (isExpanded) {
+    desc.classList.remove('expanded');
+    toggle.textContent = 'more...';
+  } else {
+    desc.classList.add('expanded');
+    toggle.textContent = 'less...';
+  }
 }
 
 function closeModal() {
@@ -925,12 +1010,45 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
   const dock = document.querySelector('.cinema-dock');
   if (dock && dock.classList.contains('searching')) {
-    const searchBar = document.getElementById('searchBar');
-    if (searchBar && !searchBar.contains(e.target)) {
+    if (!dock.contains(e.target)) {
       closeSearch();
     }
   }
 });
+
+// ============================================================
+// Carousel Arrow Navigation
+// ============================================================
+document.addEventListener('click', (e) => {
+  const arrow = e.target.closest('.cinema-carousel-arrow');
+  if (!arrow) return;
+  const carouselId = arrow.dataset.carousel;
+  const carousel = document.getElementById(carouselId);
+  if (!carousel) return;
+  const cardWidth = carousel.querySelector('.cinema-card')?.offsetWidth || 144;
+  const gap = 16;
+  const cardsToScroll = 4;
+  const scrollAmount = (cardWidth + gap) * cardsToScroll;
+  const direction = arrow.classList.contains('cinema-carousel-arrow-left') ? -1 : 1;
+  carousel.scrollBy({ left: scrollAmount * direction, behavior: 'smooth' });
+});
+
+function updateCarouselArrows() {
+  document.querySelectorAll('.cinema-carousel').forEach(carousel => {
+    const wrapper = carousel.closest('.cinema-carousel-wrapper');
+    if (!wrapper) return;
+    const leftArrow = wrapper.querySelector('.cinema-carousel-arrow-left');
+    const rightArrow = wrapper.querySelector('.cinema-carousel-arrow-right');
+    if (leftArrow) leftArrow.style.display = carousel.scrollLeft > 10 ? 'flex' : 'none';
+    if (rightArrow) {
+      const maxScroll = carousel.scrollWidth - carousel.clientWidth;
+      rightArrow.style.display = carousel.scrollLeft < maxScroll - 10 ? 'flex' : 'none';
+    }
+  });
+}
+
+document.querySelectorAll('.cinema-carousel').forEach(c => c.addEventListener('scroll', updateCarouselArrows));
+window.addEventListener('resize', updateCarouselArrows);
 
 // ============================================================
 // Init
