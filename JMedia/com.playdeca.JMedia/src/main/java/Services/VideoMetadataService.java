@@ -63,6 +63,7 @@ public class VideoMetadataService {
     private static final String TMDB_EPISODE_DETAILS = "https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?api_key=%s&append_to_response=credits,images";
     private static final String TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
     private static final String TMDB_IMAGE_ORIGINAL = "https://image.tmdb.org/t/p/original";
+    private static final String TMDB_IMAGE_W1280 = "https://image.tmdb.org/t/p/w1280";
     private static final String TMDB_TV_IMAGES = "https://api.themoviedb.org/3/tv/%s/images?api_key=%s";
     
     // OMDb
@@ -797,16 +798,27 @@ public class VideoMetadataService {
             JsonNode root = fetchJson(url);
             if (root != null && root.path("results").size() > 0) {
                 video.tmdbId = root.path("results").get(0).path("id").asText();
+                LOG.info("[EnrichMovie] TMDb search found match for '{}': tmdbId={}", video.title, video.tmdbId);
+            } else if (root != null) {
+                LOG.info("[EnrichMovie] TMDb search returned no results for: {}", video.title);
+            } else {
+                LOG.warn("[EnrichMovie] TMDb search request failed for: {}", video.title);
             }
         }
 
         if (video.tmdbId != null) {
             String url = String.format(TMDB_MOVIE_DETAILS, video.tmdbId, apiKey);
             JsonNode root = fetchJson(url);
+            if (root == null) {
+                LOG.warn("[EnrichMovie] Failed to fetch movie details for tmdbId={}", video.tmdbId);
+            }
             if (root != null) {
                 if (root.has("overview")) video.overview = root.get("overview").asText();
                 if (root.has("vote_average")) video.tmdbRating = root.get("vote_average").asDouble();
-                if (root.has("imdb_id")) video.imdbId = root.get("imdb_id").asText();
+                if (root.has("imdb_id")) {
+                    video.imdbId = root.get("imdb_id").asText();
+                    LOG.info("[EnrichMovie] Extracted imdbId={}", video.imdbId);
+                }
                 if (video.releaseYear == null && root.has("release_date")) {
                     String date = root.get("release_date").asText();
                     if (date.length() >= 4) video.releaseYear = Integer.parseInt(date.substring(0, 4));
@@ -815,7 +827,8 @@ public class VideoMetadataService {
                     video.posterPath = TMDB_IMAGE_BASE + root.get("poster_path").asText();
                 }
                 if (root.has("backdrop_path") && !root.get("backdrop_path").isNull()) {
-                    video.backdropPath = TMDB_IMAGE_ORIGINAL + root.get("backdrop_path").asText();
+                    video.backdropPath = TMDB_IMAGE_W1280 + root.get("backdrop_path").asText();
+                    LOG.info("[EnrichMovie] Set backdrop path");
                 }
                 // Extract logo from images (already fetched via append_to_response=images)
                 if (root.has("images") && root.get("images").has("logos")) {
@@ -829,7 +842,14 @@ public class VideoMetadataService {
                             }
                         }
                         if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
-                        if (logoFilePath != null) video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                        if (logoFilePath != null) {
+                            video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                            LOG.info("[EnrichMovie] Set logo path: {}", video.logoPath);
+                        } else {
+                            LOG.info("[EnrichMovie] No usable logo found in images");
+                        }
+                    } else {
+                        LOG.info("[EnrichMovie] No logos available in images response");
                     }
                 }
                 if (root.has("budget")) video.budget = root.get("budget").asLong();
@@ -851,6 +871,11 @@ public class VideoMetadataService {
             JsonNode searchRoot = fetchJson(searchUrl);
             if (searchRoot != null && searchRoot.path("results").size() > 0) {
                 showTmdbId = searchRoot.path("results").get(0).path("id").asText();
+                LOG.info("[EnrichEpisode] TMDb search found show for '{}': showTmdbId={}", video.seriesTitle, showTmdbId);
+            } else if (searchRoot != null) {
+                LOG.info("[EnrichEpisode] TMDb search returned no results for: {}", video.seriesTitle);
+            } else {
+                LOG.warn("[EnrichEpisode] TMDb search request failed for: {}", video.seriesTitle);
             }
         }
 
@@ -858,6 +883,9 @@ public class VideoMetadataService {
             video.tmdbId = showTmdbId;
             String url = String.format(TMDB_EPISODE_DETAILS, showTmdbId, video.seasonNumber, video.episodeNumber, apiKey);
             JsonNode root = fetchJson(url);
+            if (root == null) {
+                LOG.warn("[EnrichEpisode] Failed to fetch episode details for showTmdbId={}, S{}E{}", showTmdbId, video.seasonNumber, video.episodeNumber);
+            }
             if (root != null) {
                 if (root.has("name")) video.episodeTitle = root.get("name").asText();
                 if (root.has("overview")) video.overview = root.get("overview").asText();
@@ -865,19 +893,30 @@ public class VideoMetadataService {
                 if (root.has("still_path") && !root.get("still_path").isNull()) {
                     video.posterPath = TMDB_IMAGE_BASE + root.get("still_path").asText();
                 }
+                LOG.info("[EnrichEpisode] Episode details: title='{}', rating={}, still={}",
+                    video.episodeTitle, video.tmdbRating, video.posterPath != null ? "set" : "none");
             }
             // Fetch show-level backdrop and logo
             String showUrl = String.format(TMDB_TV_DETAILS, showTmdbId, apiKey);
             JsonNode showRoot = fetchJson(showUrl);
+            if (showRoot == null) {
+                LOG.warn("[EnrichEpisode] Failed to fetch show details for showTmdbId={}", showTmdbId);
+            }
             if (showRoot != null) {
                 if (showRoot.has("backdrop_path") && !showRoot.get("backdrop_path").isNull() && video.backdropPath == null) {
-                    video.backdropPath = TMDB_IMAGE_ORIGINAL + showRoot.get("backdrop_path").asText();
+                    video.backdropPath = TMDB_IMAGE_W1280 + showRoot.get("backdrop_path").asText();
+                    LOG.info("[EnrichEpisode] Set show backdrop path");
+                } else {
+                    LOG.info("[EnrichEpisode] Show backdrop skipped (already set or unavailable)");
                 }
             }
             // Get show logo
             if (video.logoPath == null) {
                 String imagesUrl = String.format(TMDB_TV_IMAGES, showTmdbId, apiKey);
                 JsonNode imagesRoot = fetchJson(imagesUrl);
+                if (imagesRoot == null) {
+                    LOG.warn("[EnrichEpisode] Failed to fetch show images for showTmdbId={}", showTmdbId);
+                }
                 if (imagesRoot != null && imagesRoot.has("logos")) {
                     JsonNode logos = imagesRoot.get("logos");
                     if (logos.isArray() && logos.size() > 0) {
@@ -889,9 +928,18 @@ public class VideoMetadataService {
                             }
                         }
                         if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
-                        if (logoFilePath != null) video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                        if (logoFilePath != null) {
+                            video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                            LOG.info("[EnrichEpisode] Set show logo path: {}", video.logoPath);
+                        } else {
+                            LOG.info("[EnrichEpisode] No usable logo found in show images");
+                        }
+                    } else {
+                        LOG.info("[EnrichEpisode] No logos available in show images response");
                     }
                 }
+            } else {
+                LOG.info("[EnrichEpisode] Logo already set, skipping show logo fetch");
             }
         }
     }
