@@ -1,6 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Models.DTOs.ContinueWatchingDTO;
 import Models.DTOs.PaginatedMovieResponse;
 import Services.SettingsService;
 import Services.ThumbnailService;
@@ -1193,6 +1194,39 @@ public class VideoAPI {
     public Response getAllVideos(@QueryParam("mediaType") String mediaType) {
         List<Models.Video> videos = Models.Video.listAll();
         return Response.ok(videos).build();
+    }
+
+    @GET
+    @Path("/continue-watching")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getContinueWatching() {
+        List<Models.VideoState> inProgress = videoStateService.getInProgressVideos();
+        List<ContinueWatchingDTO> dtos = new ArrayList<>();
+        for (Models.VideoState vs : inProgress) {
+            if (vs.video == null) continue;
+            ContinueWatchingDTO dto = new ContinueWatchingDTO();
+            dto.id = vs.video.id;
+            dto.title = vs.video.title;
+            dto.type = vs.video.type;
+            dto.seriesTitle = vs.video.seriesTitle;
+            dto.episodeTitle = vs.video.episodeTitle;
+            dto.seasonNumber = vs.video.seasonNumber;
+            dto.episodeNumber = vs.video.episodeNumber;
+            dto.description = vs.video.description;
+            dto.releaseYear = vs.video.releaseYear;
+            dto.imdbRating = vs.video.imdbRating;
+            dto.duration = vs.video.duration;
+            dto.thumbnailPath = vs.video.thumbnailPath;
+            dto.backdropPath = vs.video.backdropPath;
+            dto.posterPath = vs.video.posterPath;
+            dto.genres = vs.video.genres;
+            // Explicitly populate transient fields from VideoState
+            dto.watchProgress = vs.watchProgress;
+            dto.watchProgressPercent = vs.watchProgress != null ? (int)(vs.watchProgress * 100) : 0;
+            dto.watched = vs.watched;
+            dtos.add(dto);
+        }
+        return Response.ok(dtos).build();
     }
 
     @GET

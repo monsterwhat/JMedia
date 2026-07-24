@@ -140,14 +140,19 @@
   <div class="cinema-modal-scroll">
     <!-- Blurred background layer -->
     <div class="cinema-modal-bg-blur" id="modal-bg-blur"></div>
-    <!-- Hero area -->
-    <div class="cinema-modal-hero">
+    <div class="cinema-modal-hero-overlay">
       <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
+      <div class="cinema-modal-title-overlay">
+        <h2 class="cinema-modal-hero-title" id="modal-title">
+          <img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">
+        </h2>
+        <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
+        <div class="cinema-modal-genres" id="modal-genres"></div>
+      </div>
+      <div class="cinema-modal-blur-strip"></div>
     </div>
     <!-- Content -->
     <div class="cinema-modal-content">
-      <h2 class="cinema-modal-title" id="modal-title"></h2>
-      <div class="cinema-modal-meta-row" id="modal-meta-row"></div>
       <div class="cinema-modal-desc-wrapper">
         <p class="cinema-modal-desc" id="modal-desc"></p>
         <button class="cinema-modal-desc-toggle" id="modal-desc-toggle" onclick="toggleDescription()" style="display:none;">more...</button>
@@ -313,7 +318,6 @@
 
 <style>
 .cinema-episode-card:hover { background: rgba(255,255,255,0.03); }
-.cinema-episode-card:hover .ep-play-overlay { opacity: 1 !important; }
 </style>
 
 <script>
@@ -371,6 +375,7 @@
 // State
 // ============================================================
 let heroItems = [];
+let allVideos = [];
 let currentHeroIndex = 0;
 let heroTimer = null;
 const HERO_INTERVAL = 15000;
@@ -541,33 +546,43 @@ function renderCarousel(containerId, items) {
 // Data Fetching
 // ============================================================
 async function loadCinemaData() {
-  // Fetch hero + carousels in parallel
-  const [heroHtml, carouselsHtml] = await Promise.all([
-    fetch('/api/video/ui/hero-fragment').then(r => r.ok ? r.text() : '').catch(() => ''),
+  // Fetch videos, continue-watching, and carousels in parallel
+  const [allVideosResp, cwResp, carouselsHtml] = await Promise.all([
+    fetch('/api/video/videos'),
+    fetch('/api/video/continue-watching'),
     fetch('/api/video/ui/optimized-carousels').then(r => r.ok ? r.text() : '').catch(() => '')
   ]);
 
-  // Parse hero items from the HTML fragment — extract video IDs from the fragment
-  // Alternative: fetch video list directly
-  const allVideos = await fetchJSON('/api/video/videos');
-  if (Array.isArray(allVideos) && allVideos.length) {
-    // Hero: most recently watched items, fallback to top-rated, then any
-    function toComparable(v) {
-      if (!v.lastWatched) return '';
-      if (typeof v.lastWatched === 'string') return v.lastWatched;
-      if (Array.isArray(v.lastWatched)) return v.lastWatched.map(n => String(n).padStart(2, '0')).join('-');
-      return '';
+  // Parse responses — handle both ApiResponse {success, data} and raw arrays
+  const parseResponse = (json) => {
+    if (json && typeof json === 'object' && json.success !== undefined && json.data !== undefined) return json.data;
+    return json;
+  };
+  const allVideosData = allVideosResp.ok ? parseResponse(await allVideosResp.json()) : [];
+  const cwData = cwResp.ok ? parseResponse(await cwResp.json()) : [];
+  allVideos = Array.isArray(allVideosData) ? allVideosData : [];
+
+  if (allVideos.length) {
+    // Hero: 3-tier fallback — continue-watching → top-rated → most recently added
+
+    // Tier 1: Most recently watched from continue-watching endpoint
+    if (Array.isArray(cwData) && cwData.length > 0) {
+      heroItems = cwData.slice(0, 5);
     }
-    heroItems = allVideos.filter(v => toComparable(v))
-      .sort((a, b) => toComparable(b).localeCompare(toComparable(a)))
-      .slice(0, 5);
+
+    // Tier 2: Highest-rated movie (with a rating > 0)
     if (heroItems.length === 0) {
       heroItems = allVideos.filter(v => v.type === 'movie' && v.description)
         .sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0))
+        .filter(v => (parseFloat(v.imdbRating || v.tmdbRating) || 0) > 0)
         .slice(0, 5);
     }
+
+    // Tier 3: Most recently added movie
     if (heroItems.length === 0) {
-      heroItems = allVideos.slice(0, 5);
+      heroItems = [...allVideos]
+        .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
+        .slice(0, 5);
     }
 
     if (heroItems.length > 0) {
@@ -657,12 +672,17 @@ async function openSeriesByTitle(seriesTitle) {
   const backdropImg = document.getElementById('modal-backdrop-img');
   if (backdropImg) backdropImg.src = '/logo.png';
 
-  // Set title
-  document.getElementById('modal-title').textContent = seriesTitle;
+  // Set title with logo
+  const titleEl = document.getElementById('modal-title');
+  if (titleEl) {
+    titleEl.innerHTML = `<img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">${seriesTitle}`;
+  }
 
-  // Clear meta row and description  
+  // Clear meta row, genres, and description
   const metaRow = document.getElementById('modal-meta-row');
   if (metaRow) metaRow.innerHTML = '<span class="meta-badge">TV Show</span>';
+  const genresEl = document.getElementById('modal-genres');
+  if (genresEl) genresEl.innerHTML = '';
   const desc = document.getElementById('modal-desc');
   if (desc) desc.innerHTML = '';
 
@@ -716,10 +736,13 @@ async function openSeriesDetail(seriesTitle) {
   const bgBlur = document.getElementById('modal-bg-blur');
   if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
 
-  // Title
-  document.getElementById('modal-title').textContent = seriesTitle;
+  // Title with logo
+  const titleEl = document.getElementById('modal-title');
+  if (titleEl) {
+    titleEl.innerHTML = `<img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">${seriesTitle}`;
+  }
 
-  // Meta row
+  // Meta badges
   const rating = firstEp.imdbRating || firstEp.tmdbRating || '';
   const year = firstEp.releaseYear || '';
   const seasonCount = seasonNumbers.length;
@@ -730,6 +753,12 @@ async function openSeriesDetail(seriesTitle) {
     if (year) metaRow.innerHTML += `<span class="meta-badge">${year}</span>`;
     metaRow.innerHTML += `<span class="meta-badge">${seasonCount} Season${seasonCount > 1 ? 's' : ''}</span>`;
     metaRow.innerHTML += `<span class="meta-badge">TV Show</span>`;
+  }
+
+  // Genres
+  const genresEl = document.getElementById('modal-genres');
+  if (genresEl) {
+    genresEl.innerHTML = firstEp.genres?.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('') || '';
   }
 
   // Description
@@ -766,6 +795,11 @@ async function openSeriesDetail(seriesTitle) {
       const old = content.querySelector('.cinema-episodes-section');
       if (old) old.remove();
       actions.insertAdjacentHTML('beforebegin', episodesHtml);
+
+      const oldMoreLike = content.querySelector('.cinema-more-like-section');
+      if (oldMoreLike) oldMoreLike.remove();
+      const moreLikeHtml = buildMoreLikeThis(firstEp);
+      if (moreLikeHtml) actions.insertAdjacentHTML('beforebegin', moreLikeHtml);
     }
   }
 
@@ -782,6 +816,7 @@ async function openSeriesDetail(seriesTitle) {
   }
 
   // Show modal
+  document.getElementById('cinema-modal-backdrop').classList.add('active');
   document.getElementById('cinema-modal').classList.add('active');
   document.body.style.overflow = 'hidden';
 }
@@ -794,11 +829,12 @@ function buildEpisodesList(episodeArray) {
     const desc = ep.description || '';
     const img = getThumbnailUrl(ep.id);
     return `<div class="cinema-episode-card" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})" style="display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer;">
-      <div style="position: relative; flex-shrink: 0; width: 160px; aspect-ratio: 16/9; border-radius: 0.5rem; overflow: hidden; background: rgba(255,255,255,0.05);">
+      <div style="position: relative; flex-shrink: 0; width: 240px; aspect-ratio: 16/9; border-radius: 0.5rem; overflow: hidden; background: rgba(255,255,255,0.05);">
         <img src="${img}" alt="${epTitle}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
-        <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.2s;" class="ep-play-overlay">
-          <div style="width: 2rem; height: 2rem; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center;">
-            <i class="fa-solid fa-play" style="color: black; font-size: 0.75rem; margin-left: 2px;"></i>
+        <span class="cinema-episode-number-badge">${epNum}</span>
+        <div class="cinema-episode-play-overlay">
+          <div style="width: 2.5rem; height: 2.5rem; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center;">
+            <i class="fa-solid fa-play" style="color: black; font-size: 0.85rem; margin-left: 2px;"></i>
           </div>
         </div>
       </div>
@@ -811,6 +847,34 @@ function buildEpisodesList(episodeArray) {
       </div>
     </div>`;
   }).join('');
+}
+
+function buildMoreLikeThis(currentVideo) {
+  if (!currentVideo || !currentVideo.genres || !currentVideo.genres.length) return '';
+  const matches = allVideos.filter(v =>
+    v.id !== currentVideo.id &&
+    v.type === currentVideo.type &&
+    v.genres?.some(g => currentVideo.genres.includes(g))
+  ).slice(0, 12);
+  if (!matches.length) return '';
+  return `<div class="cinema-more-like-section">
+    <h3 class="cinema-more-like-title">More Like This</h3>
+    <div class="cinema-more-like-scroll">
+      ${matches.map(v => {
+        const title = v.title || v.seriesTitle || 'Untitled';
+        const year = v.releaseYear || '';
+        const img = getThumbnailUrl(v.id);
+        const clickAction = (v.type === 'episode' && v.seriesTitle)
+          ? `closeModal(); openSeriesDetail('${(v.seriesTitle || '').replace(/'/g, "\\'")}')`
+          : `closeModal(); openDetails(${v.id})`;
+        return `<div class="cinema-more-like-card" onclick="${clickAction}">
+          <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+          <div class="cinema-card-title">${title}</div>
+          ${year ? `<div class="cinema-card-year">${year}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 
 function switchSeason(seasonNumber) {
@@ -855,10 +919,14 @@ function openDetails(videoId) {
     const bgBlur = document.getElementById('modal-bg-blur');
     if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
 
-    // Title
-    document.getElementById('modal-title').textContent = data.title || data.seriesTitle || '';
+    // Title with logo
+    const titleEl = document.getElementById('modal-title');
+    if (titleEl) {
+      const titleText = data.title || data.seriesTitle || '';
+      titleEl.innerHTML = `<img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">${titleText}`;
+    }
 
-    // Meta row: star rating + year + type
+    // Meta badges
     const rating = data.imdbRating || data.tmdbRating || '';
     const year = data.releaseYear || '';
     const duration = formatDuration(data.duration);
@@ -872,6 +940,12 @@ function openDetails(videoId) {
 
     const metaRow = document.getElementById('modal-meta-row');
     if (metaRow) metaRow.innerHTML = metaHtml;
+
+    // Genres
+    const genresEl = document.getElementById('modal-genres');
+    if (genresEl) {
+      genresEl.innerHTML = data.genres?.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('') || '';
+    }
 
     // Description with expand toggle
     const desc = data.description || '';
@@ -889,6 +963,15 @@ function openDetails(videoId) {
     // Buttons
     document.getElementById('modal-play-btn').onclick = () => playVideo(data);
     document.getElementById('modal-watchlist-btn').onclick = () => toggleWatchlist(videoId);
+
+    const content = document.querySelector('#cinema-modal .cinema-modal-content');
+    const oldMoreLike = content?.querySelector('.cinema-more-like-section');
+    if (oldMoreLike) oldMoreLike.remove();
+    const moreLikeHtml = buildMoreLikeThis(data);
+    if (moreLikeHtml) {
+      const actions = content?.querySelector('.cinema-modal-actions');
+      if (actions) actions.insertAdjacentHTML('beforebegin', moreLikeHtml);
+    }
 
     // Open modal
     document.getElementById('cinema-modal-backdrop').classList.add('active');
