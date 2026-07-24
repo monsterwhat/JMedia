@@ -761,6 +761,12 @@ html, body {
 /* ============================================================
    Season Dropdown
    ============================================================ */
+.cinema-season-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
 .cinema-season-dropdown {
   position: relative;
   display: inline-block;
@@ -990,12 +996,9 @@ html, body {
 }
 
 .cinema-modal-logo-hero {
-  height: 4.5rem;
+  max-height: 5rem;
   width: auto;
-  aspect-ratio: 2 / 3;
-  object-fit: cover;
-  object-position: center;
-  border-radius: 0.5rem;
+  object-fit: contain;
   filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.6));
   display: block;
   margin-bottom: 0.25rem;
@@ -1003,7 +1006,7 @@ html, body {
 
 @media (min-width: 768px) {
   .cinema-modal-logo-hero {
-    height: 6rem;
+    max-height: 6rem;
   }
 }
 
