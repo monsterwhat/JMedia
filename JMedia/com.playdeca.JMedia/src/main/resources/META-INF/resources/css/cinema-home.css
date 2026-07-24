@@ -10,6 +10,8 @@
   --cinema-surface-2: #141414;
   --cinema-text: #ffffff;
   --cinema-text-dim: #888888;
+  --cinema-primary: #3b82f6;
+  --cinema-primary-hover: #2563eb;
   --cinema-accent: #48c774;
   --cinema-accent-hover: #3db86a;
   --cinema-border: rgba(255, 255, 255, 0.08);
@@ -586,10 +588,6 @@ html, body {
 }
 
 /* ============================================================
-   Bottom Dock Navigation
-   ============================================================ */
-
-/* ============================================================
    Bottom Dock Navigation — Floating Pill
    ============================================================ */
 
@@ -668,12 +666,11 @@ html, body {
   background: rgba(255,255,255,0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: none;
   color: rgba(255,255,255,0.8);
   text-decoration: none;
   transition: all 0.3s ease;
   overflow: hidden;
-  border: none;
   cursor: pointer;
   font-size: 1.1rem;
 }
@@ -1179,7 +1176,6 @@ html, body {
 .cinema-genre-chip {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.6rem;
   border-radius: 9999px;
   background: transparent;
   border: none;
@@ -1877,7 +1873,6 @@ html, body {
 }
 
 .cinema-settings-theme-card.active {
-  ring: 2px;
   box-shadow: 0 0 0 2px var(--cinema-accent);
 }
 
