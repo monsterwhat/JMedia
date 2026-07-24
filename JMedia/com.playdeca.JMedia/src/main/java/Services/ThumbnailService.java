@@ -562,10 +562,16 @@ public class ThumbnailService {
     private String getSeriesOrSeasonThumbnail(String seriesTitle, Integer seasonNumber, Long currentVideoId) {
         // First, try to find any episode from the same season with a thumbnail
         if (seasonNumber != null) {
-            List<Video> seasonEpisodes = Video.list(
-                "seriesTitle = ?1 and seasonNumber = ?2 and type = ?3", 
-                seriesTitle, seasonNumber, "episode"
-            );
+            List<Video> seasonEpisodes;
+            try {
+                seasonEpisodes = Video.list(
+                    "seriesTitle = ?1 and seasonNumber = ?2 and type = ?3",
+                    seriesTitle, seasonNumber, "episode"
+                );
+            } catch (Exception e) {
+                LOGGER.warn("Hibernate session unavailable for season thumbnail lookup (background thread): {}", e.getMessage());
+                seasonEpisodes = java.util.Collections.emptyList();
+            }
             for (Video ep : seasonEpisodes) {
                 if (ep.id.equals(currentVideoId)) continue;
                 String cached = thumbnailCache.get(ep.id);
@@ -591,10 +597,16 @@ public class ThumbnailService {
         }
         
         // Try to find any episode from the series with a thumbnail
-        List<Video> seriesEpisodes = Video.list(
-            "seriesTitle = ?1 and type = ?2", 
-            seriesTitle, "episode"
-        );
+        List<Video> seriesEpisodes;
+        try {
+            seriesEpisodes = Video.list(
+                "seriesTitle = ?1 and type = ?2",
+                seriesTitle, "episode"
+            );
+        } catch (Exception e) {
+            LOGGER.warn("Hibernate session unavailable for series thumbnail lookup (background thread): {}", e.getMessage());
+            seriesEpisodes = java.util.Collections.emptyList();
+        }
         for (Video ep : seriesEpisodes) {
             if (ep.id.equals(currentVideoId)) continue;
             String cached = thumbnailCache.get(ep.id);
