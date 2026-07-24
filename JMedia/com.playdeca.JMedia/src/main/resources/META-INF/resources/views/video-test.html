@@ -138,14 +138,13 @@
     <i class="fa-solid fa-xmark"></i>
   </button>
   <div class="cinema-modal-scroll">
-    <!-- Blurred background layer -->
+    <!-- Blurred background layers -->
     <div class="cinema-modal-bg-blur" id="modal-bg-blur"></div>
+    <div class="cinema-modal-bg-blur-inner" id="modal-bg-blur-inner"></div>
     <div class="cinema-modal-hero-overlay">
       <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
       <div class="cinema-modal-title-overlay">
-        <h2 class="cinema-modal-hero-title" id="modal-title">
-          <img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">
-        </h2>
+        <h2 class="cinema-modal-hero-title" id="modal-title"></h2>
         <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
         <div class="cinema-modal-genres" id="modal-genres"></div>
       </div>
@@ -157,6 +156,7 @@
         <p class="cinema-modal-desc" id="modal-desc"></p>
         <button class="cinema-modal-desc-toggle" id="modal-desc-toggle" onclick="toggleDescription()" style="display:none;">more...</button>
       </div>
+      <img src="/logo.png" class="cinema-modal-logo-hero" alt="JMedia">
       <div class="cinema-modal-actions">
         <button class="cinema-modal-play" id="modal-play-btn">
           <i class="fa-solid fa-play"></i> Play Now
@@ -315,10 +315,6 @@
   </div>
 </div>
 
-
-<style>
-.cinema-episode-card:hover { background: rgba(255,255,255,0.03); }
-</style>
 
 <script>
 // ============================================================
@@ -665,17 +661,16 @@ async function openSeriesByTitle(seriesTitle) {
   const modal = document.getElementById('cinema-modal');
   const scroll = modal.querySelector('.cinema-modal-scroll');
   
-  // Set blurred bg + hero from first episode thumbnail
-  // We'll use the series title as hero content
   const bgBlur = document.getElementById('modal-bg-blur');
   if (bgBlur) bgBlur.style.backgroundImage = '';
+  const bgBlurInner = document.getElementById('modal-bg-blur-inner');
+  if (bgBlurInner) bgBlurInner.style.backgroundImage = '';
   const backdropImg = document.getElementById('modal-backdrop-img');
   if (backdropImg) backdropImg.src = '/logo.png';
 
-  // Set title with logo
   const titleEl = document.getElementById('modal-title');
   if (titleEl) {
-    titleEl.innerHTML = `<img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">${seriesTitle}`;
+    titleEl.textContent = seriesTitle;
   }
 
   // Clear meta row, genres, and description
@@ -735,11 +730,12 @@ async function openSeriesDetail(seriesTitle) {
   if (backdropImg) backdropImg.src = heroUrl;
   const bgBlur = document.getElementById('modal-bg-blur');
   if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
+  const bgBlurInner = document.getElementById('modal-bg-blur-inner');
+  if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${heroUrl})`;
 
-  // Title with logo
   const titleEl = document.getElementById('modal-title');
   if (titleEl) {
-    titleEl.innerHTML = `<img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">${seriesTitle}`;
+    titleEl.textContent = seriesTitle;
   }
 
   // Meta badges
@@ -828,22 +824,22 @@ function buildEpisodesList(episodeArray) {
     const dur = formatDuration(ep.duration);
     const desc = ep.description || '';
     const img = getThumbnailUrl(ep.id);
-    return `<div class="cinema-episode-card" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})" style="display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer;">
-      <div style="position: relative; flex-shrink: 0; width: 240px; aspect-ratio: 16/9; border-radius: 0.5rem; overflow: hidden; background: rgba(255,255,255,0.05);">
-        <img src="${img}" alt="${epTitle}" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
+    return `<div class="cinema-episode-card" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
+      <div class="cinema-episode-thumb-wrap">
+        <img src="${img}" alt="${epTitle}" loading="lazy">
         <span class="cinema-episode-number-badge">${epNum}</span>
         <div class="cinema-episode-play-overlay">
-          <div style="width: 2.5rem; height: 2.5rem; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center;">
-            <i class="fa-solid fa-play" style="color: black; font-size: 0.85rem; margin-left: 2px;"></i>
+          <div class="cinema-episode-play-icon">
+            <i class="fa-solid fa-play"></i>
           </div>
         </div>
       </div>
-      <div style="flex: 1; min-width: 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h3 style="font-size: 0.875rem; font-weight: 500; color: white; margin: 0;">${epNum}. ${epTitle}</h3>
-          ${dur ? `<span style="font-size: 0.75rem; color: rgba(255,255,255,0.4); flex-shrink: 0;">${dur}</span>` : ''}
+      <div class="cinema-episode-info">
+        <div class="cinema-episode-header">
+          <h3 class="cinema-episode-title">${epNum}. ${epTitle}</h3>
+          ${dur ? `<span class="cinema-episode-duration">${dur}</span>` : ''}
         </div>
-        ${desc ? `<p style="font-size: 0.75rem; color: rgba(255,255,255,0.5); margin: 0.25rem 0 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${desc}</p>` : ''}
+        ${desc ? `<p class="cinema-episode-desc">${desc}</p>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -868,7 +864,14 @@ function buildMoreLikeThis(currentVideo) {
           ? `closeModal(); openSeriesDetail('${(v.seriesTitle || '').replace(/'/g, "\\'")}')`
           : `closeModal(); openDetails(${v.id})`;
         return `<div class="cinema-more-like-card" onclick="${clickAction}">
-          <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+          <div class="cinema-more-like-img-wrap">
+            <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+            <div class="cinema-more-like-play-overlay">
+              <div class="cinema-more-like-play-icon">
+                <i class="fa-solid fa-play"></i>
+              </div>
+            </div>
+          </div>
           <div class="cinema-card-title">${title}</div>
           ${year ? `<div class="cinema-card-year">${year}</div>` : ''}
         </div>`;
@@ -918,12 +921,13 @@ function openDetails(videoId) {
     // Blurred background
     const bgBlur = document.getElementById('modal-bg-blur');
     if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
+    const bgBlurInner = document.getElementById('modal-bg-blur-inner');
+    if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${heroUrl})`;
 
-    // Title with logo
     const titleEl = document.getElementById('modal-title');
     if (titleEl) {
       const titleText = data.title || data.seriesTitle || '';
-      titleEl.innerHTML = `<img src="/logo.png" class="cinema-modal-logo" style="height:24px;vertical-align:middle;margin-right:4px;" alt="">${titleText}`;
+      titleEl.textContent = titleText;
     }
 
     // Meta badges
