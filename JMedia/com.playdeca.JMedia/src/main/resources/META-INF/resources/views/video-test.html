@@ -59,18 +59,6 @@
 
 <!-- Content Sections -->
 <main class="cinema-content">
-  <!-- Continue Watching Section -->
-  <section class="cinema-section" id="section-continue-watching" style="display:none;">
-    <div class="cinema-section-header">
-      <h2 class="cinema-section-title">Continue Watching</h2>
-    </div>
-    <div class="cinema-carousel-wrapper">
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-left"></i></button>
-      <div class="cinema-carousel scrollbar-hide" id="continue-watching-carousel"></div>
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-right"></i></button>
-    </div>
-  </section>
-
   <!-- Recently Updated Section -->
   <section class="cinema-section" id="section-recently-updated" style="display:none;">
     <div class="cinema-section-header">
@@ -558,14 +546,16 @@ async function loadCinemaData() {
   // Alternative: fetch video list directly
   const allVideos = await fetchJSON('/api/video/videos');
   if (Array.isArray(allVideos) && allVideos.length) {
-    // Pick featured movies for hero (has description, sorted by rating)
+    // Hero: most recently watched items
     heroItems = allVideos
-      .filter(v => v.type === 'movie' && v.description)
-      .sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0))
+      .filter(v => v.lastWatched)
+      .sort((a, b) => (b.lastWatched || '').localeCompare(a.lastWatched || ''))
       .slice(0, 5);
-
     if (heroItems.length === 0) {
-      heroItems = allVideos.slice(0, 5);
+      heroItems = allVideos
+        .filter(v => v.type === 'movie' && v.description)
+        .sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0))
+        .slice(0, 5);
     }
 
     if (heroItems.length > 0) {
@@ -575,15 +565,45 @@ async function loadCinemaData() {
 
     // Render carousels
     const movies = allVideos.filter(v => v.type === 'movie');
-    const tvShows = allVideos.filter(v => v.type === 'episode');
+
+    // TV Shows: dedup by seriesTitle — one card per series
+    const seriesMap = new Map();
+    allVideos.filter(v => v.type === 'episode' && v.seriesTitle).forEach(v => {
+      const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const existing = seriesMap.get(key);
+      if (!existing || (v.dateAdded || '') > (existing.dateAdded || '')) {
+        seriesMap.set(key, v);
+      }
+    });
+    const tvShows = Array.from(seriesMap.values()).slice(0, 20);
+
+    // Trending: sorted by rating
     const trending = [...allVideos].sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0)).slice(0, 20);
 
-    renderCarousel('movies-carousel', movies.slice(0, 20));
-    renderCarousel('tvshows-carousel', tvShows.slice(0, 20));
-    renderCarousel('trending-carousel', trending);
-    updateCarouselArrows();
+    // Recently Updated: episodes sorted by dateAdded (new releases)
+    const recentlyUpdated = allVideos
+      .filter(v => v.type === 'episode')
+      .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
+      .slice(0, 20);
 
-    // Continue watching: would need correct API endpoint
+    // Render and show sections with data
+    if (recentlyUpdated.length) {
+      renderCarousel('recently-updated-carousel', recentlyUpdated);
+      document.getElementById('section-recently-updated').style.display = '';
+    }
+    if (trending.length) {
+      renderCarousel('trending-carousel', trending);
+      document.getElementById('section-trending').style.display = '';
+    }
+    if (movies.length) {
+      renderCarousel('movies-carousel', movies.slice(0, 20));
+      document.getElementById('section-movies').style.display = '';
+    }
+    if (tvShows.length) {
+      renderCarousel('tvshows-carousel', tvShows);
+      document.getElementById('section-tvshows').style.display = '';
+    }
+    updateCarouselArrows();
   }
 
   // If we got HTMX carousel HTML, also try rendering it
