@@ -29,7 +29,10 @@
     <div class="cinema-hero-badge">
       <i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching
     </div>
-    <h1 class="cinema-hero-title" id="hero-title">Loading...</h1>
+    <div class="cinema-hero-title-wrap" id="hero-title-wrap">
+      <img class="cinema-hero-logo" id="hero-logo-img" src="" alt="" style="display:none;">
+      <h1 class="cinema-hero-title" id="hero-title">Loading...</h1>
+    </div>
     <div class="cinema-hero-rating">
       <span class="cinema-hero-rating-stars" id="hero-stars"></span>
       <span class="cinema-hero-rating-value" id="hero-rating"></span>
@@ -112,10 +115,10 @@
 <div class="cinema-dock">
   <nav class="cinema-dock-nav">
     <a href="/video-test" class="cinema-dock-item active" title="Home"><i class="fa-solid fa-house"></i></a>
-    <a href="/video-test?section=movies" class="cinema-dock-item" title="Movies"><i class="fa-solid fa-film"></i></a>
-    <a href="/video-test?section=shows" class="cinema-dock-item" title="TV Shows"><i class="fa-solid fa-tv"></i></a>
-    <a href="/video-test?section=anime" class="cinema-dock-item" title="Anime"><i class="fa-solid fa-dragon"></i></a>
-    <a href="/video-test?section=music" class="cinema-dock-item" title="Music"><i class="fa-solid fa-music"></i></a>
+    <a href="#" data-section="movies" class="cinema-dock-item" title="Movies"><i class="fa-solid fa-film"></i></a>
+    <a href="#" data-section="shows" class="cinema-dock-item" title="TV Shows"><i class="fa-solid fa-tv"></i></a>
+    <a href="#" data-section="anime" class="cinema-dock-item" title="Anime"><i class="fa-solid fa-dragon"></i></a>
+    <a href="#" data-section="music" class="cinema-dock-item" title="Music"><i class="fa-solid fa-music"></i></a>
     <div class="cinema-dock-separator"></div>
     <button class="cinema-dock-item" id="settingsDockBtn" title="Settings" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-gear"></i></button>
   </nav>
@@ -479,6 +482,17 @@ function updateHero(index) {
       if (ambient) ambient.src = getThumbnailUrl(item.id);
     }
     title.textContent = item.title || item.seriesTitle || 'Untitled';
+    const logoImg = document.getElementById('hero-logo-img');
+    if (logoImg) {
+      if (item.logoPath) {
+        logoImg.src = item.logoPath;
+        logoImg.style.display = 'block';
+        title.style.display = 'none';
+      } else {
+        logoImg.style.display = 'none';
+        title.style.display = '';
+      }
+    }
     desc.textContent = item.description || '';
     rating.textContent = item.imdbRating || item.tmdbRating || '';
     stars.innerHTML = renderStars(parseFloat(item.imdbRating || item.tmdbRating || 0));
@@ -495,6 +509,15 @@ function updateHero(index) {
     // Update play button
     document.getElementById('hero-play-btn').onclick = () => playHeroVideo(item);
     document.getElementById('hero-watchlist-btn').onclick = () => toggleWatchlist(item.id);
+
+    // Set watchlist button data attribute and initial icon
+    const heroWatchBtn = document.getElementById('hero-watchlist-btn');
+    if (heroWatchBtn) {
+      heroWatchBtn.dataset.watchlistId = item.id;
+      const heroIcon = heroWatchBtn.querySelector('i');
+      if (heroIcon) heroIcon.className = item.favorite ? 'fa-solid fa-check' : 'fa-solid fa-plus';
+      heroWatchBtn.title = item.favorite ? 'Remove from Watchlist' : 'Add to Watchlist';
+    }
     document.getElementById('hero-info-btn').onclick = () => openDetails(item.id);
 
     // Fade in
@@ -552,7 +575,31 @@ function renderCarousel(containerId, items) {
 // ============================================================
 // Data Fetching
 // ============================================================
+function showSection(section) {
+  const allSections = document.querySelectorAll('.cinema-section');
+  const hero = document.getElementById('cinema-hero');
+  
+  if (section === 'home') {
+    allSections.forEach(s => s.style.display = '');
+    if (hero) hero.style.display = '';
+  } else {
+    allSections.forEach(s => s.style.display = 'none');
+    if (hero) hero.style.display = '';
+    const sectionMap = {
+      'movies': 'section-movies',
+      'shows': 'section-tvshows'
+    };
+    const targetId = sectionMap[section];
+    if (targetId) {
+      const target = document.getElementById(targetId);
+      if (target) target.style.display = '';
+    }
+  }
+}
+
 async function loadCinemaData() {
+  const params = new URLSearchParams(window.location.search);
+  const section = params.get('section') || 'home';
   // Fetch videos, continue-watching, and carousels in parallel
   const [allVideosResp, cwResp, carouselsHtml] = await Promise.all([
     fetch('/api/video/videos'),
@@ -649,6 +696,17 @@ async function loadCinemaData() {
       temp.innerHTML = carouselsHtml;
       // Don't replace — we already have cinema-styled carousels
     }
+  }
+
+  showSection(section);
+  
+  // Set initial active dock state
+  document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
+  if (section !== 'home') {
+    const activeItem = document.querySelector(`.cinema-dock-item[data-section="${section}"]`);
+    if (activeItem) activeItem.classList.add('active');
+  } else {
+    document.querySelector('.cinema-dock-item')?.classList.add('active');
   }
 }
 
@@ -761,13 +819,13 @@ async function openSeriesDetail(seriesTitle) {
 
   // Meta badges
   const rating = firstEp.imdbRating || firstEp.tmdbRating || '';
-  const matchPct = rating ? Math.round(parseFloat(rating) * 10) : 85;
+    const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
   const year = firstEp.releaseYear || '';
   const seasonCount = seasonNumbers.length;
   const metaRow = document.getElementById('modal-meta-row');
   if (metaRow) {
     metaRow.innerHTML = '';
-    metaRow.innerHTML += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
+    if (matchPct !== null) metaRow.innerHTML += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
     if (year) metaRow.innerHTML += `<span class="meta-badge">${year}</span>`;
     metaRow.innerHTML += `<span class="meta-badge">${seasonCount} Season${seasonCount > 1 ? 's' : ''}</span>`;
     metaRow.innerHTML += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
@@ -972,9 +1030,9 @@ function switchSeason(seasonNumber) {
   // Rebuild episode list (keep the season dropdown)
   const existingList = section.querySelectorAll('.cinema-episode-card');
   existingList.forEach(el => el.remove());
-  const dropdown = section.querySelector('.cinema-season-dropdown');
-  if (dropdown) {
-    dropdown.insertAdjacentHTML('afterend', buildEpisodesList(episodes));
+  const seasonRow = section.querySelector('.cinema-season-row');
+  if (seasonRow) {
+    seasonRow.insertAdjacentHTML('afterend', buildEpisodesList(episodes));
   } else {
     section.insertAdjacentHTML('afterbegin', buildEpisodesList(episodes));
   }
@@ -1018,8 +1076,9 @@ function openDetails(videoId) {
     const type = data.type === 'movie' ? 'Movie' : 'TV Show';
 
     let metaHtml = '';
-    const matchPct = rating ? Math.round(parseFloat(rating) * 10) : 85;
-    metaHtml += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
+  const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
+
+    if (matchPct !== null) metaHtml += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
     if (year) metaHtml += `<span class="meta-badge">${year}</span>`;
     if (duration) metaHtml += `<span class="meta-badge">${duration}</span>`;
     metaHtml += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
@@ -1049,6 +1108,15 @@ function openDetails(videoId) {
     // Buttons
     document.getElementById('modal-play-btn').onclick = () => playVideo(data);
     document.getElementById('modal-watchlist-btn').onclick = () => toggleWatchlist(videoId);
+
+    // Set watchlist button data attribute and initial icon
+    const watchBtn = document.getElementById('modal-watchlist-btn');
+    if (watchBtn) {
+      watchBtn.dataset.watchlistId = data.id;
+      const modalIcon = watchBtn.querySelector('i');
+      if (modalIcon) modalIcon.className = data.favorite ? 'fa-solid fa-check' : 'fa-solid fa-plus';
+      watchBtn.title = data.favorite ? 'Remove from Watchlist' : 'Add to Watchlist';
+    }
 
     const content = document.querySelector('#cinema-modal .cinema-modal-content');
     const oldMoreLike = content?.querySelector('.cinema-more-like-section');
@@ -1323,9 +1391,28 @@ function playHeroVideo(item) {
 
 async function toggleWatchlist(videoId) {
   try {
-    await fetch(`/api/video/watchlist/toggle/${videoId}`, { method: 'POST' });
+    const resp = await fetch(`/api/video/watchlist/toggle/${videoId}`, { method: 'POST' });
+    const json = await resp.json();
+    const isFavorited = json.data;
+
+    // Update all watchlist buttons for this video
+    document.querySelectorAll(`[data-watchlist-id="${videoId}"]`).forEach(btn => {
+      const icon = btn.querySelector('i');
+      if (icon) {
+        icon.className = isFavorited ? 'fa-solid fa-check' : 'fa-solid fa-plus';
+      }
+      btn.title = isFavorited ? 'Remove from Watchlist' : 'Add to Watchlist';
+    });
+
+    if (window.showToast) {
+      window.showToast(
+        isFavorited ? 'Added to My List' : 'Removed from My List',
+        isFavorited ? 'success' : 'info'
+      );
+    }
   } catch (e) {
     console.warn('[cinema] watchlist toggle failed', e);
+    if (window.showToast) window.showToast('Failed to update watchlist', 'danger');
   }
 }
 
@@ -1335,12 +1422,41 @@ async function toggleWatchlist(videoId) {
 document.getElementById('settingsDockBtn')?.addEventListener('click', openSettingsModal);
 document.getElementById('searchDockBtn')?.addEventListener('click', openSearch);
 
-// Dock active state
-document.querySelectorAll('.cinema-dock-item').forEach(item => {
-  item.addEventListener('click', function() {
+// SPA section navigation
+document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
+  item.addEventListener('click', function(e) {
+    e.preventDefault();
+    const sec = this.dataset.section;
+    const url = `/video-test?section=${sec}`;
+    history.pushState({}, '', url);
+    showSection(sec);
     document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
     this.classList.add('active');
   });
+});
+// Home button — SPA style
+const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video-test"]');
+if (homeDockBtn) {
+  homeDockBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    history.pushState({}, '', '/video-test');
+    showSection('home');
+    document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
+    this.classList.add('active');
+  });
+}
+// Browser back/forward
+window.addEventListener('popstate', () => {
+  const p = new URLSearchParams(window.location.search);
+  const sec = p.get('section') || 'home';
+  showSection(sec);
+  document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
+  if (sec !== 'home') {
+    const t = document.querySelector(`.cinema-dock-item[data-section="${sec}"]`);
+    if (t) t.classList.add('active');
+  } else {
+    document.querySelector('.cinema-dock-item')?.classList.add('active');
+  }
 });
 
 // ============================================================
@@ -1375,20 +1491,40 @@ async function performSearch(query) {
   if (!dropdown) return;
   const q = query.trim().toLowerCase();
   if (!q) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); return; }
-  const allVideos = await fetchJSON('/api/video/videos');
-  if (!Array.isArray(allVideos)) { dropdown.innerHTML = ''; dropdown.classList.remove('visible'); return; }
-  const matches = allVideos.filter(v => {
+  
+  // Use the global allVideos already loaded by loadCinemaData()
+  if (!window.allVideos || !window.allVideos.length) return;
+  
+  // Deduplicate: one result per movie, one per TV series
+  const seen = new Map();
+  const matches = [];
+  window.allVideos.forEach(v => {
     const title = (v.title || '').toLowerCase();
     const series = (v.seriesTitle || '').toLowerCase();
-    return title.includes(q) || series.includes(q);
-  }).slice(0, 20);
-  if (!matches.length) { dropdown.innerHTML = '<div class="cinema-search-hint">No results found.</div>'; dropdown.classList.add('visible'); return; }
-  dropdown.innerHTML = matches.map(v => {
+    if (!title.includes(q) && !series.includes(q)) return;
+    
+    if (v.type === 'movie') {
+      matches.push(v);
+    } else if (v.type === 'episode' && v.seriesTitle) {
+      const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!seen.has(key)) {
+        seen.set(key, true);
+        matches.push({ ...v, _isSeries: true });
+      }
+    }
+  });
+  const results = matches.slice(0, 20);
+  
+  if (!results.length) { dropdown.innerHTML = '<div class="cinema-search-hint">No results found.</div>'; dropdown.classList.add('visible'); return; }
+  dropdown.innerHTML = results.map(v => {
     const id = v.id;
-    const title = v.title || v.seriesTitle || 'Untitled';
+    const title = v.type === 'movie' ? (v.title || 'Untitled') : (v.seriesTitle || v.title || 'Untitled');
     const type = v.type === 'movie' ? 'Movie' : 'TV';
-    const year = v.releaseYear ? ` • ${v.releaseYear}` : '';
-    return `<button class="cinema-search-result" onclick="closeSearch(); openDetails(${id})">
+    const year = v.releaseYear ? ` \u2022 ${v.releaseYear}` : '';
+    const clickHandler = v.type === 'movie'
+      ? `openDetails(${id})`
+      : `openSeriesDetail('${(v.seriesTitle || '').replace(/'/g, "\\'")}')`;
+    return `<button class="cinema-search-result" onclick="closeSearch(); ${clickHandler}">
       <img class="cinema-search-result-thumb" src="/api/video/thumbnail/${id}" alt="" loading="lazy">
       <div class="cinema-search-result-info">
         <div class="cinema-search-result-title">${title}</div>

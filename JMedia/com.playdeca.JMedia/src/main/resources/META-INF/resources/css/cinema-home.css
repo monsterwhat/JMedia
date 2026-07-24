@@ -995,6 +995,14 @@ html, body {
   flex-shrink: 0;
 }
 
+.cinema-hero-logo {
+  max-height: 80px;
+  max-width: 300px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
+  margin-bottom: 0.5rem;
+}
+
 .cinema-modal-logo-hero {
   max-height: 5rem;
   width: auto;
