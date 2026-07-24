@@ -1178,19 +1178,26 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0.625rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .cinema-settings-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(255, 255, 255, 0.05);
+  padding: 0.375rem 0.75rem;
+  border-radius: 1rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--cinema-text-dim);
   cursor: pointer;
-  font-size: 0.875rem;
-  transition: all 0.2s;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.cinema-settings-btn:hover {
+  color: var(--cinema-text);
 }
 
 .cinema-settings-btn.active {
@@ -1199,13 +1206,14 @@ html, body {
 }
 
 .cinema-settings-toggle {
-  width: 44px;
-  height: 24px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
+  width: 2rem;
+  height: 1.15rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
   cursor: pointer;
   position: relative;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
 
 .cinema-settings-toggle.active {
@@ -1213,18 +1221,19 @@ html, body {
 }
 
 .cinema-settings-toggle > div {
-  width: 18px;
-  height: 18px;
+  width: 1rem;
+  height: 1rem;
   border-radius: 50%;
   background: white;
   position: absolute;
-  top: 3px;
-  left: 3px;
-  transition: transform 0.2s;
+  top: 50%;
+  left: 2px;
+  transform: translateY(-50%);
+  transition: transform 0.2s ease;
 }
 
 .cinema-settings-toggle.active > div {
-  transform: translateX(20px);
+  transform: translateY(-50%) translateX(calc(2rem - 1rem - 4px));
 }
 
 /* ============================================================
@@ -1382,41 +1391,166 @@ html, body {
 }
 
 /* ============================================================
-   Settings Modal Tabs
+   Settings Modal Layout (Sidebar + Main)
    ============================================================ */
 
-.cinema-settings-tabs {
+.cinema-settings-layout {
   display: flex;
-  gap: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 1.5rem;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
 }
 
-.cinema-settings-tab {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--cinema-text-dim);
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-family: inherit;
+.cinema-settings-sidebar {
+  width: 100%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cinema-settings-profile {
+  display: none;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.cinema-settings-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--cinema-text-dim);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.cinema-settings-username {
+  color: var(--cinema-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cinema-settings-nav {
+  display: flex;
+  flex-direction: row;
+  gap: 0.25rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 0;
+}
+
+.cinema-settings-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.cinema-settings-tab {
+  padding: 0;
+  background: none;
+  border: none;
+  border-bottom: none;
+  color: var(--cinema-text-dim);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
   gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.cinema-settings-nav-item {
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease;
 }
 
 .cinema-settings-tab:hover {
   color: var(--cinema-text);
 }
 
-.cinema-settings-tab.active {
+.cinema-settings-nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
   color: var(--cinema-text);
-  border-bottom-color: var(--cinema-accent);
+}
+
+.cinema-settings-tab.active,
+.cinema-settings-nav-item.active {
+  color: var(--cinema-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cinema-settings-lang {
+  display: none;
+  margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cinema-settings-lang-select {
+  width: 100%;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.5rem;
+}
+
+.cinema-settings-main {
+  flex: 1;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+  .cinema-settings-layout {
+    flex-direction: row;
+    min-height: 420px;
+  }
+
+  .cinema-settings-sidebar {
+    width: 220px;
+    min-width: 220px;
+    border-bottom: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 1rem;
+    gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.02);
+    flex-shrink: 0;
+  }
+
+  .cinema-settings-profile {
+    display: flex;
+  }
+
+  .cinema-settings-nav {
+    flex-direction: column;
+    gap: 0.125rem;
+    overflow-x: visible;
+  }
+
+  .cinema-settings-nav-item {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    justify-content: flex-start;
+  }
+
+  .cinema-settings-lang {
+    display: block;
+  }
+
+  .cinema-settings-main {
+    padding: 1.5rem;
+  }
 }
 
 .cinema-settings-panel {
@@ -1440,12 +1574,12 @@ html, body {
 }
 
 .cinema-settings-select {
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.08);
+  padding: 0.5rem 0.75rem;
+  border-radius: 1rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--cinema-text);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-family: inherit;
   cursor: pointer;
   outline: none;
@@ -1499,20 +1633,20 @@ html, body {
 /* Settings Modal - Text Inputs */
 .cinema-settings-input {
   padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  border: none;
   background: rgba(255, 255, 255, 0.06);
   color: var(--cinema-text);
   font-size: 0.8125rem;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.2s;
+  transition: background 0.15s;
   width: 100%;
   max-width: 280px;
 }
 
 .cinema-settings-input:focus {
-  border-color: var(--cinema-accent);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .cinema-settings-input::placeholder {
@@ -1522,16 +1656,16 @@ html, body {
 
 /* Settings Modal - Action Buttons */
 .cinema-settings-action-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 1rem;
   border: none;
   background: var(--cinema-accent);
   color: #000;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.2s, opacity 0.2s;
+  transition: background 0.15s, opacity 0.15s;
 }
 
 .cinema-settings-action-btn:hover {
@@ -1539,12 +1673,12 @@ html, body {
 }
 
 .cinema-settings-action-btn.secondary {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--cinema-text);
 }
 
 .cinema-settings-action-btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* Settings Modal - Button Row */
@@ -1599,9 +1733,10 @@ html, body {
 
 /* Settings Modal - Divider */
 .cinema-settings-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
   margin: 0.5rem 0;
+  height: 0;
 }
 
 /* Settings Modal - Status Text */
@@ -1609,6 +1744,138 @@ html, body {
   font-size: 0.75rem;
   color: var(--cinema-text-dim);
   font-style: italic;
+}
+
+.cinema-settings-search {
+  position: relative;
+  margin-top: 0.5rem;
+}
+
+.cinema-settings-search .fa-magnifying-glass {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cinema-text-dim);
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.cinema-settings-search-input {
+  padding-left: 2rem !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.cinema-settings-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+}
+
+.cinema-settings-pill {
+  padding: 0.375rem 0.75rem;
+  border-radius: 1rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cinema-text-dim);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.cinema-settings-pill:hover {
+  color: var(--cinema-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cinema-settings-pill.active {
+  background: var(--cinema-text);
+  color: var(--cinema-bg);
+}
+
+.cinema-settings-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.cinema-settings-theme-card {
+  position: relative;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cinema-settings-theme-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cinema-settings-theme-card.active {
+  ring: 2px;
+  box-shadow: 0 0 0 2px var(--cinema-accent);
+}
+
+.cinema-settings-theme-preview {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cinema-settings-theme-check {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--cinema-accent);
+  color: #000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.cinema-settings-theme-card.active .cinema-settings-theme-check {
+  display: flex;
+}
+
+.cinema-settings-theme-name {
+  display: block;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--cinema-text-dim);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cinema-settings-theme-card.active .cinema-settings-theme-name {
+  color: var(--cinema-text);
+}
+
+.cinema-settings-theme-badge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--cinema-accent);
+  color: #000;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 /* ============================================================
