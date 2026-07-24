@@ -533,7 +533,7 @@ html, body {
   .cinema-card-poster { height: 264px; }
   .cinema-carousel { gap: 1rem; }
   .cinema-more-like-card { width: 11rem; }
-  .cinema-more-like-card .cinema-more-like-img-wrap { height: 264px; }
+  .cinema-more-like-scroll { gap: 1rem; padding-left: 1.5rem; padding-right: 1.5rem; }
 }
 
 /* ============================================================
@@ -1863,9 +1863,10 @@ body.cinema-mode .persistent-music-player {
 
 .cinema-more-like-scroll {
   display: flex;
+  align-items: flex-start;
   gap: 0.75rem;
   overflow-x: auto;
-  padding-bottom: 0.5rem;
+  padding: 0 1rem 0.25rem;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -1875,6 +1876,7 @@ body.cinema-mode .persistent-music-player {
 }
 
 .cinema-more-like-card {
+  position: relative;
   flex-shrink: 0;
   width: 9rem;
   cursor: pointer;
@@ -1897,6 +1899,12 @@ body.cinema-mode .persistent-music-player {
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.05);
   height: 216px;
+}
+
+@media (min-width: 768px) {
+  .cinema-more-like-card .cinema-more-like-img-wrap {
+    height: 264px;
+  }
 }
 
 .cinema-more-like-card .cinema-more-like-img-wrap img {
@@ -2118,6 +2126,7 @@ body.cinema-mode .persistent-music-player {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.4);
   flex-shrink: 0;
+  transition: color 0.2s ease;
 }
 
 .cinema-episode-desc {
