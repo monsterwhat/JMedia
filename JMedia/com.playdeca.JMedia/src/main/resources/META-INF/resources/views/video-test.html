@@ -24,6 +24,7 @@
        style="background: #0a0a0a;">
   <div class="cinema-hero-top-gradient"></div>
   <div class="cinema-hero-bottom-gradient"></div>
+  <div class="cinema-hero-left-gradient"></div>
   
   <div class="cinema-hero-content" id="hero-content">
     <div class="cinema-hero-badge">
@@ -62,6 +63,7 @@
 
 <!-- Content Sections -->
 <main class="cinema-content">
+  <div class="cinema-content-blur-layer"></div>
   <!-- Recently Updated Section -->
   <section class="cinema-section" id="section-recently-updated" style="display:none;">
     <div class="cinema-section-header">
@@ -423,11 +425,19 @@ function formatDuration(ms) {
 
 function renderStars(rating) {
   const stars = Math.round((rating || 0) / 2);
+  const svgNS = 'http://www.w3.org/2000/svg';
   let html = '';
   for (let i = 0; i < 5; i++) {
-    if (i < stars) html += '<i class="fa-solid fa-star"></i>';
-    else if (i < stars + 0.5) html += '<i class="fa-solid fa-star-half-stroke"></i>';
-    else html += '<i class="fa-regular fa-star"></i>';
+    const filled = i < stars;
+    const halfFilled = !filled && i < stars + 0.5;
+    const fillColor = 'var(--cinema-text, #ffffff)';
+    const emptyColor = 'var(--cinema-text-dim, #888888)';
+    if (halfFilled) {
+      html += `<svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align: middle;"><defs><linearGradient id="halfStar${i}"><stop offset="50%" stop-color="${fillColor}"/><stop offset="50%" stop-color="${emptyColor}"/></linearGradient></defs><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="url(#halfStar${i})" stroke="none"/></svg>`;
+    } else {
+      const color = filled ? fillColor : emptyColor;
+      html += `<svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align: middle;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="${color}" stroke="none"/></svg>`;
+    }
   }
   return html;
 }
@@ -494,7 +504,7 @@ function updateHero(index) {
       }
     }
     desc.textContent = item.description || '';
-    rating.textContent = item.imdbRating || item.tmdbRating || '';
+    rating.textContent = item.imdbRating || item.tmdbRating ? (Math.round(parseFloat(item.imdbRating || item.tmdbRating || 0) * 10) + '%') : '';
     stars.innerHTML = renderStars(parseFloat(item.imdbRating || item.tmdbRating || 0));
 
     const yearEl = document.getElementById('hero-year');

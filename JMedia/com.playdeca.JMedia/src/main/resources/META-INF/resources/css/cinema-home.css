@@ -51,10 +51,12 @@ html, body {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.15;
-  filter: blur(80px);
-  -webkit-filter: blur(80px);
+  opacity: 0.85;
+  filter: blur(100px) saturate(1.4) brightness(0.32);
+  -webkit-filter: blur(100px) saturate(1.4) brightness(0.32);
+  transform: scale(1.2);
   object-fit: cover;
+  object-position: top;
   width: 100%;
   height: 100%;
 }
@@ -134,7 +136,7 @@ html, body {
 .cinema-hero {
   width: 100%;
   height: 86svh;
-  min-height: 600px;
+  min-height: 480px;
   position: relative;
   overflow: hidden;
   background: var(--cinema-bg);
@@ -171,12 +173,26 @@ html, body {
   z-index: 1;
 }
 
+.cinema-hero-left-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.5), transparent, transparent);
+  z-index: 1;
+}
+
 .cinema-hero-content {
   position: absolute;
-  bottom: 120px;
-  left: 48px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0 1rem 10rem;
+  pointer-events: none;
   z-index: 2;
   max-width: 600px;
+}
+
+.cinema-hero-content > * {
+  pointer-events: auto;
 }
 
 .cinema-hero-badge {
@@ -213,6 +229,9 @@ html, body {
 .cinema-hero-rating-stars {
   color: #fbbf24;
   font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .cinema-hero-rating-value {
@@ -323,8 +342,22 @@ html, body {
 .cinema-content {
   position: relative;
   z-index: 10;
-  margin-top: -80px;
+  margin-top: -180px;
   padding-bottom: 100px;
+}
+
+.cinema-content-blur-layer {
+  position: absolute;
+  top: -200px;
+  left: 0;
+  right: 0;
+  height: 300px;
+  backdrop-filter: blur(120px) saturate(1.6);
+  -webkit-backdrop-filter: blur(120px) saturate(1.6);
+  mask-image: linear-gradient(to bottom, transparent, black 100px, black);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 100px, black);
+  z-index: 1;
+  pointer-events: none;
 }
 
 .cinema-section {
@@ -1621,14 +1654,24 @@ html, body {
    ============================================================ */
 
 @media (max-width: 1024px) {
+  .cinema-hero {
+    height: 76svh;
+    min-height: 640px;
+  }
+
   .cinema-hero-content {
     left: 2rem;
-    bottom: 100px;
+    right: 2rem;
+    padding: 0 0 12rem;
     max-width: 500px;
   }
 
   .cinema-hero-title {
     font-size: 2.75rem;
+  }
+
+  .cinema-content {
+    margin-top: -144px;
   }
 
   .cinema-section {
@@ -1644,14 +1687,14 @@ html, body {
   /* nav pills removed — only logo + search in top nav */
 
   .cinema-hero {
-    height: 70vh;
-    min-height: 500px;
+    height: 82svh;
+    min-height: 560px;
   }
 
   .cinema-hero-content {
     left: 1rem;
     right: 1rem;
-    bottom: 80px;
+    padding: 0 0 10rem;
     max-width: none;
   }
 
@@ -1665,6 +1708,10 @@ html, body {
 
   .cinema-hero-actions {
     flex-wrap: wrap;
+  }
+
+  .cinema-content {
+    margin-top: -80px;
   }
 
   .cinema-section {
