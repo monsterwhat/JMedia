@@ -135,7 +135,7 @@ html, body {
 
 .cinema-hero {
   width: 100%;
-  height: 86svh;
+  height: calc(86svh + env(safe-area-inset-top, 0px));
   min-height: 480px;
   position: relative;
   overflow: hidden;
@@ -185,10 +185,10 @@ html, body {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 0 1rem 10rem;
+  padding: 0 1rem 13rem;
   pointer-events: none;
   z-index: 30;
-  max-width: 600px;
+  max-width: 672px;
 }
 
 .cinema-hero-content > * {
@@ -217,6 +217,11 @@ html, body {
   line-height: 1.1;
   margin-bottom: 0.75rem;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .cinema-hero-rating {
@@ -249,7 +254,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--cinema-text-dim);
   margin-bottom: 1.5rem;
 }
@@ -262,10 +267,10 @@ html, body {
 }
 
 .cinema-hero-desc {
-  font-size: 1rem;
+  font-size: 0.875rem;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.8);
-  margin-bottom: 1.5rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 1rem;
   max-width: 36rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -284,8 +289,8 @@ html, body {
   align-items: center;
   gap: 0.5rem;
   padding: 0.875rem 2rem;
-  background: var(--cinema-text);
-  color: var(--cinema-bg);
+  background: var(--cinema-primary, #3b82f6);
+  color: white;
   border: none;
   border-radius: 9999px;
   font-size: 1rem;
@@ -295,25 +300,36 @@ html, body {
 }
 
 .cinema-hero-play:hover {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--cinema-primary-hover, #2563eb);
   transform: scale(1.02);
 }
 
 .cinema-hero-secondary-group {
   display: flex;
   align-items: center;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  overflow: hidden;
+  gap: 0.75rem;
 }
 
 .cinema-hero-secondary-divider {
-  width: 1px;
-  height: 24px;
+  display: none;
+}
+
+.cinema-hero-secondary-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 9999px;
   background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cinema-hero-secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .cinema-hero-secondary {
@@ -342,41 +358,63 @@ html, body {
 .cinema-content {
   position: relative;
   z-index: 10;
-  margin-top: -180px;
+  padding-top: 2rem;
   padding-bottom: 100px;
 }
 
 .cinema-content-blur-layer {
   position: absolute;
+  top: -272px;
+  left: 0;
+  right: 0;
+  height: 680px;
+  backdrop-filter: blur(88px) saturate(1.4);
+  -webkit-backdrop-filter: blur(88px) saturate(1.4);
+  contain: paint;
+  translateZ(0px);
+  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 8%, rgba(0,0,0,0.4) 15%, rgba(0,0,0,0.7) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 8%, rgba(0,0,0,0.4) 15%, rgba(0,0,0,0.7) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.cinema-content-blur-overlay {
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 400px;
-  backdrop-filter: blur(88px) saturate(1.6);
-  -webkit-backdrop-filter: blur(88px) saturate(1.6);
-  mask-image: linear-gradient(transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
+  height: 680px;
+  background: linear-gradient(to bottom, transparent 0%, var(--cinema-bg, #000) 10%, var(--cinema-bg, #000) 90%, transparent 100%);
   z-index: -1;
   pointer-events: none;
 }
 
 .cinema-section {
   width: 100%;
-  padding: 0 2rem;
-  margin-bottom: 3rem;
+  padding: 0 1rem;
+  margin-bottom: 2rem;
 }
 
 .cinema-section-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
 .cinema-section-title {
-  font-size: 1.5rem;
+  font-size: 1.125rem;
   font-weight: 700;
   color: var(--cinema-text);
+}
+
+.cinema-section-bar {
+  width: 4px;
+  height: 24px;
+  background: var(--cinema-primary, #3b82f6);
+  border-radius: 9999px;
+  flex-shrink: 0;
 }
 
 /* ============================================================
@@ -412,8 +450,10 @@ html, body {
   height: 40px;
   border-radius: 50%;
   border: none;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
+  background: rgba(255,255,255,0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(0,0,0,0.8);
   font-size: 1rem;
   cursor: pointer;
   z-index: 20;
@@ -452,7 +492,7 @@ html, body {
 
 .cinema-card {
   flex: 0 0 auto;
-  width: 144px;
+  width: 160px;
   scroll-snap-align: start;
   cursor: pointer;
   transition: transform 0.2s ease;
@@ -466,7 +506,7 @@ html, body {
 .cinema-card-poster {
   position: relative;
   width: 100%;
-  height: 216px;
+  height: 240px;
   border-radius: 1rem;
   overflow: hidden;
   background: var(--cinema-surface-2);
@@ -508,7 +548,7 @@ html, body {
 
 .cinema-card-title {
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 500;
   margin-top: 0.625rem;
   white-space: nowrap;
   overflow: hidden;
@@ -529,11 +569,22 @@ html, body {
    ============================================================ */
 
 @media (min-width: 768px) {
-  .cinema-card { width: 176px; }
-  .cinema-card-poster { height: 264px; }
+  .cinema-card { width: 192px; }
+  .cinema-card-poster { height: 288px; }
   .cinema-carousel { gap: 1rem; }
   .cinema-more-like-card { width: 11rem; }
   .cinema-more-like-scroll { gap: 1rem; padding-left: 1.5rem; padding-right: 1.5rem; }
+  .cinema-hero-logo {
+    max-height: 80px;
+    max-width: 350px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .cinema-hero-logo {
+    max-height: 96px;
+    max-width: 400px;
+  }
 }
 
 /* ============================================================
@@ -1062,11 +1113,17 @@ html, body {
 }
 
 .cinema-hero-logo {
-  max-height: 80px;
-  max-width: 300px;
+  max-height: 64px;
+  max-width: 280px;
   object-fit: contain;
-  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
+  object-position: left;
+  filter: none;
   margin-bottom: 0.5rem;
+}
+
+.cinema-hero-title-wrap {
+  display: flex;
+  align-items: flex-end;
 }
 
 .cinema-modal-logo-hero {
@@ -1983,7 +2040,7 @@ html, body {
 
 @media (max-width: 1024px) {
   .cinema-hero {
-    height: 76svh;
+    height: calc(76svh + env(safe-area-inset-top, 0px));
     min-height: 640px;
   }
 
@@ -1991,15 +2048,16 @@ html, body {
     left: 2rem;
     right: 2rem;
     padding: 0 0 12rem;
-    max-width: 500px;
+    max-width: 672px;
+  }
+
+  .cinema-hero-logo {
+    max-height: 80px;
+    max-width: 350px;
   }
 
   .cinema-hero-title {
     font-size: 2.75rem;
-  }
-
-  .cinema-content {
-    margin-top: -144px;
   }
 
   .cinema-section {
@@ -2015,7 +2073,7 @@ html, body {
   /* nav pills removed — only logo + search in top nav */
 
   .cinema-hero {
-    height: 82svh;
+    height: calc(82svh + env(safe-area-inset-top, 0px));
     min-height: 560px;
   }
 
@@ -2024,6 +2082,11 @@ html, body {
     right: 1rem;
     padding: 0 0 10rem;
     max-width: none;
+  }
+
+  .cinema-hero-logo {
+    max-height: 64px;
+    max-width: 280px;
   }
 
   .cinema-hero-title {
@@ -2036,10 +2099,6 @@ html, body {
 
   .cinema-hero-actions {
     flex-wrap: wrap;
-  }
-
-  .cinema-content {
-    margin-top: -80px;
   }
 
   .cinema-section {
@@ -2105,10 +2164,6 @@ body.cinema-mode #app-content {
 
 body.cinema-mode .persistent-music-player {
   display: none !important;
-}
-
-.cinema-content {
-  padding-bottom: 120px;
 }
 
 /* ============================================================
