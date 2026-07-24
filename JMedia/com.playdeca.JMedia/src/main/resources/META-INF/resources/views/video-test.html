@@ -144,26 +144,33 @@
     <div class="cinema-modal-hero-overlay">
       <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
       <div class="cinema-modal-title-overlay">
+        <img src="/logo.png" id="modal-logo-hero-img" class="cinema-modal-logo-hero" alt="JMedia">
         <h2 class="cinema-modal-hero-title" id="modal-title"></h2>
         <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
-        <div class="cinema-modal-genres" id="modal-genres"></div>
+        <div class="cinema-modal-actions">
+          <button class="cinema-modal-play" id="modal-play-btn">
+            <i class="fa-solid fa-play"></i> Play Now
+          </button>
+          <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
       </div>
       <div class="cinema-modal-blur-strip"></div>
     </div>
     <!-- Content -->
     <div class="cinema-modal-content">
-      <div class="cinema-modal-desc-wrapper">
-        <p class="cinema-modal-desc" id="modal-desc"></p>
-        <button class="cinema-modal-desc-toggle" id="modal-desc-toggle" onclick="toggleDescription()" style="display:none;">more...</button>
-      </div>
-      <img src="/logo.png" class="cinema-modal-logo-hero" alt="JMedia">
-      <div class="cinema-modal-actions">
-        <button class="cinema-modal-play" id="modal-play-btn">
-          <i class="fa-solid fa-play"></i> Play Now
-        </button>
-        <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
-          <i class="fa-solid fa-plus"></i>
-        </button>
+      <div class="cinema-modal-info-grid">
+        <div class="cinema-modal-info-left">
+          <div class="cinema-modal-desc-wrapper">
+            <p class="cinema-modal-desc" id="modal-desc"></p>
+            <button class="cinema-modal-desc-toggle" id="modal-desc-toggle" onclick="toggleDescription()" style="display:none;">more...</button>
+          </div>
+        </div>
+        <div class="cinema-modal-info-right">
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-bottom:0.5rem;font-weight:600;">Genres:</div>
+          <div class="cinema-modal-genres" id="modal-genres"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -733,6 +740,10 @@ async function openSeriesDetail(seriesTitle) {
   const bgBlurInner = document.getElementById('modal-bg-blur-inner');
   if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${heroUrl})`;
 
+  // Logo hero — use show thumbnail as title image
+  const logoHeroImg = document.getElementById('modal-logo-hero-img');
+  if (logoHeroImg) logoHeroImg.src = heroUrl;
+
   const titleEl = document.getElementById('modal-title');
   if (titleEl) {
     titleEl.textContent = seriesTitle;
@@ -740,15 +751,16 @@ async function openSeriesDetail(seriesTitle) {
 
   // Meta badges
   const rating = firstEp.imdbRating || firstEp.tmdbRating || '';
+  const matchPct = rating ? Math.round(parseFloat(rating) * 10) : 85;
   const year = firstEp.releaseYear || '';
   const seasonCount = seasonNumbers.length;
   const metaRow = document.getElementById('modal-meta-row');
   if (metaRow) {
     metaRow.innerHTML = '';
-    if (rating) metaRow.innerHTML += `<span class="meta-badge"><i class="fa-solid fa-star" style="font-size:0.7rem;"></i> ${rating}</span>`;
+    metaRow.innerHTML += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
     if (year) metaRow.innerHTML += `<span class="meta-badge">${year}</span>`;
     metaRow.innerHTML += `<span class="meta-badge">${seasonCount} Season${seasonCount > 1 ? 's' : ''}</span>`;
-    metaRow.innerHTML += `<span class="meta-badge">TV Show</span>`;
+    metaRow.innerHTML += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
   }
 
   // Genres
@@ -769,11 +781,16 @@ async function openSeriesDetail(seriesTitle) {
   
   // Season tabs if multiple seasons
   if (seasonNumbers.length > 1) {
-    episodesHtml += '<div class="cinema-season-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">';
-    seasonNumbers.forEach((sn, i) => {
-      episodesHtml += `<button class="cinema-season-tab" data-season="${sn}" onclick="switchSeason(${sn})" style="padding: 0.375rem 1rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); background: ${i === 0 ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.05)'}; color: ${i === 0 ? '#000' : '#fff'};">Season ${sn}</button>`;
+    episodesHtml += `<div class="cinema-season-dropdown">
+      <button class="cinema-season-dropdown-btn" onclick="toggleSeasonDropdown()">
+        <span id="cinema-season-label">Season ${seasonNumbers[0]}</span>
+        <i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <div class="cinema-season-dropdown-list" id="cinema-season-list">`;
+    seasonNumbers.forEach((sn) => {
+      episodesHtml += `<button class="cinema-season-dropdown-item${sn == seasonNumbers[0] ? ' active' : ''}" onclick="switchSeason(${sn})">Season ${sn}</button>`;
     });
-    episodesHtml += '</div>';
+    episodesHtml += '</div></div>';
   }
 
   // Episode cards for first season
@@ -784,19 +801,15 @@ async function openSeriesDetail(seriesTitle) {
   // Inject into modal content
   const content = document.querySelector('#cinema-modal .cinema-modal-content');
   if (content) {
-    // Find the actions div and insert episodes before it
-    const actions = content.querySelector('.cinema-modal-actions');
-    if (actions) {
-      // Remove old episodes section if any
-      const old = content.querySelector('.cinema-episodes-section');
-      if (old) old.remove();
-      actions.insertAdjacentHTML('beforebegin', episodesHtml);
+    // Remove old episodes section if any
+    const old = content.querySelector('.cinema-episodes-section');
+    if (old) old.remove();
+    content.insertAdjacentHTML('beforeend', episodesHtml);
 
-      const oldMoreLike = content.querySelector('.cinema-more-like-section');
-      if (oldMoreLike) oldMoreLike.remove();
-      const moreLikeHtml = buildMoreLikeThis(firstEp);
-      if (moreLikeHtml) actions.insertAdjacentHTML('beforebegin', moreLikeHtml);
-    }
+    const oldMoreLike = content.querySelector('.cinema-more-like-section');
+    if (oldMoreLike) oldMoreLike.remove();
+    const moreLikeHtml = buildMoreLikeThis(firstEp);
+    if (moreLikeHtml) content.insertAdjacentHTML('beforeend', moreLikeHtml);
   }
 
   // Show play button (plays first unwatched or first episode)
@@ -854,33 +867,88 @@ function buildMoreLikeThis(currentVideo) {
   ).slice(0, 12);
   if (!matches.length) return '';
   return `<div class="cinema-more-like-section">
-    <h3 class="cinema-more-like-title">More Like This</h3>
-    <div class="cinema-more-like-scroll">
-      ${matches.map(v => {
-        const title = v.title || v.seriesTitle || 'Untitled';
-        const year = v.releaseYear || '';
-        const img = getThumbnailUrl(v.id);
-        const clickAction = (v.type === 'episode' && v.seriesTitle)
-          ? `closeModal(); openSeriesDetail('${(v.seriesTitle || '').replace(/'/g, "\\'")}')`
-          : `closeModal(); openDetails(${v.id})`;
-        return `<div class="cinema-more-like-card" onclick="${clickAction}">
-          <div class="cinema-more-like-img-wrap">
-            <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
-            <div class="cinema-more-like-play-overlay">
-              <div class="cinema-more-like-play-icon">
-                <i class="fa-solid fa-play"></i>
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+      <div style="width:0.25rem;height:1.5rem;background:var(--cinema-accent,#48c774);border-radius:9999px;"></div>
+      <h3 style="font-size:1rem;font-weight:700;">More Like This</h3>
+    </div>
+    <div style="position:relative;">
+      <button class="cinema-more-like-arrow cinema-more-like-arrow-left" onclick="scrollMoreLike(this,-1)" style="display:none;">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <div class="cinema-more-like-scroll">
+        ${matches.map(v => {
+          const title = v.title || v.seriesTitle || 'Untitled';
+          const year = v.releaseYear || '';
+          const img = getThumbnailUrl(v.id);
+          const rating = v.imdbRating || v.tmdbRating || '';
+          const matchPct = rating ? Math.round(parseFloat(rating) * 10) : '';
+          const clickAction = (v.type === 'episode' && v.seriesTitle)
+            ? `closeModal(); openSeriesDetail('${(v.seriesTitle || '').replace(/'/g, "\\'")}')`
+            : `closeModal(); openDetails(${v.id})`;
+          return `<div class="cinema-more-like-card" onclick="${clickAction}">
+            <div class="cinema-more-like-img-wrap">
+              <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
+              <div class="cinema-more-like-play-overlay">
+                <div class="cinema-more-like-play-icon">
+                  <i class="fa-solid fa-play"></i>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="cinema-card-title">${title}</div>
-          ${year ? `<div class="cinema-card-year">${year}</div>` : ''}
-        </div>`;
-      }).join('')}
+            <div class="cinema-card-title">${title}</div>
+            <div class="cinema-card-meta-row">
+              ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
+              ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <button class="cinema-more-like-arrow cinema-more-like-arrow-right" onclick="scrollMoreLike(this,1)">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
     </div>
   </div>`;
 }
 
+function scrollMoreLike(btn, dir) {
+  const container = btn.closest('.cinema-more-like-section').querySelector('.cinema-more-like-scroll');
+  if (!container) return;
+  const scrollAmount = container.offsetWidth * 0.7;
+  container.scrollBy({ left: dir * scrollAmount, behavior: 'smooth' });
+  setTimeout(() => {
+    const leftArrow = btn.closest('.cinema-more-like-section').querySelector('.cinema-more-like-arrow-left');
+    const rightArrow = btn.closest('.cinema-more-like-section').querySelector('.cinema-more-like-arrow-right');
+    if (leftArrow) leftArrow.style.display = container.scrollLeft > 10 ? '' : 'none';
+    if (rightArrow) rightArrow.style.display = container.scrollLeft + container.offsetWidth < container.scrollWidth - 10 ? '' : 'none';
+  }, 350);
+}
+
+function toggleSeasonDropdown() {
+  const list = document.getElementById('cinema-season-list');
+  if (list) list.classList.toggle('show');
+}
+
+document.addEventListener('click', function(e) {
+  const dropdown = document.querySelector('.cinema-season-dropdown');
+  if (dropdown && !dropdown.contains(e.target)) {
+    const list = document.getElementById('cinema-season-list');
+    if (list) list.classList.remove('show');
+  }
+});
+
 function switchSeason(seasonNumber) {
+  // Close dropdown
+  const list = document.getElementById('cinema-season-list');
+  if (list) list.classList.remove('show');
+
+  // Update label
+  const label = document.getElementById('cinema-season-label');
+  if (label) label.textContent = `Season ${seasonNumber}`;
+
+  // Update active state on dropdown items
+  document.querySelectorAll('.cinema-season-dropdown-item').forEach(item => {
+    item.classList.toggle('active', item.textContent.trim() === `Season ${seasonNumber}`);
+  });
+
   // Find the episodes for this season from allVideos
   const seriesTitle = document.getElementById('modal-title').textContent;
   const episodes = allVideos
@@ -891,19 +959,12 @@ function switchSeason(seasonNumber) {
   const section = document.querySelector('#cinema-modal .cinema-episodes-section');
   if (!section) return;
   
-  // Update tab styles
-  section.querySelectorAll('.cinema-season-tab').forEach(tab => {
-    const isActive = tab.dataset.season == seasonNumber;
-    tab.style.background = isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.05)';
-    tab.style.color = isActive ? '#000' : '#fff';
-  });
-  
-  // Rebuild episode list (keep the season tabs)
+  // Rebuild episode list (keep the season dropdown)
   const existingList = section.querySelectorAll('.cinema-episode-card');
   existingList.forEach(el => el.remove());
-  const tabs = section.querySelector('.cinema-season-tabs');
-  if (tabs) {
-    tabs.insertAdjacentHTML('afterend', buildEpisodesList(episodes));
+  const dropdown = section.querySelector('.cinema-season-dropdown');
+  if (dropdown) {
+    dropdown.insertAdjacentHTML('afterend', buildEpisodesList(episodes));
   } else {
     section.insertAdjacentHTML('afterbegin', buildEpisodesList(episodes));
   }
@@ -917,6 +978,10 @@ function openDetails(videoId) {
     const heroUrl = getThumbnailUrl(videoId);
     const backdropImg = document.getElementById('modal-backdrop-img');
     if (backdropImg) backdropImg.src = heroUrl;
+
+    // Logo hero
+    const logoHeroImg = document.getElementById('modal-logo-hero-img');
+    if (logoHeroImg) logoHeroImg.src = heroUrl;
 
     // Blurred background
     const bgBlur = document.getElementById('modal-bg-blur');
@@ -937,10 +1002,11 @@ function openDetails(videoId) {
     const type = data.type === 'movie' ? 'Movie' : 'TV Show';
 
     let metaHtml = '';
-    if (rating) metaHtml += `<span class="meta-badge"><i class="fa-solid fa-star" style="font-size:0.7rem;"></i> ${rating}</span>`;
+    const matchPct = rating ? Math.round(parseFloat(rating) * 10) : 85;
+    metaHtml += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
     if (year) metaHtml += `<span class="meta-badge">${year}</span>`;
-    if (type) metaHtml += `<span class="meta-badge">${type}</span>`;
     if (duration) metaHtml += `<span class="meta-badge">${duration}</span>`;
+    metaHtml += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
 
     const metaRow = document.getElementById('modal-meta-row');
     if (metaRow) metaRow.innerHTML = metaHtml;
@@ -973,8 +1039,7 @@ function openDetails(videoId) {
     if (oldMoreLike) oldMoreLike.remove();
     const moreLikeHtml = buildMoreLikeThis(data);
     if (moreLikeHtml) {
-      const actions = content?.querySelector('.cinema-modal-actions');
-      if (actions) actions.insertAdjacentHTML('beforebegin', moreLikeHtml);
+      content?.insertAdjacentHTML('beforeend', moreLikeHtml);
     }
 
     // Open modal
