@@ -63,6 +63,7 @@ public class VideoMetadataService {
     private static final String TMDB_EPISODE_DETAILS = "https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?api_key=%s&append_to_response=credits,images";
     private static final String TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
     private static final String TMDB_IMAGE_ORIGINAL = "https://image.tmdb.org/t/p/original";
+    private static final String TMDB_TV_IMAGES = "https://api.themoviedb.org/3/tv/%s/images?api_key=%s";
     
     // OMDb
     private static final String OMDB_URL = "https://www.omdbapi.com/?apikey=%s&i=%s&plot=full";
@@ -816,6 +817,21 @@ public class VideoMetadataService {
                 if (root.has("backdrop_path") && !root.get("backdrop_path").isNull()) {
                     video.backdropPath = TMDB_IMAGE_ORIGINAL + root.get("backdrop_path").asText();
                 }
+                // Extract logo from images (already fetched via append_to_response=images)
+                if (root.has("images") && root.get("images").has("logos")) {
+                    JsonNode logos = root.get("images").get("logos");
+                    if (logos.isArray() && logos.size() > 0) {
+                        String logoFilePath = null;
+                        for (JsonNode logo : logos) {
+                            if ("en".equals(logo.path("iso_639_1").asText())) {
+                                logoFilePath = logo.path("file_path").asText();
+                                break;
+                            }
+                        }
+                        if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
+                        if (logoFilePath != null) video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                    }
+                }
                 if (root.has("budget")) video.budget = root.get("budget").asLong();
                 if (root.has("revenue")) video.revenue = root.get("revenue").asLong();
                 if (root.has("status")) video.status = root.get("status").asText();
@@ -839,6 +855,7 @@ public class VideoMetadataService {
         }
 
         if (showTmdbId != null) {
+            video.tmdbId = showTmdbId;
             String url = String.format(TMDB_EPISODE_DETAILS, showTmdbId, video.seasonNumber, video.episodeNumber, apiKey);
             JsonNode root = fetchJson(url);
             if (root != null) {
@@ -847,6 +864,33 @@ public class VideoMetadataService {
                 if (root.has("vote_average")) video.tmdbRating = root.get("vote_average").asDouble();
                 if (root.has("still_path") && !root.get("still_path").isNull()) {
                     video.posterPath = TMDB_IMAGE_BASE + root.get("still_path").asText();
+                }
+            }
+            // Fetch show-level backdrop and logo
+            String showUrl = String.format(TMDB_TV_DETAILS, showTmdbId, apiKey);
+            JsonNode showRoot = fetchJson(showUrl);
+            if (showRoot != null) {
+                if (showRoot.has("backdrop_path") && !showRoot.get("backdrop_path").isNull() && video.backdropPath == null) {
+                    video.backdropPath = TMDB_IMAGE_ORIGINAL + showRoot.get("backdrop_path").asText();
+                }
+            }
+            // Get show logo
+            if (video.logoPath == null) {
+                String imagesUrl = String.format(TMDB_TV_IMAGES, showTmdbId, apiKey);
+                JsonNode imagesRoot = fetchJson(imagesUrl);
+                if (imagesRoot != null && imagesRoot.has("logos")) {
+                    JsonNode logos = imagesRoot.get("logos");
+                    if (logos.isArray() && logos.size() > 0) {
+                        String logoFilePath = null;
+                        for (JsonNode logo : logos) {
+                            if ("en".equals(logo.path("iso_639_1").asText())) {
+                                logoFilePath = logo.path("file_path").asText();
+                                break;
+                            }
+                        }
+                        if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
+                        if (logoFilePath != null) video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                    }
                 }
             }
         }

@@ -19,6 +19,7 @@ public class ContinueWatchingDTO {
     public String thumbnailPath;
     public String backdropPath;
     public String posterPath;
+    public String logoPath;
     public List<String> genres;
     public Double watchProgress;
     public Integer watchProgressPercent;

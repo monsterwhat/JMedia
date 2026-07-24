@@ -17,6 +17,7 @@ public class VideoMetadataDTO {
     public Long duration;
     public Long fileSize; // bytes
     public Double resumeTime; // Per-profile resume time (seconds), set by API
+    public String logoPath;
 
     public VideoMetadataDTO(Video video) {
         if (video == null) return;
@@ -31,6 +32,7 @@ public class VideoMetadataDTO {
         this.recapEnd = video.recapEnd;
         this.duration = video.duration;
         this.fileSize = video.size != null && video.size > 0 ? video.size : video.fileSize;
+        this.logoPath = video.logoPath;
         // resumeTime will be set by API layer using VideoState
     }
 }

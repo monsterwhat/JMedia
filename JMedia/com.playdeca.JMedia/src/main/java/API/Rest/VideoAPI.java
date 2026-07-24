@@ -1219,6 +1219,7 @@ public class VideoAPI {
             dto.thumbnailPath = vs.video.thumbnailPath;
             dto.backdropPath = vs.video.backdropPath;
             dto.posterPath = vs.video.posterPath;
+            dto.logoPath = vs.video.logoPath;
             dto.genres = vs.video.genres;
             // Explicitly populate transient fields from VideoState
             dto.watchProgress = vs.watchProgress;
