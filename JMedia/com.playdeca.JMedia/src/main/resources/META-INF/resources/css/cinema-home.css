@@ -2048,8 +2048,8 @@ html, body {
   .cinema-hero-content {
     left: 2rem;
     right: 2rem;
-    padding: 0 0 12rem;
-    max-width: 672px;
+    padding: 0 2rem 12rem;
+    max-width: 500px;
   }
 
   .cinema-hero-logo {
@@ -2081,7 +2081,7 @@ html, body {
   .cinema-hero-content {
     left: 1rem;
     right: 1rem;
-    padding: 0 0 10rem;
+    padding: 0 1rem 10rem;
     max-width: none;
   }
 
@@ -2121,7 +2121,7 @@ html, body {
 
 @media (max-width: 480px) {
   .cinema-hero {
-    height: 60vh;
+    height: calc(70svh + env(safe-area-inset-top, 0px));
     min-height: 400px;
   }
 
