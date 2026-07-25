@@ -156,6 +156,21 @@ html, body {
   }
 }
 
+.cinema-hero-color-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 280px;
+  z-index: 2;
+  pointer-events: none;
+  transition: background-color 700ms ease;
+  opacity: 0;
+}
+.cinema-hero-color-gradient.active {
+  opacity: 1;
+}
+
 .cinema-hero-backdrop {
   position: absolute;
   inset: 0;

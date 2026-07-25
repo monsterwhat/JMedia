@@ -58,6 +58,9 @@
 
   <!-- Hero Timer Indicators -->
   <div class="cinema-hero-timers" id="heroTimers"></div>
+
+  <!-- Color gradient overlay -->
+  <div class="cinema-hero-color-gradient" id="hero-color-gradient"></div>
 </section>
 
 <!-- Content Sections -->
@@ -560,6 +563,12 @@ function extractHeroColor(imgElement) {
       r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
       const heroSection = document.querySelector('.cinema-hero');
       if (heroSection) heroSection.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+      // Apply gradient overlay that extends color down through content
+      const heroGradient = document.getElementById('hero-color-gradient');
+      if (heroGradient) {
+        heroGradient.style.background = `linear-gradient(to bottom, transparent 0%, rgba(${r}, ${g}, ${b}, 0.12) 45%, rgba(${r}, ${g}, ${b}, 0.35) 72%, rgba(${r}, ${g}, ${b}, 0.55) 100%)`;
+        heroGradient.classList.add('active');
+      }
     }
   } catch (e) { /* Canvas tainted or image not loaded — skip gracefully */ }
 }
@@ -607,6 +616,13 @@ function updateHero(index) {
   if (!heroItems.length || index >= heroItems.length) return;
   currentHeroIndex = index;
   const item = heroItems[index];
+
+  // Reset hero gradient
+  const heroGradient = document.getElementById('hero-color-gradient');
+  if (heroGradient) {
+    heroGradient.style.background = '';
+    heroGradient.classList.remove('active');
+  }
 
   const backdrop = document.getElementById('hero-backdrop');
   const desc = document.getElementById('hero-desc');
