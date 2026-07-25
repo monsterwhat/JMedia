@@ -1189,6 +1189,7 @@ html, body {
   background: var(--bulma-skeleton-background, rgba(255,255,255,0.06));
 }
 .cinema-modal-desc.is-skeleton {
+  display: block !important;
   min-height: 4.5em;
   border-radius: 4px;
   background: var(--bulma-skeleton-background, rgba(255,255,255,0.06));
@@ -1255,10 +1256,10 @@ html, body {
 }
 
 .cinema-modal-blur-strip {
-  position: absolute;
+  position: relative;
   left: 0;
   right: 0;
-  bottom: -100px;
+  margin-top: -100px;
   z-index: 10;
   height: 200px;
   backdrop-filter: blur(120px) saturate(1.6);
@@ -2507,6 +2508,9 @@ body.cinema-mode .persistent-music-player {
   transition: color 0.2s ease;
 }
 
+.cinema-episode-desc.is-skeleton {
+  background: var(--bulma-skeleton-background, rgba(255,255,255,0.06));
+}
 .cinema-episode-desc {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
