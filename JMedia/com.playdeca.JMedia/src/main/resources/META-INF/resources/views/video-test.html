@@ -1084,7 +1084,7 @@ function buildEpisodesList(episodeArray) {
           <h3 class="cinema-episode-title">${epNum}. ${epTitle}</h3>
           ${dur ? `<span class="cinema-episode-duration">${dur}</span>` : ''}
         </div>
-        ${desc ? `<p class="cinema-episode-desc">${desc}</p>` : '<div class="cinema-episode-desc is-skeleton" style="min-height:1.5em;border-radius:4px;"></div>'}
+        ${desc ? `<p class="cinema-episode-desc">${desc}</p>` : '<div class="cinema-episode-desc is-skeleton"></div>'}
       </div>
     </div>`;
   }).join('');

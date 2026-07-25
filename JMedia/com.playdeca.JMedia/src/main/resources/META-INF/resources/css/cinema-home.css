@@ -876,7 +876,7 @@ html, body {
 
 .cinema-modal-content {
   position: relative;
-  z-index: 1;
+  z-index: 10;
   padding: 0.5rem 1rem 2rem;
   display: flex;
   flex-direction: column;
@@ -894,6 +894,8 @@ html, body {
    Two-column info grid: description + genres
    ============================================================ */
 .cinema-modal-info-grid {
+  position: relative;
+  z-index: 10;
   display: grid;
   gap: 1rem;
   grid-template-columns: 1fr;
@@ -2521,7 +2523,11 @@ body.cinema-mode .persistent-music-player {
 }
 
 .cinema-episode-desc.is-skeleton {
-  background: var(--bulma-skeleton-background, rgba(255,255,255,0.06));
+  min-height: 2.4em;
+  border-radius: 4px;
+  background: 
+    linear-gradient(90deg, var(--bulma-skeleton-background, rgba(255,255,255,0.06)) 0%, var(--bulma-skeleton-background, rgba(255,255,255,0.06)) 100%) 0 0 / 100% 1em no-repeat,
+    linear-gradient(90deg, var(--bulma-skeleton-background, rgba(255,255,255,0.06)) 0%, var(--bulma-skeleton-background, rgba(255,255,255,0.06)) 100%) 0 1.2em / 65% 1em no-repeat;
 }
 .cinema-episode-desc {
   font-size: 0.75rem;
