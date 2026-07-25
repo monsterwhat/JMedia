@@ -31,7 +31,7 @@
       <i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching
     </div>
     <div class="cinema-hero-title-wrap" id="hero-title-wrap">
-      <img class="cinema-hero-logo" id="hero-logo-img" src="" alt="" style="display:none;">
+      <img class="cinema-hero-logo is-skeleton" id="hero-logo-img" src="" alt="">
     </div>
     <div class="cinema-hero-rating">
       <span class="cinema-hero-rating-stars" id="hero-stars"></span>
@@ -631,8 +631,10 @@ function updateHero(index) {
       if (item.logoPath) {
         logoImg.src = item.logoPath;
         logoImg.style.display = 'block';
+        logoImg.classList.remove('is-skeleton');
       } else {
         logoImg.style.display = 'none';
+        logoImg.classList.add('is-skeleton');
       }
     }
     desc.textContent = item.description || '';
