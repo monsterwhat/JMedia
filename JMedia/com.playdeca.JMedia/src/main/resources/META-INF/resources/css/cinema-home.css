@@ -53,10 +53,10 @@ html, body {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.85;
-  filter: blur(100px) saturate(1.4) brightness(0.32);
-  -webkit-filter: blur(100px) saturate(1.4) brightness(0.32);
-  transform: scale(1.2);
+  opacity: 0.72;
+  filter: blur(52px) saturate(1.4) brightness(0.32);
+  -webkit-filter: blur(52px) saturate(1.4) brightness(0.32);
+  transform: scale(1.18);
   object-fit: cover;
   object-position: top;
   width: 100%;
@@ -134,8 +134,8 @@ html, body {
 
 .cinema-hero {
   width: 100%;
-  height: calc(86svh + env(safe-area-inset-top, 0px));
-  min-height: 480px;
+  height: calc(76svh + env(safe-area-inset-top, 0px));
+  min-height: 640px;
   position: relative;
   overflow: hidden;
   background: var(--cinema-bg);
@@ -152,7 +152,10 @@ html, body {
 
 .cinema-hero-top-gradient {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 220px;
   background: linear-gradient(
     to bottom, 
     rgba(0, 0, 0, 0.28) 0%, 
@@ -231,7 +234,7 @@ html, body {
 }
 
 .cinema-hero-rating-stars {
-  color: #fbbf24;
+  color: var(--cinema-text);
   font-size: 0.875rem;
   display: inline-flex;
   align-items: center;
@@ -254,7 +257,7 @@ html, body {
   align-items: center;
   gap: 0.75rem;
   font-size: 0.875rem;
-  color: var(--cinema-text-dim);
+  color: var(--cinema-primary, #3b82f6);
   margin-bottom: 1.5rem;
 }
 
@@ -288,19 +291,18 @@ html, body {
   align-items: center;
   gap: 0.5rem;
   padding: 0.875rem 2rem;
-  background: var(--cinema-primary, #3b82f6);
-  color: white;
+  background: white;
+  color: black;
   border: none;
   border-radius: 9999px;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 0.875rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .cinema-hero-play:hover {
-  background: var(--cinema-primary-hover, #2563eb);
-  transform: scale(1.02);
+  background: rgba(255,255,255,0.9);
 }
 
 .cinema-hero-secondary-group {
@@ -310,7 +312,11 @@ html, body {
 }
 
 .cinema-hero-secondary-divider {
-  display: none;
+  display: block;
+  width: 1px;
+  height: 24px;
+  background: rgba(255,255,255,0.05);
+  margin: 0 6px;
 }
 
 .cinema-hero-secondary-btn {
@@ -337,9 +343,11 @@ html, body {
   justify-content: center;
   width: 48px;
   height: 48px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 9999px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--cinema-text);
   font-size: 1.125rem;
   cursor: pointer;
@@ -397,7 +405,7 @@ html, body {
 .cinema-section-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.75rem;
   margin-bottom: 1rem;
 }
@@ -406,14 +414,6 @@ html, body {
   font-size: 1.125rem;
   font-weight: 700;
   color: var(--cinema-text);
-}
-
-.cinema-section-bar {
-  width: 4px;
-  height: 24px;
-  background: var(--cinema-primary, #3b82f6);
-  border-radius: 9999px;
-  flex-shrink: 0;
 }
 
 /* ============================================================
@@ -430,7 +430,7 @@ html, body {
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
-  padding: 0 48px 0.5rem;
+  padding: 0 16px 0.5rem;
 }
 
 .cinema-carousel::-webkit-scrollbar {
@@ -445,30 +445,23 @@ html, body {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: auto;
+  height: auto;
+  border-radius: 0;
   border: none;
-  background: rgba(255,255,255,0.8);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: rgba(0,0,0,0.8);
+  background: none;
+  color: rgba(255,255,255,0.8);
   font-size: 1rem;
   cursor: pointer;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s ease, opacity 0.2s ease;
-  opacity: 0;
-}
-
-.cinema-carousel-wrapper:hover .cinema-carousel-arrow {
-  opacity: 1;
+  transition: color 0.2s ease;
 }
 
 .cinema-carousel-arrow:hover {
-  background: rgba(0, 0, 0, 0.8);
+  color: white;
 }
 
 .cinema-carousel-arrow-left {
@@ -491,7 +484,7 @@ html, body {
 
 .cinema-card {
   flex: 0 0 auto;
-  width: 160px;
+  width: 144px;
   scroll-snap-align: start;
   cursor: pointer;
   transition: transform 0.2s ease;
@@ -505,7 +498,7 @@ html, body {
 .cinema-card-poster {
   position: relative;
   width: 100%;
-  height: 240px;
+  height: 216px;
   border-radius: 1rem;
   overflow: hidden;
   background: var(--cinema-surface-2);
@@ -568,9 +561,9 @@ html, body {
    ============================================================ */
 
 @media (min-width: 768px) {
-  .cinema-card { width: 192px; }
-  .cinema-card-poster { height: 288px; }
-  .cinema-carousel { gap: 1rem; }
+  .cinema-card { width: 176px; }
+  .cinema-card-poster { height: 264px; }
+  .cinema-carousel { gap: 1rem; padding: 0 24px 0.5rem; }
   .cinema-more-like-card { width: 11rem; }
   .cinema-more-like-scroll { gap: 1rem; padding-left: 1.5rem; padding-right: 1.5rem; }
   .cinema-hero-logo {
@@ -614,7 +607,7 @@ html, body {
   background: rgba(255,255,255,0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.03);
   border-radius: 9999px;
   padding: 4px 8px;
   height: 50px;
@@ -641,8 +634,7 @@ html, body {
 }
 
 .cinema-dock-item.active {
-  color: white;
-  background: var(--cinema-primary, #3b82f6);
+  color: var(--cinema-primary, #3b82f6);
 }
 
 .cinema-dock-separator {
@@ -691,7 +683,7 @@ html, body {
 .cinema-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.8);
   z-index: 200;
   opacity: 0;
   visibility: hidden;
@@ -734,7 +726,7 @@ html, body {
     left: 0;
     transform: translateY(100%);
     border-radius: 1.5rem 1.5rem 0 0;
-    max-height: 85vh;
+    max-height: 90vh;
   }
   .cinema-modal.active {
     transform: translateY(0);
@@ -1069,7 +1061,7 @@ html, body {
   position: relative;
   z-index: 1;
   overflow: hidden;
-  background-color: rgb(37, 26, 16);
+  background-color: rgb(33, 16, 7);
 }
 
 .cinema-modal-hero-overlay .cinema-modal-hero-img {
@@ -2036,14 +2028,14 @@ html, body {
 
 @media (max-width: 1024px) {
   .cinema-hero {
-    height: calc(76svh + env(safe-area-inset-top, 0px));
-    min-height: 640px;
+    height: calc(82svh + env(safe-area-inset-top, 0px));
+    min-height: 560px;
   }
 
   .cinema-hero-content {
     left: 2rem;
     right: 2rem;
-    padding: 0 2rem 12rem;
+    padding: 0 1.5rem 12rem;
     max-width: 500px;
   }
 
@@ -2069,8 +2061,8 @@ html, body {
   /* nav pills removed — only logo + search in top nav */
 
   .cinema-hero {
-    height: calc(82svh + env(safe-area-inset-top, 0px));
-    min-height: 560px;
+    height: calc(86svh + env(safe-area-inset-top, 0px));
+    min-height: 480px;
   }
 
   .cinema-hero-content {
@@ -2090,7 +2082,7 @@ html, body {
   }
 
   .cinema-hero-desc {
-    display: none;
+    display: block;
   }
 
   .cinema-hero-actions {
