@@ -54,8 +54,8 @@ html, body {
   z-index: -1;
   pointer-events: none;
   opacity: 0.72;
-  filter: blur(52px) saturate(1.4) brightness(0.32);
-  -webkit-filter: blur(52px) saturate(1.4) brightness(0.32);
+  filter: blur(52px) saturate(1.3) brightness(0.32);
+  -webkit-filter: blur(52px) saturate(1.3) brightness(0.32);
   transform: scale(1.18);
   object-fit: cover;
   object-position: top;
@@ -187,7 +187,7 @@ html, body {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 0 1rem 13rem;
+  padding: 0 1.5rem 13rem;
   pointer-events: none;
   z-index: 30;
   max-width: 672px;
@@ -289,8 +289,9 @@ html, body {
 .cinema-hero-play {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.875rem 2rem;
+  height: 2.75rem;
+  gap: 0.625rem;
+  padding: 0.875rem 1.75rem;
   background: white;
   color: black;
   border: none;
@@ -308,7 +309,13 @@ html, body {
 .cinema-hero-secondary-group {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  height: 2.75rem;
+  padding: 0 0.5rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 
 .cinema-hero-secondary-divider {
@@ -341,21 +348,19 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 9999px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  height: 100%;
+  padding: 0 0.75rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   color: var(--cinema-text);
   font-size: 1.125rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 .cinema-hero-secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
+  color: white;
 }
 
 /* ============================================================
@@ -413,6 +418,7 @@ html, body {
 .cinema-section-title {
   font-size: 1.125rem;
   font-weight: 700;
+  letter-spacing: -0.025em;
   color: var(--cinema-text);
 }
 
@@ -604,9 +610,9 @@ html, body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: rgba(255,255,255,0.08);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255,255,255,0.03);
   border-radius: 9999px;
   padding: 4px 8px;
@@ -703,9 +709,9 @@ html, body {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
-  max-height: 90vh;
-  width: 90%;
-  max-width: 850px;
+  max-height: 85vh;
+  width: 850px;
+  max-width: 90vw;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%) scale(0.95);
@@ -1016,7 +1022,7 @@ html, body {
   align-items: center;
   gap: 0.5rem;
   height: 2.75rem;
-  padding: 0 2rem;
+  padding: 0 1.75rem;
   border-radius: 9999px;
   background: white;
   color: black;
@@ -1040,7 +1046,7 @@ html, body {
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -2051,6 +2057,10 @@ html, body {
   .cinema-section {
     padding: 0 1.5rem;
   }
+
+  .cinema-hero-desc {
+    font-size: 1rem;
+  }
 }
 
 /* ============================================================
@@ -2108,8 +2118,8 @@ html, body {
 
 @media (max-width: 480px) {
   .cinema-hero {
-    height: calc(70svh + env(safe-area-inset-top, 0px));
-    min-height: 400px;
+    height: calc(86svh + env(safe-area-inset-top, 0px));
+    min-height: 480px;
   }
 
   .cinema-hero-title {
