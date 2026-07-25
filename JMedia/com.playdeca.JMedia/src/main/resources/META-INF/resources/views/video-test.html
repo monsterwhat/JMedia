@@ -149,25 +149,24 @@
     <!-- Blurred background layers -->
     <div class="cinema-modal-bg-blur" id="modal-bg-blur"></div>
     <div class="cinema-modal-bg-blur-inner" id="modal-bg-blur-inner"></div>
+    <!-- Hero image only -->
     <div class="cinema-modal-hero-overlay">
       <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
-      <div class="cinema-modal-title-overlay">
-        <img src="" id="modal-logo-hero-img" class="cinema-modal-logo-hero is-skeleton" alt="">
-        <h2 class="cinema-modal-hero-title" id="modal-title"></h2>
-        <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
-        <div class="cinema-modal-actions">
-          <button class="cinema-modal-play" id="modal-play-btn">
-            <i class="fa-solid fa-play"></i> Play Now
-          </button>
-          <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
-            <i class="fa-solid fa-plus"></i>
-          </button>
-        </div>
-      </div>
     </div>
-    <div class="cinema-modal-blur-strip"></div>
-    <div class="cinema-modal-color-gradient" id="modal-color-gradient"></div>
-    <!-- Content -->
+    <!-- Title overlay — OUTSIDE hero-overlay -->
+    <div class="cinema-modal-title-overlay">
+      <img src="" id="modal-logo-hero-img" class="cinema-modal-logo-hero is-skeleton" alt="">
+      <div class="cinema-modal-actions">
+        <button class="cinema-modal-play" id="modal-play-btn">
+          <i class="fa-solid fa-play"></i> Play Now
+        </button>
+        <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </div>
+      <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
+    </div>
+    <!-- Content — sits on top of the blurred background -->
     <div class="cinema-modal-content">
       <div class="cinema-modal-info-grid">
         <div class="cinema-modal-info-left">
@@ -573,40 +572,12 @@ function extractHeroColor(imgElement) {
   } catch (e) { /* Canvas tainted or image not loaded — skip gracefully */ }
 }
 
-function extractAndApplyModalColor(imgSrc, overlayElement) {
-  if (!imgSrc || !overlayElement) return;
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = 64; canvas.height = 64;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, 64, 64);
-      const data = ctx.getImageData(0, 0, 64, 64).data;
-      let r = 0, g = 0, b = 0, count = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const rv = data[i], gv = data[i+1], bv = data[i+2];
-        if (rv > 20 && rv < 235 && gv > 20 && gv < 235 && bv > 20 && bv < 235) {
-          r += rv; g += gv; b += bv; count++;
-        }
-      }
-      if (count > 0) {
-        const rVal = Math.round(r/count);
-        const gVal = Math.round(g/count);
-        const bVal = Math.round(b/count);
-        // Apply solid color to hero overlay background
-        overlayElement.style.backgroundColor = `rgb(${rVal}, ${gVal}, ${bVal})`;
-        // Apply gradient overlay that extends color down through content
-        const gradient = document.getElementById('modal-color-gradient');
-        if (gradient) {
-          gradient.style.background = `linear-gradient(to bottom, rgba(${rVal}, ${gVal}, ${bVal}, 0.55) 0%, rgba(${rVal}, ${gVal}, ${bVal}, 0.35) 28%, rgba(${rVal}, ${gVal}, ${bVal}, 0.12) 55%, transparent 100%)`;
-          gradient.classList.add('active');
-        }
-      }
-    } catch(e) {}
-  };
-  img.src = imgSrc;
+function extractAndApplyModalColor(imgUrl, posterUrl) {
+    // Set a neutral dark background on the scroll container as fallback
+    const scroll = document.querySelector('.cinema-modal-scroll');
+    if (scroll) {
+      scroll.style.backgroundColor = '#09090b';
+    }
 }
 
 // ============================================================
@@ -897,10 +868,8 @@ async function openSeriesByTitle(seriesTitle) {
   const backdropImg = document.getElementById('modal-backdrop-img');
   if (backdropImg) backdropImg.src = '/logo.png';
 
-  const titleEl = document.getElementById('modal-title');
-  if (titleEl) {
-    titleEl.textContent = seriesTitle;
-  }
+  // Title is now handled via logo image; no text title element
+  document.getElementById('cinema-modal').dataset.seriesTitle = seriesTitle;
 
   // Clear meta row, genres, and description
   const metaRow = document.getElementById('modal-meta-row');
@@ -934,11 +903,7 @@ async function openSeriesByTitle(seriesTitle) {
 async function openSeriesDetail(seriesTitle) {
   if (!seriesTitle) return;
   // Reset gradient overlay
-  const gradient = document.getElementById('modal-color-gradient');
-  if (gradient) {
-    gradient.style.background = '';
-    gradient.classList.remove('active');
-  }
+  // gradient overlay removed; nothing to clear
   // Filter allVideos for this series
   const episodes = allVideos
     .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle)
@@ -984,11 +949,8 @@ async function openSeriesDetail(seriesTitle) {
     }
   }
 
-  const titleEl = document.getElementById('modal-title');
-  if (titleEl) {
-    titleEl.textContent = seriesTitle;
-    titleEl.style.display = firstEp.logoPath ? 'none' : '';
-  }
+  // Title logo handled separately via hero logo img
+  document.getElementById('cinema-modal').dataset.seriesTitle = seriesTitle;
 
   // Meta badges
   const rating = firstEp.imdbRating || firstEp.tmdbRating || '';
@@ -1076,6 +1038,7 @@ async function openSeriesDetail(seriesTitle) {
   document.getElementById('cinema-modal').classList.add('active');
   trapFocus(document.getElementById('cinema-modal'));
   document.body.style.overflow = 'hidden';
+  initModalScrollBlur();
 }
 
 function buildEpisodesList(episodeArray) {
@@ -1088,7 +1051,6 @@ function buildEpisodesList(episodeArray) {
     return `<div class="cinema-episode-card" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
       <div class="cinema-episode-thumb-wrap">
         <img src="${img}" alt="${epTitle}" loading="lazy">
-        <span class="cinema-episode-number-badge">${epNum}</span>
         <div class="cinema-episode-play-overlay">
           <div class="cinema-episode-play-icon">
             <i class="fa-solid fa-play"></i>
@@ -1198,7 +1160,8 @@ function switchSeason(seasonNumber) {
   });
 
   // Find the episodes for this season from allVideos
-  const seriesTitle = document.getElementById('modal-title').textContent;
+  // modal-title removed from DOM; read from dataset stored by openSeriesDetail
+  const seriesTitle = document.getElementById('cinema-modal')?.dataset.seriesTitle || '';
   const episodes = allVideos
     .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle && (v.seasonNumber || 1) == seasonNumber)
     .sort((a, b) => (a.episodeNumber || 1) - (b.episodeNumber || 1));
@@ -1220,11 +1183,7 @@ function switchSeason(seasonNumber) {
 
 function openDetails(videoId) {
   // Reset gradient overlay
-  const gradient = document.getElementById('modal-color-gradient');
-  if (gradient) {
-    gradient.style.background = '';
-    gradient.classList.remove('active');
-  }
+  // gradient overlay removed; nothing to clear
   fetchJSON(`/api/video/${videoId}`).then(data => {
     if (!data) return;
 
@@ -1255,12 +1214,7 @@ function openDetails(videoId) {
       }
     }
 
-    const titleEl = document.getElementById('modal-title');
-    if (titleEl) {
-      const titleText = data.title || data.seriesTitle || '';
-      titleEl.textContent = titleText;
-      titleEl.style.display = data.logoPath ? 'none' : '';
-    }
+    // Title logo handled via hero logo img
 
     // Meta badges
     const rating = data.imdbRating || data.tmdbRating || '';
@@ -1330,6 +1284,7 @@ function openDetails(videoId) {
     document.getElementById('cinema-modal').classList.add('active');
     document.body.style.overflow = 'hidden';
     trapFocus(document.getElementById('cinema-modal'));
+    initModalScrollBlur();
   });
 }
 
@@ -1386,21 +1341,33 @@ function releaseFocusTrap(modalElement) {
   }
 }
 
+function initModalScrollBlur() {
+  const scroll = document.querySelector('.cinema-modal-scroll');
+  if (!scroll || scroll._blurListenerAttached) return;
+  scroll.addEventListener('scroll', function() {
+    const scrollY = this.scrollTop;
+    const maxScroll = this.scrollHeight - this.clientHeight;
+    const progress = maxScroll > 0 ? Math.min(scrollY / maxScroll, 1) : 0;
+
+    // Shift blur background position for parallax
+    const blurInner = document.getElementById('modal-bg-blur-inner');
+    if (blurInner) {
+      const shift = progress * 20; // shift up to 20px
+      blurInner.style.backgroundPosition = `center calc(50% + ${shift}px)`;
+    }
+  }, { passive: true });
+  scroll._blurListenerAttached = true;
+}
+
 function closeModal() {
   // Reset dynamic hero overlay color
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
   if (heroOverlay) heroOverlay.style.backgroundColor = '';
-  // Reset gradient overlay
-  const gradient = document.getElementById('modal-color-gradient');
-  if (gradient) {
-    gradient.style.background = '';
-    gradient.classList.remove('active');
-  }
+  // gradient overlay removed; nothing to clear
   // Reset logo hero image and text title to defaults
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   if (logoHeroImg) { logoHeroImg.style.display = ''; logoHeroImg.classList.add('is-skeleton'); }
-  const titleEl = document.getElementById('modal-title');
-  if (titleEl) titleEl.style.display = '';
+  // modal-title removed from DOM; nothing to clear
   const descEl = document.getElementById('modal-desc');
   if (descEl) { descEl.innerHTML = ''; descEl.classList.add('is-skeleton'); }
   const genresEl = document.getElementById('modal-genres');
