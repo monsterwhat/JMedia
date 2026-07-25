@@ -12,12 +12,13 @@
   --cinema-text-dim: #888888;
   --cinema-primary: #3b82f6;
   --cinema-primary-hover: #2563eb;
-  --cinema-accent: #48c774;
-  --cinema-accent-hover: #3db86a;
+  --cinema-accent: #3b82f6;
+  --cinema-accent-hover: #2563eb;
   --cinema-border: rgba(255, 255, 255, 0.08);
-  --cinema-glass-bg: rgba(255, 255, 255, 0.08);
-  --cinema-glass-border: rgba(255, 255, 255, 0.03);
+  --cinema-glass-bg: rgba(255, 255, 255, 0.1);
+  --cinema-glass-border: rgba(255, 255, 255, 0.05);
   --cinema-glass-blur: blur(12px);
+  --cinema-hero-color: #000000;
 }
 
 /* Base Reset */
@@ -28,7 +29,7 @@
 }
 
 html, body {
-  background-color: var(--cinema-bg);
+  background-color: var(--cinema-hero-color, #000000);
   color: var(--cinema-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -134,11 +135,25 @@ html, body {
 
 .cinema-hero {
   width: 100%;
-  height: calc(76svh + env(safe-area-inset-top, 0px));
-  min-height: 640px;
+  height: calc(86svh + env(safe-area-inset-top, 0px));
+  min-height: 480px;
   position: relative;
   overflow: hidden;
   background: var(--cinema-bg);
+}
+
+@media (min-width: 768px) {
+  .cinema-hero {
+    height: calc(82svh + env(safe-area-inset-top, 0px));
+    min-height: 560px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .cinema-hero {
+    height: calc(76svh + env(safe-area-inset-top, 0px));
+    min-height: 640px;
+  }
 }
 
 .cinema-hero-backdrop {
@@ -169,7 +184,7 @@ html, body {
   position: absolute;
   inset: 0;
   background: linear-gradient(
-    transparent 40%, 
+    transparent 50%, 
     rgba(0, 0, 0, 0.95) 100%
   );
   z-index: 1;
@@ -187,10 +202,22 @@ html, body {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 0 1.5rem 13rem;
+  padding: 0 1rem 10rem;
   pointer-events: none;
   z-index: 30;
   max-width: 672px;
+}
+
+@media (min-width: 768px) {
+  .cinema-hero-content {
+    padding: 0 1.5rem 12rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .cinema-hero-content {
+    padding: 0 1.5rem 13rem;
+  }
 }
 
 .cinema-hero-content > * {
@@ -306,6 +333,10 @@ html, body {
   background: rgba(255,255,255,0.9);
 }
 
+.cinema-hero-play:active {
+  transform: scale(0.98);
+}
+
 .cinema-hero-secondary-group {
   display: flex;
   align-items: center;
@@ -314,21 +345,21 @@ html, body {
   border-radius: 9999px;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .cinema-hero-secondary-divider {
   display: block;
   width: 1px;
-  height: 24px;
-  background: rgba(255,255,255,0.05);
+  height: 20px;
+  background: rgba(255,255,255,0.1);
   margin: 0 6px;
 }
 
 .cinema-hero-secondary-btn {
   width: 48px;
-  height: 48px;
+  height: 44px;
   border-radius: 9999px;
   background: rgba(255, 255, 255, 0.1);
   border: none;
@@ -341,7 +372,7 @@ html, body {
 }
 
 .cinema-hero-secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .cinema-hero-secondary {
@@ -379,13 +410,13 @@ html, body {
   top: -272px;
   left: 0;
   right: 0;
-  height: 680px;
-  backdrop-filter: blur(88px) saturate(1.4);
-  -webkit-backdrop-filter: blur(88px) saturate(1.4);
+  height: 800px;
+  backdrop-filter: blur(120px) saturate(1.6);
+  -webkit-backdrop-filter: blur(120px) saturate(1.6);
   contain: paint;
   translateZ(0px);
-  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 8%, rgba(0,0,0,0.4) 15%, rgba(0,0,0,0.7) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 8%, rgba(0,0,0,0.4) 15%, rgba(0,0,0,0.7) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
   z-index: -1;
   pointer-events: none;
 }
@@ -395,7 +426,7 @@ html, body {
   top: 0;
   left: 0;
   right: 0;
-  height: 680px;
+  height: 800px;
   background: linear-gradient(to bottom, transparent 0%, var(--cinema-bg, #000) 10%, var(--cinema-bg, #000) 90%, transparent 100%);
   z-index: -1;
   pointer-events: none;
@@ -416,10 +447,17 @@ html, body {
 }
 
 .cinema-section-title {
-  font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: var(--cinema-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.cinema-section-title:hover {
+  color: white;
 }
 
 /* ============================================================
@@ -434,7 +472,6 @@ html, body {
   display: flex;
   gap: 0.75rem;
   overflow-x: auto;
-  scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   padding: 0 16px 0.5rem;
 }
@@ -703,8 +740,8 @@ html, body {
 .cinema-modal {
   position: fixed;
   z-index: 201;
-  background: var(--cinema-surface, #1a1a2e);
-  border-radius: 1rem;
+  background: #000000;
+  border-radius: 0.75rem;
   overflow: hidden;
   opacity: 0;
   visibility: hidden;
@@ -753,7 +790,7 @@ html, body {
   max-height: 90vh;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  border-radius: 1rem;
+  border-radius: 0.75rem;
 }
 .cinema-modal-scroll::-webkit-scrollbar {
   display: none;
@@ -873,7 +910,8 @@ html, body {
    ============================================================ */
 .cinema-season-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 0.75rem;
 }
 
@@ -906,7 +944,7 @@ html, body {
   display: none;
   position: absolute;
   top: 100%;
-  left: 0;
+  right: 0;
   margin-top: 0.25rem;
   background: rgba(30,30,30,0.95);
   backdrop-filter: blur(12px);
@@ -1084,11 +1122,16 @@ html, body {
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(transparent 0%, rgba(0, 0, 0, 0.75) 30%, rgba(0, 0, 0, 0.92) 100%);
-  padding: 2rem 1.25rem 1.5rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .cinema-modal-title-overlay {
+    padding: 1.5rem;
+  }
 }
 
 .cinema-modal-hero-title {
@@ -1199,25 +1242,29 @@ html, body {
   bottom: -100px;
   z-index: 10;
   height: 200px;
-  backdrop-filter: blur(150px) saturate(2);
-  -webkit-backdrop-filter: blur(150px) saturate(2);
+  backdrop-filter: blur(120px) saturate(1.6);
+  -webkit-backdrop-filter: blur(120px) saturate(1.6);
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    rgba(0, 0, 0, 0.1) 20%,
-    rgba(0, 0, 0, 0.4) 40%,
-    rgba(0, 0, 0, 0.7) 60%,
-    rgba(0, 0, 0, 0.9) 80%,
-    black 100%
+    rgba(0, 0, 0, 0.2) 8%,
+    rgba(0, 0, 0, 0.5) 15%,
+    rgba(0, 0, 0, 0.8) 25%,
+    black 35%,
+    black 75%,
+    rgba(0, 0, 0, 0.5) 90%,
+    transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    rgba(0, 0, 0, 0.1) 20%,
-    rgba(0, 0, 0, 0.4) 40%,
-    rgba(0, 0, 0, 0.7) 60%,
-    rgba(0, 0, 0, 0.9) 80%,
-    black 100%
+    rgba(0, 0, 0, 0.2) 8%,
+    rgba(0, 0, 0, 0.5) 15%,
+    rgba(0, 0, 0, 0.8) 25%,
+    black 35%,
+    black 75%,
+    rgba(0, 0, 0, 0.5) 90%,
+    transparent 100%
   );
   pointer-events: none;
 }
@@ -2439,7 +2486,7 @@ body.cinema-mode .persistent-music-player {
 }
 
 .cinema-episode-card:hover .cinema-episode-title {
-  color: var(--cinema-accent, #48c774);
+  color: var(--cinema-primary, #3b82f6);
 }
 
 .cinema-episode-duration {

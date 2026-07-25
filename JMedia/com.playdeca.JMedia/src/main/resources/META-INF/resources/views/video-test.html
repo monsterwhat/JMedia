@@ -32,7 +32,6 @@
     </div>
     <div class="cinema-hero-title-wrap" id="hero-title-wrap">
       <img class="cinema-hero-logo" id="hero-logo-img" src="" alt="" style="display:none;">
-      <h1 class="cinema-hero-title" id="hero-title">Loading...</h1>
     </div>
     <div class="cinema-hero-rating">
       <span class="cinema-hero-rating-stars" id="hero-stars"></span>
@@ -64,6 +63,7 @@
 <!-- Content Sections -->
 <main class="cinema-content">
   <div class="cinema-content-blur-layer"></div>
+  <div class="cinema-content-blur-overlay"></div>
   <!-- Recently Updated Section -->
   <section class="cinema-section" id="section-recently-updated" style="display:none;">
     <div class="cinema-section-header">
@@ -536,6 +536,60 @@ function createCardHTML(video) {
 }
 
 // ============================================================
+// Hero Color Extraction
+// ============================================================
+function extractHeroColor(imgElement) {
+  if (!imgElement || !imgElement.complete || !imgElement.naturalWidth) return;
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const size = 64;
+    canvas.width = size;
+    canvas.height = size;
+    ctx.drawImage(imgElement, 0, 0, size, size);
+    const imageData = ctx.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 20 && data[i] < 235 && data[i+1] > 20 && data[i+1] < 235 && data[i+2] > 20 && data[i+2] < 235) {
+        r += data[i]; g += data[i+1]; b += data[i+2]; count++;
+      }
+    }
+    if (count > 0) {
+      r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+      const heroSection = document.querySelector('.cinema-hero');
+      if (heroSection) heroSection.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+    }
+  } catch (e) { /* Canvas tainted or image not loaded — skip gracefully */ }
+}
+
+function extractAndApplyModalColor(imgSrc, overlayElement) {
+  if (!imgSrc || !overlayElement) return;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, 64, 64);
+      const data = ctx.getImageData(0, 0, 64, 64).data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const rv = data[i], gv = data[i+1], bv = data[i+2];
+        if (rv > 20 && rv < 235 && gv > 20 && gv < 235 && bv > 20 && bv < 235) {
+          r += rv; g += gv; b += bv; count++;
+        }
+      }
+      if (count > 0) {
+        overlayElement.style.backgroundColor = `rgb(${Math.round(r/count)}, ${Math.round(g/count)}, ${Math.round(b/count)})`;
+      }
+    } catch(e) {}
+  };
+  img.src = imgSrc;
+}
+
+// ============================================================
 // Hero Rotation
 // ============================================================
 function updateHero(index) {
@@ -544,7 +598,6 @@ function updateHero(index) {
   const item = heroItems[index];
 
   const backdrop = document.getElementById('hero-backdrop');
-  const title = document.getElementById('hero-title');
   const desc = document.getElementById('hero-desc');
   const meta = document.getElementById('hero-meta');
   const rating = document.getElementById('hero-rating');
@@ -558,19 +611,17 @@ function updateHero(index) {
   setTimeout(() => {
     if (item.thumbnailPath || item.id) {
       backdrop.src = getThumbnailUrl(item.id);
+      backdrop.onload = () => extractHeroColor(backdrop);
       var ambient = document.getElementById('ambient-blur-img');
       if (ambient) ambient.src = getThumbnailUrl(item.id);
     }
-    title.textContent = item.title || item.seriesTitle || 'Untitled';
     const logoImg = document.getElementById('hero-logo-img');
     if (logoImg) {
       if (item.logoPath) {
         logoImg.src = item.logoPath;
         logoImg.style.display = 'block';
-        title.style.display = 'none';
       } else {
         logoImg.style.display = 'none';
-        title.style.display = '';
       }
     }
     desc.textContent = item.description || '';
@@ -882,6 +933,10 @@ async function openSeriesDetail(seriesTitle) {
   const bgBlurInner = document.getElementById('modal-bg-blur-inner');
   if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${heroUrl})`;
 
+  // Dynamic hero overlay color from backdrop
+  const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
+  extractAndApplyModalColor(heroUrl, heroOverlay);
+
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   if (logoHeroImg) {
     if (firstEp.logoPath) {
@@ -895,6 +950,7 @@ async function openSeriesDetail(seriesTitle) {
   const titleEl = document.getElementById('modal-title');
   if (titleEl) {
     titleEl.textContent = seriesTitle;
+    titleEl.style.display = firstEp.logoPath ? 'none' : '';
   }
 
   // Meta badges
@@ -929,7 +985,7 @@ async function openSeriesDetail(seriesTitle) {
   
   // Season tabs if multiple seasons
   if (seasonNumbers.length > 1) {
-    episodesHtml += `<div class="cinema-season-row"><div class="cinema-season-dropdown">
+    episodesHtml += `<div class="cinema-season-row"><span style="font-size:0.875rem;font-weight:600;color:white;">Episodes</span><div class="cinema-season-dropdown">
       <button class="cinema-season-dropdown-btn" onclick="toggleSeasonDropdown()">
         <span id="cinema-season-label">Season ${seasonNumbers[0]}</span>
         <i class="fa-solid fa-chevron-down"></i>
@@ -973,8 +1029,13 @@ async function openSeriesDetail(seriesTitle) {
   }
 
   // Show modal
+  // Portal: move modal to body for proper stacking
+  const modal = document.getElementById('cinema-modal');
+  modal.dataset.originalParent = modal.parentElement.id || 'app-content';
+  document.body.appendChild(modal);
   document.getElementById('cinema-modal-backdrop').classList.add('active');
   document.getElementById('cinema-modal').classList.add('active');
+  trapFocus(document.getElementById('cinema-modal'));
   document.body.style.overflow = 'hidden';
 }
 
@@ -1127,6 +1188,10 @@ function openDetails(videoId) {
     const backdropImg = document.getElementById('modal-backdrop-img');
     if (backdropImg) backdropImg.src = heroUrl;
 
+    // Dynamic hero overlay color from backdrop
+    const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
+    extractAndApplyModalColor(heroUrl, heroOverlay);
+
     // Blurred background
     const bgBlur = document.getElementById('modal-bg-blur');
     if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
@@ -1147,6 +1212,7 @@ function openDetails(videoId) {
     if (titleEl) {
       const titleText = data.title || data.seriesTitle || '';
       titleEl.textContent = titleText;
+      titleEl.style.display = data.logoPath ? 'none' : '';
     }
 
     // Meta badges
@@ -1207,8 +1273,14 @@ function openDetails(videoId) {
     }
 
     // Open modal
+    // Portal: move modal to body for proper stacking
+    const modal = document.getElementById('cinema-modal');
+    modal.dataset.originalParent = modal.parentElement.id || 'app-content';
+    document.body.appendChild(modal);
     document.getElementById('cinema-modal-backdrop').classList.add('active');
     document.getElementById('cinema-modal').classList.add('active');
+    document.body.style.overflow = 'hidden';
+    trapFocus(document.getElementById('cinema-modal'));
   });
 }
 
@@ -1227,24 +1299,78 @@ function toggleDescription() {
   }
 }
 
+let previousFocusElement = null;
+let focusTrapHandler = null;
+
+function trapFocus(modalElement) {
+  previousFocusElement = document.activeElement;
+  const focusable = modalElement.querySelectorAll('button, input, a, [tabindex]:not([tabindex="-1"])');
+  if (focusable.length === 0) return;
+
+  focusTrapHandler = function(e) {
+    if (e.key === 'Tab') {
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    } else if (e.key === 'Escape') {
+      closeModal();
+    }
+  };
+  modalElement.addEventListener('keydown', focusTrapHandler);
+  focusable[0].focus();
+}
+
+function releaseFocusTrap(modalElement) {
+  if (focusTrapHandler) {
+    modalElement.removeEventListener('keydown', focusTrapHandler);
+    focusTrapHandler = null;
+  }
+  if (previousFocusElement) {
+    previousFocusElement.focus();
+    previousFocusElement = null;
+  }
+}
+
 function closeModal() {
+  // Reset dynamic hero overlay color
+  const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
+  if (heroOverlay) heroOverlay.style.backgroundColor = '';
+  // Reset logo hero image and text title to defaults
+  const logoHeroImg = document.getElementById('modal-logo-hero-img');
+  if (logoHeroImg) logoHeroImg.style.display = 'none';
+  const titleEl = document.getElementById('modal-title');
+  if (titleEl) titleEl.style.display = '';
+  releaseFocusTrap(document.getElementById('cinema-modal'));
   const playBtn = document.getElementById('modal-play-btn');
   const watchBtn = document.getElementById('modal-watchlist-btn');
   if (playBtn) playBtn.style.display = '';
   if (watchBtn) watchBtn.style.display = '';
   document.getElementById('cinema-modal-backdrop').classList.remove('active');
   document.getElementById('cinema-modal').classList.remove('active');
+  document.body.style.overflow = '';
+  // Portal: restore modal to original parent
+  const modal = document.getElementById('cinema-modal');
+  const originalParent = document.getElementById(modal.dataset.originalParent) || document.getElementById('app-content');
+  if (originalParent) originalParent.appendChild(modal);
 }
 
 function openSettingsModal() {
   document.getElementById('settings-modal-backdrop').classList.add('active');
   document.getElementById('settings-modal').classList.add('active');
+  document.body.style.overflow = 'hidden';
   loadSettings();
 }
 
 function closeSettingsModal() {
   document.getElementById('settings-modal-backdrop').classList.remove('active');
   document.getElementById('settings-modal').classList.remove('active');
+  document.body.style.overflow = '';
 }
 
 function switchSettingsTab(tabName) {
@@ -1257,8 +1383,8 @@ function switchSettingsTab(tabName) {
 }
 
 function setTheme(theme) {
-  document.body.classList.remove('theme-dark', 'theme-light');
-  document.body.classList.add(`theme-${theme}`);
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('woozlit-theme', theme);
   const darkBtn = document.getElementById('theme-dark-btn');
   const lightBtn = document.getElementById('theme-light-btn');
   if (darkBtn && lightBtn) {
