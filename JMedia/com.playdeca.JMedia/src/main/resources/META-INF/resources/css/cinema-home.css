@@ -1061,6 +1061,8 @@ html, body {
   align-items: center;
   gap: 0.75rem;
   margin-top: 0.5rem;
+  position: relative;
+  z-index: 20;
 }
 
 .cinema-modal-play {
