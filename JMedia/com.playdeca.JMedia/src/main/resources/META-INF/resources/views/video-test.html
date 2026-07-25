@@ -163,6 +163,7 @@
       </div>
     </div>
     <div class="cinema-modal-blur-strip"></div>
+    <div class="cinema-modal-color-gradient" id="modal-color-gradient"></div>
     <!-- Content -->
     <div class="cinema-modal-content">
       <div class="cinema-modal-info-grid">
@@ -582,7 +583,17 @@ function extractAndApplyModalColor(imgSrc, overlayElement) {
         }
       }
       if (count > 0) {
-        overlayElement.style.backgroundColor = `rgb(${Math.round(r/count)}, ${Math.round(g/count)}, ${Math.round(b/count)})`;
+        const rVal = Math.round(r/count);
+        const gVal = Math.round(g/count);
+        const bVal = Math.round(b/count);
+        // Apply solid color to hero overlay background
+        overlayElement.style.backgroundColor = `rgb(${rVal}, ${gVal}, ${bVal})`;
+        // Apply gradient overlay that extends color down through content
+        const gradient = document.getElementById('modal-color-gradient');
+        if (gradient) {
+          gradient.style.background = `linear-gradient(to bottom, rgba(${rVal}, ${gVal}, ${bVal}, 0.55) 0%, rgba(${rVal}, ${gVal}, ${bVal}, 0.35) 28%, rgba(${rVal}, ${gVal}, ${bVal}, 0.12) 55%, transparent 100%)`;
+          gradient.classList.add('active');
+        }
       }
     } catch(e) {}
   };
@@ -904,6 +915,12 @@ async function openSeriesByTitle(seriesTitle) {
 
 async function openSeriesDetail(seriesTitle) {
   if (!seriesTitle) return;
+  // Reset gradient overlay
+  const gradient = document.getElementById('modal-color-gradient');
+  if (gradient) {
+    gradient.style.background = '';
+    gradient.classList.remove('active');
+  }
   // Filter allVideos for this series
   const episodes = allVideos
     .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle)
@@ -1184,6 +1201,12 @@ function switchSeason(seasonNumber) {
 }
 
 function openDetails(videoId) {
+  // Reset gradient overlay
+  const gradient = document.getElementById('modal-color-gradient');
+  if (gradient) {
+    gradient.style.background = '';
+    gradient.classList.remove('active');
+  }
   fetchJSON(`/api/video/${videoId}`).then(data => {
     if (!data) return;
 
@@ -1349,6 +1372,12 @@ function closeModal() {
   // Reset dynamic hero overlay color
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
   if (heroOverlay) heroOverlay.style.backgroundColor = '';
+  // Reset gradient overlay
+  const gradient = document.getElementById('modal-color-gradient');
+  if (gradient) {
+    gradient.style.background = '';
+    gradient.classList.remove('active');
+  }
   // Reset logo hero image and text title to defaults
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   if (logoHeroImg) { logoHeroImg.style.display = ''; logoHeroImg.classList.add('is-skeleton'); }

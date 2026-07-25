@@ -1280,6 +1280,20 @@ html, body {
   );
   pointer-events: none;
 }
+.cinema-modal-color-gradient {
+  position: relative;
+  left: 0;
+  right: 0;
+  height: 280px;
+  margin-top: -100px;
+  z-index: 5;
+  pointer-events: none;
+  transition: background-color 700ms ease;
+  opacity: 0;
+}
+.cinema-modal-color-gradient.active {
+  opacity: 1;
+}
 
 /* ============================================================
     Settings Modal Styles
