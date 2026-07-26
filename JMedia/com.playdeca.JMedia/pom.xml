@@ -148,6 +148,12 @@
             <artifactId>jbcrypt</artifactId>
             <version>0.4</version>
         </dependency>
+        <!-- WebP image encoding/decoding for TMDB image conversion -->
+        <dependency>
+            <groupId>com.github.usefulness</groupId>
+            <artifactId>webp-imageio</artifactId>
+            <version>0.10.2</version>
+        </dependency>
         
     </dependencies>
  

@@ -32,7 +32,31 @@
                                 </div>
                                 <div class="field">
                                     <label class="label">TMDb API Key</label>
-                                    <div class="control"><input id="tmdbApiKeyInput" class="input is-small" type="password" placeholder="API Key"></div>
+                                    <div class="field has-addons">
+                                        <div class="control is-expanded"><input id="tmdbApiKeyInput" class="input is-small" type="password" placeholder="API Key"></div>
+                                        <div class="control"><button id="saveTmdbApiKeyBtn" class="button is-small is-success">Save</button></div>
+                                    </div>
+                                    <p class="help is-size-7">Enter a valid TMDB API key (v3 key or Bearer token). Leave empty to use built-in token.</p>
+                                </div>
+                                <div class="field mt-4">
+                                    <label class="label">Metadata Sources</label>
+                                    <div class="control">
+                                        <label class="checkbox mr-4">
+                                            <input type="checkbox" id="tmdbEnabledToggle" checked> TMDB (The Movie Database)
+                                        </label>
+                                        <label class="checkbox mr-4">
+                                            <input type="checkbox" id="omdbEnabledToggle" checked> OMDB (Open Movie Database)
+                                        </label>
+                                        <label class="checkbox mr-4">
+                                            <input type="checkbox" id="tvmazeEnabledToggle" checked> TVMaze
+                                        </label>
+                                        <label class="checkbox mr-4">
+                                            <input type="checkbox" id="imdbDevEnabledToggle" checked> IMDb Dev API
+                                        </label>
+                                        <label class="checkbox">
+                                            <input type="checkbox" id="introDbEnabledToggle" checked> IntroDB (Intro/Outro Detection)
+                                        </label>
+                                    </div>
                                 </div>
                                 <div class="field">
                                     <label class="label">Default Video Player</label>

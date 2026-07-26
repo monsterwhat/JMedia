@@ -2,11 +2,10 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Ambient Blur Background -->
-<img class="cinema-ambient-blur" 
-     id="ambient-blur-img"
-     src="" 
-     alt=""
-     style="background: #0a0a0a;">
+<div class="cinema-ambient-container">
+  <img class="cinema-ambient-blur" id="ambient-blur-img" src="" alt="" style="background: #0a0a0a;">
+  <div class="cinema-ambient-gradient"></div>
+</div>
 
 <!-- Glass Navbar -->
 <nav class="cinema-nav">
@@ -23,11 +22,10 @@
        alt="Featured backdrop"
        style="background: #0a0a0a;">
   <div class="cinema-hero-top-gradient"></div>
-  <div class="cinema-hero-bottom-gradient"></div>
   <div class="cinema-hero-left-gradient"></div>
   
   <div class="cinema-hero-content" id="hero-content">
-    <div class="cinema-hero-badge">
+    <div class="cinema-hero-badge" id="hero-badge">
       <i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching
     </div>
     <div class="cinema-hero-title-wrap" id="hero-title-wrap">
@@ -67,6 +65,17 @@
 <main class="cinema-content">
   <div class="cinema-content-blur-layer"></div>
   <div class="cinema-content-blur-overlay"></div>
+  <!-- Continue Watching Section -->
+  <section class="cinema-section" id="section-continue-watching" style="display:none;">
+    <div class="cinema-section-header">
+      <h2 class="cinema-section-title">Continue Watching</h2>
+    </div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="continue-watching-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  </section>
   <!-- Recently Updated Section -->
   <section class="cinema-section" id="section-recently-updated" style="display:none;">
     <div class="cinema-section-header">
@@ -149,22 +158,22 @@
     <!-- Blurred background layers -->
     <div class="cinema-modal-bg-blur" id="modal-bg-blur"></div>
     <div class="cinema-modal-bg-blur-inner" id="modal-bg-blur-inner"></div>
-    <!-- Hero image only -->
+    <!-- Hero image + title overlay + bottom gradient -->
     <div class="cinema-modal-hero-overlay">
       <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
-    </div>
-    <!-- Title overlay — OUTSIDE hero-overlay -->
-    <div class="cinema-modal-title-overlay">
-      <img src="" id="modal-logo-hero-img" class="cinema-modal-logo-hero is-skeleton" alt="">
-      <div class="cinema-modal-actions">
-        <button class="cinema-modal-play" id="modal-play-btn">
-          <i class="fa-solid fa-play"></i> Play Now
-        </button>
-        <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
-          <i class="fa-solid fa-plus"></i>
-        </button>
+      <div class="cinema-modal-blur-transition"></div>
+      <div class="cinema-modal-title-overlay">
+        <img src="" id="modal-logo-hero-img" class="cinema-modal-logo-hero is-skeleton" alt="">
+        <div class="cinema-modal-actions">
+          <button class="cinema-modal-play" id="modal-play-btn">
+            <i class="fa-solid fa-play"></i> Play Now
+          </button>
+          <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
       </div>
-      <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
     </div>
     <!-- Content — sits on top of the blurred background -->
     <div class="cinema-modal-content">
@@ -178,6 +187,8 @@
         <div class="cinema-modal-info-right">
           <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-bottom:0.5rem;font-weight:600;">Genres:</div>
           <div class="cinema-modal-genres is-skeleton" id="modal-genres"></div>
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-top:0.75rem;margin-bottom:0.25rem;font-weight:600;">Creator:</div>
+          <div class="cinema-modal-creator is-skeleton" id="modal-creator"></div>
         </div>
       </div>
     </div>
@@ -481,12 +492,19 @@ async function fetchJSON(url) {
 }
 
 function getThumbnailUrl(videoId) {
-  return `/api/video/thumbnail/${videoId}`;
+  return `/api/video/poster/${videoId}`;
+}
+
+function getHeroUrl(videoId) {
+  return `/api/video/hero/${videoId}`;
 }
 
 function getBackdropUrl(video) {
   if (video && video.backdropPath) return video.backdropPath;
-  return getThumbnailUrl(video?.id);
+  return `/api/video/backdrop/${video?.id}`;
+}
+function getLogoUrl(videoId) {
+  return `/api/video/logo/${videoId}`;
 }
 function formatDuration(ms) {
   if (!ms || ms <= 0) return '';
@@ -608,15 +626,15 @@ function updateHero(index) {
 
   setTimeout(() => {
     if (item.thumbnailPath || item.id) {
-      backdrop.src = getThumbnailUrl(item.id);
+      backdrop.src = getHeroUrl(item.id);
       backdrop.onload = () => extractHeroColor(backdrop);
       var ambient = document.getElementById('ambient-blur-img');
-      if (ambient) ambient.src = getThumbnailUrl(item.id);
+      if (ambient) ambient.src = getHeroUrl(item.id);
     }
     const logoImg = document.getElementById('hero-logo-img');
     if (logoImg) {
       if (item.logoPath) {
-        logoImg.src = item.logoPath;
+        logoImg.src = getLogoUrl(item.id);
         logoImg.style.display = 'block';
         logoImg.classList.remove('is-skeleton');
       } else {
@@ -624,7 +642,13 @@ function updateHero(index) {
         logoImg.classList.add('is-skeleton');
       }
     }
-    desc.textContent = item.description || '';
+    if (item.description) {
+      desc.textContent = item.description;
+      desc.classList.remove('is-skeleton');
+    } else {
+      desc.textContent = '';
+      desc.classList.add('is-skeleton');
+    }
     rating.textContent = item.imdbRating || item.tmdbRating ? (Math.round(parseFloat(item.imdbRating || item.tmdbRating || 0) * 10) + '%') : '';
     stars.innerHTML = renderStars(parseFloat(item.imdbRating || item.tmdbRating || 0));
 
@@ -692,6 +716,86 @@ function resetHeroTimer() {
 }
 
 // ============================================================
+// Continue Watching Carousel
+// ============================================================
+function renderContinueWatchingCarousel(items) {
+  const container = document.getElementById('continue-watching-carousel');
+  const section = document.getElementById('section-continue-watching');
+  if (!container || !section || !items.length) return;
+
+  container.innerHTML = items.map(item => {
+    const title = item.title || item.seriesTitle || 'Untitled';
+    const isEpisode = item.type === 'episode';
+    const meta = isEpisode
+      ? `S${item.seasonNumber || 1} E${item.episodeNumber || 1}${item.duration ? ' · ' + formatRemainingTime(item.duration, item.watchProgressPercent) : ''}`
+      : (item.releaseYear ? item.releaseYear : '');
+    const imgSrc = getBackdropUrl(item) || getThumbnailUrl(item.id);
+    const progress = Math.min(100, Math.max(0, item.watchProgressPercent || 0));
+
+    return `
+      <div class="cw-card" data-id="${item.id}" data-type="${item.type}" data-series="${item.seriesTitle || ''}">
+        <div class="cw-card-img-wrap">
+          <img src="${imgSrc}" alt="${title}" loading="lazy">
+          <div class="cw-play-overlay">
+            <button class="cw-play-btn" onclick="event.stopPropagation(); playContinueWatching(${item.id}, '${item.type}', '${(item.seriesTitle || '').replace(/'/g, "\\'")}')">
+              <i class="fa-solid fa-play"></i>
+            </button>
+          </div>
+          <button class="cw-remove-btn" onclick="event.stopPropagation(); removeContinueWatching(${item.id})" title="Remove">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+          <div class="cw-progress-bar">
+            <div class="cw-progress-fill" style="width: ${progress}%"></div>
+          </div>
+        </div>
+        <div class="cw-card-info">
+          <div class="cw-card-title">${title}</div>
+          <div class="cw-card-meta">${meta}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  section.style.display = '';
+  updateCarouselArrows();
+}
+
+function formatRemainingTime(durationSec, progressPercent) {
+  if (!durationSec) return '';
+  const remaining = durationSec * (1 - (progressPercent || 0) / 100);
+  const mins = Math.ceil(remaining / 60);
+  if (mins < 60) return `${mins}m left`;
+  const hrs = Math.floor(mins / 60);
+  const remainMins = mins % 60;
+  return remainMins > 0 ? `${hrs}h ${remainMins}m left` : `${hrs}h left`;
+}
+
+function playContinueWatching(id, type, seriesTitle) {
+  if (type === 'episode' && seriesTitle) {
+    openSeriesDetail(seriesTitle);
+  } else {
+    openDetails(id);
+  }
+}
+
+async function removeContinueWatching(id) {
+  try {
+    await fetch(`/api/video/progress/${id}`, { method: 'DELETE' });
+    // Remove card from DOM
+    const card = document.querySelector(`.cw-card[data-id="${id}"]`);
+    if (card) card.remove();
+    // Hide section if empty
+    const container = document.getElementById('continue-watching-carousel');
+    const section = document.getElementById('section-continue-watching');
+    if (container && container.children.length === 0 && section) {
+      section.style.display = 'none';
+    }
+  } catch (e) {
+    console.error('Failed to remove from continue watching:', e);
+  }
+}
+
+// ============================================================
 // Carousel Rendering
 // ============================================================
 function renderCarousel(containerId, items) {
@@ -709,12 +813,15 @@ function renderCarousel(containerId, items) {
 function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
+  const cwSection = document.getElementById('section-continue-watching');
   
   if (section === 'home') {
     allSections.forEach(s => s.style.display = '');
     if (hero) hero.style.display = '';
   } else {
-    allSections.forEach(s => s.style.display = 'none');
+    allSections.forEach(s => {
+      if (s !== cwSection) s.style.display = 'none';
+    });
     if (hero) hero.style.display = '';
     const sectionMap = {
       'movies': 'section-movies',
@@ -773,6 +880,23 @@ async function loadCinemaData() {
     if (heroItems.length > 0) {
       updateHero(0);
       startHeroRotation();
+    }
+
+    // Update hero badge based on continue watching data
+    const heroBadge = document.getElementById('hero-badge');
+    if (heroBadge) {
+      if (Array.isArray(cwData) && cwData.length > 0) {
+        heroBadge.innerHTML = '<i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching';
+        heroBadge.style.display = '';
+      } else {
+        // Keep the badge but could change text or hide
+        // For now, keep it visible as a fallback
+      }
+    }
+
+    // Render Continue Watching carousel
+    if (Array.isArray(cwData) && cwData.length > 0) {
+      renderContinueWatchingCarousel(cwData);
     }
 
     // Render carousels
@@ -940,7 +1064,7 @@ async function openSeriesDetail(seriesTitle) {
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   if (logoHeroImg) {
     if (firstEp.logoPath) {
-      logoHeroImg.src = firstEp.logoPath;
+      logoHeroImg.src = getLogoUrl(firstEp.id);
       logoHeroImg.style.display = 'block';
       logoHeroImg.classList.remove('is-skeleton');
     } else {
@@ -970,7 +1094,17 @@ async function openSeriesDetail(seriesTitle) {
   const genresEl = document.getElementById('modal-genres');
   if (genresEl) {
     genresEl.innerHTML = firstEp.genres?.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('') || '';
-    genresEl.classList.remove('is-skeleton');
+    if (firstEp.genres?.length) genresEl.classList.remove('is-skeleton');
+  }
+
+  // Creator (networks for TV shows)
+  const creatorEl = document.getElementById('modal-creator');
+  if (creatorEl) {
+    const creatorNames = firstEp.networks?.join(', ') || '';
+    creatorEl.textContent = creatorNames;
+    if (creatorNames) {
+      creatorEl.classList.remove('is-skeleton');
+    }
   }
 
   // Description
@@ -978,7 +1112,9 @@ async function openSeriesDetail(seriesTitle) {
   if (descEl) {
     const desc = firstEp.description || '';
     descEl.innerHTML = desc ? `<p>${desc}</p>` : '';
-    descEl.classList.remove('is-skeleton');
+    if (desc) {
+      descEl.classList.remove('is-skeleton');
+    }
   }
 
   // Build episodes HTML
@@ -1069,13 +1205,29 @@ function buildEpisodesList(episodeArray) {
 }
 
 function buildMoreLikeThis(currentVideo) {
-  if (!currentVideo || !currentVideo.genres || !currentVideo.genres.length) return '';
+  if (!currentVideo) return '';
   const matches = allVideos.filter(v =>
     v.id !== currentVideo.id &&
     v.type === currentVideo.type &&
     v.genres?.some(g => currentVideo.genres.includes(g))
   ).slice(0, 12);
-  if (!matches.length) return '';
+  if (!matches.length) {
+    return `<div class="cinema-more-like-section">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+        <div style="width:0.25rem;height:1.5rem;background:rgba(255,255,255,0.15);border-radius:9999px;"></div>
+        <h3 style="font-size:1rem;font-weight:700;">More Like This</h3>
+      </div>
+      <div style="position:relative;">
+        <div class="cinema-more-like-scroll">
+          ${Array(6).fill('').map(() => `<div class="cinema-more-like-card">
+            <div class="cinema-more-like-img-wrap is-skeleton"></div>
+            <div class="cinema-card-title is-skeleton">&nbsp;</div>
+            <div class="cinema-card-meta-row is-skeleton">&nbsp;</div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
   return `<div class="cinema-more-like-section">
     <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
       <div style="width:0.25rem;height:1.5rem;background:var(--cinema-accent,#48c774);border-radius:9999px;"></div>
@@ -1205,7 +1357,7 @@ function openDetails(videoId) {
     const logoHeroImg = document.getElementById('modal-logo-hero-img');
     if (logoHeroImg) {
       if (data.logoPath) {
-        logoHeroImg.src = data.logoPath;
+        logoHeroImg.src = getLogoUrl(data.id);
         logoHeroImg.style.display = 'block';
         logoHeroImg.classList.remove('is-skeleton');
       } else {
@@ -1237,7 +1389,17 @@ function openDetails(videoId) {
     const genresEl = document.getElementById('modal-genres');
     if (genresEl) {
       genresEl.innerHTML = data.genres?.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('') || '';
-      genresEl.classList.remove('is-skeleton');
+      if (data.genres?.length) genresEl.classList.remove('is-skeleton');
+    }
+
+    // Creator (directors for movies, networks for TV shows)
+    const creatorEl = document.getElementById('modal-creator');
+    if (creatorEl) {
+      const creatorNames = (data.type === 'movie' ? data.directors : data.networks)?.join(', ') || '';
+      creatorEl.textContent = creatorNames;
+      if (creatorNames) {
+        creatorEl.classList.remove('is-skeleton');
+      }
     }
 
     // Description with expand toggle
@@ -1247,7 +1409,9 @@ function openDetails(videoId) {
     if (descEl) {
       descEl.textContent = desc;
       descEl.classList.remove('expanded');
-      descEl.classList.remove('is-skeleton');
+      if (desc) {
+        descEl.classList.remove('is-skeleton');
+      }
     }
     if (descToggle) {
       descToggle.style.display = desc.length > 150 ? 'inline' : 'none';
@@ -1268,6 +1432,9 @@ function openDetails(videoId) {
     }
 
     const content = document.querySelector('#cinema-modal .cinema-modal-content');
+    // Remove leftover episode/series sections from a previously opened TV show
+    const oldEpisodes = content?.querySelector('.cinema-episodes-section, .cinema-series-content');
+    if (oldEpisodes) oldEpisodes.remove();
     const oldMoreLike = content?.querySelector('.cinema-more-like-section');
     if (oldMoreLike) oldMoreLike.remove();
     const moreLikeHtml = buildMoreLikeThis(data);
@@ -1757,7 +1924,7 @@ async function performSearch(query) {
       ? `openDetails(${id})`
       : `openSeriesDetail('${(v.seriesTitle || '').replace(/'/g, "\\'")}')`;
     return `<button class="cinema-search-result" onclick="closeSearch(); ${clickHandler}">
-      <img class="cinema-search-result-thumb" src="/api/video/thumbnail/${id}" alt="" loading="lazy">
+      <img class="cinema-search-result-thumb" src="/api/video/poster/${id}" alt="" loading="lazy">
       <div class="cinema-search-result-info">
         <div class="cinema-search-result-title">${title}</div>
         <div class="cinema-search-result-sub">${type}${year}</div>

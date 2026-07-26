@@ -379,6 +379,35 @@ public class VideoMetadataService {
             // Ensure we merge the changes back to the database session
             video.getEntityManager().merge(video);
 
+            // 7. Download TMDB image URLs to local files (poster, logo, backdrop, hero)
+            try {
+                String imgType = video.type != null ? video.type : "movie";
+                String imgTitle;
+                if ("episode".equalsIgnoreCase(imgType) && video.seriesTitle != null && !video.seriesTitle.isBlank()) {
+                    imgTitle = video.seriesTitle;
+                } else {
+                    imgTitle = video.title != null ? video.title : video.seriesTitle;
+                }
+                if (imgTitle != null && (video.posterPath != null || video.logoPath != null || video.backdropPath != null || video.heroPath != null)) {
+                    VideoMetadataService.MediaImages tmdbImages = fetchMediaImages(imgType, imgTitle, video.releaseYear,
+                        video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                    ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                        tmdbImages.posterPath(), tmdbImages.logoPath(),
+                        tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                        tmdbImages.stillPath());
+                    ThumbnailService.MediaImagePaths paths = thumbnailService.downloadMediaImages(video.id, localImages);
+                    if (paths.posterPath() != null) video.posterPath = paths.posterPath();
+                    if (paths.logoPath() != null) video.logoPath = paths.logoPath();
+                    if (paths.backdropPath() != null) video.backdropPath = paths.backdropPath();
+                    if (paths.heroPath() != null) video.heroPath = paths.heroPath();
+                    if (paths.stillPath() != null) video.stillPath = paths.stillPath();
+                    video.getEntityManager().merge(video);
+                    LOG.info("[Enrich] Downloaded local image files for video {}", video.id);
+                }
+            } catch (Exception imgEx) {
+                LOG.warn("[Enrich] Failed to download local image files for {}: {}", video.id, imgEx.getMessage());
+            }
+
             // 6. If we now have external IDs, rename thumbnail/storyboard assets to canonical naming
             if (MediaPathResolver.hasExternalId(video)) {
                 try {

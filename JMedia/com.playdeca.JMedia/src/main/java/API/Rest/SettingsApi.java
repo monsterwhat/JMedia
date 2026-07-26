@@ -325,7 +325,13 @@ public class SettingsApi {
         settings.setVideoLibraryPath(path);
 
         if (tmdbApiKey != null && !tmdbApiKey.isBlank()) {
-            settings.setTmdbApiKey(tmdbApiKey);
+            if (isValidTmdbKey(tmdbApiKey)) {
+                settings.setTmdbApiKey(tmdbApiKey);
+            } else {
+                LOGGER.warn("Invalid TMDB API key format in video library form, ignoring: {}", tmdbApiKey.substring(0, Math.min(tmdbApiKey.length(), 10)));
+            }
+        } else {
+            settings.setTmdbApiKey(null);
         }
 
         settingsService.save(settings);
@@ -334,6 +340,64 @@ public class SettingsApi {
         return Response.ok(ApiResponse.success("Video library settings updated.")).build();
     }
     
+    // -----------------------------
+    // METADATA TOGGLES
+    // -----------------------------
+    @GET
+    @Path("/metadata-toggles")
+    public Response getMetadataToggles() {
+        Settings settings = settingsController.getOrCreateSettings();
+        Map<String, Boolean> toggles = new HashMap<>();
+        toggles.put("tmdbEnabled", settings.getTmdbEnabled());
+        toggles.put("omdbEnabled", settings.getOmdbEnabled());
+        toggles.put("tvmazeEnabled", settings.getTvmazeEnabled());
+        toggles.put("imdbDevEnabled", settings.getImdbDevEnabled());
+        toggles.put("introDbEnabled", settings.getIntroDbEnabled());
+        return Response.ok(ApiResponse.success(toggles)).build();
+    }
+
+    @POST
+    @Path("/metadata-toggles")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response saveMetadataToggles(Map<String, Boolean> toggles, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        Settings settings = settingsController.getOrCreateSettings();
+        if (toggles.containsKey("tmdbEnabled")) settings.setTmdbEnabled(toggles.get("tmdbEnabled"));
+        if (toggles.containsKey("omdbEnabled")) settings.setOmdbEnabled(toggles.get("omdbEnabled"));
+        if (toggles.containsKey("tvmazeEnabled")) settings.setTvmazeEnabled(toggles.get("tvmazeEnabled"));
+        if (toggles.containsKey("imdbDevEnabled")) settings.setImdbDevEnabled(toggles.get("imdbDevEnabled"));
+        if (toggles.containsKey("introDbEnabled")) settings.setIntroDbEnabled(toggles.get("introDbEnabled"));
+        settingsService.save(settings);
+        settingsController.addLog("Metadata source toggles updated");
+        return Response.ok(ApiResponse.success("Metadata toggles saved")).build();
+    }
+
+    // -----------------------------
+    // TMDB API KEY
+    // -----------------------------
+    @POST
+    @Path("/tmdb-api-key")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response saveTmdbApiKey(@FormParam("tmdbApiKey") String tmdbApiKey, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        Settings settings = settingsController.getOrCreateSettings();
+        if (tmdbApiKey != null && !tmdbApiKey.isBlank()) {
+            if (!isValidTmdbKey(tmdbApiKey)) {
+                return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid TMDB API key format")).build();
+            }
+            settings.setTmdbApiKey(tmdbApiKey);
+        } else {
+            settings.setTmdbApiKey(null);
+        }
+        settingsService.save(settings);
+        settingsController.addLog("TMDB API key updated");
+        return Response.ok(ApiResponse.success("TMDB API key saved")).build();
+    }
+
     // -----------------------------
     // VALIDATE PATHS
     // -----------------------------
@@ -365,6 +429,16 @@ public class SettingsApi {
         }
         java.io.File folder = new java.io.File(path);
         return folder.exists() && folder.isDirectory();
+    }
+
+    private static boolean isValidTmdbKey(String key) {
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        if (key.startsWith("eyJ")) {
+            return true;
+        }
+        return key.length() >= 20 && key.length() <= 40 && key.matches("^[A-Za-z0-9]+$");
     }
 
     // -----------------------------
@@ -465,8 +539,10 @@ public class SettingsApi {
             if (sourcesDTO.getYoutubePlayerClient() != null) {
                 settings.setYoutubePlayerClient(sourcesDTO.getYoutubePlayerClient());
             }
-            if (sourcesDTO.getTmdbApiKey() != null) {
-                settings.setTmdbApiKey(sourcesDTO.getTmdbApiKey());
+            if (sourcesDTO.getTmdbApiKey() != null && !sourcesDTO.getTmdbApiKey().isBlank()) {
+                if (isValidTmdbKey(sourcesDTO.getTmdbApiKey())) {
+                    settings.setTmdbApiKey(sourcesDTO.getTmdbApiKey());
+                }
             }
 
             if (sourcesDTO.getPrimarySource() != null && sourcesDTO.getSecondarySource() != null

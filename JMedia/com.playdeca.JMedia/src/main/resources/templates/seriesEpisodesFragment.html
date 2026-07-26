@@ -46,6 +46,15 @@
                     <span class="icon"><i class="pi pi-refresh"></i></span>
                     <span>Convert to MP4</span>
                 </button>
+                <button class="button is-light" title="Re-fetch all artwork from TMDB"
+                        hx-post="/api/video/manage/series/refetch-images"
+                        hx-vals='\{"seriesTitle": "{seriesTitle}"\}'
+                        hx-confirm="Re-fetch all artwork from TMDB for this series? This will download fresh poster, backdrop, logo, and hero images."
+                        hx-swap="none"
+                        hx-on::after-request="if(event.detail.successful) { window.Toast.success('Images refetched successfully!'); htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), { target: '#spa-content', swap: 'innerHTML' }); } else { window.Toast.error('Failed to refetch images: ' + event.detail.xhr.responseText); }">
+                    <span class="icon"><i class="pi pi-image"></i></span>
+                    <span>Refetch Images</span>
+                </button>
             </div>
         </div>
         <div class="level-right">

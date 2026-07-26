@@ -407,6 +407,32 @@
                             try { video.currentTime = t; } catch (e) {}
                         }
                     }
+                },
+                onStateUpdate: function(state) {
+                    if (!state || _destroyed || !video) return;
+                    try {
+                        if (state.currentVideoId && state.currentVideoId.toString() !== videoId.toString()) {
+                            var newId = state.currentVideoId;
+                            var vEl = (player && player.$video) ? player.$video : video;
+                            var url = '/api/video/stream/' + encodeURIComponent(newId) + '.mp4?start=' + Math.floor(vEl.currentTime || 0) + '&trace=' + Date.now();
+                            vEl.src = url;
+                            try { vEl.load(); } catch (e) {}
+                            if (state.playing) { try { vEl.play(); } catch (e) {} }
+                            videoId = newId;
+                            console.log('[OplayerAdapter] Remote source swap ->', newId);
+                            return;
+                        }
+                        if (typeof state.playing === 'boolean') {
+                            if (state.playing && video.paused) { try { video.play(); } catch (e) {} }
+                            else if (!state.playing && !video.paused) { try { video.pause(); } catch (e) {} }
+                        }
+                        if (typeof state.currentTime === 'number') {
+                            var drift = Math.abs((video.currentTime || 0) - state.currentTime);
+                            if (drift > 3) { try { video.currentTime = state.currentTime; } catch (e) {} }
+                        }
+                    } catch (e) {
+                        console.error('[OplayerAdapter] onStateUpdate error', e);
+                    }
                 }
             });
             _wsManager.connect();

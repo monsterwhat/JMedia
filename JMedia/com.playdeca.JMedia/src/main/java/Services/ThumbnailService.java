@@ -466,7 +466,11 @@ public class ThumbnailService {
             command.add("-quality");
             command.add("85");
             command.add("-vf");
-            command.add("scale=480:-1");
+            if (hwDecoder != null && hwDecoder.contains("cuvid")) {
+                command.add("hwdownload,format=nv12,scale=480:-1");
+            } else {
+                command.add("scale=480:-1");
+            }
             command.add("-f");
             command.add("webp");
             command.add("-max_muxing_queue_size");
@@ -1100,6 +1104,17 @@ public class ThumbnailService {
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(rawBytes));
         if (image == null) {
             throw new IOException("Could not decode image from bytes");
+        }
+
+        // Convert alpha-transparent images to opaque with white background for WebP compatibility
+        if (image.getType() == BufferedImage.TYPE_INT_ARGB || image.getType() == BufferedImage.TYPE_4BYTE_ABGR) {
+            BufferedImage rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g2d = rgbImage.createGraphics();
+            g2d.setColor(java.awt.Color.WHITE);
+            g2d.fillRect(0, 0, rgbImage.getWidth(), rgbImage.getHeight());
+            g2d.drawImage(image, 0, 0, null);
+            g2d.dispose();
+            image = rgbImage;
         }
 
         ImageWriter writer = null;

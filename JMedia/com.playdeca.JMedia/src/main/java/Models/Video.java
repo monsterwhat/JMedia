@@ -37,14 +37,18 @@ public class Video extends PanacheEntity {
     public Integer episodeNumber;
     public String folder; // Sub-folder within a season (e.g., "Featurette", "Behind the Scenes"). Null for episodes directly in season folder.
     public Integer releaseYear;
+    @Column(length = 2000)
     public String description;
+    @Column(length = 500)
     public String tagline;
+    @Column(length = 4000)
     public String overview;
     
     // Entertainment Metadata
     public Double imdbRating = 0.0;
     public Double tmdbRating = 0.0;
     public Integer metacriticRating;
+    @Column(length = 1000)
     public String awards;
     public Double userRating = 0.0;
     public String mpaaRating; // "PG-13", "R", etc.
@@ -91,6 +95,7 @@ public class Video extends PanacheEntity {
     public String productionCountries;
     public String releaseDate;
     public String trailerUrl;
+    @Column(length = 2000)
     public String parentsGuide;
 
     @ElementCollection
@@ -189,6 +194,7 @@ public class Video extends PanacheEntity {
     // User Ratings and Preferences
     public Integer userRatingStars = 0; // 1-10 stars
     public LocalDateTime userRatingDate;
+    @Column(length = 4000)
     public String userNotes;
     
     // Playback Statistics

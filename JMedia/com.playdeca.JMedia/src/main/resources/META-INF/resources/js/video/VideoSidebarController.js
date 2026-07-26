@@ -14,6 +14,16 @@
 
             this.startPolling();
             LOG('constructed; poll started');
+
+            window.__npIsRemoteController = true;
+            window.npRemoteSwitchVideo = function(videoId) {
+                if (!videoId) return;
+                LOG('remoteSwitch videoId=' + videoId);
+                fetch('/api/video/playback/play/' + encodeURIComponent(videoId), { method: 'POST' })
+                    .then(function(r) { return r.ok; })
+                    .then(function(ok) { if (ok) { LOG('remoteSwitch sent ok'); } })
+                    .catch(function(e) { LOG('remoteSwitch failed', e); });
+            };
         }
 
         startPolling() {
@@ -95,6 +105,9 @@
         }
 
         render() {
+            if (this.state && this._carouselVideoId && this.state.id !== this._carouselVideoId) {
+                this._carouselVideoId = null;
+            }
             var titleEl = document.getElementById('np-title');
             var subtitleEl = document.getElementById('np-subtitle');
             var controlsEl = document.getElementById('np-controls');

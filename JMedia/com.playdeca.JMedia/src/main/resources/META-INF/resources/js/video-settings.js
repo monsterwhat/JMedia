@@ -33,6 +33,25 @@ window.initVideoSettingsView = function() {
         });
     }
 
+    const saveTmdbApiKeyBtn = document.getElementById("saveTmdbApiKeyBtn");
+    if (saveTmdbApiKeyBtn) {
+        saveTmdbApiKeyBtn.onclick = async () => {
+            const apiKey = document.getElementById('tmdbApiKeyInput')?.value?.trim() || '';
+            try {
+                const res = await fetch('/api/settings/tmdb-api-key', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'tmdbApiKey=' + encodeURIComponent(apiKey)
+                });
+                const json = await res.json();
+                if (json.success !== false) Toast.success("TMDB API key saved");
+                else Toast.error("Failed to save API key");
+            } catch (err) {
+                Toast.error("Failed to save API key");
+            }
+        };
+    }
+
     const scanVideoLibraryBtn = document.getElementById("scanVideoLibrary");
     if (scanVideoLibraryBtn) {
         scanVideoLibraryBtn.addEventListener('htmx:afterRequest', function (evt) {
@@ -105,6 +124,56 @@ window.initVideoSettingsView = function() {
                 }
             }
         };
+    }
+
+    // Metadata Toggles
+    const metadataToggles = ['tmdbEnabledToggle', 'omdbEnabledToggle', 'tvmazeEnabledToggle', 'imdbDevEnabledToggle', 'introDbEnabledToggle'];
+    const toggleFieldMap = {
+        'tmdbEnabledToggle': 'tmdbEnabled',
+        'omdbEnabledToggle': 'omdbEnabled',
+        'tvmazeEnabledToggle': 'tvmazeEnabled',
+        'imdbDevEnabledToggle': 'imdbDevEnabled',
+        'introDbEnabledToggle': 'introDbEnabled'
+    };
+
+    // Load current toggle states
+    fetch('/api/settings/metadata-toggles')
+        .then(function(r) { return r.json(); })
+        .then(function(json) {
+            if (json.data) {
+                metadataToggles.forEach(function(id) {
+                    var el = document.getElementById(id);
+                    var field = toggleFieldMap[id];
+                    if (el && json.data[field] !== undefined) {
+                        el.checked = json.data[field];
+                    }
+                });
+            }
+        })
+        .catch(function(err) {
+            console.warn('[VideoSettings] Failed to load metadata toggles:', err);
+        });
+
+    // Save metadata toggles when the video library save button is clicked
+    var saveVideoBtn = document.getElementById('saveVideoLibraryPathBtn');
+    if (saveVideoBtn) {
+        saveVideoBtn.addEventListener('htmx:afterRequest', function(evt) {
+            if (evt.detail.successful) {
+                var toggles = {};
+                metadataToggles.forEach(function(id) {
+                    var el = document.getElementById(id);
+                    var field = toggleFieldMap[id];
+                    if (el) toggles[field] = el.checked;
+                });
+                fetch('/api/settings/metadata-toggles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(toggles)
+                }).catch(function(err) {
+                    console.error('[VideoSettings] Failed to save metadata toggles:', err);
+                });
+            }
+        });
     }
 
     // Default Player selector

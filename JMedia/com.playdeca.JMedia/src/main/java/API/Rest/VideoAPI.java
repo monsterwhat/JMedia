@@ -203,6 +203,153 @@ public class VideoAPI {
         }
     }
 
+    /**
+     * Serve an image from the thumbnails directory with a configurable fallback chain.
+     *
+     * Fallback order:
+     *   1. {thumbnailsDir}/{videoId}_{imageType}.webp   (generated image)
+     *   2. {thumbnailsDir}/{videoId}_{fallbackType}.webp (optional secondary type, e.g. hero→backdrop)
+     *   3. Existing thumbnail path from the Video entity (custom thumbnailPath or generated thumbnail)
+     *   4. Redirect to /logo.png
+     */
+    private Response serveImageFromThumbnails(Long videoId, String imageType, String fallbackType) {
+        try {
+            Models.Video video = Models.Video.findById(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+
+            String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+            java.nio.file.Path thumbnailsDir;
+            if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
+                thumbnailsDir = java.nio.file.Paths.get(videoLibraryPath, "thumbnails");
+            } else {
+                thumbnailsDir = thumbnailService.getThumbnailDirectory();
+            }
+
+            java.nio.file.Path primaryPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".webp");
+            if (java.nio.file.Files.exists(primaryPath)) {
+                File imageFile = primaryPath.toFile();
+                return Response.ok(imageFile)
+                        .header("Content-Type", "image/webp")
+                        .header("Cache-Control", "public, max-age=86400")
+                        .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                        .build();
+            }
+
+            // Check for .png fallback (e.g. alpha-transparent logos that failed WebP)
+            java.nio.file.Path pngPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".png");
+            if (java.nio.file.Files.exists(pngPath)) {
+                File imageFile = pngPath.toFile();
+                return Response.ok(imageFile)
+                        .header("Content-Type", "image/png")
+                        .header("Cache-Control", "public, max-age=86400")
+                        .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                        .build();
+            }
+
+            // Check for .jpg fallback
+            java.nio.file.Path jpgPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".jpg");
+            if (java.nio.file.Files.exists(jpgPath)) {
+                File imageFile = jpgPath.toFile();
+                return Response.ok(imageFile)
+                        .header("Content-Type", "image/jpeg")
+                        .header("Cache-Control", "public, max-age=86400")
+                        .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                        .build();
+            }
+
+            if (fallbackType != null) {
+                java.nio.file.Path fallbackPath = thumbnailsDir.resolve(videoId + "_" + fallbackType + ".webp");
+                if (java.nio.file.Files.exists(fallbackPath)) {
+                    File imageFile = fallbackPath.toFile();
+                    return Response.ok(imageFile)
+                            .header("Content-Type", "image/webp")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .build();
+                }
+
+                java.nio.file.Path fbPngPath = thumbnailsDir.resolve(videoId + "_" + fallbackType + ".png");
+                if (java.nio.file.Files.exists(fbPngPath)) {
+                    File imageFile = fbPngPath.toFile();
+                    return Response.ok(imageFile)
+                            .header("Content-Type", "image/png")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .build();
+                }
+
+                java.nio.file.Path fbJpgPath = thumbnailsDir.resolve(videoId + "_" + fallbackType + ".jpg");
+                if (java.nio.file.Files.exists(fbJpgPath)) {
+                    File imageFile = fbJpgPath.toFile();
+                    return Response.ok(imageFile)
+                            .header("Content-Type", "image/jpeg")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .build();
+                }
+            }
+
+            if (video.thumbnailPath != null && !video.thumbnailPath.isBlank()) {
+                File customThumbnail = new File(video.thumbnailPath);
+                if (customThumbnail.exists() && customThumbnail.isFile()) {
+                    return Response.ok(customThumbnail)
+                            .header("Content-Type", "image/jpeg")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
+                            .build();
+                }
+            }
+
+            return Response.temporaryRedirect(java.net.URI.create("/logo.png")).build();
+
+        } catch (Exception e) {
+            LOG.error("Error serving {} image for video ID: {}", imageType, videoId, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GET
+    @Path("/poster/{videoId}")
+    @Produces("image/webp")
+    public Response getPoster(@PathParam("videoId") Long videoId) {
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        return serveImageFromThumbnails(videoId, "poster", null);
+    }
+
+    @GET
+    @Path("/backdrop/{videoId}")
+    @Produces("image/webp")
+    public Response getBackdrop(@PathParam("videoId") Long videoId) {
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        return serveImageFromThumbnails(videoId, "backdrop", null);
+    }
+
+    @GET
+    @Path("/logo/{videoId}")
+    @Produces("image/webp")
+    public Response getLogoImage(@PathParam("videoId") Long videoId) {
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        return serveImageFromThumbnails(videoId, "logo", null);
+    }
+
+    @GET
+    @Path("/hero/{videoId}")
+    @Produces("image/webp")
+    public Response getHero(@PathParam("videoId") Long videoId) {
+        if (videoId == null || videoId <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+        return serveImageFromThumbnails(videoId, "hero", "backdrop");
+    }
+
     @POST
     @Path("/watchlist/toggle/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -947,21 +1094,25 @@ public class VideoAPI {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid video ID")).build();
         }
 
+        Models.Video video = Models.Video.findById(videoId);
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
+        }
+        String videoPath = video.path;
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+
         executor.submit(() -> {
             try {
-                Models.Video video = Models.Video.findById(videoId);
-                if (video != null) {
-                    String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-                    if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                        String fullPath;
-                        java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
-                        if (vPath.isAbsolute()) {
-                            fullPath = vPath.toString();
-                        } else {
-                            fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
-                        }
-                        thumbnailService.getThumbnailPath(fullPath, videoId.toString(), video.type);
+                if (videoPath != null && videoLibraryPath != null && !videoLibraryPath.isBlank()) {
+                    String fullPath;
+                    java.nio.file.Path vPath = java.nio.file.Paths.get(videoPath);
+                    if (vPath.isAbsolute()) {
+                        fullPath = vPath.toString();
+                    } else {
+                        fullPath = java.nio.file.Paths.get(videoLibraryPath, videoPath).toString();
                     }
+                    // getThumbnailPathWithFallback uses the Video object directly — no EntityManager needed
+                    thumbnailService.getThumbnailPathWithFallback(fullPath, video);
                 }
             } catch (Exception e) {
                 LOG.error("Error fetching thumbnail for video ID: " + videoId, e);
@@ -988,6 +1139,26 @@ public class VideoAPI {
             }
         });
         return Response.ok(ApiResponse.success("Thumbnail regeneration started.")).build();
+    }
+
+    @POST
+    @Path("/backfill-images")
+    public Response backfillMediaImages(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!checkAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        executor.submit(() -> {
+            ManagedContext requestContext = Arc.container().requestContext();
+            if (!requestContext.isActive()) requestContext.activate();
+            try {
+                thumbnailService.backfillMediaImages();
+            } catch (Exception e) {
+                LOG.error("Error during media image backfill", e);
+            } finally {
+                if (requestContext.isActive()) requestContext.deactivate();
+            }
+        });
+        return Response.ok(ApiResponse.success("Media image backfill started.")).build();
     }
 
     @GET

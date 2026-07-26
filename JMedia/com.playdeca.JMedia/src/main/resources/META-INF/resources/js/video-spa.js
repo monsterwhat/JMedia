@@ -977,6 +977,10 @@ window.playExternalEntry = function(externalId) {
 window.collectionMgr = new window.CollectionManager(window.videoSPA);
 
 window.underplayerPlayCard = function(card) {
+    if (window.__npIsRemoteController) {
+        window.npRemoteSwitchVideo(card.getAttribute('data-video-id'));
+        return;
+    }
     var videoId = card.getAttribute('data-video-id');
     var entryId = card.getAttribute('data-entry-id');
     var collectionId = card.getAttribute('data-collection-id');

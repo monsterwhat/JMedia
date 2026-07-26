@@ -32,6 +32,7 @@ public class SyncVideoData {
     public String status;
     public String imdbId;
     public String tmdbId;
+    public String heroPath;
     public String collectionName;
     public Boolean favorite;
     public LocalDateTime dateModified;
@@ -61,6 +62,7 @@ public class SyncVideoData {
         if (status != null) video.status = status;
         if (imdbId != null) video.imdbId = imdbId;
         if (tmdbId != null) video.tmdbId = tmdbId;
+        if (heroPath != null) video.heroPath = heroPath;
         if (collectionName != null) video.collectionName = collectionName;
         if (favorite != null) video.favorite = favorite;
         if (dateModified != null) video.dateModified = dateModified;
@@ -93,6 +95,7 @@ public class SyncVideoData {
         data.status = video.status;
         data.imdbId = video.imdbId;
         data.tmdbId = video.tmdbId;
+        data.heroPath = video.heroPath;
         data.collectionName = video.collectionName;
         data.favorite = video.favorite;
         data.dateModified = video.dateModified;

@@ -14,6 +14,7 @@
         this.profileId = options.profileId || null;
         this.onCommand = typeof options.onCommand === 'function' ? options.onCommand : null;
         this.onState = typeof options.onState === 'function' ? options.onState : null;
+        this.onStateUpdate = typeof options.onStateUpdate === 'function' ? options.onStateUpdate : null;
         this.onOpen = typeof options.onOpen === 'function' ? options.onOpen : null;
         this.onClose = typeof options.onClose === 'function' ? options.onClose : null;
         this.ws = null;
@@ -60,7 +61,10 @@
         if (message.type === 'command') {
             if (this.onCommand) { try { this.onCommand(message); } catch (e) { console.error('[VideoWebSocketManager] onCommand error', e); } }
         } else if (message.type === 'state') {
-            if (this.onState) { try { this.onState(message); } catch (e) { console.error('[VideoWebSocketManager] onState error', e); } }
+            var cb = this.onStateUpdate || this.onState;
+            // Server sends {type:'state', payload:<ProfileSessionState>}. Adapters expect the
+            // ProfileSessionState object directly (state.currentVideoId at top level), so pass payload.
+            if (cb) { try { cb(message.payload); } catch (e) { console.error('[VideoWebSocketManager] onStateUpdate error', e); } }
         }
     };
 
