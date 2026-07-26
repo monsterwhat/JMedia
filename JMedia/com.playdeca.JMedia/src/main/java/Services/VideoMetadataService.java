@@ -28,6 +28,7 @@ import Models.DTOs.VerificationPreview;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class VideoMetadataService {
@@ -56,15 +57,19 @@ public class VideoMetadataService {
     VideoStoryboardService storyboardService;
 
     // TMDb
+    private static final Pattern TMDB_V3_KEY_PATTERN = Pattern.compile("^[A-Za-z0-9]+$");
     private static final String TMDB_SEARCH_MOVIE = "https://api.themoviedb.org/3/search/movie?api_key=%s&query=%s";
     private static final String TMDB_SEARCH_TV = "https://api.themoviedb.org/3/search/tv?api_key=%s&query=%s";
     private static final String TMDB_MOVIE_DETAILS = "https://api.themoviedb.org/3/movie/%s?api_key=%s&append_to_response=credits,release_dates,images";
     private static final String TMDB_TV_DETAILS = "https://api.themoviedb.org/3/tv/%s?api_key=%s&append_to_response=credits,external_ids";
     private static final String TMDB_EPISODE_DETAILS = "https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?api_key=%s&append_to_response=credits,images";
-    private static final String TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
-    private static final String TMDB_IMAGE_ORIGINAL = "https://image.tmdb.org/t/p/original";
+    private static final String TMDB_IMAGE_W342 = "https://image.tmdb.org/t/p/w342";
+    private static final String TMDB_IMAGE_W500 = "https://image.tmdb.org/t/p/w500";
     private static final String TMDB_IMAGE_W1280 = "https://image.tmdb.org/t/p/w1280";
+    private static final String TMDB_IMAGE_ORIGINAL = "https://image.tmdb.org/t/p/original";
     private static final String TMDB_TV_IMAGES = "https://api.themoviedb.org/3/tv/%s/images?api_key=%s";
+    private static final String TMDB_MOVIE_IMAGES = "https://api.themoviedb.org/3/movie/%s/images?api_key=%s";
+    private static final String BUILT_IN_TMDB_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1NzlkZWYyZDY5ZWFlNDk4ZjJiOTI4MTgyNDdjM2ViMCIsInN1YiI6IjY2MjdmMGJlNjJmMzM1MDE0YmQ4NTFmMiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.h3KpPvkiaz8uNz1bntAKqsPrxG_4UUWaY3kYME6N6m8";
     
     // OMDb
     private static final String OMDB_URL = "https://www.omdbapi.com/?apikey=%s&i=%s&plot=full";
@@ -90,6 +95,28 @@ public class VideoMetadataService {
     private final BlockingQueue<Long> metadataQueue = new LinkedBlockingQueue<>();
     private volatile boolean queueProcessing = false;
     
+    /**
+     * Multi-size media image URLs for a given title, fetched from TMDB.
+     */
+    public record MediaImages(
+        Optional<String> posterPath,   // w342 poster for cards
+        Optional<String> logoPath,     // w500 title/logo
+        Optional<String> backdropPath, // w1280 backdrop
+        Optional<String> heroPath,     // original resolution hero
+        Optional<String> stillPath     // w500 episode still (episodes only)
+    ) {}
+
+    public static boolean isVideoEnriched(Video video) {
+        if (video.tmdbId == null) return false;
+        if (video.posterPath == null || video.backdropPath == null || video.logoPath == null || video.heroPath == null) {
+            return false;
+        }
+        if ("episode".equalsIgnoreCase(video.type) && video.stillPath == null) {
+            return false;
+        }
+        return true;
+    }
+
     /**
      * Queue a single video for metadata enrichment
      */
@@ -247,11 +274,24 @@ public class VideoMetadataService {
 
     private String getApiKey() {
         String key = settingsService.getOrCreateSettings().getTmdbApiKey();
+        if (key != null && !key.isBlank() && !isValidTmdbKey(key)) {
+            LOG.warn("Invalid TMDB API key in settings ({}), falling through to env/built-in", key.substring(0, Math.min(key.length(), 10)));
+            key = null;
+        }
         if (key == null || key.isBlank()) {
             key = System.getenv("TMDB_API_KEY");
         }
+        if (key == null || key.isBlank()) {
+            key = BUILT_IN_TMDB_ACCESS_TOKEN;
+        }
         return key;
     }
+
+    private static boolean isValidTmdbKey(String key) {
+        return key.startsWith("eyJ") || (key.length() >= 20 && key.length() <= 40 && TMDB_V3_KEY_PATTERN.matcher(key).matches());
+    }
+
+    private static boolean isBearerToken(String key) { return key != null && key.startsWith("eyJ"); }
 
     private String getOmdbApiKey() {
         String key = settingsService.getOrCreateSettings().getOmdbApiKey();
@@ -407,16 +447,28 @@ public class VideoMetadataService {
         Settings settings = settingsService.getOrCreateSettings();
         if (Boolean.TRUE.equals(settings.getTmdbEnabled()) && tmdbKey != null && !tmdbKey.isBlank()) {
             try {
-                String searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey,
-                        URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
-                JsonNode searchRoot = fetchJson(searchUrl);
+                Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+                String searchUrl;
+                if (isBearerToken(tmdbKey)) {
+                    searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s",
+                            URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
+                } else {
+                    searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey,
+                            URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
+                }
+                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
                 if (searchRoot != null && searchRoot.path("results").isArray() && searchRoot.path("results").size() > 0) {
                     String showTmdbId = searchRoot.path("results").get(0).path("id").asText();
                     if (showTmdbId != null && !showTmdbId.isBlank()) {
                         preview.tmdbId.fetched = showTmdbId;
 
-                        String epUrl = String.format(TMDB_EPISODE_DETAILS, showTmdbId, season, ep, tmdbKey);
-                        JsonNode epRoot = fetchJson(epUrl);
+                        String epUrl;
+                        if (isBearerToken(tmdbKey)) {
+                            epUrl = String.format("https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?append_to_response=credits,images", showTmdbId, season, ep);
+                        } else {
+                            epUrl = String.format(TMDB_EPISODE_DETAILS, showTmdbId, season, ep, tmdbKey);
+                        }
+                        JsonNode epRoot = fetchJson(epUrl, authHeaders);
                         if (epRoot != null) {
                             if (epRoot.has("name")) {
                                 preview.episodeTitle.fetched = epRoot.get("name").asText();
@@ -468,16 +520,27 @@ public class VideoMetadataService {
         if (Boolean.TRUE.equals(settings.getTmdbEnabled()) && tmdbKey != null && !tmdbKey.isBlank()) {
             try {
                 String query = URLEncoder.encode(video.title != null ? video.title : video.filename, StandardCharsets.UTF_8);
-                String searchUrl = String.format(TMDB_SEARCH_MOVIE, tmdbKey, query);
-                JsonNode root = fetchJson(searchUrl);
+                Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+                String searchUrl;
+                if (isBearerToken(tmdbKey)) {
+                    searchUrl = String.format("https://api.themoviedb.org/3/search/movie?query=%s", query);
+                } else {
+                    searchUrl = String.format(TMDB_SEARCH_MOVIE, tmdbKey, query);
+                }
+                JsonNode root = fetchJson(searchUrl, authHeaders);
                 if (root != null && root.path("results").isArray() && root.path("results").size() > 0) {
                     JsonNode first = root.path("results").get(0);
                     String foundTmdbId = first.path("id").asText();
                     if (foundTmdbId != null && !foundTmdbId.isBlank()) {
                         preview.tmdbId.fetched = foundTmdbId;
 
-                        String detailUrl = String.format(TMDB_MOVIE_DETAILS, foundTmdbId, tmdbKey);
-                        JsonNode detailRoot = fetchJson(detailUrl);
+                        String detailUrl;
+                        if (isBearerToken(tmdbKey)) {
+                            detailUrl = String.format("https://api.themoviedb.org/3/movie/%s?append_to_response=credits,release_dates,images", foundTmdbId);
+                        } else {
+                            detailUrl = String.format(TMDB_MOVIE_DETAILS, foundTmdbId, tmdbKey);
+                        }
+                        JsonNode detailRoot = fetchJson(detailUrl, authHeaders);
                         if (detailRoot != null) {
                             if (detailRoot.has("imdb_id")) {
                                 preview.imdbId.fetched = detailRoot.get("imdb_id").asText();
@@ -794,8 +857,15 @@ public class VideoMetadataService {
         }
         if (video.tmdbId == null) {
             String query = URLEncoder.encode(video.title, StandardCharsets.UTF_8);
-            String url = String.format(TMDB_SEARCH_MOVIE, apiKey, query);
-            JsonNode root = fetchJson(url);
+            Map<String, String> authHeaders = null;
+            String url;
+            if (isBearerToken(apiKey)) {
+                url = String.format("https://api.themoviedb.org/3/search/movie?query=%s", query);
+                authHeaders = Map.of("Authorization", "Bearer " + apiKey);
+            } else {
+                url = String.format(TMDB_SEARCH_MOVIE, apiKey, query);
+            }
+            JsonNode root = fetchJson(url, authHeaders);
             if (root != null && root.path("results").size() > 0) {
                 video.tmdbId = root.path("results").get(0).path("id").asText();
                 LOG.info("[EnrichMovie] TMDb search found match for '{}': tmdbId={}", video.title, video.tmdbId);
@@ -807,8 +877,14 @@ public class VideoMetadataService {
         }
 
         if (video.tmdbId != null) {
-            String url = String.format(TMDB_MOVIE_DETAILS, video.tmdbId, apiKey);
-            JsonNode root = fetchJson(url);
+            Map<String, String> authHeaders = isBearerToken(apiKey) ? Map.of("Authorization", "Bearer " + apiKey) : null;
+            String url;
+            if (isBearerToken(apiKey)) {
+                url = String.format("https://api.themoviedb.org/3/movie/%s?append_to_response=credits,release_dates,images", video.tmdbId);
+            } else {
+                url = String.format(TMDB_MOVIE_DETAILS, video.tmdbId, apiKey);
+            }
+            JsonNode root = fetchJson(url, authHeaders);
             if (root == null) {
                 LOG.warn("[EnrichMovie] Failed to fetch movie details for tmdbId={}", video.tmdbId);
             }
@@ -824,11 +900,12 @@ public class VideoMetadataService {
                     if (date.length() >= 4) video.releaseYear = Integer.parseInt(date.substring(0, 4));
                 }
                 if (root.has("poster_path") && !root.get("poster_path").isNull()) {
-                    video.posterPath = TMDB_IMAGE_BASE + root.get("poster_path").asText();
+                    video.posterPath = TMDB_IMAGE_W500 + root.get("poster_path").asText();
                 }
                 if (root.has("backdrop_path") && !root.get("backdrop_path").isNull()) {
                     video.backdropPath = TMDB_IMAGE_W1280 + root.get("backdrop_path").asText();
-                    LOG.info("[EnrichMovie] Set backdrop path");
+                    video.fanartPath = video.backdropPath;
+                    LOG.info("[EnrichMovie] Set backdrop + fanart path");
                 }
                 // Extract logo from images (already fetched via append_to_response=images)
                 if (root.has("images") && root.get("images").has("logos")) {
@@ -843,7 +920,7 @@ public class VideoMetadataService {
                         }
                         if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
                         if (logoFilePath != null) {
-                            video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                            video.logoPath = TMDB_IMAGE_W500 + logoFilePath;
                             LOG.info("[EnrichMovie] Set logo path: {}", video.logoPath);
                         } else {
                             LOG.info("[EnrichMovie] No usable logo found in images");
@@ -855,6 +932,11 @@ public class VideoMetadataService {
                 if (root.has("budget")) video.budget = root.get("budget").asLong();
                 if (root.has("revenue")) video.revenue = root.get("revenue").asLong();
                 if (root.has("status")) video.status = root.get("status").asText();
+                if (root.has("tagline")) video.tagline = root.get("tagline").asText();
+                if (root.has("vote_count")) video.voteCount = root.get("vote_count").asInt();
+                if (root.has("popularity")) video.popularityScore = root.get("popularity").asDouble();
+                if (root.has("runtime")) video.runtimeMins = root.get("runtime").asInt();
+                if (root.has("original_language")) video.originalLanguage = root.get("original_language").asText();
             }
         }
     }
@@ -867,8 +949,15 @@ public class VideoMetadataService {
         }
         String showTmdbId = null;
         if (video.seriesTitle != null) {
-            String searchUrl = String.format(TMDB_SEARCH_TV, apiKey, URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
-            JsonNode searchRoot = fetchJson(searchUrl);
+            Map<String, String> authHeaders = null;
+            String searchUrl;
+            if (isBearerToken(apiKey)) {
+                searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
+                authHeaders = Map.of("Authorization", "Bearer " + apiKey);
+            } else {
+                searchUrl = String.format(TMDB_SEARCH_TV, apiKey, URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
+            }
+            JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
             if (searchRoot != null && searchRoot.path("results").size() > 0) {
                 showTmdbId = searchRoot.path("results").get(0).path("id").asText();
                 LOG.info("[EnrichEpisode] TMDb search found show for '{}': showTmdbId={}", video.seriesTitle, showTmdbId);
@@ -881,8 +970,14 @@ public class VideoMetadataService {
 
         if (showTmdbId != null) {
             video.tmdbId = showTmdbId;
-            String url = String.format(TMDB_EPISODE_DETAILS, showTmdbId, video.seasonNumber, video.episodeNumber, apiKey);
-            JsonNode root = fetchJson(url);
+            Map<String, String> authHeaders = isBearerToken(apiKey) ? Map.of("Authorization", "Bearer " + apiKey) : null;
+            String url;
+            if (isBearerToken(apiKey)) {
+                url = String.format("https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?append_to_response=credits,images", showTmdbId, video.seasonNumber, video.episodeNumber);
+            } else {
+                url = String.format(TMDB_EPISODE_DETAILS, showTmdbId, video.seasonNumber, video.episodeNumber, apiKey);
+            }
+            JsonNode root = fetchJson(url, authHeaders);
             if (root == null) {
                 LOG.warn("[EnrichEpisode] Failed to fetch episode details for showTmdbId={}, S{}E{}", showTmdbId, video.seasonNumber, video.episodeNumber);
             }
@@ -890,30 +985,54 @@ public class VideoMetadataService {
                 if (root.has("name")) video.episodeTitle = root.get("name").asText();
                 if (root.has("overview")) video.overview = root.get("overview").asText();
                 if (root.has("vote_average")) video.tmdbRating = root.get("vote_average").asDouble();
+                if (root.has("vote_count")) video.voteCount = root.get("vote_count").asInt();
                 if (root.has("still_path") && !root.get("still_path").isNull()) {
-                    video.posterPath = TMDB_IMAGE_BASE + root.get("still_path").asText();
+                    video.posterPath = TMDB_IMAGE_W500 + root.get("still_path").asText();
                 }
                 LOG.info("[EnrichEpisode] Episode details: title='{}', rating={}, still={}",
                     video.episodeTitle, video.tmdbRating, video.posterPath != null ? "set" : "none");
             }
             // Fetch show-level backdrop and logo
-            String showUrl = String.format(TMDB_TV_DETAILS, showTmdbId, apiKey);
-            JsonNode showRoot = fetchJson(showUrl);
+            String showUrl;
+            if (isBearerToken(apiKey)) {
+                showUrl = String.format("https://api.themoviedb.org/3/tv/%s?append_to_response=credits,external_ids", showTmdbId);
+            } else {
+                showUrl = String.format(TMDB_TV_DETAILS, showTmdbId, apiKey);
+            }
+            JsonNode showRoot = fetchJson(showUrl, authHeaders);
             if (showRoot == null) {
                 LOG.warn("[EnrichEpisode] Failed to fetch show details for showTmdbId={}", showTmdbId);
             }
             if (showRoot != null) {
                 if (showRoot.has("backdrop_path") && !showRoot.get("backdrop_path").isNull() && video.backdropPath == null) {
                     video.backdropPath = TMDB_IMAGE_W1280 + showRoot.get("backdrop_path").asText();
-                    LOG.info("[EnrichEpisode] Set show backdrop path");
+                    video.fanartPath = video.backdropPath;
+                    LOG.info("[EnrichEpisode] Set show backdrop + fanart path");
                 } else {
                     LOG.info("[EnrichEpisode] Show backdrop skipped (already set or unavailable)");
                 }
+                if (showRoot.has("networks") && showRoot.get("networks").isArray()) {
+                    List<String> networkNames = new ArrayList<>();
+                    for (JsonNode net : showRoot.get("networks")) {
+                        if (net.has("name")) {
+                            networkNames.add(net.get("name").asText());
+                        }
+                    }
+                    if (!networkNames.isEmpty()) video.networks = networkNames;
+                }
+                if (showRoot.has("vote_count")) video.voteCount = showRoot.get("vote_count").asInt();
+                if (showRoot.has("popularity")) video.popularityScore = showRoot.get("popularity").asDouble();
+                if (showRoot.has("original_language")) video.originalLanguage = showRoot.get("original_language").asText();
             }
             // Get show logo
             if (video.logoPath == null) {
-                String imagesUrl = String.format(TMDB_TV_IMAGES, showTmdbId, apiKey);
-                JsonNode imagesRoot = fetchJson(imagesUrl);
+                String imagesUrl;
+                if (isBearerToken(apiKey)) {
+                    imagesUrl = String.format("https://api.themoviedb.org/3/tv/%s/images", showTmdbId);
+                } else {
+                    imagesUrl = String.format(TMDB_TV_IMAGES, showTmdbId, apiKey);
+                }
+                JsonNode imagesRoot = fetchJson(imagesUrl, authHeaders);
                 if (imagesRoot == null) {
                     LOG.warn("[EnrichEpisode] Failed to fetch show images for showTmdbId={}", showTmdbId);
                 }
@@ -929,7 +1048,7 @@ public class VideoMetadataService {
                         }
                         if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
                         if (logoFilePath != null) {
-                            video.logoPath = TMDB_IMAGE_BASE + logoFilePath;
+                            video.logoPath = TMDB_IMAGE_W500 + logoFilePath;
                             LOG.info("[EnrichEpisode] Set show logo path: {}", video.logoPath);
                         } else {
                             LOG.info("[EnrichEpisode] No usable logo found in show images");
@@ -945,7 +1064,15 @@ public class VideoMetadataService {
     }
 
     private JsonNode fetchJson(String url) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+        return fetchJson(url, null);
+    }
+
+    private JsonNode fetchJson(String url, Map<String, String> headers) throws IOException, InterruptedException {
+        var builder = HttpRequest.newBuilder().uri(URI.create(url)).GET();
+        if (headers != null) {
+            headers.forEach(builder::header);
+        }
+        HttpRequest request = builder.build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() == 200) return objectMapper.readTree(response.body());
         if (response.statusCode() == 404) {
@@ -964,15 +1091,24 @@ public class VideoMetadataService {
         String tmdbKey = getApiKey();
         if (tmdbKey != null && !tmdbKey.isBlank()) {
             try {
-                String searchUrl = "movie".equalsIgnoreCase(type) ? 
-                    String.format(TMDB_SEARCH_MOVIE, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8)) :
-                    String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8));
+                Map<String, String> authHeaders = null;
+                String searchUrl;
+                if (isBearerToken(tmdbKey)) {
+                    searchUrl = "movie".equalsIgnoreCase(type) ?
+                        String.format("https://api.themoviedb.org/3/search/movie?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8)) :
+                        String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8));
+                    authHeaders = Map.of("Authorization", "Bearer " + tmdbKey);
+                } else {
+                    searchUrl = "movie".equalsIgnoreCase(type) ?
+                        String.format(TMDB_SEARCH_MOVIE, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8)) :
+                        String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8));
+                }
                 
-                JsonNode root = fetchJson(searchUrl);
+                JsonNode root = fetchJson(searchUrl, authHeaders);
                 if (root != null && root.path("results").isArray() && root.path("results").size() > 0) {
                     String path = root.path("results").get(0).path("poster_path").asText();
                     if (path != null && !path.isEmpty() && !path.equals("null")) {
-                        return Optional.of(TMDB_IMAGE_BASE + path);
+                        return Optional.of(TMDB_IMAGE_W500 + path);
                     }
                 }
             } catch (Exception e) {
@@ -1001,6 +1137,149 @@ public class VideoMetadataService {
 
         return Optional.empty();
     }
+
+    /**
+     * Fetch all TMDB image sizes (poster, logo, backdrop, hero) for a given title.
+     * Reuses the TMDB search endpoint to find the first matching result, then
+     * builds URLs at w342 (poster cards), w500 (logo/title), w1280 (backdrop),
+     * and original (hero) resolutions. For episodes, also fetches the still image.
+     *
+     * @param type         "movie" or "tv"
+     * @param title        search title
+     * @param year         optional release year for disambiguation (currently unused by TMDB search)
+     * @param seriesTitle  series title for episode still lookup (null for movies)
+     * @param seasonNumber season number for episode still lookup (null for movies)
+     * @param episodeNumber episode number for episode still lookup (null for movies)
+     * @return MediaImages with Optional-wrapped URLs (empty if not found or TMDB disabled)
+     */
+    public MediaImages fetchMediaImages(String type, String title, Integer year,
+                                         String seriesTitle, Integer seasonNumber, Integer episodeNumber) {
+        if (title == null || title.isBlank()) {
+            return new MediaImages(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        }
+
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            return new MediaImages(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        }
+
+        String tmdbKey = getApiKey();
+        if (tmdbKey == null || tmdbKey.isBlank()) {
+            return new MediaImages(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        }
+
+        try {
+            String searchUrl;
+            Map<String, String> authHeaders = null;
+            if (isBearerToken(tmdbKey)) {
+                searchUrl = "movie".equalsIgnoreCase(type) ?
+                    String.format("https://api.themoviedb.org/3/search/movie?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8)) :
+                    String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8));
+                authHeaders = Map.of("Authorization", "Bearer " + tmdbKey);
+            } else {
+                searchUrl = "movie".equalsIgnoreCase(type) ?
+                    String.format(TMDB_SEARCH_MOVIE, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8)) :
+                    String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8));
+            }
+
+            JsonNode root = fetchJson(searchUrl, authHeaders);
+            if (root == null || !root.path("results").isArray() || root.path("results").isEmpty()) {
+                LOG.info("[FetchMediaImages] No TMDB results for '{}' (type={})", title, type);
+                return new MediaImages(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            }
+
+            JsonNode first = root.path("results").get(0);
+
+            Optional<String> poster = Optional.empty();
+            Optional<String> logo = Optional.empty();
+            Optional<String> backdrop = Optional.empty();
+            Optional<String> hero = Optional.empty();
+
+            String posterPath = first.path("poster_path").asText(null);
+            if (posterPath != null && !posterPath.isEmpty() && !posterPath.equals("null")) {
+                poster = Optional.of(TMDB_IMAGE_W342 + posterPath);
+            }
+
+            String backdropPath = first.path("backdrop_path").asText(null);
+            if (backdropPath != null && !backdropPath.isEmpty() && !backdropPath.equals("null")) {
+                backdrop = Optional.of(TMDB_IMAGE_W1280 + backdropPath);
+                hero = Optional.of(TMDB_IMAGE_ORIGINAL + backdropPath);
+            }
+
+            // TVMaze poster fallback when TMDB poster is empty
+            if (poster.isEmpty() && Boolean.TRUE.equals(settings.getTvmazeEnabled())) {
+                try {
+                    String tvmazeUrl = String.format(TVMAZE_SEARCH, URLEncoder.encode(title, StandardCharsets.UTF_8));
+                    JsonNode tvmazeRoot = fetchJson(tvmazeUrl, null);
+                    if (tvmazeRoot != null && tvmazeRoot.isArray()) {
+                        for (JsonNode result : tvmazeRoot) {
+                            JsonNode show = result.path("show");
+                            if (show.has("image") && show.get("image").has("medium")) {
+                                poster = Optional.of(show.get("image").get("medium").asText());
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("TVMaze poster fallback failed for {}: {}", title, e.getMessage());
+                }
+            }
+
+            try {
+                String tmdbId = first.path("id").asText(null);
+                if (tmdbId != null && !tmdbId.isEmpty() && !tmdbId.equals("null")) {
+                    String imagesUrl;
+                    if (isBearerToken(tmdbKey)) {
+                        imagesUrl = "movie".equalsIgnoreCase(type) ?
+                            String.format("https://api.themoviedb.org/3/movie/%s/images", tmdbId) :
+                            String.format("https://api.themoviedb.org/3/tv/%s/images", tmdbId);
+                    } else {
+                        imagesUrl = "movie".equalsIgnoreCase(type) ?
+                            String.format(TMDB_MOVIE_IMAGES, tmdbId, tmdbKey) :
+                            String.format(TMDB_TV_IMAGES, tmdbId, tmdbKey);
+                    }
+                    JsonNode imagesRoot = fetchJson(imagesUrl, authHeaders);
+                    if (imagesRoot != null && imagesRoot.has("logos")) {
+                        JsonNode logos = imagesRoot.get("logos");
+                        if (logos.isArray() && logos.size() > 0) {
+                            String logoFilePath = null;
+                            for (JsonNode logoNode : logos) {
+                                if ("en".equals(logoNode.path("iso_639_1").asText())) {
+                                    logoFilePath = logoNode.path("file_path").asText(null);
+                                    break;
+                                }
+                            }
+                            if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText(null);
+                            if (logoFilePath != null) {
+                                logo = Optional.of(TMDB_IMAGE_W500 + logoFilePath);
+                            }
+                        }
+                    }
+                    LOG.info("[FetchMediaImages] Logo fetch for '{}': {}", title, logo.isPresent() ? "ok" : "none");
+                }
+            } catch (Exception ex) {
+                LOG.warn("[FetchMediaImages] Logo fetch failed for {}: {}", title, ex.getMessage());
+            }
+
+            Optional<String> still = Optional.empty();
+            if ("episode".equalsIgnoreCase(type) && seriesTitle != null && seasonNumber != null && episodeNumber != null) {
+                try {
+                    still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber);
+                    LOG.info("[FetchMediaImages] Episode still for '{}' S{}E{}: {}", title, seasonNumber, episodeNumber, still.isPresent() ? "ok" : "none");
+                } catch (Exception ex) {
+                    LOG.warn("[FetchMediaImages] Episode still fetch failed for {} S{}E{}: {}", title, seasonNumber, episodeNumber, ex.getMessage());
+                }
+            }
+
+            LOG.info("[FetchMediaImages] Fetched images for '{}': poster={}, backdrop={}, still={}",
+                title, poster.isPresent() ? "ok" : "none", backdrop.isPresent() ? "ok" : "none", still.isPresent() ? "ok" : "none");
+
+            return new MediaImages(poster, logo, backdrop, hero, still);
+        } catch (Exception e) {
+            LOG.warn("[FetchMediaImages] TMDB image fetch failed for {}: {}", title, e.getMessage());
+            return new MediaImages(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        }
+    }
     
     /**
      * Fetch episode-specific image URL from TMDB
@@ -1019,8 +1298,14 @@ public class VideoMetadataService {
         }
         
         try {
-            String searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8));
-            JsonNode searchResult = fetchJson(searchUrl);
+            Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+            String searchUrl;
+            if (isBearerToken(tmdbKey)) {
+                searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8));
+            } else {
+                searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8));
+            }
+            JsonNode searchResult = fetchJson(searchUrl, authHeaders);
             
             if (searchResult == null || !searchResult.has("results") || searchResult.get("results").isEmpty()) {
                 return Optional.empty();
@@ -1028,13 +1313,18 @@ public class VideoMetadataService {
             
             String tvShowId = searchResult.get("results").get(0).get("id").asText();
             
-            String episodeUrl = String.format(TMDB_EPISODE_DETAILS, tvShowId, seasonNumber, episodeNumber, tmdbKey);
-            JsonNode episodeResult = fetchJson(episodeUrl);
+            String episodeUrl;
+            if (isBearerToken(tmdbKey)) {
+                episodeUrl = String.format("https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?append_to_response=credits,images", tvShowId, seasonNumber, episodeNumber);
+            } else {
+                episodeUrl = String.format(TMDB_EPISODE_DETAILS, tvShowId, seasonNumber, episodeNumber, tmdbKey);
+            }
+            JsonNode episodeResult = fetchJson(episodeUrl, authHeaders);
             
             if (episodeResult != null && episodeResult.has("still_path")) {
                 String stillPath = episodeResult.get("still_path").asText();
                 if (stillPath != null && !stillPath.isEmpty()) {
-                    return Optional.of(TMDB_IMAGE_BASE + stillPath);
+                    return Optional.of(TMDB_IMAGE_W500 + stillPath);
                 }
             }
         } catch (Exception e) {

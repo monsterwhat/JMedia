@@ -8,14 +8,22 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,10 +34,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorCompletionService;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
 import Utils.MediaPathResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import javax.imageio.ImageIO;
 import jakarta.annotation.PreDestroy;
 
 @ApplicationScoped
@@ -148,6 +159,28 @@ public class ThumbnailService {
                     if (cachedApiUrl != null) {
                         LOGGER.info("Using cached poster URL for show: {}", title);
                         downloadImage(cachedApiUrl, outputPath);
+
+                        // STRATEGY B+: Fetch and store all 4 TMDB image sizes
+                        try {
+                            LOGGER.info("Strategy B+: Fetching multi-size images for cached show: {}", title);
+                            VideoMetadataService.MediaImages tmdbImages = metadataService.fetchMediaImages(type, title, video.releaseYear,
+                                video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                            ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                                tmdbImages.posterPath(), tmdbImages.logoPath(),
+                                tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                                tmdbImages.stillPath());
+                            MediaImagePaths paths = downloadMediaImages(videoId, localImages);
+                            if (paths.posterPath() != null) video.posterPath = paths.posterPath();
+                            if (paths.logoPath() != null) video.logoPath = paths.logoPath();
+                            if (paths.backdropPath() != null) video.backdropPath = paths.backdropPath();
+                            if (paths.heroPath() != null) video.heroPath = paths.heroPath();
+                            if (paths.stillPath() != null) video.stillPath = paths.stillPath();
+                            entityManager.persist(video);
+                            LOGGER.info("Strategy B+: Updated image paths for cached video {}", videoId);
+                        } catch (Exception ex) {
+                            LOGGER.warn("Strategy B+: Multi-image fetch failed for cached video {}: {}", videoId, ex.getMessage());
+                        }
+
                         return finalizeThumbnail(videoId, outputPath.toString());
                     }
                     
@@ -161,6 +194,28 @@ public class ThumbnailService {
                         // Cache the API URL for this show
                         showThumbnailCache.put(showCacheKey, apiUrl.get());
                         downloadImage(apiUrl.get(), outputPath);
+
+                        // STRATEGY B+: Fetch and store all 4 TMDB image sizes
+                        try {
+                            LOGGER.info("Strategy B+: Fetching multi-size images for: {}", title);
+                            VideoMetadataService.MediaImages tmdbImages = metadataService.fetchMediaImages(type, title, video.releaseYear,
+                                video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                            ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                                tmdbImages.posterPath(), tmdbImages.logoPath(),
+                                tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                                tmdbImages.stillPath());
+                            MediaImagePaths paths = downloadMediaImages(videoId, localImages);
+                            if (paths.posterPath() != null) video.posterPath = paths.posterPath();
+                            if (paths.logoPath() != null) video.logoPath = paths.logoPath();
+                            if (paths.backdropPath() != null) video.backdropPath = paths.backdropPath();
+                            if (paths.heroPath() != null) video.heroPath = paths.heroPath();
+                            if (paths.stillPath() != null) video.stillPath = paths.stillPath();
+                            entityManager.persist(video);
+                            LOGGER.info("Strategy B+: Updated image paths for video {}", videoId);
+                        } catch (Exception ex) {
+                            LOGGER.warn("Strategy B+: Multi-image fetch failed for {}: {}", videoId, ex.getMessage());
+                        }
+
                         return finalizeThumbnail(videoId, outputPath.toString());
                     }
                 }
@@ -660,6 +715,99 @@ public class ThumbnailService {
             LOGGER.error("Error queueing videos for regeneration: " + e.getMessage());
         }
     }
+
+    /**
+     * Backfill multi-size TMDB images (poster, logo, backdrop, hero) for all
+     * videos that are missing any of the four files on disk.  Intended to be
+     * called manually from an admin endpoint or background job — NOT invoked
+     * automatically.
+     * <p>
+     * Unlike the previous version that only looked at DB columns, this checks
+     * actual disk existence so videos with a poster but missing hero/logo/
+     * backdrop are also picked up.  Videos where all four files already exist
+     * are skipped without an API call.
+     */
+    @Transactional
+    public void backfillMediaImages() {
+        List<Video> videos = Video.list("path IS NOT NULL");
+        LOGGER.info("Backfill: Scanning {} videos for missing multi-size images", videos.size());
+
+        Path thumbnailsDir = getThumbnailDirectory();
+
+        int processed = 0;
+        int skipped = 0;
+        int succeeded = 0;
+        int failed = 0;
+        int imagesDownloaded = 0;
+
+        for (Video video : videos) {
+            try {
+                // Check which image files already exist on disk
+                boolean hasPoster   = Files.exists(thumbnailsDir.resolve(video.id + "_poster.webp"))   || Files.exists(thumbnailsDir.resolve(video.id + "_poster.jpg"))   || Files.exists(thumbnailsDir.resolve(video.id + "_poster.png"));
+                boolean hasLogo     = Files.exists(thumbnailsDir.resolve(video.id + "_logo.webp"))     || Files.exists(thumbnailsDir.resolve(video.id + "_logo.jpg"))     || Files.exists(thumbnailsDir.resolve(video.id + "_logo.png"));
+                boolean hasBackdrop = Files.exists(thumbnailsDir.resolve(video.id + "_backdrop.webp")) || Files.exists(thumbnailsDir.resolve(video.id + "_backdrop.jpg")) || Files.exists(thumbnailsDir.resolve(video.id + "_backdrop.png"));
+                boolean hasHero     = Files.exists(thumbnailsDir.resolve(video.id + "_hero.webp"))     || Files.exists(thumbnailsDir.resolve(video.id + "_hero.jpg"))     || Files.exists(thumbnailsDir.resolve(video.id + "_hero.png"));
+
+                if (hasPoster && hasLogo && hasBackdrop && hasHero) {
+                    skipped++;
+                    processed++;
+                    continue;
+                }
+
+                String type = video.type != null ? video.type : "movie";
+
+                // Resolve title the same way generateThumbnail does
+                String title;
+                if ("episode".equalsIgnoreCase(type) && video.seriesTitle != null && !video.seriesTitle.isBlank()) {
+                    title = video.seriesTitle;
+                } else {
+                    title = video.title != null ? video.title : video.seriesTitle;
+                }
+
+                if (title == null || title.isBlank()) {
+                    LOGGER.debug("Backfill: Skipping video {} — no title available", video.id);
+                    processed++;
+                    continue;
+                }
+
+                VideoMetadataService.MediaImages tmdbImages = metadataService.fetchMediaImages(type, title, video.releaseYear,
+                    video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                    tmdbImages.posterPath(), tmdbImages.logoPath(),
+                    tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                    tmdbImages.stillPath());
+                MediaImagePaths paths = downloadMediaImages(video.id, localImages);
+
+                int downloaded = 0;
+                if (paths.posterPath() != null)   { video.posterPath   = paths.posterPath();   downloaded++; }
+                if (paths.logoPath() != null)     { video.logoPath     = paths.logoPath();     downloaded++; }
+                if (paths.backdropPath() != null) { video.backdropPath = paths.backdropPath(); downloaded++; }
+                if (paths.heroPath() != null)     { video.heroPath     = paths.heroPath();     downloaded++; }
+                if (paths.stillPath() != null)    { video.stillPath    = paths.stillPath();    downloaded++; }
+
+                if (downloaded > 0) {
+                    entityManager.persist(video);
+                    imagesDownloaded += downloaded;
+                }
+                succeeded++;
+            } catch (Exception e) {
+                LOGGER.error("Backfill: Failed to process video {}: {}", video.id, e.getMessage());
+                failed++;
+            }
+
+            processed++;
+            if (processed % 50 == 0) {
+                LOGGER.info("Backfill: {}/{} videos checked ({} skipped, {} succeeded, {} failed, {} images downloaded)",
+                    processed, videos.size(), skipped, succeeded, failed, imagesDownloaded);
+            }
+
+            // Rate limit to respect TMDB API limits
+            try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+
+        LOGGER.info("Backfill complete: {}/{} videos checked ({} skipped, {} succeeded, {} failed, {} images downloaded)",
+            processed, videos.size(), skipped, succeeded, failed, imagesDownloaded);
+    }
     
     public ThumbnailProcessingStatus getProcessingStatus() {
         return processingStatus;
@@ -814,5 +962,181 @@ public class ThumbnailService {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Return value of {@link #downloadMediaImages} holding the four local
+     * WebP paths written to the thumbnails directory.
+     */
+    public record MediaImagePaths(
+        String posterPath,
+        String logoPath,
+        String backdropPath,
+        String heroPath,
+        String stillPath
+    ) {}
+
+    /**
+     * Compatible local definition matching {@code VideoMetadataService.MediaImages}.
+     * Remove once the parallel task lands that record in VideoMetadataService.
+     */
+    public record MediaImages(
+        Optional<String> posterUrl,
+        Optional<String> logoUrl,
+        Optional<String> backdropUrl,
+        Optional<String> heroUrl,
+        Optional<String> stillUrl
+    ) {}
+
+    private static final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(15))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+    /**
+     * Downloads up to four TMDB image sizes for a video, converts them to
+     * WebP (quality 85) and saves them into the thumbnails directory.
+     * <p>
+     * Files that already exist on disk are skipped.
+     * If WebP conversion fails, the raw bytes are stored with the original
+     * extension as a fallback.
+     *
+     * @param videoId the video's database id (used in file names)
+     * @param images  the TMDB image URLs (null/empty entries are skipped)
+     * @return local paths for each downloaded image (null for skipped/failed)
+     */
+    public MediaImagePaths downloadMediaImages(Long videoId, MediaImages images) {
+        if (images == null) {
+            return new MediaImagePaths(null, null, null, null, null);
+        }
+
+        Path thumbnailsDir = getThumbnailDirectory();
+
+        String posterPath   = downloadAndConvertImage(videoId, "poster",   images.posterUrl(),   thumbnailsDir);
+        String logoPath     = downloadAndConvertImage(videoId, "logo",     images.logoUrl(),     thumbnailsDir);
+        String backdropPath = downloadAndConvertImage(videoId, "backdrop", images.backdropUrl(), thumbnailsDir);
+        String heroPath     = downloadAndConvertImage(videoId, "hero",     images.heroUrl(),     thumbnailsDir);
+        String stillPath    = downloadAndConvertImage(videoId, "still",    images.stillUrl(),    thumbnailsDir);
+
+        return new MediaImagePaths(posterPath, logoPath, backdropPath, heroPath, stillPath);
+    }
+
+    private String downloadAndConvertImage(Long videoId, String type, Optional<String> urlOpt, Path thumbnailsDir) {
+        if (urlOpt == null || urlOpt.isEmpty()) {
+            return null;
+        }
+        String url = urlOpt.get();
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+
+        Path webpPath = thumbnailsDir.resolve(videoId + "_" + type + ".webp");
+
+        if (Files.exists(webpPath)) {
+            return webpPath.toAbsolutePath().toString();
+        }
+
+        byte[] rawBytes = downloadBytes(url);
+        if (rawBytes == null || rawBytes.length == 0) {
+            LOGGER.warn("Failed to download {} image for video {}: {}", type, videoId, url);
+            return null;
+        }
+
+        try {
+            writeWebP(rawBytes, webpPath);
+            LOGGER.info("Saved {} image as WebP for video {} ({} bytes)", type, videoId, Files.size(webpPath));
+            return webpPath.toAbsolutePath().toString();
+        } catch (Exception e) {
+            LOGGER.warn("WebP conversion failed for {} image video {}, falling back to original format: {}",
+                    type, videoId, e.getMessage());
+        }
+
+        try {
+            String ext = guessExtension(url);
+            Path fallbackPath = thumbnailsDir.resolve(videoId + "_" + type + ext);
+            Files.write(fallbackPath, rawBytes);
+            LOGGER.info("Saved {} image as {} for video {} (fallback, {} bytes)", type, ext, videoId, rawBytes.length);
+            return fallbackPath.toAbsolutePath().toString();
+        } catch (IOException e) {
+            LOGGER.error("Failed to save fallback {} image for video {}: {}", type, videoId, e.getMessage());
+            return null;
+        }
+    }
+
+    private byte[] downloadBytes(String imageUrl) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(imageUrl))
+                    .header("User-Agent", "JMedia/1.0 (Thumbnail Downloader)")
+                    .header("Accept", "image/*")
+                    .timeout(Duration.ofSeconds(15))
+                    .GET()
+                    .build();
+
+            HttpResponse<byte[]> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofByteArray());
+
+            if (response.statusCode() == 200) {
+                return response.body();
+            } else if (response.statusCode() == 301 || response.statusCode() == 302) {
+                String location = response.headers().firstValue("Location").orElse(null);
+                if (location != null && !location.equals(imageUrl)) {
+                    return downloadBytes(location);
+                }
+            }
+            LOGGER.warn("HTTP {} downloading image: {}", response.statusCode(), imageUrl);
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.warn("Interrupted downloading image: {}", imageUrl);
+            return null;
+        } catch (Exception e) {
+            LOGGER.warn("Error downloading image {}: {}", imageUrl, e.getMessage());
+            return null;
+        }
+    }
+
+    private void writeWebP(byte[] rawBytes, Path outputPath) throws IOException {
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(rawBytes));
+        if (image == null) {
+            throw new IOException("Could not decode image from bytes");
+        }
+
+        ImageWriter writer = null;
+        ImageOutputStream ios = null;
+        try {
+            Iterator<ImageWriter> writers = ImageIO.getImageWritersByMIMEType("image/webp");
+            if (writers.hasNext()) {
+                writer = writers.next();
+                ios = ImageIO.createImageOutputStream(Files.newOutputStream(outputPath));
+                writer.setOutput(ios);
+
+                ImageWriteParam param = writer.getDefaultWriteParam();
+                if (param.canWriteCompressed()) {
+                    param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                    param.setCompressionType(param.getCompressionTypes()[0]);
+                    param.setCompressionQuality(0.85f);
+                }
+
+                writer.write(null, new javax.imageio.IIOImage(image, null, null), param);
+            } else {
+                throw new IOException("No WebP ImageWriter available – webp-imageio SPI not registered");
+            }
+        } finally {
+            if (ios != null) {
+                ios.close();
+            }
+            if (writer != null) {
+                writer.dispose();
+            }
+        }
+    }
+
+    private static String guessExtension(String url) {
+        String lower = url.toLowerCase();
+        if (lower.contains(".png")) return ".png";
+        if (lower.contains(".webp")) return ".webp";
+        if (lower.contains(".gif")) return ".gif";
+        return ".jpg";
     }
 }

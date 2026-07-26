@@ -66,6 +66,9 @@ public class VideoManagementApi {
     @Inject
     VideoMetadataService videoMetadataService;
 
+    @Inject
+    Services.ThumbnailService thumbnailService;
+
     @GET
     @Blocking
     public String getManagePanel(@QueryParam("search") String search, @QueryParam("type") String type) {
@@ -256,6 +259,73 @@ public class VideoManagementApi {
         }
 
         return Response.ok("Force refresh completed. Re-imported " + totalCreated + " videos.").build();
+    }
+
+    @POST
+    @Path("/series/refetch-images")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    @Transactional
+    public Response refetchSeriesImages(@FormParam("seriesTitle") String seriesTitle) {
+        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
+        if (episodes.isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Series not found").build();
+        }
+
+        Video representative = episodes.get(0);
+        String type = representative.type != null ? representative.type : "episode";
+        String title = "episode".equalsIgnoreCase(type) && representative.seriesTitle != null
+                ? representative.seriesTitle
+                : (representative.title != null ? representative.title : representative.seriesTitle);
+
+        if (title == null || title.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("No title available for image fetch").build();
+        }
+
+        try {
+            VideoMetadataService.MediaImages tmdbImages = videoMetadataService.fetchMediaImages(type, title, representative.releaseYear,
+                    representative.seriesTitle, representative.seasonNumber, representative.episodeNumber);
+            LOG.info("[RefetchImages] TMDB result for '{}': poster={}, backdrop={}, logo={}, hero={}, still={}", title, tmdbImages.posterPath().isPresent(), tmdbImages.backdropPath().isPresent(), tmdbImages.logoPath().isPresent(), tmdbImages.heroPath().isPresent(), tmdbImages.stillPath().isPresent());
+            Services.ThumbnailService.MediaImages localImages = new Services.ThumbnailService.MediaImages(
+                    tmdbImages.posterPath(), tmdbImages.logoPath(),
+                    tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                    tmdbImages.stillPath());
+
+            // Force refetch: delete existing image files so they get re-downloaded
+            java.nio.file.Path thumbnailsDir = thumbnailService.getThumbnailDirectory();
+            for (String suffix : new String[]{"poster", "logo", "backdrop", "hero", "still"}) {
+                for (String ext : new String[]{".webp", ".jpg", ".png", ".gif"}) {
+                    java.nio.file.Path existing = thumbnailsDir.resolve(representative.id + "_" + suffix + ext);
+                    try { java.nio.file.Files.deleteIfExists(existing); } catch (Exception ignored) {}
+                }
+            }
+
+            Services.ThumbnailService.MediaImagePaths paths = thumbnailService.downloadMediaImages(representative.id, localImages);
+            LOG.info("[RefetchImages] Downloaded paths for video {}: poster={}, backdrop={}, logo={}, hero={}, still={}", representative.id, paths.posterPath(), paths.backdropPath(), paths.logoPath(), paths.heroPath(), paths.stillPath());
+
+            LOG.info("[RefetchImages] Updating {} episodes for series '{}'", episodes.size(), seriesTitle);
+            int updated = 0;
+            for (Video v : episodes) {
+                boolean changed = false;
+                if (paths.posterPath() != null) { v.posterPath = paths.posterPath(); changed = true; }
+                if (paths.backdropPath() != null) { v.backdropPath = paths.backdropPath(); changed = true; }
+                if (paths.logoPath() != null) { v.logoPath = paths.logoPath(); changed = true; }
+                if (paths.heroPath() != null) { v.heroPath = paths.heroPath(); changed = true; }
+                if (paths.stillPath() != null) { v.stillPath = paths.stillPath(); changed = true; }
+                if (changed) {
+                    v.dateModified = java.time.LocalDateTime.now();
+                    v.persist();
+                    updated++;
+                }
+            }
+
+            String safeTitle = seriesTitle.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+            LOG.info("Refetched images for series '{}': updated {} episodes", seriesTitle, updated);
+            return Response.ok("Refetched images for '" + safeTitle + "'. Updated " + updated + " episodes.").build();
+        } catch (Exception e) {
+            LOG.error("Failed to refetch images for series '{}': {}", seriesTitle, e.getMessage(), e);
+            return Response.serverError().entity("Failed to refetch images: " + e.getMessage()).build();
+        }
     }
 
     @GET

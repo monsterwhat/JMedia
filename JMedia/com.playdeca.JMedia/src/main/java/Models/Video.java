@@ -154,6 +154,8 @@ public class Video extends PanacheEntity {
     public String backdropPath;
     public String fanartPath;
     public String logoPath;
+    public String heroPath;
+    public String stillPath;
     
     // Subtitle Information
     @OneToMany(mappedBy = "video", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)

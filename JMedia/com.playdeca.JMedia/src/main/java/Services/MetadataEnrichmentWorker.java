@@ -24,8 +24,8 @@ import java.util.stream.Collectors;
  * <p>
  * Runs on a configurable schedule, processes a limited batch per tick to avoid
  * overwhelming external APIs, and retries failed enrichments after a cooldown period.
- * <p>
- * Follows the same pattern as {@link AnalysisWorker} — Phase 1 → Phase 2 → retry failures.
+ * Videos missing any image field (poster, backdrop, logo, hero, still for episodes)
+ * are re-enriched indefinitely until all images are present.
  */
 @ApplicationScoped
 public class MetadataEnrichmentWorker {
@@ -82,9 +82,13 @@ public class MetadataEnrichmentWorker {
             int phase3 = processFailedRetries();
             total += phase3;
 
+            // Phase 4: Videos with IDs but missing image fields -> re-enrich images
+            int phase4 = processMissingImages();
+            total += phase4;
+
             if (total > 0) {
-                LOG.info("MetadataEnrichmentWorker tick complete: {} enriched ({} IDs, {} intro/outro, {} retries, {} pending failures)",
-                        total, phase1, phase2, phase3, failedEnrichments.size());
+                LOG.info("MetadataEnrichmentWorker tick complete: {} enriched ({} IDs, {} intro/outro, {} retries, {} images, {} pending failures)",
+                        total, phase1, phase2, phase3, phase4, failedEnrichments.size());
             }
         } catch (Exception e) {
             LOG.error("MetadataEnrichmentWorker: unexpected error in processing tick", e);
@@ -187,6 +191,48 @@ public class MetadataEnrichmentWorker {
             }
         }
         return count;
+    }
+
+    /**
+     * Phase 4: Find active videos that have a tmdbId but are still missing image
+     * fields (posterPath, backdropPath, logoPath, heroPath, and stillPath for episodes).
+     * Re-enriches them indefinitely until all required images are present.
+     */
+    private int processMissingImages() {
+        int count = 0;
+        try {
+            List<Video> candidates = Video.find(
+                    "isActive = ?1 AND tmdbId IS NOT NULL AND tmdbId != '' AND " +
+                    "(posterPath IS NULL OR backdropPath IS NULL OR logoPath IS NULL OR heroPath IS NULL OR " +
+                    "(type = 'episode' AND stillPath IS NULL))",
+                    true
+            ).page(0, batchSize).list();
+
+            for (Video video : candidates) {
+                if (VideoMetadataService.isVideoEnriched(video)) continue;
+                try {
+                    LOG.info("Re-enriching images for '{}' (id={}, type={}) — missing: {}",
+                            video.title, video.id, video.type, describeMissing(video));
+                    videoMetadataService.fetchAndEnrichMetadata(video);
+                    count++;
+                } catch (Exception e) {
+                    LOG.warn("Failed to re-enrich images for '{}' (id={}): {}", video.title, video.id, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Error querying for videos missing images", e);
+        }
+        return count;
+    }
+
+    private String describeMissing(Video video) {
+        StringBuilder sb = new StringBuilder();
+        if (video.posterPath == null) sb.append("poster ");
+        if (video.backdropPath == null) sb.append("backdrop ");
+        if (video.logoPath == null) sb.append("logo ");
+        if (video.heroPath == null) sb.append("hero ");
+        if ("episode".equalsIgnoreCase(video.type) && video.stillPath == null) sb.append("still ");
+        return sb.toString().trim();
     }
 
     // ---- Monitoring / Admin hooks ----
