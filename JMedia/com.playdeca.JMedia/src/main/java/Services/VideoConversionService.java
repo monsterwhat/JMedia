@@ -589,6 +589,7 @@ public class VideoConversionService {
             Process process = pb.start();
             List<Integer> textStreams = new ArrayList<>();
             List<Integer> imageStreams = new ArrayList<>();
+            int subtitleTypeIndex = 0;
             try (Scanner sc = new Scanner(process.getInputStream())) {
                 while (sc.hasNextLine()) {
                     String line = sc.nextLine().trim();
@@ -596,14 +597,14 @@ public class VideoConversionService {
                     String[] parts = line.split(",", 2);
                     if (parts.length < 2) continue;
                     try {
-                        int index = Integer.parseInt(parts[0]);
                         String codec = parts[1].toLowerCase(Locale.ROOT);
                         if (TEXT_SUBTITLE_CODECS.contains(codec)) {
-                            textStreams.add(index);
+                            textStreams.add(subtitleTypeIndex);
                         } else {
-                            imageStreams.add(index);
+                            imageStreams.add(subtitleTypeIndex);
                         }
                     } catch (NumberFormatException ignored) {}
+                    subtitleTypeIndex++;
                 }
             }
             int exitCode = process.waitFor();
@@ -727,12 +728,14 @@ public class VideoConversionService {
 
         // Parse stderr for progress (time=HH:MM:SS.mm)
         long durationMs = video.duration != null && video.duration > 0 ? video.duration : 0;
+        final StringBuilder stderrCapture = new StringBuilder();
 
         Thread progressReader = new Thread(() -> {
             Pattern timePattern = Pattern.compile("time=(\\d+):(\\d+):(\\d+)\\.(\\d+)");
             try (java.util.Scanner sc = new java.util.Scanner(process.getErrorStream())) {
                 while (sc.hasNextLine()) {
                     String line = sc.nextLine();
+                    stderrCapture.append(line).append("\n");
                     if (line.contains("time=")) {
                         Matcher m = timePattern.matcher(line);
                         if (m.find()) {
@@ -758,10 +761,7 @@ public class VideoConversionService {
 
         if (exitCode != 0) {
             // Read error output for diagnostics
-            String errorOutput = "";
-            try (java.util.Scanner sc = new java.util.Scanner(process.getErrorStream()).useDelimiter("\\A")) {
-                if (sc.hasNext()) errorOutput = sc.next();
-            } catch (Exception ignored) {}
+            String errorOutput = stderrCapture.toString();
 
             // Check if subtitle codec error is the only issue (unwanted subtitles)
             if (errorOutput.contains("Subtitle codec") && errorOutput.contains("is not supported")) {
