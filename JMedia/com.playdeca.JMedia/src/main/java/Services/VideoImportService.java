@@ -74,9 +74,6 @@ public class VideoImportService {
     @Inject
     VideoMetadataService videoMetadataService;
 
-    @Inject
-    SeriesMigrationService seriesMigrationService;
-
     // TODO: Remove this method once stale column migration is complete
     private static final String[] STALE_COLUMNS = {"WATCHED", "WATCHPROGRESSDOUBLE"};
     private volatile boolean staleColumnsCleaned = false;
@@ -88,7 +85,6 @@ public class VideoImportService {
 
     @Transactional
     void onStart(@Observes StartupEvent ev) {
-        seriesMigrationService.migrateAll();
         cleanStaleColumns();
     }
 
@@ -408,6 +404,9 @@ public class VideoImportService {
             Models.CollectionEntry.deleteAll();
         } catch (Exception ignored) {}
         Video.deleteAll();
+        try {
+            Models.Series.deleteAll();
+        } catch (Exception ignored) {}
         MediaFile.deleteAll();
         ScanState.deleteAll();
 

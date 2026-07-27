@@ -1,5 +1,6 @@
 package Services;
 
+import Models.Series;
 import Models.Video;
 import Services.Thumbnail.ThumbnailJob;
 import Services.Thumbnail.ThumbnailProcessingStatus;
@@ -26,6 +27,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -880,6 +882,166 @@ public class ThumbnailService {
             LOGGER.error("ensureMediaImages failed for video {}: {}", videoId, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Ensures that TMDB media images (poster, logo, backdrop, hero) are
+     * fetched and stored locally for a Series. Uses a {@code series_} file
+     * prefix to avoid clashing with video thumbnail IDs.
+     *
+     * @param seriesId the Series database id
+     * @return {@code true} if new images were downloaded, {@code false} if
+     *         all images already existed or fetching failed
+     */
+    @Transactional
+    public boolean ensureSeriesMediaImages(Long seriesId) {
+        try {
+            Series series = entityManager.find(Series.class, seriesId);
+            if (series == null) return false;
+
+            String title = series.title;
+            if (title == null || title.isBlank()) return false;
+
+            Path thumbnailsDir = getThumbnailDirectory();
+            String prefix = "series_" + seriesId;
+
+            VideoMetadataService.MediaImages tmdbImages = metadataService.fetchMediaImages("tv", title, series.releaseYear,
+                null, null, null);
+            ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                tmdbImages.posterPath(), tmdbImages.logoPath(),
+                tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                tmdbImages.stillPath());
+
+            MediaImagePaths paths = downloadSeriesMediaImages(seriesId, localImages);
+
+            boolean downloaded = paths.posterPath() != null || paths.logoPath() != null
+                || paths.backdropPath() != null || paths.heroPath() != null;
+
+            boolean dbUpdated = false;
+            String posterPath   = findExistingPath(thumbnailsDir, prefix, "poster");
+            String logoPath     = findExistingPath(thumbnailsDir, prefix, "logo");
+            String backdropPath = findExistingPath(thumbnailsDir, prefix, "backdrop");
+            String heroPath     = findExistingPath(thumbnailsDir, prefix, "hero");
+
+            if (!Objects.equals(series.posterPath, posterPath))     { series.posterPath   = posterPath;   dbUpdated = true; }
+            if (!Objects.equals(series.logoPath, logoPath))         { series.logoPath     = logoPath;     dbUpdated = true; }
+            if (!Objects.equals(series.backdropPath, backdropPath)) { series.backdropPath = backdropPath; dbUpdated = true; }
+            if (!Objects.equals(series.heroPath, heroPath))         { series.heroPath     = heroPath;     dbUpdated = true; }
+
+            if (dbUpdated) entityManager.persist(series);
+
+            try {
+                metadataService.ensureSeriesTextMetadata(seriesId);
+            } catch (Exception e) {
+                LOGGER.warn("Text metadata enrichment failed for series {}: {}", seriesId, e.getMessage());
+            }
+
+            return downloaded;
+        } catch (Exception e) {
+            LOGGER.error("ensureSeriesMediaImages failed for series {}: {}", seriesId, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Downloads series media images using {@code series_} prefix naming
+     * to avoid ID collisions with video thumbnails.
+     */
+    private MediaImagePaths downloadSeriesMediaImages(Long seriesId, MediaImages images) {
+        if (images == null) {
+            return new MediaImagePaths(null, null, null, null, null);
+        }
+
+        Path thumbnailsDir = getThumbnailDirectory();
+        String prefix = "series_" + seriesId;
+
+        String posterPath   = downloadAndConvertImage(prefix, "poster",   images.posterUrl(),   thumbnailsDir);
+        String logoPath     = downloadAndConvertImage(prefix, "logo",     images.logoUrl(),     thumbnailsDir);
+        String backdropPath = downloadAndConvertImage(prefix, "backdrop", images.backdropUrl(), thumbnailsDir);
+        String heroPath     = downloadAndConvertImage(prefix, "hero",     images.heroUrl(),     thumbnailsDir);
+
+        return new MediaImagePaths(posterPath, logoPath, backdropPath, heroPath, null);
+    }
+
+    /**
+     * String-prefix variant of {@link #downloadAndConvertImage(Long, String, Optional, Path)}.
+     * Uses a free-form prefix (e.g. {@code "series_123"}) instead of a numeric video ID.
+     */
+    private String downloadAndConvertImage(String idPrefix, String type, Optional<String> urlOpt, Path thumbnailsDir) {
+        if (urlOpt == null || urlOpt.isEmpty()) {
+            return null;
+        }
+        String url = urlOpt.get();
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+
+        boolean isLogo = "logo".equals(type);
+
+        // Logos use PNG directly (WebP writer can't handle alpha-transparent ARGB)
+        if (isLogo) {
+            Path pngPath = thumbnailsDir.resolve(idPrefix + "_logo.png");
+            if (Files.exists(pngPath)) {
+                return pngPath.toAbsolutePath().toString();
+            }
+        }
+
+        Path webpPath = thumbnailsDir.resolve(idPrefix + "_" + type + ".webp");
+        if (Files.exists(webpPath)) {
+            return webpPath.toAbsolutePath().toString();
+        }
+
+        byte[] rawBytes = downloadBytes(url);
+        if (rawBytes == null || rawBytes.length == 0) {
+            LOGGER.warn("Failed to download {} image for {}: {}", type, idPrefix, url);
+            return null;
+        }
+
+        // Logos: save as PNG directly (preserve alpha transparency)
+        if (isLogo) {
+            try {
+                Path pngPath = thumbnailsDir.resolve(idPrefix + "_logo.png");
+                Files.write(pngPath, rawBytes);
+                LOGGER.info("Saved logo image as PNG for {} ({} bytes)", idPrefix, rawBytes.length);
+                return pngPath.toAbsolutePath().toString();
+            } catch (IOException e) {
+                LOGGER.error("Failed to save logo PNG for {}: {}", idPrefix, e.getMessage());
+                return null;
+            }
+        }
+
+        try {
+            writeWebP(rawBytes, webpPath, false);
+            LOGGER.info("Saved {} image as WebP for {} ({} bytes)", type, idPrefix, Files.size(webpPath));
+            return webpPath.toAbsolutePath().toString();
+        } catch (Exception e) {
+            LOGGER.warn("WebP conversion failed for {} image {}, falling back to original format: {}",
+                    type, idPrefix, e.getMessage());
+        }
+
+        try {
+            String ext = guessExtension(url);
+            Path fallbackPath = thumbnailsDir.resolve(idPrefix + "_" + type + ext);
+            Files.write(fallbackPath, rawBytes);
+            LOGGER.info("Saved {} image as {} for {} (fallback, {} bytes)", type, ext, idPrefix, rawBytes.length);
+            return fallbackPath.toAbsolutePath().toString();
+        } catch (IOException e) {
+            LOGGER.error("Failed to save fallback {} image for {}: {}", type, idPrefix, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * String-prefix variant of {@link #findExistingPath(Path, Long, String)}.
+     */
+    private String findExistingPath(Path thumbnailsDir, String idPrefix, String type) {
+        for (String ext : new String[]{".webp", ".png", ".jpg"}) {
+            Path p = thumbnailsDir.resolve(idPrefix + "_" + type + ext);
+            if (Files.exists(p)) {
+                return p.toAbsolutePath().toString();
+            }
+        }
+        return null;
     }
 
     private String findExistingPath(Path thumbnailsDir, Long videoId, String type) {

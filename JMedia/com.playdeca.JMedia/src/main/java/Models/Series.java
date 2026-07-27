@@ -4,6 +4,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.List;
 import java.util.Set;
 
@@ -112,6 +113,7 @@ public class Series extends PanacheEntity {
     public Set<String> keywords;
 
     // Relationships
+    @JsonIgnore
     @OneToMany(mappedBy = "series", cascade = CascadeType.ALL, orphanRemoval = false, fetch = FetchType.LAZY)
     public List<Video> videos;
 }

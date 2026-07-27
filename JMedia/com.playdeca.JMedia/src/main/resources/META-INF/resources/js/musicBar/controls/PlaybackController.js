@@ -286,6 +286,7 @@
             
             if (playingChanged) {
                 if (newState.playing && window.AudioEngine.isPaused()) {
+                    if (window.videoPlaying) return;
                     if (window.AudioEngine.isPaused()) {
                         window.AudioEngine.play().catch(console.error);
                     }
@@ -367,6 +368,7 @@
         // Listen for audio state changes
         window.addEventListener('statePropertyChanged', (e) => {
             if (e.detail.property === 'playing') {
+                if (window.videoPlaying && e.detail.newValue) return;
                 window.PlaybackController.handleAudioStateChange(
                     { playing: !e.detail.newValue },
                     { playing: e.detail.newValue }

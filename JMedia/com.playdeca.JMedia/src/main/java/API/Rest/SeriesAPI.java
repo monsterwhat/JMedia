@@ -3,6 +3,7 @@ package API.Rest;
 import API.ApiResponse;
 import Models.Series;
 import Models.Video;
+import Services.ThumbnailService;
 import io.quarkus.panache.common.Page;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
@@ -15,6 +16,7 @@ import jakarta.ws.rs.core.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -23,6 +25,9 @@ import java.util.stream.Collectors;
 public class SeriesAPI {
 
     private static final Logger LOG = LoggerFactory.getLogger(SeriesAPI.class);
+
+    @Inject
+    ThumbnailService thumbnailService;
 
     private boolean checkAdmin(HttpHeaders headers) {
         String sessionId = null;
@@ -258,5 +263,96 @@ public class SeriesAPI {
         series.delete();
         LOG.info("Deleted series: {} (id={}) — episodes unlinked", series.title, id);
         return Response.ok(ApiResponse.success("Series deleted")).build();
+    }
+
+    private Response serveSeriesImage(Long seriesId, String imageType) {
+        try {
+            Series series = Series.findById(seriesId);
+            if (series == null) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+
+            // Always ensure images are downloaded from TMDB
+            thumbnailService.ensureSeriesMediaImages(seriesId);
+
+            // Re-read to get updated paths
+            series = Series.findById(seriesId);
+            if (series == null) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+
+            String imagePath = switch (imageType) {
+                case "poster"   -> series.posterPath;
+                case "logo"     -> series.logoPath;
+                case "backdrop" -> series.backdropPath;
+                case "hero"     -> series.heroPath;
+                default -> null;
+            };
+
+            if (imagePath != null && !imagePath.isBlank()) {
+                File imageFile = new File(imagePath);
+                if (imageFile.exists() && imageFile.isFile()) {
+                    String contentType = detectImageContentType(imagePath);
+                    return Response.ok(imageFile)
+                            .header("Content-Type", contentType)
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .build();
+                }
+            }
+
+            return Response.temporaryRedirect(java.net.URI.create("/logo.png")).build();
+        } catch (Exception e) {
+            LOG.error("Error serving {} image for series ID: {}", imageType, seriesId, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    private String detectImageContentType(String path) {
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        return "image/webp";
+    }
+
+    @GET
+    @Path("/{id}/poster")
+    public Response getSeriesPoster(@PathParam("id") Long id) {
+        Series series = Series.findById(id);
+        if (series == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return serveSeriesImage(id, "poster");
+    }
+
+    @GET
+    @Path("/{id}/backdrop")
+    public Response getSeriesBackdrop(@PathParam("id") Long id) {
+        Series series = Series.findById(id);
+        if (series == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return serveSeriesImage(id, "backdrop");
+    }
+
+    @GET
+    @Path("/{id}/logo")
+    public Response getSeriesLogo(@PathParam("id") Long id) {
+        Series series = Series.findById(id);
+        if (series == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return serveSeriesImage(id, "logo");
+    }
+
+    @GET
+    @Path("/{id}/hero")
+    public Response getSeriesHero(@PathParam("id") Long id) {
+        Series series = Series.findById(id);
+        if (series == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return serveSeriesImage(id, "hero");
     }
 }

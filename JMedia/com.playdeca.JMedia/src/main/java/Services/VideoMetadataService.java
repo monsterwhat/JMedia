@@ -1,5 +1,6 @@
 package Services;
 
+import Models.Series;
 import Models.Settings;
 import Models.Video;
 import Utils.MediaPathResolver;
@@ -420,7 +421,14 @@ public class VideoMetadataService {
 
             LOG.info("DEBUG: Metadata enrichment successful for: {}", video.title);
         } catch (Exception e) {
-            LOG.error("DEBUG: Metadata enrichment FAILED for {}: {}", video.title, e.getMessage(), e);
+            if (e instanceof jakarta.persistence.OptimisticLockException
+                    || (e.getCause() != null && e.getCause() instanceof jakarta.persistence.OptimisticLockException)
+                    || (e.getCause() != null && e.getCause().getCause() != null
+                        && e.getCause().getCause() instanceof jakarta.persistence.OptimisticLockException)) {
+                LOG.warn("Metadata enrichment skipped for '{}' - entity was likely deleted during database reset", video.title);
+            } else {
+                LOG.error("DEBUG: Metadata enrichment FAILED for {}: {}", video.title, e.getMessage(), e);
+            }
         }
     }
 
@@ -1532,6 +1540,204 @@ public class VideoMetadataService {
             LOG.info("[EnsureTextMetadata] Saved text metadata for video {}", videoId);
         } catch (Exception e) {
             LOG.warn("[EnsureTextMetadata] Failed for video {}: {}", videoId, e.getMessage());
+        }
+    }
+
+    /**
+     * Ensure text metadata (overview, genres, networks, directors, writers, cast) are populated
+     * for a Series entity by fetching from TMDB on demand. Only fields that are currently
+     * null or empty are filled — existing data is never overwritten.
+     *
+     * @param seriesId the Series entity ID
+     */
+    @jakarta.transaction.Transactional
+    public void ensureSeriesTextMetadata(Long seriesId) {
+        if (seriesId == null) return;
+
+        Series series = Series.findById(seriesId);
+        if (series == null) {
+            LOG.warn("[EnsureSeriesTextMetadata] Series {} not found", seriesId);
+            return;
+        }
+
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) return;
+
+        String tmdbKey = getApiKey();
+        if (tmdbKey == null || tmdbKey.isBlank()) return;
+
+        // Check what needs populating
+        boolean needsOverview  = series.overview == null || series.overview.isBlank();
+        boolean needsGenres    = series.genres == null || series.genres.isEmpty();
+        boolean needsNetworks  = series.networks == null || series.networks.isEmpty();
+        boolean needsDirectors = series.directors == null || series.directors.isEmpty();
+        boolean needsWriters   = series.writers == null || series.writers.isEmpty();
+        boolean needsCast      = series.cast == null || series.cast.isEmpty();
+        boolean needsRating    = series.tmdbRating == null;
+        boolean needsVoteCount = series.voteCount == null;
+        boolean needsStatus    = series.status == null || series.status.isBlank();
+        boolean needsTagline   = series.tagline == null || series.tagline.isBlank();
+
+        if (!needsOverview && !needsGenres && !needsNetworks && !needsDirectors
+                && !needsWriters && !needsCast && !needsRating && !needsVoteCount
+                && !needsStatus && !needsTagline) {
+            return; // Everything already populated
+        }
+
+        try {
+            Map<String, String> authHeaders = isBearerToken(tmdbKey)
+                    ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+
+            // Determine the TMDB show ID — use stored tmdbId or search by title
+            String showId;
+            if (series.tmdbId != null) {
+                showId = String.valueOf(series.tmdbId);
+            } else {
+                String searchQuery = series.title != null
+                        ? URLEncoder.encode(series.title, StandardCharsets.UTF_8) : null;
+                if (searchQuery == null) {
+                    LOG.info("[EnsureSeriesTextMetadata] Series {} has no title, skipping", seriesId);
+                    return;
+                }
+                String searchUrl = isBearerToken(tmdbKey)
+                        ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", searchQuery)
+                        : String.format(TMDB_SEARCH_TV, tmdbKey, searchQuery);
+                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+                if (searchRoot == null || searchRoot.path("results").isEmpty()) {
+                    LOG.info("[EnsureSeriesTextMetadata] No TMDB results for '{}'", series.title);
+                    return;
+                }
+                showId = searchRoot.path("results").get(0).path("id").asText();
+                // Save the tmdbId for future use
+                try {
+                    series.tmdbId = Integer.parseInt(showId);
+                } catch (NumberFormatException ignored) {}
+            }
+
+            // Fetch full show details with credits
+            String detailUrl = isBearerToken(tmdbKey)
+                    ? String.format("https://api.themoviedb.org/3/tv/%s?append_to_response=credits", showId)
+                    : String.format(TMDB_TV_DETAILS, showId, tmdbKey);
+            JsonNode root = fetchJson(detailUrl, authHeaders);
+            if (root == null) return;
+
+            boolean updated = false;
+
+            if (needsOverview && root.has("overview") && !root.get("overview").isNull()) {
+                series.overview = root.get("overview").asText();
+                updated = true;
+            }
+            if (needsTagline && root.has("tagline") && !root.get("tagline").isNull()) {
+                String tagline = root.get("tagline").asText();
+                if (tagline != null && !tagline.isBlank()) {
+                    series.tagline = tagline;
+                    updated = true;
+                }
+            }
+            if (needsStatus && root.has("status") && !root.get("status").isNull()) {
+                series.status = root.get("status").asText();
+                updated = true;
+            }
+            if (needsRating && root.has("vote_average")) {
+                double rating = root.get("vote_average").asDouble(0);
+                if (rating > 0) { series.tmdbRating = rating; updated = true; }
+            }
+            if (needsVoteCount && root.has("vote_count")) {
+                int vc = root.get("vote_count").asInt(0);
+                if (vc > 0) { series.voteCount = vc; updated = true; }
+            }
+            if (needsGenres && root.has("genres") && root.get("genres").isArray()) {
+                List<String> genres = new ArrayList<>();
+                for (JsonNode g : root.get("genres")) {
+                    if (g.has("name")) genres.add(g.get("name").asText());
+                }
+                if (!genres.isEmpty()) { series.genres = genres; updated = true; }
+            }
+            if (needsNetworks && root.has("networks") && root.get("networks").isArray()) {
+                List<String> networks = new ArrayList<>();
+                for (JsonNode n : root.get("networks")) {
+                    if (n.has("name")) networks.add(n.get("name").asText());
+                }
+                if (!networks.isEmpty()) { series.networks = networks; updated = true; }
+            }
+
+            // Credits — directors (showrunners), writers, cast
+            if (root.has("credits")) {
+                JsonNode credits = root.get("credits");
+
+                if (needsDirectors && credits.has("crew") && credits.get("crew").isArray()) {
+                    List<String> showrunners = new ArrayList<>();
+                    for (JsonNode crew : credits.get("crew")) {
+                        String job = crew.path("job").asText("");
+                        if ("Executive Producer".equals(job) || "Showrunner".equals(job) || "Director".equals(job)) {
+                            String name = crew.path("name").asText();
+                            if (name != null && !name.isBlank() && !showrunners.contains(name)) {
+                                showrunners.add(name);
+                            }
+                        }
+                    }
+                    if (!showrunners.isEmpty()) { series.directors = showrunners; updated = true; }
+                }
+
+                if (needsWriters && credits.has("crew") && credits.get("crew").isArray()) {
+                    List<String> writers = new ArrayList<>();
+                    for (JsonNode crew : credits.get("crew")) {
+                        String job = crew.path("job").asText("");
+                        if ("Writer".equals(job) || "Screenplay".equals(job) || "Story".equals(job)) {
+                            String name = crew.path("name").asText();
+                            if (name != null && !name.isBlank() && !writers.contains(name)) {
+                                writers.add(name);
+                            }
+                        }
+                    }
+                    if (!writers.isEmpty()) { series.writers = writers; updated = true; }
+                }
+
+                if (needsCast && credits.has("cast") && credits.get("cast").isArray()) {
+                    List<String> castList = new ArrayList<>();
+                    for (JsonNode actor : credits.get("cast")) {
+                        String name = actor.path("name").asText();
+                        if (name != null && !name.isBlank()) {
+                            castList.add(name);
+                            if (castList.size() >= 15) break; // Top 15 cast members
+                        }
+                    }
+                    if (!castList.isEmpty()) { series.cast = castList; updated = true; }
+                }
+            }
+
+            // Also populate releaseDate if available
+            if (series.releaseDate == null && root.has("first_air_date") && !root.get("first_air_date").isNull()) {
+                series.releaseDate = root.get("first_air_date").asText();
+                updated = true;
+            }
+            if (series.releaseYear == null && root.has("first_air_date") && !root.get("first_air_date").isNull()) {
+                String dateStr = root.get("first_air_date").asText();
+                if (dateStr != null && dateStr.length() >= 4) {
+                    try {
+                        series.releaseYear = Integer.parseInt(dateStr.substring(0, 4));
+                        updated = true;
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+            if (series.originalLanguage == null && root.has("original_language") && !root.get("original_language").isNull()) {
+                series.originalLanguage = root.get("original_language").asText();
+                updated = true;
+            }
+
+            if (updated) {
+                series.persist();
+                LOG.info("[EnsureSeriesTextMetadata] Updated metadata for '{}': overview={}, genres={}, networks={}, directors={}, writers={}, cast={}",
+                        series.title,
+                        series.overview != null ? "set" : "none",
+                        series.genres != null ? series.genres.size() : 0,
+                        series.networks != null ? series.networks.size() : 0,
+                        series.directors != null ? series.directors.size() : 0,
+                        series.writers != null ? series.writers.size() : 0,
+                        series.cast != null ? series.cast.size() : 0);
+            }
+        } catch (Exception e) {
+            LOG.warn("[EnsureSeriesTextMetadata] Failed for series '{}': {}", series.title, e.getMessage());
         }
     }
 }

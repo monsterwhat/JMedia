@@ -261,27 +261,32 @@
             }
             
             // Update all state properties (excluding currentTime - let audio element be the visual source)
+            // When video is active, NEVER let WebSocket override the local playing:false
+            const stateUpdates = {
+                currentSongId: state.currentSongId,
+                artist: state.artistName || state.artist,
+                songName: state.songName,
+                duration: state.duration,
+                shuffleMode: state.shuffleMode,
+                repeatMode: state.repeatMode,
+                cue: state.cue,
+                djModeActive: state.djModeActive === true,
+                djNextSongId: state.djNextSongId,
+                djEntryTime: state.djEntryTime,
+                djExitTime: state.djExitTime,
+                djTransitionPlanned: state.djTransitionPlanned,
+                djTransitionConfidence: state.djTransitionConfidence,
+                djTransitionReason: state.djTransitionReason,
+                crossfadeDuration: state.crossfadeDuration
+            };
+
+            if (!window.videoPlaying) {
+                stateUpdates.playing = state.playing;
+            }
+
             window.dispatchEvent(new CustomEvent('requestStateUpdate', {
                 detail: {
-                    changes: {
-                        currentSongId: state.currentSongId,
-                        artist: state.artistName || state.artist,
-                        songName: state.songName,
-                        playing: state.playing,
-                        duration: state.duration,
-                        shuffleMode: state.shuffleMode,
-                        repeatMode: state.repeatMode,
-                        cue: state.cue,
-                        // DJ Mode fields
-                        djModeActive: state.djModeActive === true, // coerce null/undefined to false
-                        djNextSongId: state.djNextSongId,
-                        djEntryTime: state.djEntryTime,
-                        djExitTime: state.djExitTime,
-                        djTransitionPlanned: state.djTransitionPlanned,
-                        djTransitionConfidence: state.djTransitionConfidence,
-                        djTransitionReason: state.djTransitionReason,
-                        crossfadeDuration: state.crossfadeDuration
-                    },
+                    changes: stateUpdates,
                     source: 'websocket'
                 }
             }));

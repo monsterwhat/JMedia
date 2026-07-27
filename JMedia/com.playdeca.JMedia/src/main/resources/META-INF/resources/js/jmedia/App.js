@@ -136,6 +136,7 @@
                                    document.getElementById('musicPlayerContainer');
 
                 if (isVideoPage) {
+                    // IMMEDIATELY block ALL music — before any async work
                     window.videoPlaying = true;
                     document.body.classList.add('video-active');
                     document.body.setAttribute('data-video-active', 'true');
@@ -145,12 +146,40 @@
                         musicPlayer.classList.add('video-active');
                     }
 
-                    const audioElements = document.querySelectorAll('audio');
-                    const wasPlaying = Array.from(audioElements).some(a => !a.paused);
-                    window.musicWasPlayingBeforeVideo = wasPlaying;
-                    audioElements.forEach(a => a.pause());
+                    if (window.AudioEngine) {
+                        window.AudioEngine.pause();
+                        const players = [window.AudioEngine.audio, window.AudioEngine.audioNext];
+                        players.forEach(a => {
+                            if (a) {
+                                a.pause();
+                                a.removeAttribute('src');
+                                a.load();
+                            }
+                        });
+                        if (window.AudioEngine._isCrossfading) {
+                            window.AudioEngine._isCrossfading = false;
+                        }
+                    }
 
-                    await JMedia.PlaybackApi.pause();
+                    // Kill any straggler audio elements not managed by AudioEngine
+                    document.querySelectorAll('audio').forEach(a => {
+                        a.pause();
+                        a.removeAttribute('src');
+                        a.load();
+                    });
+
+                    if (window.DjTransitionManager) {
+                        window.DjTransitionManager.suspendForVideo();
+                    }
+
+                    // Force state to not-playing (blocks WebSocket re-trigger)
+                    if (window.StateManager) {
+                        window.StateManager.updateState({ playing: false }, 'app.videoPage');
+                    }
+
+                    // Do NOT call PlaybackApi.pause() here — that tells the SERVER to pause,
+                    // which broadcasts playing:false to ALL connected clients (other windows/tabs).
+                    // We only stop audio LOCALLY so other monitors can keep playing music.
                 } else {
                     window.videoPlaying = false;
                     document.body.classList.remove('video-active');
@@ -160,16 +189,8 @@
                         musicPlayer.style.removeProperty('display');
                         musicPlayer.classList.remove('video-playing', 'video-active');
                     }
-
-                    if (window.musicWasPlayingBeforeVideo === true) {
-                        await JMedia.PlaybackApi.play();
-                        setTimeout(() => {
-                            if (window.AudioEngine && typeof window.AudioEngine.play === 'function' && window.AudioEngine.isPaused()) {
-                                window.AudioEngine.play().catch(() => {});
-                            }
-                        }, 300);
-                        window.musicWasPlayingBeforeVideo = false;
-                    }
+                    // NO auto-resume — user must manually press play on the music page
+                    window.musicWasPlayingBeforeVideo = false;
                 }
 
                 this.updateSidebar(viewName);

@@ -43,7 +43,7 @@
             
             // Re-load if state exists
             setTimeout(() => {
-                if (window.StateManager) {
+                if (window.StateManager && !window.videoPlaying) {
                     const state = window.StateManager.getState();
                     if (state && state.currentSongId && state.playing) {
                         this.loadAudioSourceOnly({
@@ -191,7 +191,7 @@
          * Note: WebAudio preload is preferred - this is fallback
          */
         preload: function(songId, startTime = 0) {
-            // Get profile ID - must have a valid one, no defaults
+            if (window.videoPlaying) return;
             let profileId = null;
             if (window.StateManager && window.StateManager.getProperty('profileId')) {
                 profileId = window.StateManager.getProperty('profileId');
@@ -265,6 +265,11 @@
         },
 
         crossfadeTo: function(songId, entryTime, duration) {
+            if (window.videoPlaying) {
+                console.log('[AudioEngine] Blocked crossfadeTo — video is active');
+                this._isCrossfading = false;
+                return;
+            }
             const currentPlayer = this.getActivePlayer();
             const nextPlayer = this.getInactivePlayer();
             const currentGain = this.getActiveGain();
@@ -600,6 +605,10 @@
 
         // Rest of the wrapper methods use getActivePlayer()
         play: function() {
+            if (window.videoPlaying) {
+                console.log('[AudioEngine] Blocked play() — video is active');
+                return Promise.resolve();
+            }
             if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
             return this.getActivePlayer().play();
         },
@@ -675,6 +684,7 @@
         },
 
         loadAudioSourceOnly: function(currentSong, seekTime) {
+            if (window.videoPlaying) return;
             if (window.SynchronizationManager) {
                 const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
                 window.SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
@@ -695,6 +705,7 @@
             window.addEventListener('statePropertyChanged', (e) => {
                 if (e.detail.property === 'volume') this.setVolume(e.detail.newValue, 'stateManager');
                 if (e.detail.property === 'currentSongId' && e.detail.newValue && window.StateManager) {
+                    if (window.videoPlaying) return;
                     const state = window.StateManager.getState();
                     if (String(e.detail.newValue) !== String(e.detail.oldValue)) {
                         this.setSource({
@@ -721,6 +732,10 @@
         },
 
         setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0) {
+            if (window.videoPlaying) {
+                console.log('[AudioEngine] Blocked setSource — video is active');
+                return false;
+            }
             const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
             if (!window.SynchronizationManager) return false;
 
