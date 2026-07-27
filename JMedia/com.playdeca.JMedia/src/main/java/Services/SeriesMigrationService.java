@@ -132,9 +132,11 @@ public class SeriesMigrationService {
         LOG.info("Setting contentType for {} videos...", total);
         int processed = 0;
 
-        while (processed < total) {
+        // Always use page 0 — after flush/clear, processed records are removed
+        // from the result set, so the next batch starts from the beginning.
+        while (true) {
             List<Video> batch = Video.find("contentType IS NULL")
-                    .page(processed / BATCH_SIZE, BATCH_SIZE).list();
+                    .page(0, BATCH_SIZE).list();
 
             if (batch.isEmpty()) break;
 
