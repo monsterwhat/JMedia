@@ -18,7 +18,9 @@ import java.util.List;
             @Index(name = "idx_video_year", columnList = "releaseYear"),
             @Index(name = "idx_video_active", columnList = "isActive"),
             @Index(name = "idx_video_favorite", columnList = "favorite"),
-            @Index(name = "idx_video_composite", columnList = "type, releaseYear, isActive")
+            @Index(name = "idx_video_composite", columnList = "type, releaseYear, isActive"),
+            @Index(name = "idx_video_series_id", columnList = "series_id"),
+            @Index(name = "idx_video_content_type", columnList = "contentType")
         })
 public class Video extends PanacheEntity {
 
@@ -27,7 +29,17 @@ public class Video extends PanacheEntity {
     public String path;
     public String filename;
     public String type; // "movie", "episode", "short", "documentary"
-    
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "series_id")
+    public Series series;
+
+    @Column(length = 50)
+    public String contentType; // "episode", "movie", "special", "featurette", "extra"
+
+    @Column(length = 50)
+    public String seasonSuffix; // "OVA", "OAD", etc.
+
     // Titles and Basic Information
     public String title; // Primary title
     public String seriesTitle; // For episodes

@@ -7,10 +7,11 @@ import lombok.Data;
 @Data
 public class TvShowDTO {
     public String seriesTitle;
+    public Long seriesId;
     public int episodeCount;
     public int seasonCount;
     public String posterPath;
-    public Long representativeId; // ID of one episode to show thumbnail
+    public Long representativeId;
     
     public TvShowDTO(String seriesTitle, List<Video> episodes) {
         this.seriesTitle = seriesTitle;
@@ -21,11 +22,12 @@ public class TvShowDTO {
                 .distinct()
                 .count();
         
-        // Use the poster/thumbnail from the first episode if available
         if (!episodes.isEmpty()) {
             Video first = episodes.get(0);
             this.representativeId = first.id;
-            this.posterPath = first.posterPath;
+            this.seriesId = first.series != null ? first.series.id : null;
+            this.posterPath = first.series != null && first.series.posterPath != null
+                    ? first.series.posterPath : first.posterPath;
         }
     }
 }

@@ -115,11 +115,14 @@ public class CollectionUiApi {
         var entries = collectionService.getEntries(collectionId);
         Map<Long, Long> videoEntryMap = new HashMap<>();
         Map<Long, Long> externalVideoEntryMap = new HashMap<>();
+        Map<Long, Long> seriesEntryMap = new HashMap<>();
         for (var entry : entries) {
             if (entry.video != null) {
                 videoEntryMap.put(entry.video.id, entry.id);
             } else if (entry.externalVideo != null) {
                 externalVideoEntryMap.put(entry.externalVideo.id, entry.id);
+            } else if (entry.series != null) {
+                seriesEntryMap.put(entry.series.id, entry.id);
             }
         }
         var organized = collectionService.organizeActiveVideos(videoEntryMap, externalVideoEntryMap);
@@ -142,6 +145,7 @@ public class CollectionUiApi {
                 .data("entries", entries)
                 .data("movies", organized.get("movies"))
                 .data("seriesList", organized.get("seriesList"))
+                .data("seriesEntryMap", seriesEntryMap)
                 .data("heroImageId", heroImageId)
                 .data("isAdmin", isAdmin)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)

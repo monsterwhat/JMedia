@@ -812,6 +812,85 @@ public class ThumbnailService {
         LOGGER.info("Backfill complete: {}/{} videos checked ({} skipped, {} succeeded, {} failed, {} images downloaded)",
             processed, videos.size(), skipped, succeeded, failed, imagesDownloaded);
     }
+
+    /**
+     * Ensure all TMDB media images (poster, logo, backdrop, hero, still) are
+     * downloaded for a single video. Independent of generateThumbnail() —
+     * works even when the main thumbnail already exists.
+     * @return true if any new images were downloaded
+     */
+    public boolean ensureMediaImages(Long videoId) {
+        try {
+            Video video = entityManager.find(Video.class, videoId);
+            if (video == null) return false;
+
+            Path thumbnailsDir = getThumbnailDirectory();
+
+            // Check which image files already exist
+            boolean hasPoster   = Files.exists(thumbnailsDir.resolve(videoId + "_poster.webp"))   || Files.exists(thumbnailsDir.resolve(videoId + "_poster.jpg"))   || Files.exists(thumbnailsDir.resolve(videoId + "_poster.png"));
+            boolean hasLogo     = Files.exists(thumbnailsDir.resolve(videoId + "_logo.webp"))     || Files.exists(thumbnailsDir.resolve(videoId + "_logo.jpg"))     || Files.exists(thumbnailsDir.resolve(videoId + "_logo.png"));
+            boolean hasBackdrop = Files.exists(thumbnailsDir.resolve(videoId + "_backdrop.webp")) || Files.exists(thumbnailsDir.resolve(videoId + "_backdrop.jpg")) || Files.exists(thumbnailsDir.resolve(videoId + "_backdrop.png"));
+            boolean hasHero     = Files.exists(thumbnailsDir.resolve(videoId + "_hero.webp"))     || Files.exists(thumbnailsDir.resolve(videoId + "_hero.jpg"))     || Files.exists(thumbnailsDir.resolve(videoId + "_hero.png"));
+
+            // Sync DB paths from existing files (files may have been downloaded by
+            // a different code path without persisting the path to the DB)
+            boolean dbUpdated = false;
+            if (hasPoster && video.posterPath == null)     { video.posterPath   = findExistingPath(thumbnailsDir, videoId, "poster");   if (video.posterPath != null) dbUpdated = true; }
+            if (hasLogo && video.logoPath == null)         { video.logoPath     = findExistingPath(thumbnailsDir, videoId, "logo");     if (video.logoPath != null) dbUpdated = true; }
+            if (hasBackdrop && video.backdropPath == null) { video.backdropPath = findExistingPath(thumbnailsDir, videoId, "backdrop"); if (video.backdropPath != null) dbUpdated = true; }
+            if (hasHero && video.heroPath == null)         { video.heroPath     = findExistingPath(thumbnailsDir, videoId, "hero");     if (video.heroPath != null) dbUpdated = true; }
+            if (dbUpdated) {
+                entityManager.persist(video);
+            }
+
+            if (hasPoster && hasLogo && hasBackdrop && hasHero) {
+                return false; // All present on disk (DB paths now synced)
+            }
+
+            String type = video.type != null ? video.type : "movie";
+            String title;
+            if ("episode".equalsIgnoreCase(type) && video.seriesTitle != null && !video.seriesTitle.isBlank()) {
+                title = video.seriesTitle;
+            } else {
+                title = video.title != null ? video.title : video.seriesTitle;
+            }
+
+            if (title == null || title.isBlank()) return false;
+
+            VideoMetadataService.MediaImages tmdbImages = metadataService.fetchMediaImages(type, title, video.releaseYear,
+                video.seriesTitle, video.seasonNumber, video.episodeNumber);
+            ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                tmdbImages.posterPath(), tmdbImages.logoPath(),
+                tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                tmdbImages.stillPath());
+            MediaImagePaths paths = downloadMediaImages(videoId, localImages);
+
+            boolean downloaded = false;
+            if (paths.posterPath() != null)   { video.posterPath   = paths.posterPath();   downloaded = true; }
+            if (paths.logoPath() != null)     { video.logoPath     = paths.logoPath();     downloaded = true; }
+            if (paths.backdropPath() != null) { video.backdropPath = paths.backdropPath(); downloaded = true; }
+            if (paths.heroPath() != null)     { video.heroPath     = paths.heroPath();     downloaded = true; }
+            if (paths.stillPath() != null)    { video.stillPath    = paths.stillPath();    downloaded = true; }
+
+            if (downloaded) {
+                entityManager.persist(video);
+            }
+            return downloaded;
+        } catch (Exception e) {
+            LOGGER.error("ensureMediaImages failed for video {}: {}", videoId, e.getMessage());
+            return false;
+        }
+    }
+
+    private String findExistingPath(Path thumbnailsDir, Long videoId, String type) {
+        for (String ext : new String[]{".webp", ".png", ".jpg"}) {
+            Path p = thumbnailsDir.resolve(videoId + "_" + type + ext);
+            if (Files.exists(p)) {
+                return p.toAbsolutePath().toString();
+            }
+        }
+        return null;
+    }
     
     public ThumbnailProcessingStatus getProcessingStatus() {
         return processingStatus;
@@ -1034,6 +1113,16 @@ public class ThumbnailService {
             return null;
         }
 
+        boolean isLogo = "logo".equals(type);
+
+        // Logos use PNG directly (WebP writer can't handle alpha-transparent ARGB)
+        if (isLogo) {
+            Path pngPath = thumbnailsDir.resolve(videoId + "_logo.png");
+            if (Files.exists(pngPath)) {
+                return pngPath.toAbsolutePath().toString();
+            }
+        }
+
         Path webpPath = thumbnailsDir.resolve(videoId + "_" + type + ".webp");
 
         if (Files.exists(webpPath)) {
@@ -1046,8 +1135,21 @@ public class ThumbnailService {
             return null;
         }
 
+        // Logos: save as PNG directly (preserve alpha transparency)
+        if (isLogo) {
+            try {
+                Path pngPath = thumbnailsDir.resolve(videoId + "_logo.png");
+                Files.write(pngPath, rawBytes);
+                LOGGER.info("Saved logo image as PNG for video {} ({} bytes)", videoId, rawBytes.length);
+                return pngPath.toAbsolutePath().toString();
+            } catch (IOException e) {
+                LOGGER.error("Failed to save logo PNG for video {}: {}", videoId, e.getMessage());
+                return null;
+            }
+        }
+
         try {
-            writeWebP(rawBytes, webpPath);
+            writeWebP(rawBytes, webpPath, false);
             LOGGER.info("Saved {} image as WebP for video {} ({} bytes)", type, videoId, Files.size(webpPath));
             return webpPath.toAbsolutePath().toString();
         } catch (Exception e) {
@@ -1101,13 +1203,17 @@ public class ThumbnailService {
     }
 
     private void writeWebP(byte[] rawBytes, Path outputPath) throws IOException {
+        writeWebP(rawBytes, outputPath, false);
+    }
+
+    private void writeWebP(byte[] rawBytes, Path outputPath, boolean preserveAlpha) throws IOException {
         BufferedImage image = ImageIO.read(new ByteArrayInputStream(rawBytes));
         if (image == null) {
             throw new IOException("Could not decode image from bytes");
         }
 
-        // Convert alpha-transparent images to opaque with white background for WebP compatibility
-        if (image.getType() == BufferedImage.TYPE_INT_ARGB || image.getType() == BufferedImage.TYPE_4BYTE_ABGR) {
+        // Only strip alpha when NOT preserving it (logos need transparency)
+        if (!preserveAlpha && (image.getType() == BufferedImage.TYPE_INT_ARGB || image.getType() == BufferedImage.TYPE_4BYTE_ABGR)) {
             BufferedImage rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
             java.awt.Graphics2D g2d = rgbImage.createGraphics();
             g2d.setColor(java.awt.Color.WHITE);

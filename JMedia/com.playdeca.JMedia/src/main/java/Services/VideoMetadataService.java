@@ -1017,6 +1017,7 @@ public class VideoMetadataService {
                 if (root.has("vote_count")) video.voteCount = root.get("vote_count").asInt();
                 if (root.has("still_path") && !root.get("still_path").isNull()) {
                     video.posterPath = TMDB_IMAGE_W500 + root.get("still_path").asText();
+                    video.stillPath = TMDB_IMAGE_W500 + root.get("still_path").asText();
                 }
                 LOG.info("[EnrichEpisode] Episode details: title='{}', rating={}, still={}",
                     video.episodeTitle, video.tmdbRating, video.posterPath != null ? "set" : "none");
@@ -1035,8 +1036,9 @@ public class VideoMetadataService {
             if (showRoot != null) {
                 if (showRoot.has("backdrop_path") && !showRoot.get("backdrop_path").isNull() && video.backdropPath == null) {
                     video.backdropPath = TMDB_IMAGE_W1280 + showRoot.get("backdrop_path").asText();
+                    video.heroPath = TMDB_IMAGE_ORIGINAL + showRoot.get("backdrop_path").asText();
                     video.fanartPath = video.backdropPath;
-                    LOG.info("[EnrichEpisode] Set show backdrop + fanart path");
+                    LOG.info("[EnrichEpisode] Set show backdrop + fanart + hero path");
                 } else {
                     LOG.info("[EnrichEpisode] Show backdrop skipped (already set or unavailable)");
                 }
@@ -1361,5 +1363,175 @@ public class VideoMetadataService {
         }
         
         return Optional.empty();
+    }
+
+    /**
+     * Ensure text metadata (overview, genres, directors/networks) are populated
+     * for a single video by fetching from TMDB on demand. Only fields that are
+     * currently null or empty are filled — existing data is never overwritten.
+     *
+     * @param videoId the Video entity ID
+     */
+    @jakarta.transaction.Transactional
+    public void ensureMediaTextMetadata(Long videoId) {
+        if (videoId == null) return;
+
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            LOG.warn("[EnsureTextMetadata] Video {} not found", videoId);
+            return;
+        }
+
+        Settings settings = settingsService.getOrCreateSettings();
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            return;
+        }
+
+        String tmdbKey = getApiKey();
+        if (tmdbKey == null || tmdbKey.isBlank()) {
+            return;
+        }
+
+        String type = video.type != null ? video.type : "movie";
+
+        boolean needsOverview  = video.overview == null || video.overview.isBlank();
+        boolean needsGenres    = video.genres == null || video.genres.isEmpty();
+        boolean needsDirectors = !"episode".equalsIgnoreCase(type) && (video.directors == null || video.directors.isEmpty());
+        boolean needsNetworks  = "episode".equalsIgnoreCase(type) && (video.networks == null || video.networks.isEmpty());
+
+        if (!needsOverview && !needsGenres && !needsDirectors && !needsNetworks) {
+            return;
+        }
+
+        try {
+            Map<String, String> authHeaders = isBearerToken(tmdbKey)
+                    ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+
+            if ("movie".equalsIgnoreCase(type)) {
+                String searchQuery = video.title != null
+                        ? URLEncoder.encode(video.title, StandardCharsets.UTF_8) : null;
+                if (searchQuery == null) {
+                    LOG.warn("[EnsureTextMetadata] Movie video {} has no title, skipping", videoId);
+                    return;
+                }
+
+                String searchUrl = isBearerToken(tmdbKey)
+                        ? String.format("https://api.themoviedb.org/3/search/movie?query=%s", searchQuery)
+                        : String.format(TMDB_SEARCH_MOVIE, tmdbKey, searchQuery);
+                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+                if (searchRoot == null || searchRoot.path("results").isEmpty()) {
+                    LOG.info("[EnsureTextMetadata] No TMDB movie results for '{}'", video.title);
+                    return;
+                }
+
+                String tmdbId = searchRoot.path("results").get(0).path("id").asText(null);
+                if (tmdbId == null) return;
+
+                String detailUrl = isBearerToken(tmdbKey)
+                        ? String.format("https://api.themoviedb.org/3/movie/%s?append_to_response=credits", tmdbId)
+                        : String.format(TMDB_MOVIE_DETAILS, tmdbId, tmdbKey);
+                JsonNode root = fetchJson(detailUrl, authHeaders);
+                if (root == null) {
+                    LOG.warn("[EnsureTextMetadata] Failed to fetch movie details for tmdbId={}", tmdbId);
+                    return;
+                }
+
+                if (needsOverview && root.has("overview") && !root.get("overview").isNull()) {
+                    video.overview = root.get("overview").asText();
+                }
+                if (needsGenres && root.has("genres") && root.get("genres").isArray()) {
+                    List<String> genres = new ArrayList<>();
+                    for (JsonNode g : root.get("genres")) {
+                        if (g.has("name")) genres.add(g.get("name").asText());
+                    }
+                    if (!genres.isEmpty()) video.genres = genres;
+                }
+                if (needsDirectors && root.has("credits") && root.get("credits").has("crew")
+                        && root.get("credits").get("crew").isArray()) {
+                    List<String> directors = new ArrayList<>();
+                    for (JsonNode crew : root.get("credits").get("crew")) {
+                        if ("Director".equals(crew.path("job").asText())) {
+                            directors.add(crew.path("name").asText());
+                        }
+                    }
+                    if (!directors.isEmpty()) video.directors = directors;
+                }
+
+                LOG.info("[EnsureTextMetadata] Movie '{}': overview={}, genres={}, directors={}",
+                        video.title,
+                        video.overview != null ? "set" : "none",
+                        video.genres != null ? video.genres.size() + " genres" : "none",
+                        video.directors != null ? video.directors.size() + " directors" : "none");
+
+            } else if ("episode".equalsIgnoreCase(type)) {
+                String seriesSearchQuery = video.seriesTitle != null
+                        ? URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8) : null;
+                if (seriesSearchQuery == null) {
+                    LOG.warn("[EnsureTextMetadata] Episode video {} has no seriesTitle, skipping", videoId);
+                    return;
+                }
+
+                String searchUrl = isBearerToken(tmdbKey)
+                        ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", seriesSearchQuery)
+                        : String.format(TMDB_SEARCH_TV, tmdbKey, seriesSearchQuery);
+                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+                if (searchRoot == null || searchRoot.path("results").isEmpty()) {
+                    LOG.info("[EnsureTextMetadata] No TMDB TV results for '{}'", video.seriesTitle);
+                    return;
+                }
+
+                String showId = searchRoot.path("results").get(0).path("id").asText(null);
+                if (showId == null) return;
+
+                if (needsOverview && video.seasonNumber != null && video.episodeNumber != null) {
+                    String episodeUrl = isBearerToken(tmdbKey)
+                            ? String.format("https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?append_to_response=credits",
+                                    showId, video.seasonNumber, video.episodeNumber)
+                            : String.format(TMDB_EPISODE_DETAILS, showId, video.seasonNumber, video.episodeNumber, tmdbKey);
+                    JsonNode episodeRoot = fetchJson(episodeUrl, authHeaders);
+                    if (episodeRoot != null && episodeRoot.has("overview") && !episodeRoot.get("overview").isNull()) {
+                        video.overview = episodeRoot.get("overview").asText();
+                    }
+                }
+
+                if (needsNetworks || needsGenres) {
+                    String showUrl = isBearerToken(tmdbKey)
+                            ? String.format("https://api.themoviedb.org/3/tv/%s?append_to_response=credits", showId)
+                            : String.format(TMDB_TV_DETAILS, showId, tmdbKey);
+                    JsonNode showRoot = fetchJson(showUrl, authHeaders);
+                    if (showRoot != null) {
+                        if (needsNetworks && showRoot.has("networks") && showRoot.get("networks").isArray()) {
+                            List<String> networkNames = new ArrayList<>();
+                            for (JsonNode net : showRoot.get("networks")) {
+                                if (net.has("name")) networkNames.add(net.get("name").asText());
+                            }
+                            if (!networkNames.isEmpty()) video.networks = networkNames;
+                        }
+                        if (needsGenres && showRoot.has("genres") && showRoot.get("genres").isArray()) {
+                            List<String> genres = new ArrayList<>();
+                            for (JsonNode g : showRoot.get("genres")) {
+                                if (g.has("name")) genres.add(g.get("name").asText());
+                            }
+                            if (!genres.isEmpty()) video.genres = genres;
+                        }
+                    }
+                }
+
+                LOG.info("[EnsureTextMetadata] Episode '{}' S{}E{}: overview={}, genres={}, networks={}",
+                        video.seriesTitle, video.seasonNumber, video.episodeNumber,
+                        video.overview != null ? "set" : "none",
+                        video.genres != null ? video.genres.size() + " genres" : "none",
+                        video.networks != null ? video.networks.size() + " networks" : "none");
+
+            } else {
+                LOG.debug("[EnsureTextMetadata] Unsupported type '{}' for video {}, skipping", type, videoId);
+                return;
+            }
+
+            video.persist();
+            LOG.info("[EnsureTextMetadata] Saved text metadata for video {}", videoId);
+        } catch (Exception e) {
+            LOG.warn("[EnsureTextMetadata] Failed for video {}: {}", videoId, e.getMessage());
+        }
     }
 }

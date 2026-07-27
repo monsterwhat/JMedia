@@ -119,6 +119,28 @@ public class UnifiedVideoEntityCreationService {
         
         video.autoSelectSubtitles = true;
         
+        // ContentType and seasonSuffix from SmartNamingService
+        video.contentType = result.contentType != null ? result.contentType : "episode";
+        video.seasonSuffix = result.seasonSuffix;
+        
+        // Link or create Series entity by showName
+        if (result.showName != null && !result.showName.isEmpty()) {
+            // Standalone movies with no season number don't belong to a Series
+            if ("movie".equals(video.contentType) && video.seasonNumber == null) {
+                video.series = null;
+            } else {
+                Series series = Series.find("title", result.showName).firstResult();
+                if (series == null) {
+                    series = new Series();
+                    series.title = result.showName;
+                    series.persist();
+                }
+                video.series = series;
+            }
+        } else {
+            video.series = null;
+        }
+        
         // Restore preserved metadata (full scan mode)
         if (preserveMetadata) {
             if (preservedDescription != null) video.description = preservedDescription;

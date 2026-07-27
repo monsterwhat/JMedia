@@ -1038,6 +1038,8 @@ html, body {
   font-weight: 800;
   color: var(--cinema-text, white);
   line-height: 1.2;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+  margin-bottom: 0.25rem;
 }
 
 .cinema-modal-meta-row {
@@ -1237,7 +1239,8 @@ html, body {
 }
 
 .cinema-modal-logo-hero {
-  max-height: 5rem;
+  max-width: 224px;
+  height: 64px;
   width: auto;
   object-fit: contain;
   filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.6));
@@ -1247,17 +1250,25 @@ html, body {
 
 @media (min-width: 768px) {
   .cinema-modal-logo-hero {
-    max-height: 6rem;
+    max-width: 288px;
+    height: 80px;
   }
 }
 
 /* Modal skeleton loading states */
 .cinema-modal-logo-hero.is-skeleton {
   display: block !important;
-  width: 180px;
-  height: 48px;
+  width: 224px;
+  height: 64px;
   border-radius: 8px;
   background: var(--bulma-skeleton-background, rgba(255,255,255,0.06));
+}
+
+@media (min-width: 768px) {
+  .cinema-modal-logo-hero.is-skeleton {
+    width: 288px;
+    height: 80px;
+  }
 }
 .cinema-modal-desc.is-skeleton {
   display: block !important;

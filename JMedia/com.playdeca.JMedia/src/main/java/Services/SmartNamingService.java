@@ -64,6 +64,12 @@ public class SmartNamingService {
     private static final Pattern SEASON_BARE_S_PATTERN = Pattern.compile("(?i)^s\\d{1,3}$");  // "S2" or "S01"
     private static final Pattern SEASON_MOVIE_PATTERN = Pattern.compile("(?i)s\\d{1,3}m\\d{2}");  // "S07M01"
     
+    // Content type patterns: SxxMxx (movie) and SxxN (extra)
+    private static final Pattern CONTENT_TYPE_SXXMXX = Pattern.compile("S(\\d{1,3})M(\\d{2})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONTENT_TYPE_SXXXN = Pattern.compile("S(\\d{1,3})X(\\d{1,2})", Pattern.CASE_INSENSITIVE);
+    // Fractional season pattern: "Season 5.5" style
+    private static final Pattern SEASON_FRACTIONAL = Pattern.compile("Season\\s+(\\d+)\\.(\\d+)", Pattern.CASE_INSENSITIVE);
+    
     // TV Show detection patterns (used for cleaning titles)
     private static final List<Pattern> TV_SHOW_PATTERNS = Arrays.asList(
         Pattern.compile("(?i)season.*\\d+.*episode.*\\d+"),
@@ -134,6 +140,8 @@ public class SmartNamingService {
         public final Integer year;
         public final double confidence;
         public final String reasoning;
+        public String contentType;
+        public String seasonSuffix;
 
         public NamingResult(String mediaType, String showName, String title, 
                           Integer season, Integer episode, String seasonName, String folder,
@@ -217,7 +225,7 @@ public class SmartNamingService {
             }
         }
         
-        return new NamingResult(
+        NamingResult result = new NamingResult(
             mediaTypeDecision.type,
             finalShowName,
             finalTitle,
@@ -229,6 +237,9 @@ public class SmartNamingService {
             finalConfidence,
             reasoning
         );
+        result.contentType = episodeDetection.contentType;
+        result.seasonSuffix = episodeDetection.seasonSuffix;
+        return result;
     }
 
     /**
@@ -486,6 +497,26 @@ public class SmartNamingService {
             return detection;
         }
 
+        Matcher mSxxMxx = CONTENT_TYPE_SXXMXX.matcher(filename);
+        if (mSxxMxx.find()) {
+            detection.season = Integer.parseInt(mSxxMxx.group(1));
+            detection.contentType = "movie";
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "SxxMxx";
+            detection.confidence = 0.85;
+            return detection;
+        }
+
+        Matcher mSxxN = CONTENT_TYPE_SXXXN.matcher(filename);
+        if (mSxxN.find()) {
+            detection.season = Integer.parseInt(mSxxN.group(1));
+            detection.contentType = "extra";
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "SxxN";
+            detection.confidence = 0.8;
+            return detection;
+        }
+
         Matcher m2 = EPISODE_XXY.matcher(filename);
         if (m2.matches()) {
             detection.season = Integer.parseInt(m2.group(2));
@@ -543,6 +574,24 @@ public class SmartNamingService {
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SP";
             detection.confidence = 0.75;
+            return detection;
+        }
+
+        Matcher mFractional = SEASON_FRACTIONAL.matcher(filename);
+        if (mFractional.find()) {
+            detection.season = Integer.parseInt(mFractional.group(1));
+            String fractionalPart = mFractional.group(2);
+            String filenameLower = filename.toLowerCase();
+            String suffix = "part" + fractionalPart;
+            if (filenameLower.contains("ova")) {
+                suffix = "OVA";
+            } else if (filenameLower.contains("oad")) {
+                suffix = "OAD";
+            }
+            detection.seasonSuffix = suffix;
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "FractionalSeason";
+            detection.confidence = 0.7;
             return detection;
         }
 
@@ -701,6 +750,14 @@ public class SmartNamingService {
         if (episodeDetection.hasEpisodePattern) {
             episodeScore += 1.5;
             reasoning.append("Episode pattern found (+1.5); ");
+        }
+
+        if ("movie".equals(episodeDetection.contentType)) {
+            movieScore += 2.0;
+            reasoning.append("SxxMxx content type: movie (+2.0); ");
+        } else if ("extra".equals(episodeDetection.contentType)) {
+            episodeScore += 0.5;
+            reasoning.append("SxxN content type: extra (+0.5 episode); ");
         }
 
         if (pathAnalysis.hasSeasonFolder) {
@@ -1324,6 +1381,8 @@ public class SmartNamingService {
         public boolean hasSeasonFolder;
         public String detectionMethod;
         public double confidence;
+        public String contentType;
+        public String seasonSuffix;
     }
     
     private static class MediaTypeDecision {

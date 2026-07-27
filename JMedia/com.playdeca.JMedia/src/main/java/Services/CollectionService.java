@@ -5,6 +5,7 @@ import Models.ExternalVideo;
 import Models.ExistingVideo;
 import Models.MediaCollection;
 import Models.Profile;
+import Models.Series;
 import Models.Video;
 import io.quarkus.panache.common.Page;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -139,6 +140,21 @@ public class CollectionService {
         CollectionEntry e = new CollectionEntry();
         e.collection = c;
         e.externalVideo = ev;
+        e.orderIndex = orderIndex;
+        e.notes = notes;
+        e.persist();
+        return e;
+    }
+
+    @Transactional
+    public CollectionEntry addEntryWithSeries(Long collectionId, Long seriesId, int orderIndex, String notes) {
+        MediaCollection c = MediaCollection.findById(collectionId);
+        if (c == null) return null;
+        Series s = Series.findById(seriesId);
+        if (s == null) return null;
+        CollectionEntry e = new CollectionEntry();
+        e.collection = c;
+        e.series = s;
         e.orderIndex = orderIndex;
         e.notes = notes;
         e.persist();

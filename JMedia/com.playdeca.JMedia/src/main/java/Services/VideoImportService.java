@@ -74,12 +74,21 @@ public class VideoImportService {
     @Inject
     VideoMetadataService videoMetadataService;
 
+    @Inject
+    SeriesMigrationService seriesMigrationService;
+
     // TODO: Remove this method once stale column migration is complete
     private static final String[] STALE_COLUMNS = {"WATCHED", "WATCHPROGRESSDOUBLE"};
     private volatile boolean staleColumnsCleaned = false;
 
+    // Featurette folder names — videos in these subfolders are featurettes, not episodes
+    private static final Set<String> FEATURETTE_FOLDERS = Set.of(
+        "featurette", "behind the scenes", "behind-the-scenes", "bts"
+    );
+
     @Transactional
     void onStart(@Observes StartupEvent ev) {
+        seriesMigrationService.migrateAll();
         cleanStaleColumns();
     }
 
@@ -358,6 +367,7 @@ public class VideoImportService {
         String relativePath = path.getFileName().toString();
         SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, path.getFileName().toString(), relativePath, null, null, null, null, null, null);
         Video updatedVideo = entityCreationService.createVideoFromNamingResult(mediaFile, res);
+        applyContentType(updatedVideo);
         
         // Trigger full metadata enrichment including audio track extraction
         if (updatedVideo != null) {
@@ -503,6 +513,27 @@ public class VideoImportService {
                fileName.endsWith(".webm") || fileName.endsWith(".m4v") || fileName.endsWith(".srt");
     }
 
+    void applyContentType(Video video) {
+        if (video == null) return;
+
+        if (video.contentType == null) {
+            video.contentType = "episode";
+        }
+
+        if (video.folder != null) {
+            String folderLower = video.folder.trim().toLowerCase();
+            if (FEATURETTE_FOLDERS.contains(folderLower)) {
+                video.contentType = "featurette";
+            }
+        }
+
+        if ("movie".equalsIgnoreCase(video.contentType)
+                && video.seasonNumber != null
+                && video.folder == null) {
+            video.seasonNumber = null;
+        }
+    }
+
     @Transactional(value = TxType.REQUIRES_NEW)
     @ActivateRequestContext
     protected Video processVideoFile(Path filePath, Path rootPath, boolean metadataOnly, ScanContext ctx) {
@@ -545,7 +576,9 @@ public class VideoImportService {
                 
                 String relativePath = rootPath.relativize(filePath).toString();
                 SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(existingFile, filename, relativePath, null, null, null, null, null, null);
-                return entityCreationService.createVideoFromNamingResult(existingFile, res, forceFullScan);
+                Video updated = entityCreationService.createVideoFromNamingResult(existingFile, res, forceFullScan);
+                applyContentType(updated);
+                return updated;
             }
 
             if (!metadataOnly) {
@@ -591,12 +624,45 @@ public class VideoImportService {
                 
                 String relativePath = rootPath.relativize(filePath).toString();
                 SmartNamingService.NamingResult res = smartNamingService.detectSmartNames(mediaFile, filename, relativePath, null, null, null, null, null, null);
-                return entityCreationService.createVideoFromNamingResult(mediaFile, res);
+                Video created = entityCreationService.createVideoFromNamingResult(mediaFile, res);
+                applyContentType(created);
+                return created;
             }
         } catch (Exception e) {
             LOGGER.error("Error processing file {}: {}", filename, e.getMessage(), e);
         }
         return null;
+    }
+
+    @Transactional
+    public int updateContentTypeForExisting() {
+        long total = Video.count("contentType IS NULL");
+        if (total == 0) {
+            LOGGER.info("All videos already have contentType set.");
+            return 0;
+        }
+
+        LOGGER.info("Batch updating contentType for {} videos...", total);
+        int processed = 0;
+        final int batchSize = 100;
+
+        while (processed < total) {
+            List<Video> batch = Video.<Video>find("contentType IS NULL")
+                    .page(processed / batchSize, batchSize).list();
+            if (batch.isEmpty()) break;
+
+            for (Video v : batch) {
+                applyContentType(v);
+            }
+
+            em.flush();
+            em.clear();
+            processed += batch.size();
+            LOGGER.info("updateContentTypeForExisting progress: {}/{}", processed, total);
+        }
+
+        LOGGER.info("Batch contentType update complete: {} videos updated.", processed);
+        return processed;
     }
 
     @Transactional

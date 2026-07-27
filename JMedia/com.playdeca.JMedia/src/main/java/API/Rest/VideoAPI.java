@@ -36,7 +36,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.eclipse.microprofile.context.ManagedExecutor;
+import java.util.concurrent.ExecutorService;
 import jakarta.ws.rs.core.StreamingOutput;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
@@ -70,7 +70,7 @@ public class VideoAPI {
     VideoImportService videoImportService;
 
     @Inject
-    ManagedExecutor executor;
+    ExecutorService executor;
 
     @Inject
     ThumbnailService thumbnailService;
@@ -118,11 +118,30 @@ public class VideoAPI {
     @Path("/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getVideo(@PathParam("videoId") Long videoId) {
+        // On-demand enrichment BEFORE loading the entity
+        // so the DTO is built from the enriched version
+        try {
+            thumbnailService.ensureMediaImages(videoId);
+        } catch (Exception e) {
+            LOG.warn("Could not enrich images for video {}: {}", videoId, e.getMessage());
+        }
+        try {
+            videoMetadataService.ensureMediaTextMetadata(videoId);
+        } catch (Exception e) {
+            LOG.warn("Could not enrich text metadata for video {}: {}", videoId, e.getMessage());
+        }
         Models.Video video = Models.Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(API.ApiResponse.error("Video not found")).build();
         }
         Models.DTOs.VideoMetadataDTO dto = new Models.DTOs.VideoMetadataDTO(video);
+        try {
+            if (video.series != null) {
+                dto.series = video.series;
+            }
+        } catch (Exception e) {
+            LOG.debug("Could not load series for video {}: {}", videoId, e.getMessage());
+        }
         // Populate per-profile resume time from VideoState
         try {
             Models.VideoState progress = videoStateService.getOrCreate(video);
@@ -219,13 +238,7 @@ public class VideoAPI {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
 
-            String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-            java.nio.file.Path thumbnailsDir;
-            if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                thumbnailsDir = java.nio.file.Paths.get(videoLibraryPath, "thumbnails");
-            } else {
-                thumbnailsDir = thumbnailService.getThumbnailDirectory();
-            }
+            java.nio.file.Path thumbnailsDir = thumbnailService.getThumbnailDirectory();
 
             java.nio.file.Path primaryPath = thumbnailsDir.resolve(videoId + "_" + imageType + ".webp");
             if (java.nio.file.Files.exists(primaryPath)) {
@@ -298,6 +311,38 @@ public class VideoAPI {
                             .header("Content-Type", "image/jpeg")
                             .header("Cache-Control", "public, max-age=86400")
                             .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
+                            .build();
+                }
+            }
+
+            // Generate on-demand: fetch all TMDB media images for this video
+            if (thumbnailService.ensureMediaImages(videoId)) {
+                // Re-check for the requested image type after generation
+                java.nio.file.Path regeneratedPrimary = thumbnailsDir.resolve(videoId + "_" + imageType + ".webp");
+                if (java.nio.file.Files.exists(regeneratedPrimary)) {
+                    File imageFile = regeneratedPrimary.toFile();
+                    return Response.ok(imageFile)
+                            .header("Content-Type", "image/webp")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .build();
+                }
+                java.nio.file.Path regeneratedPng = thumbnailsDir.resolve(videoId + "_" + imageType + ".png");
+                if (java.nio.file.Files.exists(regeneratedPng)) {
+                    File imageFile = regeneratedPng.toFile();
+                    return Response.ok(imageFile)
+                            .header("Content-Type", "image/png")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
+                            .build();
+                }
+                java.nio.file.Path regeneratedJpg = thumbnailsDir.resolve(videoId + "_" + imageType + ".jpg");
+                if (java.nio.file.Files.exists(regeneratedJpg)) {
+                    File imageFile = regeneratedJpg.toFile();
+                    return Response.ok(imageFile)
+                            .header("Content-Type", "image/jpeg")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + imageFile.lastModified() + "\"")
                             .build();
                 }
             }
@@ -1362,9 +1407,65 @@ public class VideoAPI {
     @GET
     @Path("/videos")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getAllVideos(@QueryParam("mediaType") String mediaType) {
-        List<Models.Video> videos = Models.Video.listAll();
+    public Response getAllVideos(@QueryParam("mediaType") String mediaType,
+                                @QueryParam("seriesId") Long seriesId) {
+        List<Models.Video> videos;
+        if (seriesId != null) {
+            Models.Series series = Models.Series.findById(seriesId);
+            if (series == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Series not found")).build();
+            }
+            videos = Models.Video.<Models.Video>find("series = ?1 ORDER BY seasonNumber ASC, episodeNumber ASC", series).list();
+        } else {
+            videos = Models.Video.listAll();
+        }
         return Response.ok(videos).build();
+    }
+
+    @GET
+    @Path("/series/{seriesId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getVideosBySeries(@PathParam("seriesId") Long seriesId,
+                                      @QueryParam("page") @DefaultValue("0") int page,
+                                      @QueryParam("size") @DefaultValue("50") int size) {
+        Models.Series series = Models.Series.findById(seriesId);
+        if (series == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(ApiResponse.error("Series not found")).build();
+        }
+        List<Models.Video> episodes = Models.Video.<Models.Video>find(
+                "series = ?1 ORDER BY seasonNumber ASC, episodeNumber ASC", series)
+                .page(io.quarkus.panache.common.Page.of(page, size))
+                .list();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("seriesId", series.id);
+        result.put("seriesTitle", series.title);
+        result.put("episodes", episodes);
+        result.put("page", page);
+        result.put("size", size);
+        return Response.ok(ApiResponse.success(result)).build();
+    }
+
+    @GET
+    @Path("/content-type/{contentType}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getVideosByContentType(@PathParam("contentType") String contentType,
+                                            @QueryParam("page") @DefaultValue("0") int page,
+                                            @QueryParam("size") @DefaultValue("50") int size) {
+        List<Models.Video> videos = Models.Video.<Models.Video>find(
+                "contentType = ?1 ORDER BY title ASC", contentType)
+                .page(io.quarkus.panache.common.Page.of(page, size))
+                .list();
+        long total = Models.Video.<Models.Video>count("contentType = ?1", contentType);
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("contentType", contentType);
+        result.put("videos", videos);
+        result.put("page", page);
+        result.put("size", size);
+        result.put("totalItems", total);
+        result.put("totalPages", (int) Math.ceil((double) total / size));
+        return Response.ok(ApiResponse.success(result)).build();
     }
 
     @GET

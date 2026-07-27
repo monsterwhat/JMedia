@@ -16,6 +16,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.concurrent.ExecutorService;
 
 @Path("/api/video/playback")
 @Produces(MediaType.APPLICATION_JSON)
@@ -37,7 +38,7 @@ public class VideoPlaybackAPI {
     Services.VideoMetadataService videoMetadataService;
     
     @Inject
-    org.eclipse.microprofile.context.ManagedExecutor executor;
+    ExecutorService executor;
     
     @Inject
     API.WS.VideoSocket videoSocket;

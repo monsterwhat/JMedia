@@ -16,7 +16,7 @@ import javax.swing.JFileChooser;
 import javax.swing.SwingUtilities;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
-import org.eclipse.microprofile.context.ManagedExecutor;
+import java.util.concurrent.ExecutorService;
 import Models.DTOs.ImportSettingsDTO;
 import Services.SettingsService;
 import Services.InstallationService;
@@ -60,7 +60,7 @@ public class SettingsApi {
     private Services.ProfileService profileService;
 
     @Inject
-    ManagedExecutor executor;
+    ExecutorService executor;
 
     @Inject
     Services.CertificateService certificateService;

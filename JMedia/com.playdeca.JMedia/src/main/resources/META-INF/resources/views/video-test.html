@@ -163,6 +163,7 @@
       <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
       <div class="cinema-modal-blur-transition"></div>
       <div class="cinema-modal-title-overlay">
+        <h2 id="modal-text-title" class="cinema-modal-title" style="display:none;"></h2>
         <img src="" id="modal-logo-hero-img" class="cinema-modal-logo-hero is-skeleton" alt="">
         <div class="cinema-modal-actions">
           <button class="cinema-modal-play" id="modal-play-btn">
@@ -467,10 +468,12 @@
 // State
 // ============================================================
 let heroItems = [];
-let allVideos = [];
+var allVideos = [];
 let currentHeroIndex = 0;
 let heroTimer = null;
 const HERO_INTERVAL = 15000;
+let allSeries = [];
+const seriesLookup = new Map();
 
 // ============================================================
 // API Helpers
@@ -492,7 +495,7 @@ async function fetchJSON(url) {
 }
 
 function getThumbnailUrl(videoId) {
-  return `/api/video/poster/${videoId}`;
+  return `/api/video/thumbnail/${videoId}`;
 }
 
 function getHeroUrl(videoId) {
@@ -500,11 +503,13 @@ function getHeroUrl(videoId) {
 }
 
 function getBackdropUrl(video) {
-  if (video && video.backdropPath) return video.backdropPath;
   return `/api/video/backdrop/${video?.id}`;
 }
 function getLogoUrl(videoId) {
   return `/api/video/logo/${videoId}`;
+}
+function getSeriesImageUrl(seriesId, type) {
+  return `/api/series/${seriesId}/${type}`;
 }
 function formatDuration(ms) {
   if (!ms || ms <= 0) return '';
@@ -626,15 +631,24 @@ function updateHero(index) {
 
   setTimeout(() => {
     if (item.thumbnailPath || item.id) {
-      backdrop.src = getHeroUrl(item.id);
+      const heroSeriesData = item.seriesId ? seriesLookup.get(String(item.seriesId)) : null;
+      const heroSrc = heroSeriesData
+        ? getSeriesImageUrl(heroSeriesData.id, 'hero')
+        : getHeroUrl(item.id);
+      backdrop.src = heroSrc;
       backdrop.onload = () => extractHeroColor(backdrop);
       var ambient = document.getElementById('ambient-blur-img');
-      if (ambient) ambient.src = getHeroUrl(item.id);
+      if (ambient) ambient.src = heroSrc;
     }
     const logoImg = document.getElementById('hero-logo-img');
     if (logoImg) {
       if (item.logoPath) {
-        logoImg.src = getLogoUrl(item.id);
+        const heroSeriesData = item.seriesId ? seriesLookup.get(String(item.seriesId)) : null;
+        logoImg.src = heroSeriesData
+          ? getSeriesImageUrl(heroSeriesData.id, 'logo')
+          : getLogoUrl(item.id);
+        logoImg.style.maxWidth = '288px';
+        logoImg.style.maxHeight = '80px';
         logoImg.style.display = 'block';
         logoImg.classList.remove('is-skeleton');
       } else {
@@ -839,9 +853,10 @@ async function loadCinemaData() {
   const params = new URLSearchParams(window.location.search);
   const section = params.get('section') || 'home';
   // Fetch videos, continue-watching, and carousels in parallel
-  const [allVideosResp, cwResp, carouselsHtml] = await Promise.all([
+  const [allVideosResp, cwResp, seriesResp, carouselsHtml] = await Promise.all([
     fetch('/api/video/videos'),
     fetch('/api/video/continue-watching'),
+    fetch('/api/series').then(r => r.ok ? r.json() : null).catch(() => null),
     fetch('/api/video/ui/optimized-carousels').then(r => r.ok ? r.text() : '').catch(() => '')
   ]);
 
@@ -853,6 +868,13 @@ async function loadCinemaData() {
   const allVideosData = allVideosResp.ok ? parseResponse(await allVideosResp.json()) : [];
   const cwData = cwResp.ok ? parseResponse(await cwResp.json()) : [];
   allVideos = Array.isArray(allVideosData) ? allVideosData : [];
+  // Parse series data into lookup map
+  if (seriesResp) {
+    const seriesDataParsed = parseResponse(seriesResp);
+    allSeries = Array.isArray(seriesDataParsed) ? seriesDataParsed : [];
+    seriesLookup.clear();
+    allSeries.forEach(s => seriesLookup.set(String(s.id), s));
+  }
 
   if (allVideos.length) {
     // Hero: 3-tier fallback — continue-watching → top-rated → most recently added
@@ -1028,9 +1050,9 @@ async function openSeriesDetail(seriesTitle) {
   if (!seriesTitle) return;
   // Reset gradient overlay
   // gradient overlay removed; nothing to clear
-  // Filter allVideos for this series
+  // Filter allVideos for this series (all content types — episodes, specials, movies, featurettes, extras)
   const episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle)
+    .filter(v => v.seriesTitle === seriesTitle)
     .sort((a, b) => {
       const sa = a.seasonNumber || 1, sb = b.seasonNumber || 1;
       const ea = a.episodeNumber || 1, eb = b.episodeNumber || 1;
@@ -1048,10 +1070,23 @@ async function openSeriesDetail(seriesTitle) {
   const seasonNumbers = Object.keys(seasons).sort((a, b) => a - b);
   const firstEp = episodes[0];
 
-  // Populate modal
-  const heroUrl = getBackdropUrl(firstEp);
+  // Fetch Series entity directly — single source of truth
+  let seriesData = firstEp.seriesId ? seriesLookup.get(String(firstEp.seriesId)) : null;
+  if (!seriesData && firstEp.seriesId) {
+    seriesData = await fetchJSON(`/api/series/${firstEp.seriesId}`);
+    if (seriesData) seriesLookup.set(String(firstEp.seriesId), seriesData);
+  }
+  const imgSource = seriesData || firstEp;
+
+  // Populate modal — Series images take priority
+  const heroUrl = (seriesData && seriesData.backdropPath)
+    ? getSeriesImageUrl(seriesData.id, 'backdrop')
+    : getBackdropUrl(firstEp);
   const backdropImg = document.getElementById('modal-backdrop-img');
-  if (backdropImg) backdropImg.src = heroUrl;
+  if (backdropImg) {
+    backdropImg.src = heroUrl;
+    backdropImg.classList.remove('is-skeleton');
+  }
   const bgBlur = document.getElementById('modal-bg-blur');
   if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
   const bgBlurInner = document.getElementById('modal-bg-blur-inner');
@@ -1061,25 +1096,33 @@ async function openSeriesDetail(seriesTitle) {
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
   extractAndApplyModalColor(heroUrl, heroOverlay);
 
+  // Modal logo — read from Series entity
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
+  const textTitleEl = document.getElementById('modal-text-title');
   if (logoHeroImg) {
-    if (firstEp.logoPath) {
-      logoHeroImg.src = getLogoUrl(firstEp.id);
+    if (imgSource.logoPath) {
+      logoHeroImg.src = seriesData
+        ? getSeriesImageUrl(seriesData.id, 'logo')
+        : getLogoUrl(firstEp.id);
+      logoHeroImg.style.maxWidth = '288px';
+      logoHeroImg.style.maxHeight = '80px';
       logoHeroImg.style.display = 'block';
       logoHeroImg.classList.remove('is-skeleton');
+      if (textTitleEl) textTitleEl.style.display = 'none';
     } else {
       logoHeroImg.style.display = 'none';
-      logoHeroImg.classList.add('is-skeleton');
+      logoHeroImg.classList.remove('is-skeleton');
+      if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
     }
   }
 
   // Title logo handled separately via hero logo img
   document.getElementById('cinema-modal').dataset.seriesTitle = seriesTitle;
 
-  // Meta badges
-  const rating = firstEp.imdbRating || firstEp.tmdbRating || '';
+  // Meta badges — from Series entity
+  const rating = imgSource.imdbRating || imgSource.tmdbRating || '';
     const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
-  const year = firstEp.releaseYear || '';
+  const year = imgSource.releaseYear || '';
   const seasonCount = seasonNumbers.length;
   const metaRow = document.getElementById('modal-meta-row');
   if (metaRow) {
@@ -1090,31 +1133,27 @@ async function openSeriesDetail(seriesTitle) {
     metaRow.innerHTML += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
   }
 
-  // Genres
+  // Genres — from Series entity directly
   const genresEl = document.getElementById('modal-genres');
-  if (genresEl) {
-    genresEl.innerHTML = firstEp.genres?.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('') || '';
-    if (firstEp.genres?.length) genresEl.classList.remove('is-skeleton');
+  if (genresEl && imgSource.genres?.length) {
+    genresEl.innerHTML = imgSource.genres.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('');
+    genresEl.classList.remove('is-skeleton');
   }
 
-  // Creator (networks for TV shows)
+  // Creator — from Series entity directly
   const creatorEl = document.getElementById('modal-creator');
   if (creatorEl) {
-    const creatorNames = firstEp.networks?.join(', ') || '';
+    const creatorNames = (imgSource.networks || []).join(', ');
     creatorEl.textContent = creatorNames;
-    if (creatorNames) {
-      creatorEl.classList.remove('is-skeleton');
-    }
+    if (creatorNames) creatorEl.classList.remove('is-skeleton');
   }
 
-  // Description
+  // Description — from Series entity directly
   const descEl = document.getElementById('modal-desc');
+  const desc = imgSource.description || imgSource.overview || '';
   if (descEl) {
-    const desc = firstEp.description || '';
     descEl.innerHTML = desc ? `<p>${desc}</p>` : '';
-    if (desc) {
-      descEl.classList.remove('is-skeleton');
-    }
+    if (desc) descEl.classList.remove('is-skeleton');
   }
 
   // Build episodes HTML
@@ -1177,6 +1216,19 @@ async function openSeriesDetail(seriesTitle) {
   initModalScrollBlur();
 }
 
+function renderContentTypeBadge(contentType) {
+  if (!contentType || contentType === 'episode') return '';
+  const badgeColors = {
+    movie: { bg: 'rgba(34,197,94,0.2)', color: '#22c55e', label: 'Movie' },
+    special: { bg: 'rgba(249,115,22,0.2)', color: '#f97316', label: 'Special' },
+    featurette: { bg: 'rgba(168,85,247,0.2)', color: '#a855f7', label: 'Featurette' },
+    extra: { bg: 'rgba(239,68,68,0.2)', color: '#ef4444', label: 'Extra' }
+  };
+  const badge = badgeColors[contentType];
+  if (!badge) return '';
+  return `<span style="display:inline-block;font-size:0.65rem;font-weight:600;padding:0.1rem 0.4rem;border-radius:0.2rem;background:${badge.bg};color:${badge.color};text-transform:uppercase;letter-spacing:0.03em;vertical-align:middle;">${badge.label}</span> `;
+}
+
 function buildEpisodesList(episodeArray) {
   return episodeArray.map((ep, i) => {
     const epTitle = ep.episodeTitle || ep.title || `Episode ${(ep.episodeNumber || i + 1)}`;
@@ -1195,6 +1247,7 @@ function buildEpisodesList(episodeArray) {
       </div>
       <div class="cinema-episode-info">
         <div class="cinema-episode-header">
+          ${renderContentTypeBadge(ep.contentType)}
           <h3 class="cinema-episode-title">${epNum}. ${epTitle}</h3>
           ${dur ? `<span class="cinema-episode-duration">${dur}</span>` : ''}
         </div>
@@ -1315,7 +1368,7 @@ function switchSeason(seasonNumber) {
   // modal-title removed from DOM; read from dataset stored by openSeriesDetail
   const seriesTitle = document.getElementById('cinema-modal')?.dataset.seriesTitle || '';
   const episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle && (v.seasonNumber || 1) == seasonNumber)
+    .filter(v => v.seriesTitle === seriesTitle && (v.seasonNumber || 1) == seasonNumber)
     .sort((a, b) => (a.episodeNumber || 1) - (b.episodeNumber || 1));
   
   // Update episode list
@@ -1342,7 +1395,10 @@ function openDetails(videoId) {
     // Hero image — prefer wider images
     const heroUrl = getBackdropUrl(data);
     const backdropImg = document.getElementById('modal-backdrop-img');
-    if (backdropImg) backdropImg.src = heroUrl;
+    if (backdropImg) {
+      backdropImg.src = heroUrl;
+      backdropImg.classList.remove('is-skeleton');
+    }
 
     // Dynamic hero overlay color from backdrop
     const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
@@ -1355,14 +1411,17 @@ function openDetails(videoId) {
     if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${heroUrl})`;
 
     const logoHeroImg = document.getElementById('modal-logo-hero-img');
+    const textTitleEl = document.getElementById('modal-text-title');
     if (logoHeroImg) {
       if (data.logoPath) {
         logoHeroImg.src = getLogoUrl(data.id);
         logoHeroImg.style.display = 'block';
         logoHeroImg.classList.remove('is-skeleton');
+        if (textTitleEl) textTitleEl.style.display = 'none';
       } else {
         logoHeroImg.style.display = 'none';
-        logoHeroImg.classList.add('is-skeleton');
+        logoHeroImg.classList.remove('is-skeleton');
+        if (textTitleEl) { textTitleEl.textContent = data.title || ''; textTitleEl.style.display = ''; }
       }
     }
 
@@ -1403,7 +1462,7 @@ function openDetails(videoId) {
     }
 
     // Description with expand toggle
-    const desc = data.description || '';
+    const desc = data.description || data.overview || '';
     const descEl = document.getElementById('modal-desc');
     const descToggle = document.getElementById('modal-desc-toggle');
     if (descEl) {
@@ -1530,15 +1589,41 @@ function closeModal() {
   // Reset dynamic hero overlay color
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
   if (heroOverlay) heroOverlay.style.backgroundColor = '';
-  // gradient overlay removed; nothing to clear
-  // Reset logo hero image and text title to defaults
+
+  // Clear hero backdrop image
+  const backdropImg = document.getElementById('modal-backdrop-img');
+  if (backdropImg) { backdropImg.src = ''; backdropImg.classList.add('is-skeleton'); }
+
+  // Clear blurred backgrounds
+  const bgBlur = document.getElementById('modal-bg-blur');
+  if (bgBlur) bgBlur.style.backgroundImage = '';
+  const bgBlurInner = document.getElementById('modal-bg-blur-inner');
+  if (bgBlurInner) bgBlurInner.style.backgroundImage = '';
+
+  // Reset logo hero image + text title fallback
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
-  if (logoHeroImg) { logoHeroImg.style.display = ''; logoHeroImg.classList.add('is-skeleton'); }
-  // modal-title removed from DOM; nothing to clear
+  if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = ''; logoHeroImg.classList.add('is-skeleton'); }
+  const textTitleEl = document.getElementById('modal-text-title');
+  if (textTitleEl) { textTitleEl.textContent = ''; textTitleEl.style.display = 'none'; }
+
+  // Reset description
   const descEl = document.getElementById('modal-desc');
   if (descEl) { descEl.innerHTML = ''; descEl.classList.add('is-skeleton'); }
+  const descToggle = document.getElementById('modal-desc-toggle');
+  if (descToggle) descToggle.style.display = 'none';
+
+  // Reset genres
   const genresEl = document.getElementById('modal-genres');
   if (genresEl) { genresEl.innerHTML = ''; genresEl.classList.add('is-skeleton'); }
+
+  // Reset creator
+  const creatorEl = document.getElementById('modal-creator');
+  if (creatorEl) { creatorEl.textContent = ''; creatorEl.classList.add('is-skeleton'); }
+
+  // Reset meta row
+  const metaRow = document.getElementById('modal-meta-row');
+  if (metaRow) metaRow.innerHTML = '';
+
   releaseFocusTrap(document.getElementById('cinema-modal'));
   const playBtn = document.getElementById('modal-play-btn');
   const watchBtn = document.getElementById('modal-watchlist-btn');

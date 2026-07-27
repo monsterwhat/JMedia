@@ -1,7 +1,9 @@
 package Models.DTOs;
 
+import Models.Series;
 import Models.Video;
 import lombok.Data;
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
@@ -35,13 +37,18 @@ public class VideoMetadataDTO {
     public String posterPath;
     public String thumbnailPath;
     public List<String> networks;
+    public List<String> directors;
     public String originalLanguage;
     public Integer runtimeMins;
     public Boolean favorite;
     public Boolean watched;
+    public Series series;
+    public String contentType;
 
     public VideoMetadataDTO(Video video) {
         if (video == null) return;
+        Series s = video.series;
+
         this.id = video.id;
         this.title = video.title;
         this.type = video.type;
@@ -53,27 +60,36 @@ public class VideoMetadataDTO {
         this.recapEnd = video.recapEnd;
         this.duration = video.duration;
         this.fileSize = video.size != null && video.size > 0 ? video.size : video.fileSize;
-        this.logoPath = video.logoPath;
-        this.heroPath = video.heroPath;
-        this.description = video.description;
-        this.tagline = video.tagline;
-        this.overview = video.overview;
-        this.genres = video.genres;
-        this.imdbRating = video.imdbRating;
-        this.tmdbRating = video.tmdbRating;
-        this.releaseYear = video.releaseYear;
+
+        // Show-level fields: read from Series only (no fallback to Video)
+        if (s != null) {
+            this.logoPath = s.logoPath;
+            this.heroPath = s.heroPath;
+            this.description = s.description;
+            this.tagline = s.tagline;
+            this.overview = s.overview;
+            this.genres = s.genres != null ? new ArrayList<>(s.genres) : null;
+            this.backdropPath = s.backdropPath;
+            this.posterPath = s.posterPath;
+            this.networks = s.networks != null ? new ArrayList<>(s.networks) : null;
+            this.directors = s.directors != null ? new ArrayList<>(s.directors) : null;
+            this.originalLanguage = s.originalLanguage;
+            this.runtimeMins = s.runtimeMins;
+            this.imdbRating = s.imdbRating;
+            this.tmdbRating = s.tmdbRating;
+            this.releaseYear = s.releaseYear;
+        }
+
+        // Episode-level fields (always from Video)
         this.seriesTitle = video.seriesTitle;
         this.seasonNumber = video.seasonNumber;
         this.episodeNumber = video.episodeNumber;
         this.episodeTitle = video.episodeTitle;
-        this.backdropPath = video.backdropPath;
-        this.posterPath = video.posterPath;
         this.thumbnailPath = video.thumbnailPath;
-        this.networks = video.networks;
-        this.originalLanguage = video.originalLanguage;
-        this.runtimeMins = video.runtimeMins;
         this.favorite = video.favorite;
         this.watched = video.watched;
+        this.contentType = video.contentType;
         // resumeTime will be set by API layer using VideoState
     }
+
 }

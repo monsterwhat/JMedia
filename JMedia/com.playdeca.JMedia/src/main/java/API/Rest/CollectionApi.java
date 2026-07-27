@@ -141,6 +141,7 @@ public class CollectionApi {
                              @PathParam("id") Long id,
                              @FormParam("videoId") Long videoId,
                              @FormParam("externalVideoId") Long externalVideoId,
+                             @FormParam("seriesId") Long seriesId,
                              @FormParam("orderIndex") @DefaultValue("0") int orderIndex,
                              @FormParam("notes") String notes) {
         boolean isAdmin = checkAdmin(headers);
@@ -152,8 +153,8 @@ public class CollectionApi {
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
-        if (videoId == null && externalVideoId == null)
-            return Response.status(400).entity(ApiResponse.error("videoId or externalVideoId is required")).build();
+        if (videoId == null && externalVideoId == null && seriesId == null)
+            return Response.status(400).entity(ApiResponse.error("videoId, externalVideoId, or seriesId is required")).build();
 
         if (videoId != null) {
             var e = collectionService.addEntry(id, videoId, orderIndex, notes);
@@ -161,10 +162,15 @@ public class CollectionApi {
                 return Response.status(404).entity(ApiResponse.error("Collection or video not found")).build();
             collectionService.updateCoverVideo(c);
             return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
-        } else {
+        } else if (externalVideoId != null) {
             var e = collectionService.addEntryWithExternalVideo(id, externalVideoId, orderIndex, notes);
             if (e == null)
                 return Response.status(404).entity(ApiResponse.error("Collection or external video not found")).build();
+            return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
+        } else {
+            var e = collectionService.addEntryWithSeries(id, seriesId, orderIndex, notes);
+            if (e == null)
+                return Response.status(404).entity(ApiResponse.error("Collection or series not found")).build();
             return Response.ok(ApiResponse.success(Map.of("id", e.id))).build();
         }
     }

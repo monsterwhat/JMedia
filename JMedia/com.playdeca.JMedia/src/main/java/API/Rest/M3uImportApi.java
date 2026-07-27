@@ -18,7 +18,7 @@ import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.eclipse.microprofile.context.ManagedExecutor;
+import java.util.concurrent.ExecutorService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -35,7 +35,7 @@ public class M3uImportApi {
     StreamCheckerService streamCheckerService;
 
     @Inject
-    ManagedExecutor executor;
+    ExecutorService executor;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
