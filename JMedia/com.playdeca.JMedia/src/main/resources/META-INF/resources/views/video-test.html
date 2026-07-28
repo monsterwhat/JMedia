@@ -897,7 +897,8 @@ function renderCarousel(containerId, items) {
 function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
-  if (_showAllMode && section !== _showAllMode) { showLess(); }
+  const _showAllModeSection = _showAllMode === 'tvshows' ? 'shows' : _showAllMode;
+  if (_showAllMode && section !== _showAllModeSection) { showLess(); }
 
       if (section === 'home') {
     allSections.forEach(s => {
