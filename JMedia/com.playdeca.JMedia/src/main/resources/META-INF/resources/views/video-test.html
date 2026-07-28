@@ -309,14 +309,6 @@
             <option value="oplayer">OPlayer</option>
           </select>
         </div>
-        <div class="cinema-settings-divider"></div>
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">Crossfade Duration</span>
-          <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <input type="range" class="cinema-settings-range" id="crossfade-slider" min="0" max="10" step="1" value="0" oninput="updateCrossfadeDisplay(this.value)">
-            <span class="cinema-settings-range-value" id="crossfade-value">0s</span>
-          </div>
-        </div>
         <div class="cinema-settings-row">
           <span class="cinema-settings-label">Auto-Skip Intro</span>
           <div class="cinema-settings-toggle" id="skip-intro-toggle" onclick="toggleAutoSkip('intro', this)"><div></div></div>
