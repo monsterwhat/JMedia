@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/css/cinema-home.css">
+﻿<link rel="stylesheet" href="/css/cinema-home.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Ambient Blur Background -->
@@ -105,7 +105,7 @@
   </section>
 
   <!-- Movies Section -->
-  <section class="cinema-section" id="section-movies" style="display:none;">
+  <section class="cinema-section" id="section-movies" data-category="movies" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">Movies</h2>
     </div>
@@ -117,7 +117,7 @@
   </section>
 
   <!-- TV Shows Section -->
-  <section class="cinema-section" id="section-tvshows" style="display:none;">
+  <section class="cinema-section" id="section-tvshows" data-category="shows" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">TV Shows</h2>
     </div>
@@ -135,7 +135,6 @@
     <a href="/video-test" class="cinema-dock-item active" title="Home"><i class="fa-solid fa-house"></i></a>
     <a href="#" data-section="movies" class="cinema-dock-item" title="Movies"><i class="fa-solid fa-film"></i></a>
     <a href="#" data-section="shows" class="cinema-dock-item" title="TV Shows"><i class="fa-solid fa-tv"></i></a>
-    <a href="#" data-section="anime" class="cinema-dock-item" title="Anime"><i class="fa-solid fa-dragon"></i></a>
     <a href="#" data-section="music" class="cinema-dock-item" title="Music"><i class="fa-solid fa-music"></i></a>
     <div class="cinema-dock-separator"></div>
     <button class="cinema-dock-item" id="settingsDockBtn" title="Settings" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-gear"></i></button>
@@ -293,6 +292,158 @@
   </div>
 </div>
 
+<!-- Player Modal -->
+<style>
+/* Player Modal — cinema-modal overrides for near-fullscreen playback */
+.player-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 300;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.player-modal-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.player-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90vw;
+  height: 90vh;
+  max-width: none;
+  max-height: none;
+  background: #0a0a0a;
+  border-radius: 12px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+  z-index: 301;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.player-modal.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.player-modal.is-expanded {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+}
+
+/* Topbar */
+.player-modal-topbar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  min-height: 44px;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.player-modal-topbar-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 18px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+.player-modal-topbar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.player-modal-topbar-title {
+  flex: 1;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Expanded: auto-hide topbar */
+.player-modal.is-expanded .player-modal-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.player-modal.is-expanded .player-modal-topbar:hover,
+.player-modal.is-expanded:hover .player-modal-topbar {
+  opacity: 1;
+}
+.player-modal.is-expanded:hover {
+  cursor: default;
+}
+
+/* Content container */
+.player-modal-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Hide under-player sections inside the modal */
+.player-modal-content .underplayer-carousel-section,
+.player-modal-content .underplayer-info-section {
+  display: none !important;
+}
+
+/* Mobile: fullscreen by default */
+@media (max-width: 767px) {
+  .player-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+  }
+  .player-modal-topbar .player-expand-btn {
+    display: none;
+  }
+}
+</style>
+
+<div class="player-modal-backdrop" id="player-modal-backdrop" onclick="closePlayerModal()"></div>
+<div class="player-modal" id="player-modal">
+  <div class="player-modal-topbar">
+    <button class="player-modal-topbar-btn player-close-btn" onclick="closePlayerModal()" title="Close">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <span class="player-modal-topbar-title" id="player-modal-title"></span>
+    <button class="player-modal-topbar-btn player-expand-btn" onclick="togglePlayerExpand()" title="Toggle fullscreen">
+      <i class="fa-solid fa-expand" id="player-expand-icon"></i>
+    </button>
+  </div>
+  <div class="player-modal-content" id="player-modal-content"></div>
+</div>
+
 
 <script>
 // ============================================================
@@ -355,6 +506,8 @@ let heroTimer = null;
 const HERO_INTERVAL = 15000;
 let allSeries = [];
 const seriesLookup = new Map();
+let allContinueWatching = [];
+let _modalGeneration = 0;
 
 // ============================================================
 // API Helpers
@@ -512,7 +665,7 @@ function updateHero(index) {
 
   setTimeout(() => {
     if (item.thumbnailPath || item.id) {
-      const heroSeriesData = item.seriesId ? seriesLookup.get(String(item.seriesId)) : null;
+      const heroSeriesData = item.series?.id ? seriesLookup.get(String(item.series.id)) : null;
       const heroSrc = heroSeriesData
         ? getSeriesImageUrl(heroSeriesData.id, 'hero')
         : getHeroUrl(item.id);
@@ -523,7 +676,7 @@ function updateHero(index) {
     }
     const logoImg = document.getElementById('hero-logo-img');
     if (logoImg) {
-      const heroSeriesData = item.seriesId ? seriesLookup.get(String(item.seriesId)) : null;
+      const heroSeriesData = item.series?.id ? seriesLookup.get(String(item.series.id)) : null;
       logoImg.src = heroSeriesData
         ? getSeriesImageUrl(heroSeriesData.id, 'logo')
         : getLogoUrl(item.id);
@@ -650,6 +803,23 @@ function renderContinueWatchingCarousel(items) {
   updateCarouselArrows();
 }
 
+function renderFilteredContinueWatching(section) {
+  let filtered;
+  if (section === 'movies') {
+    filtered = allContinueWatching.filter(item => item.type === 'movie');
+  } else if (section === 'shows') {
+    filtered = allContinueWatching.filter(item => item.type === 'episode');
+  } else {
+    filtered = allContinueWatching;
+  }
+  if (filtered.length > 0) {
+    renderContinueWatchingCarousel(filtered);
+  } else {
+    const sectionEl = document.getElementById('section-continue-watching');
+    if (sectionEl) sectionEl.style.display = 'none';
+  }
+}
+
 function formatRemainingTime(durationSec, progressPercent) {
   if (!durationSec) return '';
   const remaining = durationSec * (1 - (progressPercent || 0) / 100);
@@ -703,26 +873,31 @@ function renderCarousel(containerId, items) {
 function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
-  const cwSection = document.getElementById('section-continue-watching');
-  
-  if (section === 'home') {
-    allSections.forEach(s => s.style.display = '');
-    if (hero) hero.style.display = '';
-  } else {
+
+      if (section === 'home') {
     allSections.forEach(s => {
-      if (s !== cwSection) s.style.display = 'none';
+      if (s.id === 'section-movies' || s.id === 'section-tvshows' || !s.dataset.category) {
+        s.style.display = '';
+      } else {
+        s.style.display = 'none';
+      }
     });
     if (hero) hero.style.display = '';
-    const sectionMap = {
-      'movies': 'section-movies',
-      'shows': 'section-tvshows'
-    };
-    const targetId = sectionMap[section];
-    if (targetId) {
-      const target = document.getElementById(targetId);
-      if (target) target.style.display = '';
-    }
+  } else {
+    const targetCategory = section === 'movies' ? 'movies' : 'shows';
+    allSections.forEach(s => {
+      if (s.dataset.category === targetCategory) {
+        s.style.display = '';
+      } else if (s.id === 'section-continue-watching') {
+        // Handled by renderFilteredContinueWatching below
+      } else {
+        s.style.display = 'none';
+      }
+    });
+    if (hero) hero.style.display = '';
   }
+
+  renderFilteredContinueWatching(section);
 }
 
 async function loadCinemaData() {
@@ -744,10 +919,14 @@ async function loadCinemaData() {
   const allVideosData = allVideosResp.ok ? parseResponse(await allVideosResp.json()) : [];
   const cwData = cwResp.ok ? parseResponse(await cwResp.json()) : [];
   allVideos = Array.isArray(allVideosData) ? allVideosData : [];
+  allContinueWatching = Array.isArray(cwData) ? cwData : [];
   // Parse series data into lookup map
   if (seriesResp) {
     const seriesDataParsed = parseResponse(seriesResp);
-    allSeries = Array.isArray(seriesDataParsed) ? seriesDataParsed : [];
+    // Paginated response: {series: [...], page, size, ...} or plain array
+    const seriesArray = Array.isArray(seriesDataParsed) ? seriesDataParsed
+      : (seriesDataParsed && Array.isArray(seriesDataParsed.series) ? seriesDataParsed.series : []);
+    allSeries = seriesArray;
     seriesLookup.clear();
     allSeries.forEach(s => seriesLookup.set(String(s.id), s));
   }
@@ -820,9 +999,21 @@ async function loadCinemaData() {
       .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
       .slice(0, 20);
 
+    // Deduplicate TV episodes — keep only the latest per series
+    const seenSeries = new Set();
+    const dedupedUpdates = [];
+    for (const item of recentlyUpdated) {
+      if (item.type === 'episode') {
+        const key = item.seriesTitle || item.seriesId || item.id;
+        if (seenSeries.has(key)) continue;
+        seenSeries.add(key);
+      }
+      dedupedUpdates.push(item);
+    }
+
     // Render and show sections with data
-    if (recentlyUpdated.length) {
-      renderCarousel('recently-updated-carousel', recentlyUpdated);
+    if (dedupedUpdates.length) {
+      renderCarousel('recently-updated-carousel', dedupedUpdates);
       document.getElementById('section-recently-updated').style.display = '';
     }
     if (trending.length) {
@@ -838,6 +1029,105 @@ async function loadCinemaData() {
       document.getElementById('section-tvshows').style.display = '';
     }
     updateCarouselArrows();
+
+    // === Dynamic genre-based carousel rows & "Recently Added" rows ===
+    // Helper: create a cinema-section with carousel structure
+    function _buildSection(title, carouselId, category) {
+      const sec = document.createElement('section');
+      sec.className = 'cinema-section';
+      sec.setAttribute('data-category', category);
+      sec.innerHTML = `
+        <div class="cinema-section-header">
+          <h2 class="cinema-section-title">${title}</h2>
+        </div>
+        <div class="cinema-carousel-wrapper">
+          <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="${carouselId}"><i class="fa-solid fa-chevron-left"></i></button>
+          <div class="cinema-carousel scrollbar-hide" id="${carouselId}"></div>
+          <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="${carouselId}"><i class="fa-solid fa-chevron-right"></i></button>
+        </div>`;
+      return sec;
+    }
+
+    // --- Recently Added Movies ---
+    const recentlyAddedMovies = [...movies]
+      .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
+      .slice(0, 20);
+    let lastMovieEl = document.getElementById('section-movies');
+    if (recentlyAddedMovies.length > 0) {
+      const cid = 'movies-recently-added-carousel';
+      const sec = _buildSection('Recently Added Movies', cid, 'movies');
+      lastMovieEl.before(sec);
+      lastMovieEl = sec;
+      renderCarousel(cid, recentlyAddedMovies);
+    }
+
+    // --- Movie Genre Rows (≥2 movies per genre, sorted by count desc) ---
+    const movieGenreMap = new Map();
+    movies.forEach(v => {
+      if (Array.isArray(v.genres)) {
+        v.genres.forEach(g => {
+          if (!movieGenreMap.has(g)) movieGenreMap.set(g, []);
+          movieGenreMap.get(g).push(v);
+        });
+      }
+    });
+    Array.from(movieGenreMap.entries())
+      .filter(([genre]) => genre.toLowerCase() !== 'anime')
+      .filter(([, vids]) => vids.length >= 2)
+      .sort((a, b) => b[1].length - a[1].length)
+      .forEach(([genre, vids]) => {
+        const slug = genre.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const cid = `movies-genre-${slug}-carousel`;
+        const sec = _buildSection(genre, cid, 'movies');
+        lastMovieEl.after(sec);
+        lastMovieEl = sec;
+        renderCarousel(cid, vids.slice(0, 20));
+      });
+
+    // --- Recently Added TV Shows (deduped by seriesTitle, top 20 by dateAdded) ---
+    const allTvShows = Array.from(seriesMap.values())
+      .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''));
+    const recentlyAddedTvShows = allTvShows.slice(0, 20);
+    let lastTvEl = document.getElementById('section-tvshows');
+    if (recentlyAddedTvShows.length > 0) {
+      const cid = 'tvshows-recently-added-carousel';
+      const sec = _buildSection('Recently Added TV Shows', cid, 'shows');
+      lastTvEl.before(sec);
+      lastTvEl = sec;
+      renderCarousel(cid, recentlyAddedTvShows);
+    }
+
+    // --- TV Show Genre Rows (≥2 shows per genre, sorted by count desc) ---
+    const tvShowGenreMap = new Map();
+    allTvShows.forEach(v => {
+      if (Array.isArray(v.genres)) {
+        v.genres.forEach(g => {
+          if (!tvShowGenreMap.has(g)) tvShowGenreMap.set(g, []);
+          tvShowGenreMap.get(g).push(v);
+        });
+      }
+    });
+    Array.from(tvShowGenreMap.entries())
+      .filter(([genre]) => genre.toLowerCase() !== 'anime')
+      .filter(([, vids]) => vids.length >= 2)
+      .sort((a, b) => b[1].length - a[1].length)
+      .forEach(([genre, vids]) => {
+        const slug = genre.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const cid = `tvshows-genre-${slug}-carousel`;
+        const sec = _buildSection(genre, cid, 'shows');
+        lastTvEl.after(sec);
+        lastTvEl = sec;
+        renderCarousel(cid, vids.slice(0, 20));
+      });
+
+    // Re-initialize arrow visibility and attach scroll listeners for new carousels
+    updateCarouselArrows();
+    document.querySelectorAll('.cinema-carousel').forEach(c => {
+      if (!c._scrollBound) {
+        c.addEventListener('scroll', updateCarouselArrows);
+        c._scrollBound = true;
+      }
+    });
   }
 
   // If we got HTMX carousel HTML, also try rendering it
@@ -924,6 +1214,19 @@ async function openSeriesByTitle(seriesTitle) {
 
 async function openSeriesDetail(seriesTitle) {
   if (!seriesTitle) return;
+  const gen = ++_modalGeneration;
+  const modal = document.getElementById('cinema-modal');
+  if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
+  if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
+  // Reset modal fields from previous series to prevent stale data
+  const resetDesc = document.getElementById('modal-desc');
+  if (resetDesc) { resetDesc.innerHTML = ''; resetDesc.classList.add('is-skeleton'); }
+  const resetGenres = document.getElementById('modal-genres');
+  if (resetGenres) { resetGenres.innerHTML = ''; resetGenres.classList.add('is-skeleton'); }
+  const resetCreator = document.getElementById('modal-creator');
+  if (resetCreator) { resetCreator.textContent = ''; resetCreator.classList.add('is-skeleton'); }
+  const resetDescToggle = document.getElementById('modal-desc-toggle');
+  if (resetDescToggle) resetDescToggle.style.display = 'none';
   // Reset gradient overlay
   // gradient overlay removed; nothing to clear
   // Filter allVideos for this series (all content types — episodes, specials, movies, featurettes, extras)
@@ -946,22 +1249,91 @@ async function openSeriesDetail(seriesTitle) {
   const seasonNumbers = Object.keys(seasons).sort((a, b) => a - b);
   const firstEp = episodes[0];
 
-  // Fetch Series entity directly — single source of truth
-  let seriesData = firstEp.seriesId ? seriesLookup.get(String(firstEp.seriesId)) : null;
-  if (!seriesData && firstEp.seriesId) {
-    seriesData = await fetchJSON(`/api/series/${firstEp.seriesId}`);
-    if (seriesData) seriesLookup.set(String(firstEp.seriesId), seriesData);
+  // Open modal immediately with skeleton state — don't wait for network
+  modal.dataset.originalParent = modal.parentElement.id || 'app-content';
+  document.body.appendChild(modal);
+  document.getElementById('cinema-modal-backdrop').classList.add('active');
+  modal.classList.add('active');
+  trapFocus(modal);
+  document.body.style.overflow = 'hidden';
+  initModalScrollBlur();
+
+  // Show text title immediately, hide logo until it loads
+  document.getElementById('cinema-modal').dataset.seriesTitle = seriesTitle;
+  const textTitleEl = document.getElementById('modal-text-title');
+  const logoHeroImg = document.getElementById('modal-logo-hero-img');
+  if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
+  if (logoHeroImg) { logoHeroImg.style.display = 'none'; logoHeroImg.classList.add('is-skeleton'); }
+
+  // Show play/watchlist buttons immediately
+  const playBtn = document.getElementById('modal-play-btn');
+  if (playBtn) { playBtn.style.display = ''; playBtn.onclick = () => playVideo(firstEp); }
+  const watchBtn = document.getElementById('modal-watchlist-btn');
+  if (watchBtn) { watchBtn.style.display = ''; watchBtn.onclick = () => toggleWatchlist(firstEp.id); }
+
+  // Fetch Series entity — try by ID first, fall back to title lookup
+  let seriesData = null;
+  const seriesId = firstEp.series?.id;
+  if (seriesId) {
+    seriesData = seriesLookup.get(String(seriesId)) || null;
+    if (!seriesData) {
+      seriesData = await fetchJSON(`/api/series/${seriesId}`);
+      if (seriesData) seriesLookup.set(String(seriesId), seriesData);
+    }
+    if (gen !== _modalGeneration) return;
   }
+  // Fallback: match by seriesTitle from cache (when lazy proxy is null)
+  if (!seriesData && seriesTitle) {
+    const normalizedTitle = seriesTitle.toLowerCase();
+    for (const [key, cached] of seriesLookup) {
+      if (cached.title && cached.title.toLowerCase() === normalizedTitle) {
+        seriesData = cached;
+        break;
+      }
+    }
+  }
+  // Cache may have stale un-enriched data — fetch fresh from API (triggers enrichment)
+  if (seriesData && seriesData.id) {
+    try {
+      const fresh = await fetchJSON(`/api/series/${seriesData.id}`);
+      if (fresh && (fresh.genres?.length || fresh.overview || fresh.networks?.length)) {
+        seriesData = fresh;
+        seriesLookup.set(String(seriesData.id), fresh);
+      }
+    } catch (e) { /* keep cached version on transient error */ }
+  }
+  if (gen !== _modalGeneration) return;
   const imgSource = seriesData || firstEp;
 
   // Populate modal — Series images take priority
   const heroUrl = seriesData
     ? getSeriesImageUrl(seriesData.id, 'backdrop')
     : getBackdropUrl(firstEp);
+  const episodeBackdropUrl = getBackdropUrl(firstEp);
   const backdropImg = document.getElementById('modal-backdrop-img');
   if (backdropImg) {
     backdropImg.src = heroUrl;
     backdropImg.classList.remove('is-skeleton');
+    // Retry: series images download on first request (404), should exist shortly after
+    if (seriesData) {
+      let backdropRetries = 0;
+      backdropImg.onerror = function() {
+        if (backdropRetries < 3) {
+          backdropRetries++;
+          modal._backdropRetry = setTimeout(() => {
+            const retryUrl = getSeriesImageUrl(seriesData.id, 'backdrop') + '?r=' + Date.now();
+            backdropImg.src = retryUrl;
+            if (bgBlur) bgBlur.style.backgroundImage = `url(${retryUrl})`;
+            if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${retryUrl})`;
+          }, 2000 * backdropRetries);
+        } else {
+          backdropImg.onerror = null;
+          backdropImg.src = episodeBackdropUrl;
+          if (bgBlur) bgBlur.style.backgroundImage = `url(${episodeBackdropUrl})`;
+          if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${episodeBackdropUrl})`;
+        }
+      };
+    }
   }
   const bgBlur = document.getElementById('modal-bg-blur');
   if (bgBlur) bgBlur.style.backgroundImage = `url(${heroUrl})`;
@@ -973,8 +1345,7 @@ async function openSeriesDetail(seriesTitle) {
   extractAndApplyModalColor(heroUrl, heroOverlay);
 
   // Modal logo — Series logo first, video logo fallback, text title fallback
-  const logoHeroImg = document.getElementById('modal-logo-hero-img');
-  const textTitleEl = document.getElementById('modal-text-title');
+  // logoHeroImg and textTitleEl already declared above in the early-open block
   if (logoHeroImg) {
     // Always try to load a logo — backend handles missing files gracefully
     const logoUrl = seriesData
@@ -986,11 +1357,27 @@ async function openSeriesDetail(seriesTitle) {
     logoHeroImg.style.display = 'block';
     logoHeroImg.classList.remove('is-skeleton');
     if (textTitleEl) textTitleEl.style.display = 'none';
-    // Fallback: if logo fails to load, show text title instead
-    logoHeroImg.onerror = function() {
-      logoHeroImg.style.display = 'none';
-      if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
-    };
+    // Retry: series logo downloads on first request, retry before giving up
+    if (seriesData) {
+      let logoRetries = 0;
+      logoHeroImg.onerror = function() {
+        if (logoRetries < 3) {
+          logoRetries++;
+          modal._logoRetry = setTimeout(() => {
+            logoHeroImg.src = getSeriesImageUrl(seriesData.id, 'logo') + '?r=' + Date.now();
+          }, 2000 * logoRetries);
+        } else {
+          logoHeroImg.onerror = null;
+          logoHeroImg.style.display = 'none';
+          if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
+        }
+      };
+    } else {
+      logoHeroImg.onerror = function() {
+        logoHeroImg.style.display = 'none';
+        if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
+      };
+    }
     // Defense-in-depth: if server returns generic /logo.png as a valid image, override to text
     logoHeroImg.onload = function() {
       if (logoHeroImg.src.includes('/logo.png')) {
@@ -1001,7 +1388,7 @@ async function openSeriesDetail(seriesTitle) {
   }
 
   // Title logo handled separately via hero logo img
-  document.getElementById('cinema-modal').dataset.seriesTitle = seriesTitle;
+  modal.dataset.seriesTitle = seriesTitle;
 
   // Meta badges — from Series entity
   const rating = imgSource.imdbRating || imgSource.tmdbRating || '';
@@ -1066,38 +1453,15 @@ async function openSeriesDetail(seriesTitle) {
   const content = document.querySelector('#cinema-modal .cinema-modal-content');
   if (content) {
     // Remove old episodes section if any
-    const old = content.querySelector('.cinema-episodes-section');
+    const old = content.querySelector('.cinema-episodes-section, .cinema-series-content');
     if (old) old.remove();
     content.insertAdjacentHTML('beforeend', episodesHtml);
 
     const oldMoreLike = content.querySelector('.cinema-more-like-section');
     if (oldMoreLike) oldMoreLike.remove();
-    const moreLikeHtml = buildMoreLikeThis(firstEp);
+    const moreLikeHtml = buildMoreLikeThis(firstEp, imgSource?.genres);
     if (moreLikeHtml) content.insertAdjacentHTML('beforeend', moreLikeHtml);
   }
-
-  // Show play button (plays first unwatched or first episode)
-  const playBtn = document.getElementById('modal-play-btn');
-  if (playBtn) {
-    playBtn.style.display = '';
-    playBtn.onclick = () => playVideo(firstEp);
-  }
-  const watchBtn = document.getElementById('modal-watchlist-btn');
-  if (watchBtn) {
-    watchBtn.style.display = '';
-    watchBtn.onclick = () => toggleWatchlist(firstEp.id);
-  }
-
-  // Show modal
-  // Portal: move modal to body for proper stacking
-  const modal = document.getElementById('cinema-modal');
-  modal.dataset.originalParent = modal.parentElement.id || 'app-content';
-  document.body.appendChild(modal);
-  document.getElementById('cinema-modal-backdrop').classList.add('active');
-  document.getElementById('cinema-modal').classList.add('active');
-  trapFocus(document.getElementById('cinema-modal'));
-  document.body.style.overflow = 'hidden';
-  initModalScrollBlur();
 
   // Auto-refresh: if key fields are empty, poll for updated series data
   const needsRefresh = !seriesData || !(seriesData.description || seriesData.overview) || !(seriesData.genres?.length) || !(seriesData.networks?.length);
@@ -1198,13 +1562,31 @@ function buildEpisodesList(episodeArray) {
   }).join('');
 }
 
-function buildMoreLikeThis(currentVideo) {
+function buildMoreLikeThis(currentVideo, overrideGenres) {
   if (!currentVideo) return '';
-  const matches = allVideos.filter(v =>
-    v.id !== currentVideo.id &&
-    v.type === currentVideo.type &&
-    v.genres?.some(g => currentVideo.genres.includes(g))
-  ).slice(0, 12);
+  const videoGenres = overrideGenres || currentVideo.genres || [];
+  let matches;
+  if (currentVideo.type === 'episode' && videoGenres.length) {
+    const currentTitle = (currentVideo.seriesTitle || '').toLowerCase();
+    const seen = new Map();
+    allVideos.filter(v => v.type === 'episode' && v.seriesTitle && v.seriesTitle.toLowerCase() !== currentTitle)
+      .forEach(v => { const k = v.seriesTitle.toLowerCase(); if (!seen.has(k)) seen.set(k, v); });
+    matches = [];
+    for (const [, rep] of seen) {
+      const repSeries = rep.series?.id ? seriesLookup.get(String(rep.series.id)) : null;
+      const repGenres = repSeries?.genres || rep.genres || [];
+      if (repGenres.some(g => videoGenres.includes(g))) matches.push(rep);
+      if (matches.length >= 12) break;
+    }
+  } else if (currentVideo.type === 'episode') {
+    matches = [];
+  } else {
+    matches = allVideos.filter(v =>
+      v.id !== currentVideo.id &&
+      v.type === currentVideo.type &&
+      v.genres?.some(g => videoGenres.includes(g))
+    ).slice(0, 12);
+  }
   if (!matches.length) {
     return `<div class="cinema-more-like-section">
       <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
@@ -1328,10 +1710,44 @@ function switchSeason(seasonNumber) {
 }
 
 function openDetails(videoId) {
+  const gen = ++_modalGeneration;
+
+  // Reset modal fields from previous open
+  const modal = document.getElementById('cinema-modal');
+  delete modal.dataset.seriesTitle;
+
+  const descEl = document.getElementById('modal-desc');
+  if (descEl) { descEl.innerHTML = ''; descEl.classList.add('is-skeleton'); }
+  const genresEl = document.getElementById('modal-genres');
+  if (genresEl) { genresEl.innerHTML = ''; genresEl.classList.add('is-skeleton'); }
+  const creatorEl = document.getElementById('modal-creator');
+  if (creatorEl) { creatorEl.textContent = ''; creatorEl.classList.add('is-skeleton'); }
+  const metaRow = document.getElementById('modal-meta-row');
+  if (metaRow) metaRow.innerHTML = '';
+  const descToggle = document.getElementById('modal-desc-toggle');
+  if (descToggle) descToggle.style.display = 'none';
+  // Remove leftover episode/series sections from a previously opened TV show
+  const content = modal.querySelector('.cinema-modal-content');
+  const oldEpisodes = content?.querySelector('.cinema-episodes-section, .cinema-series-content');
+  if (oldEpisodes) oldEpisodes.remove();
+  const oldMoreLike = content?.querySelector('.cinema-more-like-section');
+  if (oldMoreLike) oldMoreLike.remove();
+
   // Reset gradient overlay
   // gradient overlay removed; nothing to clear
+
+  // Open modal immediately with skeleton state
+  modal.dataset.originalParent = modal.parentElement.id || 'app-content';
+  document.body.appendChild(modal);
+  document.getElementById('cinema-modal-backdrop').classList.add('active');
+  modal.classList.add('active');
+  trapFocus(modal);
+  document.body.style.overflow = 'hidden';
+  initModalScrollBlur();
+
   fetchJSON(`/api/video/${videoId}`).then(data => {
     if (!data) return;
+    if (gen !== _modalGeneration) return;
 
     // Hero image — prefer wider images
     const heroUrl = getBackdropUrl(data);
@@ -1339,6 +1755,20 @@ function openDetails(videoId) {
     if (backdropImg) {
       backdropImg.src = heroUrl;
       backdropImg.classList.remove('is-skeleton');
+      let retries = 0;
+      backdropImg.onerror = function() {
+        if (retries < 3) {
+          retries++;
+          modal._backdropRetry = setTimeout(() => {
+            const retryUrl = getBackdropUrl(data) + '?r=' + Date.now();
+            backdropImg.src = retryUrl;
+            if (bgBlur) bgBlur.style.backgroundImage = `url(${retryUrl})`;
+            if (bgBlurInner) bgBlurInner.style.backgroundImage = `url(${retryUrl})`;
+          }, 2000 * retries);
+        } else {
+          backdropImg.onerror = null;
+        }
+      };
     }
 
     // Dynamic hero overlay color from backdrop
@@ -1436,30 +1866,15 @@ function openDetails(videoId) {
       watchBtn.title = data.favorite ? 'Remove from Watchlist' : 'Add to Watchlist';
     }
 
+    // Build "More Like This" section
     const content = document.querySelector('#cinema-modal .cinema-modal-content');
-    // Remove leftover episode/series sections from a previously opened TV show
-    const oldEpisodes = content?.querySelector('.cinema-episodes-section, .cinema-series-content');
-    if (oldEpisodes) oldEpisodes.remove();
-    const oldMoreLike = content?.querySelector('.cinema-more-like-section');
-    if (oldMoreLike) oldMoreLike.remove();
     const moreLikeHtml = buildMoreLikeThis(data);
     if (moreLikeHtml) {
       content?.insertAdjacentHTML('beforeend', moreLikeHtml);
     }
 
-    // Open modal
-    // Portal: move modal to body for proper stacking
-    const modal = document.getElementById('cinema-modal');
-    modal.dataset.originalParent = modal.parentElement.id || 'app-content';
-    document.body.appendChild(modal);
-    document.getElementById('cinema-modal-backdrop').classList.add('active');
-    document.getElementById('cinema-modal').classList.add('active');
-    document.body.style.overflow = 'hidden';
-    trapFocus(document.getElementById('cinema-modal'));
-    initModalScrollBlur();
-
     // Auto-refresh: if key fields are empty, poll for updated video data
-    const needsRefresh = !data.overview || !data.genres?.length || (!data.directors?.length && data.type === 'movie');
+    const needsRefresh = !data.overview || !data.genres?.length || (!data.directors?.length && data.type === 'movie') || (!data.networks?.length && data.type !== 'movie');
     if (needsRefresh) {
       if (modal._seriesPollInterval) clearInterval(modal._seriesPollInterval);
       let attempts = 0;
@@ -1574,6 +1989,8 @@ function closeModal() {
   // Clear series data polling
   const modal = document.getElementById('cinema-modal');
   if (modal && modal._seriesPollInterval) { clearInterval(modal._seriesPollInterval); modal._seriesPollInterval = null; }
+  if (modal._backdropRetry) { clearTimeout(modal._backdropRetry); modal._backdropRetry = null; }
+  if (modal._logoRetry) { clearTimeout(modal._logoRetry); modal._logoRetry = null; }
 
   // Reset dynamic hero overlay color
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
@@ -1581,7 +1998,12 @@ function closeModal() {
 
   // Clear hero backdrop image
   const backdropImg = document.getElementById('modal-backdrop-img');
-  if (backdropImg) { backdropImg.src = ''; backdropImg.classList.add('is-skeleton'); }
+  if (backdropImg) {
+    backdropImg.onerror = null;
+    backdropImg.onload = null;
+    backdropImg.src = '';
+    backdropImg.classList.add('is-skeleton');
+  }
 
   // Clear blurred backgrounds
   const bgBlur = document.getElementById('modal-bg-blur');
@@ -1591,7 +2013,13 @@ function closeModal() {
 
   // Reset logo hero image + text title fallback
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
-  if (logoHeroImg) { logoHeroImg.src = ''; logoHeroImg.style.display = ''; logoHeroImg.classList.add('is-skeleton'); }
+  if (logoHeroImg) {
+    logoHeroImg.onerror = null;
+    logoHeroImg.onload = null;
+    logoHeroImg.src = '';
+    logoHeroImg.style.display = '';
+    logoHeroImg.classList.add('is-skeleton');
+  }
   const textTitleEl = document.getElementById('modal-text-title');
   if (textTitleEl) { textTitleEl.textContent = ''; textTitleEl.style.display = 'none'; }
 
@@ -1660,19 +2088,28 @@ function setTheme(theme) {
 }
 
 function savePlayerSetting(value) {
-  fetch('/api/settings/video-libraries', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoPlayer: value })
-  }).catch(() => {});
+  localStorage.setItem('video-test-player', value);
+  reloadPlayerIfOpen();
 }
 
 function saveDefaultPlayerSetting(value) {
-  fetch('/api/settings/video-libraries', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ defaultVideoPlayer: value })
-  }).catch(() => {});
+  localStorage.setItem('video-test-default-player', value);
+  reloadPlayerIfOpen();
+}
+
+function reloadPlayerIfOpen() {
+  const modal = document.getElementById('player-modal');
+  if (modal && modal.classList.contains('active')) {
+    const content = document.getElementById('player-modal-content');
+    const playerEl = content?.querySelector('[data-video-id]');
+    if (playerEl) {
+      const videoId = playerEl.getAttribute('data-video-id');
+      if (videoId) {
+        closePlayerModal();
+        setTimeout(() => openPlayerModal(parseInt(videoId)), 300);
+      }
+    }
+  }
 }
 
 function updateCrossfadeDisplay(value) {
@@ -1713,17 +2150,16 @@ function saveSettings() {
 }
 
 async function loadSettings() {
-  try {
-    const libData = await fetchJSON('/api/settings/video-libraries');
-    if (libData) {
-      if (libData.videoPlayer) {
-        const select = document.getElementById('player-select');
-        if (select) select.value = libData.videoPlayer;
-      }
-      const defaultSel = document.getElementById('default-player-select');
-      if (defaultSel && libData.defaultVideoPlayer) defaultSel.value = libData.defaultVideoPlayer;
-    }
-  } catch (e) {}
+  const savedPlayer = localStorage.getItem('video-test-player');
+  if (savedPlayer) {
+    const select = document.getElementById('player-select');
+    if (select) select.value = savedPlayer;
+  }
+  const savedDefaultPlayer = localStorage.getItem('video-test-default-player');
+  if (savedDefaultPlayer) {
+    const defaultSel = document.getElementById('default-player-select');
+    if (defaultSel) defaultSel.value = savedDefaultPlayer;
+  }
 
   try {
     const playbackData = await fetchJSON('/api/settings/playback');
@@ -1758,15 +2194,93 @@ async function loadSettings() {
 // ============================================================
 // Actions
 // ============================================================
+async function openPlayerModal(videoId) {
+  const backdrop = document.getElementById('player-modal-backdrop');
+  const modal = document.getElementById('player-modal');
+  const content = document.getElementById('player-modal-content');
+  if (!backdrop || !modal || !content) return;
+
+  backdrop.classList.add('active');
+  modal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const resp = await fetch(`/api/video/ui/playback-fragment?videoId=${videoId}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const html = await resp.text();
+
+    // innerHTML does NOT execute <script> tags per browser spec.
+    // Parse the fragment, strip scripts, inject HTML, then re-create script elements.
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+
+    const scripts = Array.from(tmp.querySelectorAll('script'));
+    scripts.forEach(s => s.remove());
+
+    content.innerHTML = tmp.innerHTML;
+
+    // Re-create scripts as real DOM elements so the browser fetches/executes them
+    for (const old of scripts) {
+      const el = document.createElement('script');
+      if (old.src) {
+        for (const attr of old.attributes) el.setAttribute(attr.name, attr.value);
+        el.async = false; // preserve document order (Utils → StateManager → … → SimplePlayer)
+      } else {
+        el.textContent = old.textContent;
+      }
+      content.appendChild(el);
+    }
+  } catch (err) {
+    console.error('[player-modal] failed to load playback fragment', err);
+    content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);">Failed to load player</div>`;
+  }
+}
+
+function closePlayerModal() {
+  const backdrop = document.getElementById('player-modal-backdrop');
+  const modal = document.getElementById('player-modal');
+  const content = document.getElementById('player-modal-content');
+
+  if (window.currentPlayerInstance) {
+    try {
+      if (window.currentPlayerInstance.progressReporter) {
+        window.currentPlayerInstance.progressReporter.saveNow();
+      }
+      if (window.currentPlayerInstance.pause) window.currentPlayerInstance.pause();
+    } catch (_) { /* best-effort cleanup */ }
+  }
+  window.currentPlayerInstance = null;
+  window.player = null;
+
+  if (content) content.innerHTML = '';
+  if (modal) {
+    modal.classList.remove('active');
+    modal.classList.remove('is-expanded');
+  }
+  if (backdrop) backdrop.classList.remove('active');
+  document.body.style.overflow = '';
+
+  const expandIcon = document.getElementById('player-expand-icon');
+  if (expandIcon) {
+    expandIcon.className = 'fa-solid fa-expand';
+  }
+}
+
+function togglePlayerExpand() {
+  const modal = document.getElementById('player-modal');
+  if (!modal) return;
+  modal.classList.toggle('is-expanded');
+  const icon = document.getElementById('player-expand-icon');
+  if (icon) {
+    icon.className = modal.classList.contains('is-expanded')
+      ? 'fa-solid fa-compress'
+      : 'fa-solid fa-expand';
+  }
+}
+
 function playVideo(data) {
   if (!data) return;
-  // Navigate to video SPA with this video
-  window.app?.navigate('/video');
-  setTimeout(() => {
-    if (window.videoSPA) {
-      window.videoSPA.playVideoById?.(data.id);
-    }
-  }, 500);
+  openPlayerModal(data.id);
 }
 
 function playHeroVideo(item) {
@@ -1926,8 +2440,15 @@ document.getElementById('searchInput')?.addEventListener('input', debounce(funct
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const dock = document.querySelector('.cinema-dock');
+    const playerModal = document.getElementById('player-modal');
     if (dock && dock.classList.contains('searching')) {
       closeSearch();
+    } else if (playerModal?.classList.contains('active')) {
+      if (playerModal.classList.contains('is-expanded')) {
+        togglePlayerExpand();
+      } else {
+        closePlayerModal();
+      }
     } else {
       const settingsModal = document.getElementById('settings-modal');
       const detailsModal = document.getElementById('cinema-modal');
