@@ -517,6 +517,7 @@
 // ============================================================
 let heroItems = [];
 var allVideos = [];
+var allTvShows = [];
 let currentHeroIndex = 0;
 let heroTimer = null;
 const HERO_INTERVAL = 15000;
@@ -1115,7 +1116,7 @@ async function loadCinemaData() {
       });
 
     // --- Recently Added TV Shows (deduped by seriesTitle, top 20 by dateAdded) ---
-    const allTvShows = Array.from(seriesMap.values())
+    allTvShows = Array.from(seriesMap.values())
       .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''));
     // Enrich TV show episodes with Series-level metadata (genres, description, backdrop, etc.)
     allTvShows.forEach(v => {
