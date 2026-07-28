@@ -805,7 +805,7 @@ function renderContinueWatchingCarousel(items) {
         <div class="cw-card-img-wrap">
           <img src="${imgSrc}" alt="${title}" loading="lazy">
           <div class="cw-play-overlay">
-            <button class="cw-play-btn" onclick="event.stopPropagation()">
+            <button class="cw-play-btn" onclick="event.stopPropagation(); playContinueWatching(${item.id}, '${item.type}', '${(item.seriesTitle || '').replace(/'/g, "\\'")}')">
               <i class="fa-solid fa-play"></i>
             </button>
           </div>
