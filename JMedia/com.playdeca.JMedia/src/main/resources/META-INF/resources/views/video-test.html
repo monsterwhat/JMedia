@@ -1695,7 +1695,6 @@ function closeModal() {
   document.getElementById('cinema-modal').classList.remove('active');
   document.body.style.overflow = '';
   // Portal: restore modal to original parent
-  const modal = document.getElementById('cinema-modal');
   const originalParent = document.getElementById(modal.dataset.originalParent) || document.getElementById('app-content');
   if (originalParent) originalParent.appendChild(modal);
 }
