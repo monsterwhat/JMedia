@@ -101,6 +101,10 @@ public class AnalysisWorker {
                 }
             }
 
+        } catch (org.hibernate.exception.JDBCConnectionException e) {
+            // Transient: database file channel closed during compaction (e.g. after resetVideoDatabase).
+            // H2 MVStore will recover on next connection cycle — skip this tick quietly.
+            LOG.warn("AnalysisWorker: database temporarily unavailable, skipping tick: {}", e.getMessage());
         } catch (Exception e) {
             LOG.error("AnalysisWorker: unexpected error in processing tick", e);
         } finally {

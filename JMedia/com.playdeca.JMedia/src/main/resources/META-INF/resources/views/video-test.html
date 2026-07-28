@@ -1219,7 +1219,6 @@ async function openSeriesDetail(seriesTitle) {
   // Auto-refresh: if key fields are empty, poll for updated series data
   const needsRefresh = !seriesData || !(seriesData.description || seriesData.overview) || !(seriesData.genres?.length) || !(seriesData.networks?.length);
   if (needsRefresh && seriesData && seriesData.id) {
-    const modal = document.getElementById('cinema-modal');
     // Clear any previous polling
     if (modal._seriesPollInterval) clearInterval(modal._seriesPollInterval);
     let attempts = 0;
