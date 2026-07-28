@@ -1457,6 +1457,45 @@ function openDetails(videoId) {
     document.body.style.overflow = 'hidden';
     trapFocus(document.getElementById('cinema-modal'));
     initModalScrollBlur();
+
+    // Auto-refresh: if key fields are empty, poll for updated video data
+    const needsRefresh = !data.overview || !data.genres?.length || (!data.directors?.length && data.type === 'movie');
+    if (needsRefresh) {
+      if (modal._seriesPollInterval) clearInterval(modal._seriesPollInterval);
+      let attempts = 0;
+      modal._seriesPollInterval = setInterval(async () => {
+        attempts++;
+        if (attempts > 7) { clearInterval(modal._seriesPollInterval); return; }
+        try {
+          const updated = await fetchJSON(`/api/video/${videoId}`);
+          if (!updated) return;
+
+          const descText = updated.description || updated.overview || '';
+          const descEl = document.getElementById('modal-desc');
+          if (descEl && descText) {
+            descEl.textContent = descText;
+            descEl.classList.remove('is-skeleton');
+          }
+
+          const genresEl = document.getElementById('modal-genres');
+          if (genresEl && updated.genres?.length) {
+            genresEl.innerHTML = updated.genres.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('');
+            genresEl.classList.remove('is-skeleton');
+          }
+
+          const creatorEl = document.getElementById('modal-creator');
+          if (creatorEl) {
+            const creatorNames = (updated.type === 'movie' ? updated.directors : updated.networks)?.join(', ') || '';
+            if (creatorNames) {
+              creatorEl.textContent = creatorNames;
+              creatorEl.classList.remove('is-skeleton');
+            }
+          }
+
+          if (descText && updated.genres?.length) clearInterval(modal._seriesPollInterval);
+        } catch (e) { /* ignore transient errors */ }
+      }, 2000);
+    }
   });
 }
 

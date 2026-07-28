@@ -61,7 +61,7 @@ public class VideoMetadataDTO {
         this.duration = video.duration;
         this.fileSize = video.size != null && video.size > 0 ? video.size : video.fileSize;
 
-        // Show-level fields: read from Series only (no fallback to Video)
+        // Show-level fields: prefer Series; fallback to Video for standalone movies
         if (s != null) {
             this.logoPath = s.logoPath;
             this.heroPath = s.heroPath;
@@ -78,6 +78,23 @@ public class VideoMetadataDTO {
             this.imdbRating = s.imdbRating;
             this.tmdbRating = s.tmdbRating;
             this.releaseYear = s.releaseYear;
+        } else {
+            // Fallback for standalone movies (no series link) — read from Video entity directly
+            this.logoPath = video.logoPath;
+            this.heroPath = video.heroPath;
+            this.description = video.description;
+            this.tagline = video.tagline;
+            this.overview = video.overview;
+            this.genres = video.genres != null ? new ArrayList<>(video.genres) : null;
+            this.backdropPath = video.backdropPath;
+            this.posterPath = video.posterPath;
+            this.networks = video.networks != null ? new ArrayList<>(video.networks) : null;
+            this.directors = video.directors != null ? new ArrayList<>(video.directors) : null;
+            this.originalLanguage = video.originalLanguage;
+            this.runtimeMins = video.runtimeMins;
+            this.imdbRating = video.imdbRating;
+            this.tmdbRating = video.tmdbRating;
+            this.releaseYear = video.releaseYear;
         }
 
         // Episode-level fields (always from Video)
