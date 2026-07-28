@@ -821,6 +821,7 @@ public class ThumbnailService {
      * works even when the main thumbnail already exists.
      * @return true if any new images were downloaded
      */
+    @Transactional
     public boolean ensureMediaImages(Long videoId) {
         try {
             Video video = entityManager.find(Video.class, videoId);

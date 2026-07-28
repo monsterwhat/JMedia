@@ -4,6 +4,7 @@ import API.ApiResponse;
 import Models.Series;
 import Models.Video;
 import Services.ThumbnailService;
+import Services.VideoMetadataService;
 import io.quarkus.panache.common.Page;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
@@ -28,6 +29,9 @@ public class SeriesAPI {
 
     @Inject
     ThumbnailService thumbnailService;
+
+    @Inject
+    VideoMetadataService videoMetadataService;
 
     private boolean checkAdmin(HttpHeaders headers) {
         String sessionId = null;
@@ -65,7 +69,13 @@ public class SeriesAPI {
     @GET
     @Path("/{id}")
     @Blocking
+    @jakarta.transaction.Transactional
     public Response getSeries(@PathParam("id") Long id) {
+        try {
+            videoMetadataService.ensureSeriesTextMetadata(id);
+        } catch (Exception e) {
+            LOG.debug("Could not enrich series text metadata for {}: {}", id, e.getMessage());
+        }
         Series series = Series.findById(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND)

@@ -1471,16 +1471,14 @@ function openDetails(videoId) {
     const logoHeroImg = document.getElementById('modal-logo-hero-img');
     const textTitleEl = document.getElementById('modal-text-title');
     if (logoHeroImg) {
-      if (data.logoPath) {
-        logoHeroImg.src = getLogoUrl(data.id);
-        logoHeroImg.style.display = 'block';
-        logoHeroImg.classList.remove('is-skeleton');
-        if (textTitleEl) textTitleEl.style.display = 'none';
-      } else {
+      logoHeroImg.src = getLogoUrl(data.id);
+      logoHeroImg.style.display = 'block';
+      logoHeroImg.classList.remove('is-skeleton');
+      if (textTitleEl) textTitleEl.style.display = 'none';
+      logoHeroImg.onerror = function() {
         logoHeroImg.style.display = 'none';
-        logoHeroImg.classList.remove('is-skeleton');
         if (textTitleEl) { textTitleEl.textContent = data.title || ''; textTitleEl.style.display = ''; }
-      }
+      };
     }
 
     // Title logo handled via hero logo img
