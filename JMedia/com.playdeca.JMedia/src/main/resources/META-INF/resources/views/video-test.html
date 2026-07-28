@@ -216,17 +216,11 @@
         </div>
         <nav class="cinema-settings-nav">
           <button class="cinema-settings-tab cinema-settings-nav-item active" data-tab="appearance" onclick="switchSettingsTab('appearance')"><i class="fa-solid fa-palette"></i> <span>Appearance</span></button>
-          <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="player" onclick="switchSettingsTab('player')"><i class="fa-solid fa-play"></i> <span>Player</span></button>
           <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="playback" onclick="switchSettingsTab('playback')"><i class="fa-solid fa-forward"></i> <span>Playback</span></button>
-          <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="library" onclick="switchSettingsTab('library')"><i class="fa-solid fa-folder-open"></i> <span>Library</span></button>
-          <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="import" onclick="switchSettingsTab('import')"><i class="fa-solid fa-download"></i> <span>Import</span></button>
+
           <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="about" onclick="switchSettingsTab('about')"><i class="fa-solid fa-circle-info"></i> <span>About</span></button>
         </nav>
-        <div class="cinema-settings-lang">
-          <select class="cinema-settings-select cinema-settings-lang-select">
-            <option value="en">English</option>
-          </select>
-        </div>
+
       </aside>
 
       <!-- Main Content Area -->
@@ -297,7 +291,7 @@
           </div>
         </div>
 
-    <div class="cinema-settings-panel" id="settings-panel-player">
+    <div class="cinema-settings-panel" id="settings-panel-playback">
       <div class="cinema-settings-section">
         <div class="cinema-settings-row">
           <span class="cinema-settings-label">Video Player</span>
@@ -315,11 +309,7 @@
             <option value="oplayer">OPlayer</option>
           </select>
         </div>
-      </div>
-    </div>
-
-    <div class="cinema-settings-panel" id="settings-panel-playback">
-      <div class="cinema-settings-section">
+        <div class="cinema-settings-divider"></div>
         <div class="cinema-settings-row">
           <span class="cinema-settings-label">Crossfade Duration</span>
           <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -342,60 +332,7 @@
       </div>
     </div>
 
-    <div class="cinema-settings-panel" id="settings-panel-library">
-      <div class="cinema-settings-section">
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">Music Library Path</span>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <input type="text" class="cinema-settings-input" id="cinema-music-lib-path" placeholder="(not set)">
-            <button class="cinema-settings-action-btn secondary" onclick="browseMusicLibrary()">Browse</button>
-          </div>
-        </div>
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">Video Library Path</span>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <input type="text" class="cinema-settings-input" id="cinema-video-lib-path" placeholder="(not set)">
-            <button class="cinema-settings-action-btn secondary" onclick="browseVideoLibrary()">Browse</button>
-          </div>
-        </div>
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">TMDb API Key</span>
-          <input type="password" class="cinema-settings-input" id="cinema-tmdb-api-key" placeholder="API Key">
-        </div>
-        <div class="cinema-settings-divider"></div>
-        <div class="cinema-settings-row" style="border-bottom:none;">
-          <div class="cinema-settings-actions">
-            <button class="cinema-settings-action-btn" onclick="scanMusicLibrary()">Scan Music</button>
-            <button class="cinema-settings-action-btn" onclick="scanVideoLibrary()">Scan Videos</button>
-            <button class="cinema-settings-action-btn secondary" onclick="reloadMusicMetadata()">Reload Music Metadata</button>
-            <button class="cinema-settings-action-btn secondary" onclick="reloadVideoMetadata()">Reload Video Metadata</button>
-          </div>
-        </div>
-        <div class="cinema-settings-status" id="library-action-status"></div>
-      </div>
-    </div>
 
-    <div class="cinema-settings-panel" id="settings-panel-import">
-      <div class="cinema-settings-section">
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">Output Format</span>
-          <select class="cinema-settings-select" id="cinema-output-format" onchange="saveImportSettings()">
-            <option value="mp3">MP3</option>
-            <option value="m4a">M4A</option>
-            <option value="flac">FLAC</option>
-            <option value="opus">OPUS</option>
-          </select>
-        </div>
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">Download Threads</span>
-          <input type="number" class="cinema-settings-input" id="cinema-download-threads" min="1" max="10" style="max-width:80px; text-align:center;" onchange="saveImportSettings()">
-        </div>
-        <div class="cinema-settings-row">
-          <span class="cinema-settings-label">Search Threads</span>
-          <input type="number" class="cinema-settings-input" id="cinema-search-threads" min="1" max="10" style="max-width:80px; text-align:center;" onchange="saveImportSettings()">
-        </div>
-      </div>
-    </div>
 
     <div class="cinema-settings-panel" id="settings-panel-about">
       <div class="cinema-settings-section">
@@ -1770,65 +1707,6 @@ function toggleAutoSkip(type, el) {
   saveSettingsDebounced();
 }
 
-function setLibraryStatus(msg) {
-  const el = document.getElementById('library-action-status');
-  if (el) {
-    el.textContent = msg;
-    if (msg) setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 4000);
-  }
-}
-
-function browseMusicLibrary() {
-  window.open('/settings', '_blank');
-}
-
-function browseVideoLibrary() {
-  window.open('/settings', '_blank');
-}
-
-async function scanMusicLibrary() {
-  setLibraryStatus('Scanning music...');
-  try {
-    const r = await fetch('/api/settings/scan-music', { method: 'POST' });
-    setLibraryStatus(r.ok ? 'Music scan started.' : 'Scan failed.');
-  } catch { setLibraryStatus('Scan request failed.'); }
-}
-
-async function scanVideoLibrary() {
-  setLibraryStatus('Scanning videos...');
-  try {
-    const r = await fetch('/api/video/reload-metadata', { method: 'POST' });
-    setLibraryStatus(r.ok ? 'Video scan started.' : 'Scan failed.');
-  } catch { setLibraryStatus('Scan request failed.'); }
-}
-
-async function reloadMusicMetadata() {
-  setLibraryStatus('Reloading music metadata...');
-  try {
-    const r = await fetch('/api/settings/reload-metadata', { method: 'POST' });
-    setLibraryStatus(r.ok ? 'Metadata reload started.' : 'Reload failed.');
-  } catch { setLibraryStatus('Reload request failed.'); }
-}
-
-async function reloadVideoMetadata() {
-  setLibraryStatus('Reloading video metadata...');
-  try {
-    const r = await fetch('/api/video/reload-metadata', { method: 'POST' });
-    setLibraryStatus(r.ok ? 'Video metadata reload started.' : 'Reload failed.');
-  } catch { setLibraryStatus('Reload request failed.'); }
-}
-
-async function saveImportSettings() {
-  const fmt = document.getElementById('cinema-output-format')?.value || 'mp3';
-  const dlThreads = parseInt(document.getElementById('cinema-download-threads')?.value, 10) || 1;
-  const srchThreads = parseInt(document.getElementById('cinema-search-threads')?.value, 10) || 1;
-  fetch('/api/settings/import', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ outputFormat: fmt, downloadThreads: dlThreads, searchThreads: srchThreads })
-  }).catch(() => {});
-}
-
 let _saveSettingsTimer;
 function saveSettingsDebounced() {
   clearTimeout(_saveSettingsTimer);
@@ -1853,17 +1731,6 @@ function saveSettings() {
       skipOutro
     })
   }).catch(() => {});
-
-  const musicPath = document.getElementById('cinema-music-lib-path')?.value;
-  const videoPath = document.getElementById('cinema-video-lib-path')?.value;
-  const tmdbKey = document.getElementById('cinema-tmdb-api-key')?.value;
-  if (musicPath || videoPath || tmdbKey) {
-    fetch('/api/settings/video-libraries', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ musicLibraryPath: musicPath, videoLibraryPath: videoPath, tmdbApiKey: tmdbKey })
-    }).catch(() => {});
-  }
 }
 
 async function loadSettings() {
@@ -1876,12 +1743,6 @@ async function loadSettings() {
       }
       const defaultSel = document.getElementById('default-player-select');
       if (defaultSel && libData.defaultVideoPlayer) defaultSel.value = libData.defaultVideoPlayer;
-      const musicInput = document.getElementById('cinema-music-lib-path');
-      if (musicInput && libData.musicLibraryPath) musicInput.value = libData.musicLibraryPath;
-      const videoInput = document.getElementById('cinema-video-lib-path');
-      if (videoInput && libData.videoLibraryPath) videoInput.value = libData.videoLibraryPath;
-      const tmdbInput = document.getElementById('cinema-tmdb-api-key');
-      if (tmdbInput && libData.tmdbApiKey) tmdbInput.value = libData.tmdbApiKey;
     }
   } catch (e) {}
 
@@ -1900,18 +1761,6 @@ async function loadSettings() {
           toggle.classList.toggle('active', !!playbackData[key]);
         }
       }
-    }
-  } catch (e) {}
-
-  try {
-    const impData = await fetchJSON('/api/settings/import');
-    if (impData) {
-      const fmt = document.getElementById('cinema-output-format');
-      if (fmt && impData.outputFormat) fmt.value = impData.outputFormat;
-      const dl = document.getElementById('cinema-download-threads');
-      if (dl && impData.downloadThreads) dl.value = impData.downloadThreads;
-      const srch = document.getElementById('cinema-search-threads');
-      if (srch && impData.searchThreads) srch.value = impData.searchThreads;
     }
   } catch (e) {}
 
