@@ -51,7 +51,7 @@ public class SmartNamingService {
     private static final Pattern SEASON_WORD_PATTERN = Pattern.compile("(?i)(season|libro|temporada|book|volume|chapter|episode|arco|saga|tome|series)[s]?[-_. ]?\\d{1,3}.*");
     private static final Pattern SPECIALS_PATTERN = Pattern.compile("(?i)(specials?)");
     // Folders that should NOT be treated as episode folders (extras, behind the scenes, etc.)
-    private static final Pattern EXTRAS_FOLDER_PATTERN = Pattern.compile("(?i)(extras|behind the scenes|deleted scenes|outtakes|bloopers|interviews|bonus|featurette|shorts|pilot|sneak peek)");
+    private static final Pattern EXTRAS_FOLDER_PATTERN = Pattern.compile("(?i)(extras?|xtras?|behind the scenes|deleted scenes|outtakes|bloopers|interviews|bonus|featurette|shorts|pilot|sneak peek)");
     
     // NEW: Additional season patterns
     private static final Pattern SERIES_FOLDER_PATTERN = Pattern.compile("(?i)series\\s*(\\d+).*");  // Capture number, allow year suffix
@@ -67,6 +67,7 @@ public class SmartNamingService {
     // Content type patterns: SxxMxx (movie) and SxxN (extra)
     private static final Pattern CONTENT_TYPE_SXXMXX = Pattern.compile("S(\\d{1,3})M(\\d{2})", Pattern.CASE_INSENSITIVE);
     private static final Pattern CONTENT_TYPE_SXXXN = Pattern.compile("S(\\d{1,3})X(\\d{1,2})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONTENT_TYPE_SXXXEP = Pattern.compile("(?i)S(\\d{1,3})X(\\d{1,3})");
     // Fractional season pattern: "Season 5.5" style
     private static final Pattern SEASON_FRACTIONAL = Pattern.compile("Season\\s+(\\d+)\\.(\\d+)", Pattern.CASE_INSENSITIVE);
     
@@ -188,6 +189,12 @@ public class SmartNamingService {
             }
         }
 
+        // If no season folder found and no season from filename, default to season 0 (specials)
+        // but ONLY for non-flat structures (flat structures may not use season numbers)
+        if (episodeDetection.season == null && pathAnalysis.seasonFolder == null && !pathAnalysis.isFlatStructure) {
+            episodeDetection.season = 0;
+        }
+
         // Determine media type with confidence scoring
         MediaTypeDecision mediaTypeDecision = determineMediaType(
             rawMediaType, episodeDetection, techAnalysis, pathAnalysis, filename
@@ -272,15 +279,15 @@ public class SmartNamingService {
                 System.out.println("DEBUG PATH: segment[" + i + "]='" + segment + "', original='" + originalSegment + "'");
             }
 
-            if (segment.equals("movies") || segment.equals("movie") || segment.equals("films") || segment.equals("film") || 
-                segment.startsWith("movie ") || segment.endsWith(" movies") || segment.contains(" movie ")) {
+            if (analysis.libraryRootIndex == -1 && (segment.equals("movies") || segment.equals("movie") || segment.equals("films") || segment.equals("film") || 
+                segment.startsWith("movie ") || segment.endsWith(" movies") || segment.contains(" movie "))) {
                 analysis.directoryTypeHint = "movie";
                 analysis.libraryRootIndex = i;
                 analysis.libraryRootFolder = originalSegment;
             }
-            if (segment.equals("tv shows") || segment.equals("tv") || segment.equals("shows") || segment.equals("tvshow") || 
+            if (analysis.libraryRootIndex == -1 && (segment.equals("tv shows") || segment.equals("tv") || segment.equals("shows") || segment.equals("tvshow") || 
                 segment.equals("tvseries") || segment.equals("series") || segment.startsWith("tv ") || 
-                segment.contains("tv show") || segment.contains("tv serie")) {
+                segment.contains("tv show") || segment.contains("tv serie"))) {
                 analysis.directoryTypeHint = "episode";
                 analysis.libraryRootIndex = i;
                 analysis.libraryRootFolder = originalSegment;
@@ -340,7 +347,7 @@ public class SmartNamingService {
                         break;
                     }
                     
-                    boolean isExtrasFolder = EXTRAS_FOLDER_PATTERN.matcher(folder).matches();
+                    boolean isExtrasFolder = EXTRAS_FOLDER_PATTERN.matcher(folder).find();
                     if (isExtrasFolder) {
                         // Skip extras folders but continue searching
                         continue;
@@ -370,7 +377,7 @@ public class SmartNamingService {
                             analysis.subFolder = nextSegment;
                         }
                     }
-                } else if (showFolderHasSeason) {
+                } else if (showFolderHasSeason && pathSegments.length <= analysis.libraryRootIndex + 2) {
                     // Show folder itself contains season pattern (e.g., TV Shows/South Park s10/video.mp4)
                     analysis.seasonFolderIndex = showIdx;
                     analysis.seasonFolder = analysis.showFolder;
@@ -401,6 +408,14 @@ public class SmartNamingService {
         analysis.hasMovieFolderPattern = YEAR_PAREN_PATTERN.matcher(analysis.parentFolder).find() ||
                                           analysis.parentFolder.toLowerCase().contains("movie") ||
                                           analysis.parentFolder.toLowerCase().contains("film");
+
+        // Detect "Movie"/"Film" in folder names for mediaTypeHint
+        java.util.regex.Pattern movieFilmWordPattern = java.util.regex.Pattern.compile("(?i)^(movies?|films?)(\\s|$)");
+        if (analysis.parentFolder != null && movieFilmWordPattern.matcher(analysis.parentFolder).find()) {
+            analysis.mediaTypeHint = "movie";
+        } else if (analysis.grandParentFolder != null && movieFilmWordPattern.matcher(analysis.grandParentFolder).find()) {
+            analysis.mediaTypeHint = "movie";
+        }
 
         return analysis;
     }
@@ -514,6 +529,16 @@ public class SmartNamingService {
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SxxN";
             detection.confidence = 0.8;
+            return detection;
+        }
+
+        Matcher mSxxXep = CONTENT_TYPE_SXXXEP.matcher(filename);
+        if (mSxxXep.find()) {
+            detection.season = Integer.parseInt(mSxxXep.group(1));
+            detection.episode = Integer.parseInt(mSxxXep.group(2));
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "SxxXep";
+            detection.confidence = 0.85;
             return detection;
         }
 
@@ -727,6 +752,16 @@ public class SmartNamingService {
                                                TechnicalAnalysis techAnalysis, PathAnalysis pathAnalysis,
                                                String filename) {
 
+        // Short-circuit: if folder name explicitly says "Movie"/"Film", trust it
+        if ("movie".equals(pathAnalysis.mediaTypeHint)) {
+            return new MediaTypeDecision("movie", 0.9, "Media type hint from folder name: movie");
+        }
+
+        // Short-circuit: SxxMxx pattern explicitly marks this as a movie
+        if ("movie".equals(episodeDetection.contentType)) {
+            return new MediaTypeDecision("movie", 0.85, "SxxMxx content type explicitly marks as movie");
+        }
+
         double movieScore = 0.0;
         double episodeScore = 0.0;
         StringBuilder reasoning = new StringBuilder();
@@ -835,13 +870,20 @@ public class SmartNamingService {
                         int grandParentIndex = showFolderIndex + 1;
                         if (grandParentIndex < path.getNameCount() - 1) {
                             String grandParentName = path.getName(grandParentIndex).toString();
-                            if (!isSeasonFolderName(grandParentName)) {
+                            if (!isSeasonFolderName(grandParentName) && !EXTRAS_FOLDER_PATTERN.matcher(grandParentName).find()) {
                                 String gpShowName = cleanShowName(grandParentName);
-                                if (!gpShowName.equals("Unknown Show")) {
+                                if (!gpShowName.equals("Unknown Show") && 
+                                    !gpShowName.equalsIgnoreCase("movies") && 
+                                    !gpShowName.equalsIgnoreCase("tv shows") && 
+                                    !gpShowName.equalsIgnoreCase("shows")) {
                                     return gpShowName;
                                 }
                             }
                         }
+                    }
+                    String showFolderCleaned = cleanShowName(folderName);
+                    if (!showFolderCleaned.equals("Unknown Show") && showFolderCleaned.length() > 1) {
+                        return showFolderCleaned;
                     }
                     if (rawShowName != null && !rawShowName.trim().isEmpty()) {
                         String cleaned = cleanShowName(rawShowName);
@@ -866,8 +908,10 @@ public class SmartNamingService {
         if (!pathAnalysis.grandParentFolder.isEmpty()) {
             String parentLower = pathAnalysis.parentFolder.toLowerCase();
             boolean parentIsMetadata = isSeasonFolderName(parentLower);
-                                     
-            if (parentIsMetadata || pathAnalysis.hasSeasonFolder) {
+            boolean parentIsExtras = EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.parentFolder).find();
+            boolean grandParentIsExtras = EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.grandParentFolder).find();
+                                         
+            if ((parentIsMetadata || pathAnalysis.hasSeasonFolder || parentIsExtras) && !grandParentIsExtras) {
                 String folderShowName = cleanShowName(pathAnalysis.grandParentFolder);
                 if (!folderShowName.equals("Unknown Show") && 
                     !folderShowName.equalsIgnoreCase("tv shows") && 
@@ -897,13 +941,16 @@ public class SmartNamingService {
         }
         
         if (!pathAnalysis.parentFolder.isEmpty()) {
-            String folderShowName = cleanShowName(pathAnalysis.parentFolder);
-            if (!folderShowName.equals("Unknown Show") && 
-                !folderShowName.equalsIgnoreCase("tv shows") && 
-                !folderShowName.equalsIgnoreCase("shows") &&
-                !folderShowName.equalsIgnoreCase("movies") &&
-                !pathAnalysis.hasSeasonFolder) {
-                return folderShowName;
+            boolean parentIsExtras = EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.parentFolder).find();
+            if (!parentIsExtras) {
+                String folderShowName = cleanShowName(pathAnalysis.parentFolder);
+                if (!folderShowName.equals("Unknown Show") && 
+                    !folderShowName.equalsIgnoreCase("tv shows") && 
+                    !folderShowName.equalsIgnoreCase("shows") &&
+                    !folderShowName.equalsIgnoreCase("movies") &&
+                    !pathAnalysis.hasSeasonFolder) {
+                    return folderShowName;
+                }
             }
         }
         
@@ -1357,6 +1404,8 @@ public class SmartNamingService {
         public int showFolderIndex = -1;
         public int seasonFolderIndex = -1;
         public boolean isFlatStructure;
+        public Integer extrasSeason; // For volume-based extras (e.g., "Vol. 1 Extras" -> season=1)
+        public String mediaTypeHint; // For folder-name-based media type hints ("movie", "episode")
     }
     
     private static class TechnicalAnalysis {

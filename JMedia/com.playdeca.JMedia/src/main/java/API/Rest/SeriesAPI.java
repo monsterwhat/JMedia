@@ -69,7 +69,6 @@ public class SeriesAPI {
     @GET
     @Path("/{id}")
     @Blocking
-    @jakarta.transaction.Transactional
     public Response getSeries(@PathParam("id") Long id) {
         try {
             videoMetadataService.ensureSeriesTextMetadata(id);

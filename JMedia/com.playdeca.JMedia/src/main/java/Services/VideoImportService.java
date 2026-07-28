@@ -531,6 +531,14 @@ public class VideoImportService {
                 && video.folder == null) {
             video.seasonNumber = null;
         }
+
+        if ("extra".equalsIgnoreCase(video.contentType) && video.seasonNumber == null) {
+            video.seasonNumber = 0;
+        }
+
+        if ("special".equalsIgnoreCase(video.contentType)) {
+            video.seasonNumber = 0;
+        }
     }
 
     @Transactional(value = TxType.REQUIRES_NEW)
