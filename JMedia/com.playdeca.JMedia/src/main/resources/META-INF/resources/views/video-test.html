@@ -237,58 +237,6 @@
               </div>
             </div>
           </div>
-          <div class="cinema-settings-divider" style="margin: 1rem 0;"></div>
-          <div class="cinema-settings-section">
-            <span class="cinema-settings-label">Browse Themes</span>
-            <div class="cinema-settings-search">
-              <i class="fa-solid fa-magnifying-glass"></i>
-              <input type="text" class="cinema-settings-input cinema-settings-search-input" placeholder="Search themes...">
-            </div>
-            <div class="cinema-settings-pills">
-              <button class="cinema-settings-pill active" data-category="all">All</button>
-              <button class="cinema-settings-pill" data-category="base">Base</button>
-              <button class="cinema-settings-pill" data-category="colors">Colors</button>
-              <button class="cinema-settings-pill" data-category="nature">Nature</button>
-              <button class="cinema-settings-pill" data-category="kawaii">Kawaii</button>
-              <button class="cinema-settings-pill" data-category="aesthetic">Aesthetic</button>
-              <button class="cinema-settings-pill" data-category="special">Special</button>
-            </div>
-            <div class="cinema-settings-theme-grid">
-              <div class="cinema-settings-theme-card active">
-                <div class="cinema-settings-theme-preview" style="background: linear-gradient(135deg, #1a1a2e, #16213e);">
-                  <span class="cinema-settings-theme-check"><i class="fa-solid fa-check"></i></span>
-                </div>
-                <span class="cinema-settings-theme-name">Midnight</span>
-              </div>
-              <div class="cinema-settings-theme-card">
-                <div class="cinema-settings-theme-preview" style="background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);">
-                </div>
-                <span class="cinema-settings-theme-name">Cosmic</span>
-                <span class="cinema-settings-theme-badge">NEW</span>
-              </div>
-              <div class="cinema-settings-theme-card">
-                <div class="cinema-settings-theme-preview" style="background: linear-gradient(135deg, #2d1b69, #11998e);">
-                </div>
-                <span class="cinema-settings-theme-name">Aurora</span>
-              </div>
-              <div class="cinema-settings-theme-card">
-                <div class="cinema-settings-theme-preview" style="background: linear-gradient(135deg, #fc466b, #3f5efb);">
-                </div>
-                <span class="cinema-settings-theme-name">Neon</span>
-                <span class="cinema-settings-theme-badge">NEW</span>
-              </div>
-              <div class="cinema-settings-theme-card">
-                <div class="cinema-settings-theme-preview" style="background: linear-gradient(135deg, #141e30, #243b55);">
-                </div>
-                <span class="cinema-settings-theme-name">Ocean</span>
-              </div>
-              <div class="cinema-settings-theme-card">
-                <div class="cinema-settings-theme-preview" style="background: linear-gradient(135deg, #200122, #6f0000);">
-                </div>
-                <span class="cinema-settings-theme-name">Crimson</span>
-              </div>
-            </div>
-          </div>
         </div>
 
     <div class="cinema-settings-panel" id="settings-panel-playback">
@@ -1999,5 +1947,13 @@ window.addEventListener('resize', updateCarouselArrows);
 // ============================================================
 // Init
 // ============================================================
+// Wire user info in settings sidebar
+fetchJSON('/api/auth/current-user').then(data => {
+  if (data?.loggedIn && data?.username) {
+    const el = document.getElementById('settings-username');
+    if (el) el.textContent = data.username;
+  }
+}).catch(() => {});
+
 loadCinemaData();
 </script>
