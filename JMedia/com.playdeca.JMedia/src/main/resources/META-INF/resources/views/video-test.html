@@ -795,7 +795,7 @@ function renderContinueWatchingCarousel(items) {
     const title = item.title || item.seriesTitle || 'Untitled';
     const isEpisode = item.type === 'episode';
     const meta = isEpisode
-      ? `S${item.seasonNumber || 1} E${item.episodeNumber || 1}${item.duration ? ' · ' + formatRemainingTime(item.duration, item.watchProgressPercent) : ''}`
+      ? `S${item.seasonNumber || 1} E${item.episodeNumber || 1}${item.duration ? ' - ' + formatRemainingTime(item.duration, item.watchProgressPercent) : ''}`
       : (item.releaseYear ? item.releaseYear : '');
     const imgSrc = getBackdropUrl(item) || getThumbnailUrl(item.id);
     const progress = Math.min(100, Math.max(0, item.watchProgressPercent || 0));
@@ -845,10 +845,10 @@ function renderFilteredContinueWatching(section) {
   }
 }
 
-function formatRemainingTime(durationSec, progressPercent) {
-  if (!durationSec) return '';
-  const remaining = durationSec * (1 - (progressPercent || 0) / 100);
-  const mins = Math.ceil(remaining / 60);
+function formatRemainingTime(durationMs, progressPercent) {
+  if (!durationMs) return '';
+  const remainingSec = (durationMs / 1000) * (1 - (progressPercent || 0) / 100);
+  const mins = Math.ceil(remainingSec / 60);
   if (mins < 60) return `${mins}m left`;
   const hrs = Math.floor(mins / 60);
   const remainMins = mins % 60;
@@ -2655,3 +2655,5 @@ function sortShowAll(sortBy) {
   }
 }
 </script>
+
+
