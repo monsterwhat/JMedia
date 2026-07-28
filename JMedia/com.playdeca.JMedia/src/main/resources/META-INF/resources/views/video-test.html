@@ -801,11 +801,11 @@ function renderContinueWatchingCarousel(items) {
     const progress = Math.min(100, Math.max(0, item.watchProgressPercent || 0));
 
     return `
-      <div class="cw-card" data-id="${item.id}" data-type="${item.type}" data-series="${item.seriesTitle || ''}">
+      <div class="cw-card" data-id="${item.id}" data-type="${item.type}" data-series="${item.seriesTitle || ''}" onclick="playContinueWatching(${item.id}, '${item.type}', '${(item.seriesTitle || '').replace(/'/g, "\\'")}')">
         <div class="cw-card-img-wrap">
           <img src="${imgSrc}" alt="${title}" loading="lazy">
           <div class="cw-play-overlay">
-            <button class="cw-play-btn" onclick="event.stopPropagation(); playContinueWatching(${item.id}, '${item.type}', '${(item.seriesTitle || '').replace(/'/g, "\\'")}')">
+            <button class="cw-play-btn" onclick="event.stopPropagation()">
               <i class="fa-solid fa-play"></i>
             </button>
           </div>
@@ -865,10 +865,12 @@ function playContinueWatching(id, type, seriesTitle) {
 
 async function removeContinueWatching(id) {
   try {
-    await fetch(`/api/video/progress/${id}`, { method: 'DELETE' });
+    await fetch(`/api/video/progress/${id}/toggle-watched`, { method: 'POST' });
     // Remove card from DOM
     const card = document.querySelector(`.cw-card[data-id="${id}"]`);
     if (card) card.remove();
+    // Filter out from array for immediate effect
+    allContinueWatching = allContinueWatching.filter(item => item.id !== id);
     // Hide section if empty
     const container = document.getElementById('continue-watching-carousel');
     const section = document.getElementById('section-continue-watching');
