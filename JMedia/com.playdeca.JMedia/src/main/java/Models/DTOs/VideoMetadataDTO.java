@@ -65,19 +65,27 @@ public class VideoMetadataDTO {
         if (s != null) {
             this.logoPath = s.logoPath;
             this.heroPath = s.heroPath;
-            this.description = s.description;
-            this.tagline = s.tagline;
-            this.overview = s.overview;
-            this.genres = s.genres != null ? new ArrayList<>(s.genres) : null;
             this.backdropPath = s.backdropPath;
             this.posterPath = s.posterPath;
-            this.networks = s.networks != null ? new ArrayList<>(s.networks) : null;
-            this.directors = s.directors != null ? new ArrayList<>(s.directors) : null;
             this.originalLanguage = s.originalLanguage;
             this.runtimeMins = s.runtimeMins;
             this.imdbRating = s.imdbRating;
             this.tmdbRating = s.tmdbRating;
             this.releaseYear = s.releaseYear;
+
+            // Text metadata: prefer Series, fallback to Video entity
+            this.description = s.description != null ? s.description : video.description;
+            this.tagline = s.tagline != null ? s.tagline : video.tagline;
+            this.overview = s.overview != null && !s.overview.isBlank() ? s.overview : video.overview;
+            this.genres = (s.genres != null && !s.genres.isEmpty())
+                    ? new ArrayList<>(s.genres)
+                    : (video.genres != null ? new ArrayList<>(video.genres) : null);
+            this.networks = (s.networks != null && !s.networks.isEmpty())
+                    ? new ArrayList<>(s.networks)
+                    : (video.networks != null ? new ArrayList<>(video.networks) : null);
+            this.directors = (s.directors != null && !s.directors.isEmpty())
+                    ? new ArrayList<>(s.directors)
+                    : (video.directors != null ? new ArrayList<>(video.directors) : null);
         } else {
             // Fallback for standalone movies (no series link) — read from Video entity directly
             this.logoPath = video.logoPath;

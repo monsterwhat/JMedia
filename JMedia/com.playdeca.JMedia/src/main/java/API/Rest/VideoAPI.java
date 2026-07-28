@@ -130,7 +130,18 @@ public class VideoAPI {
         } catch (Exception e) {
             LOG.warn("Could not enrich text metadata for video {}: {}", videoId, e.getMessage());
         }
+
         Models.Video video = Models.Video.findById(videoId);
+        if (video != null && video.series != null) {
+            try {
+                videoMetadataService.ensureSeriesTextMetadata(video.series.id);
+            } catch (Exception e) {
+                LOG.warn("Could not enrich series text metadata for video {}: {}", videoId, e.getMessage());
+            }
+            // Re-load video so the DTO picks up any Series-level changes
+            video = Models.Video.findById(videoId);
+        }
+
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(API.ApiResponse.error("Video not found")).build();
         }

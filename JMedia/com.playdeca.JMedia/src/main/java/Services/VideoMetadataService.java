@@ -1382,8 +1382,12 @@ public class VideoMetadataService {
      */
     @jakarta.transaction.Transactional
     public void ensureMediaTextMetadata(Long videoId) {
-        if (videoId == null) return;
+        if (videoId == null) {
+            LOG.info("[EnsureTextMetadata] videoId is null, skipping");
+            return;
+        }
 
+        LOG.info("[EnsureTextMetadata] Running for video {}", videoId);
         Video video = Video.findById(videoId);
         if (video == null) {
             LOG.warn("[EnsureTextMetadata] Video {} not found", videoId);
@@ -1392,11 +1396,13 @@ public class VideoMetadataService {
 
         Settings settings = settingsService.getOrCreateSettings();
         if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            LOG.info("[EnsureTextMetadata] TMDB disabled in settings, skipping video {}", videoId);
             return;
         }
 
         String tmdbKey = getApiKey();
         if (tmdbKey == null || tmdbKey.isBlank()) {
+            LOG.info("[EnsureTextMetadata] No TMDB API key available, skipping video {}", videoId);
             return;
         }
 
@@ -1408,6 +1414,7 @@ public class VideoMetadataService {
         boolean needsNetworks  = "episode".equalsIgnoreCase(type) && (video.networks == null || video.networks.isEmpty());
 
         if (!needsOverview && !needsGenres && !needsDirectors && !needsNetworks) {
+            LOG.info("[EnsureTextMetadata] Video {} already has all text metadata populated, skipping", videoId);
             return;
         }
 
@@ -1433,7 +1440,10 @@ public class VideoMetadataService {
                 }
 
                 String tmdbId = searchRoot.path("results").get(0).path("id").asText(null);
-                if (tmdbId == null) return;
+                if (tmdbId == null) {
+                    LOG.info("[EnsureTextMetadata] TMDB returned null id for video {}", videoId);
+                    return;
+                }
 
                 String detailUrl = isBearerToken(tmdbKey)
                         ? String.format("https://api.themoviedb.org/3/movie/%s?append_to_response=credits", tmdbId)
@@ -1489,7 +1499,10 @@ public class VideoMetadataService {
                 }
 
                 String showId = searchRoot.path("results").get(0).path("id").asText(null);
-                if (showId == null) return;
+                if (showId == null) {
+                    LOG.info("[EnsureTextMetadata] TMDB returned null showId for video {}", videoId);
+                    return;
+                }
 
                 if (needsOverview && video.seasonNumber != null && video.episodeNumber != null) {
                     String episodeUrl = isBearerToken(tmdbKey)
@@ -1552,8 +1565,12 @@ public class VideoMetadataService {
      */
     @jakarta.transaction.Transactional
     public void ensureSeriesTextMetadata(Long seriesId) {
-        if (seriesId == null) return;
+        if (seriesId == null) {
+            LOG.info("[EnsureSeriesTextMetadata] seriesId is null, skipping");
+            return;
+        }
 
+        LOG.info("[EnsureSeriesTextMetadata] Running for series {}", seriesId);
         Series series = Series.findById(seriesId);
         if (series == null) {
             LOG.warn("[EnsureSeriesTextMetadata] Series {} not found", seriesId);
@@ -1561,10 +1578,16 @@ public class VideoMetadataService {
         }
 
         Settings settings = settingsService.getOrCreateSettings();
-        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) return;
+        if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
+            LOG.info("[EnsureSeriesTextMetadata] TMDB disabled in settings, skipping series {}", seriesId);
+            return;
+        }
 
         String tmdbKey = getApiKey();
-        if (tmdbKey == null || tmdbKey.isBlank()) return;
+        if (tmdbKey == null || tmdbKey.isBlank()) {
+            LOG.info("[EnsureSeriesTextMetadata] No TMDB API key available, skipping series {}", seriesId);
+            return;
+        }
 
         // Check what needs populating
         boolean needsOverview  = series.overview == null || series.overview.isBlank();
@@ -1581,6 +1604,7 @@ public class VideoMetadataService {
         if (!needsOverview && !needsGenres && !needsNetworks && !needsDirectors
                 && !needsWriters && !needsCast && !needsRating && !needsVoteCount
                 && !needsStatus && !needsTagline) {
+            LOG.info("[EnsureSeriesTextMetadata] Series {} already has all text metadata, skipping", seriesId);
             return; // Everything already populated
         }
 
@@ -1619,7 +1643,10 @@ public class VideoMetadataService {
                     ? String.format("https://api.themoviedb.org/3/tv/%s?append_to_response=credits", showId)
                     : String.format(TMDB_TV_DETAILS, showId, tmdbKey);
             JsonNode root = fetchJson(detailUrl, authHeaders);
-            if (root == null) return;
+            if (root == null) {
+                LOG.info("[EnsureSeriesTextMetadata] Failed to fetch TMDB details for series {}", seriesId);
+                return;
+            }
 
             boolean updated = false;
 
