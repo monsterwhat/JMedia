@@ -1091,30 +1091,25 @@ async function openSeriesDetail(seriesTitle) {
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
   extractAndApplyModalColor(heroUrl, heroOverlay);
 
-  // Modal logo — read from Series entity
+  // Modal logo — Series logo first, video logo fallback, text title fallback
   const logoHeroImg = document.getElementById('modal-logo-hero-img');
   const textTitleEl = document.getElementById('modal-text-title');
   if (logoHeroImg) {
-    if (seriesData) {
-      // Series logo — let backend handle on-demand fetch + fallback
-      logoHeroImg.src = getSeriesImageUrl(seriesData.id, 'logo');
-      logoHeroImg.style.maxWidth = '288px';
-      logoHeroImg.style.maxHeight = '80px';
-      logoHeroImg.style.display = 'block';
-      logoHeroImg.classList.remove('is-skeleton');
-      if (textTitleEl) textTitleEl.style.display = 'none';
-    } else if (imgSource.logoPath) {
-      logoHeroImg.src = getLogoUrl(firstEp.id);
-      logoHeroImg.style.maxWidth = '288px';
-      logoHeroImg.style.maxHeight = '80px';
-      logoHeroImg.style.display = 'block';
-      logoHeroImg.classList.remove('is-skeleton');
-      if (textTitleEl) textTitleEl.style.display = 'none';
-    } else {
+    // Always try to load a logo — backend handles missing files gracefully
+    const logoUrl = seriesData
+      ? getSeriesImageUrl(seriesData.id, 'logo')
+      : getLogoUrl(firstEp.id);
+    logoHeroImg.src = logoUrl;
+    logoHeroImg.style.maxWidth = '288px';
+    logoHeroImg.style.maxHeight = '80px';
+    logoHeroImg.style.display = 'block';
+    logoHeroImg.classList.remove('is-skeleton');
+    if (textTitleEl) textTitleEl.style.display = 'none';
+    // Fallback: if logo fails to load, show text title instead
+    logoHeroImg.onerror = function() {
       logoHeroImg.style.display = 'none';
-      logoHeroImg.classList.remove('is-skeleton');
       if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
-    }
+    };
   }
 
   // Title logo handled separately via hero logo img
