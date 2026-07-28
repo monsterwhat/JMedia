@@ -1,4 +1,4 @@
-ï»¿<link rel="stylesheet" href="/css/cinema-home.css">
+<link rel="stylesheet" href="/css/cinema-home.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Ambient Blur Background -->
@@ -195,7 +195,7 @@
         <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
       </div>
     </div>
-    <!-- Content â€” sits on top of the blurred background -->
+    <!-- Content — sits on top of the blurred background -->
     <div class="cinema-modal-content">
       <div class="cinema-modal-info-grid">
         <div class="cinema-modal-info-left">
@@ -310,7 +310,7 @@
 
 <!-- Player Modal -->
 <style>
-/* Player Modal â€” cinema-modal overrides for near-fullscreen playback */
+/* Player Modal — cinema-modal overrides for near-fullscreen playback */
 .player-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -651,7 +651,7 @@ function extractHeroColor(imgElement) {
         heroGradient.classList.add('active');
       }
     }
-  } catch (e) { /* Canvas tainted or image not loaded â€” skip gracefully */ }
+  } catch (e) { /* Canvas tainted or image not loaded — skip gracefully */ }
 }
 
 function extractAndApplyModalColor(imgUrl, posterUrl) {
@@ -795,7 +795,7 @@ function renderContinueWatchingCarousel(items) {
     const title = item.title || item.seriesTitle || 'Untitled';
     const isEpisode = item.type === 'episode';
     const meta = isEpisode
-      ? `S${item.seasonNumber || 1} E${item.episodeNumber || 1}${item.duration ? ' Â· ' + formatRemainingTime(item.duration, item.watchProgressPercent) : ''}`
+      ? `S${item.seasonNumber || 1} E${item.episodeNumber || 1}${item.duration ? ' · ' + formatRemainingTime(item.duration, item.watchProgressPercent) : ''}`
       : (item.releaseYear ? item.releaseYear : '');
     const imgSrc = getBackdropUrl(item) || getThumbnailUrl(item.id);
     const progress = Math.min(100, Math.max(0, item.watchProgressPercent || 0));
@@ -942,7 +942,7 @@ async function loadCinemaData() {
     fetch('/api/video/ui/optimized-carousels').then(r => r.ok ? r.text() : '').catch(() => '')
   ]);
 
-  // Parse responses â€” handle both ApiResponse {success, data} and raw arrays
+  // Parse responses — handle both ApiResponse {success, data} and raw arrays
   const parseResponse = (json) => {
     if (json && typeof json === 'object' && json.success !== undefined && json.data !== undefined) return json.data;
     return json;
@@ -963,7 +963,7 @@ async function loadCinemaData() {
   }
 
   if (allVideos.length) {
-    // Hero: 3-tier fallback â€” continue-watching â†’ top-rated â†’ most recently added
+    // Hero: 3-tier fallback — continue-watching ? top-rated ? most recently added
 
     // Tier 1: Most recently watched from continue-watching endpoint
     if (Array.isArray(cwData) && cwData.length > 0) {
@@ -1010,7 +1010,7 @@ async function loadCinemaData() {
     // Render carousels
     const movies = allVideos.filter(v => v.type === 'movie');
 
-    // TV Shows: dedup by seriesTitle â€” one card per series
+    // TV Shows: dedup by seriesTitle — one card per series
     const seriesMap = new Map();
     allVideos.filter(v => v.type === 'episode' && v.seriesTitle).forEach(v => {
       const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1030,7 +1030,7 @@ async function loadCinemaData() {
       .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
       .slice(0, 20);
 
-    // Deduplicate TV episodes â€” keep only the latest per series
+    // Deduplicate TV episodes — keep only the latest per series
     const seenSeries = new Set();
     const dedupedUpdates = [];
     for (const item of recentlyUpdated) {
@@ -1092,7 +1092,7 @@ async function loadCinemaData() {
       renderCarousel(cid, recentlyAddedMovies);
     }
 
-    // --- Movie Genre Rows (â‰¥2 movies per genre, sorted by count desc) ---
+    // --- Movie Genre Rows (=2 movies per genre, sorted by count desc) ---
     const movieGenreMap = new Map();
     movies.forEach(v => {
       if (Array.isArray(v.genres)) {
@@ -1138,7 +1138,7 @@ async function loadCinemaData() {
       renderCarousel(cid, recentlyAddedTvShows);
     }
 
-    // --- TV Show Genre Rows (â‰¥2 shows per genre, sorted by count desc) ---
+    // --- TV Show Genre Rows (=2 shows per genre, sorted by count desc) ---
     const tvShowGenreMap = new Map();
     allTvShows.forEach(v => {
       // Resolve genres from Series entity (episode Video objects don't have genres)
@@ -1182,7 +1182,7 @@ async function loadCinemaData() {
       // Insert HTMX carousels as fallback
       const temp = document.createElement('div');
       temp.innerHTML = carouselsHtml;
-      // Don't replace â€” we already have cinema-styled carousels
+      // Don't replace — we already have cinema-styled carousels
     }
   }
 
@@ -1274,7 +1274,7 @@ async function openSeriesDetail(seriesTitle) {
   if (resetDescToggle) resetDescToggle.style.display = 'none';
   // Reset gradient overlay
   // gradient overlay removed; nothing to clear
-  // Filter allVideos for this series (all content types â€” episodes, specials, movies, featurettes, extras)
+  // Filter allVideos for this series (all content types — episodes, specials, movies, featurettes, extras)
   const episodes = allVideos
     .filter(v => v.seriesTitle === seriesTitle)
     .sort((a, b) => {
@@ -1294,7 +1294,7 @@ async function openSeriesDetail(seriesTitle) {
   const seasonNumbers = Object.keys(seasons).sort((a, b) => a - b);
   const firstEp = episodes[0];
 
-  // Open modal immediately with skeleton state â€” don't wait for network
+  // Open modal immediately with skeleton state — don't wait for network
   modal.dataset.originalParent = modal.parentElement.id || 'app-content';
   document.body.appendChild(modal);
   document.getElementById('cinema-modal-backdrop').classList.add('active');
@@ -1316,7 +1316,7 @@ async function openSeriesDetail(seriesTitle) {
   const watchBtn = document.getElementById('modal-watchlist-btn');
   if (watchBtn) { watchBtn.style.display = ''; watchBtn.onclick = () => toggleWatchlist(firstEp.id); }
 
-  // Fetch Series entity â€” try by ID first, fall back to title lookup
+  // Fetch Series entity — try by ID first, fall back to title lookup
   let seriesData = null;
   const seriesId = firstEp.series?.id;
   if (seriesId) {
@@ -1337,7 +1337,7 @@ async function openSeriesDetail(seriesTitle) {
       }
     }
   }
-  // Cache may have stale un-enriched data â€” fetch fresh from API (triggers enrichment)
+  // Cache may have stale un-enriched data — fetch fresh from API (triggers enrichment)
   if (seriesData && seriesData.id) {
     try {
       const fresh = await fetchJSON(`/api/series/${seriesData.id}`);
@@ -1350,7 +1350,7 @@ async function openSeriesDetail(seriesTitle) {
   if (gen !== _modalGeneration) return;
   const imgSource = seriesData || firstEp;
 
-  // Populate modal â€” Series images take priority
+  // Populate modal — Series images take priority
   const heroUrl = seriesData
     ? getSeriesImageUrl(seriesData.id, 'backdrop')
     : getBackdropUrl(firstEp);
@@ -1389,10 +1389,10 @@ async function openSeriesDetail(seriesTitle) {
   const heroOverlay = document.querySelector('.cinema-modal-hero-overlay');
   extractAndApplyModalColor(heroUrl, heroOverlay);
 
-  // Modal logo â€” Series logo first, video logo fallback, text title fallback
+  // Modal logo — Series logo first, video logo fallback, text title fallback
   // logoHeroImg and textTitleEl already declared above in the early-open block
   if (logoHeroImg) {
-    // Always try to load a logo â€” backend handles missing files gracefully
+    // Always try to load a logo — backend handles missing files gracefully
     const logoUrl = seriesData
       ? getSeriesImageUrl(seriesData.id, 'logo')
       : getLogoUrl(firstEp.id);
@@ -1435,7 +1435,7 @@ async function openSeriesDetail(seriesTitle) {
   // Title logo handled separately via hero logo img
   modal.dataset.seriesTitle = seriesTitle;
 
-  // Meta badges â€” from Series entity
+  // Meta badges — from Series entity
   const rating = imgSource.imdbRating || imgSource.tmdbRating || '';
     const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
   const year = imgSource.releaseYear || '';
@@ -1449,14 +1449,14 @@ async function openSeriesDetail(seriesTitle) {
     metaRow.innerHTML += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
   }
 
-  // Genres â€” from Series entity directly
+  // Genres — from Series entity directly
   const genresEl = document.getElementById('modal-genres');
   if (genresEl && imgSource.genres?.length) {
     genresEl.innerHTML = imgSource.genres.map(g => `<span class="cinema-genre-chip">${g}</span>`).join('');
     genresEl.classList.remove('is-skeleton');
   }
 
-  // Creator â€” from Series entity directly
+  // Creator — from Series entity directly
   const creatorEl = document.getElementById('modal-creator');
   if (creatorEl) {
     const creatorNames = (imgSource.networks || []).join(', ');
@@ -1464,7 +1464,7 @@ async function openSeriesDetail(seriesTitle) {
     if (creatorNames) creatorEl.classList.remove('is-skeleton');
   }
 
-  // Description â€” from Series entity directly
+  // Description — from Series entity directly
   const descEl = document.getElementById('modal-desc');
   const desc = imgSource.description || imgSource.overview || '';
   if (descEl) {
@@ -1794,7 +1794,7 @@ function openDetails(videoId) {
     if (!data) return;
     if (gen !== _modalGeneration) return;
 
-    // Hero image â€” prefer wider images
+    // Hero image — prefer wider images
     const heroUrl = getBackdropUrl(data);
     const backdropImg = document.getElementById('modal-backdrop-img');
     if (backdropImg) {
@@ -2269,7 +2269,7 @@ async function openPlayerModal(videoId) {
       const el = document.createElement('script');
       if (old.src) {
         for (const attr of old.attributes) el.setAttribute(attr.name, attr.value);
-        el.async = false; // preserve document order (Utils â†’ StateManager â†’ â€¦ â†’ SimplePlayer)
+        el.async = false; // preserve document order (Utils ? StateManager ? … ? SimplePlayer)
       } else {
         el.textContent = old.textContent;
       }
@@ -2377,7 +2377,7 @@ document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
     this.classList.add('active');
   });
 });
-// Home button â€” SPA style
+// Home button — SPA style
 const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video-test"]');
 if (homeDockBtn) {
   homeDockBtn.addEventListener('click', function(e) {
@@ -2579,7 +2579,7 @@ function showAll(mode) {
   if (!grid) {
     grid = document.createElement('div');
     grid.id = `${mode}-show-all-grid`;
-    grid.style.cssText = 'display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0 16px 1rem;';
+    grid.style.cssText = 'display: flex; flex-wrap: wrap; gap: 1rem; padding: 0 24px 1rem;';
     section.insertBefore(grid, carouselWrapper);
   }
   _showAllData = mode === 'movies' ? allVideos.filter(v => v.type === 'movie') : [...allTvShows];
