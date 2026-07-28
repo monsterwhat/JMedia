@@ -1,6 +1,6 @@
-@ -1,66 +0,0 @@
-# Created by https://www.toptal.com/developers/gitignore/api/netbeans,maven,java
-# Edit at https://www.toptal.com/developers/gitignore?templates=netbeans,maven,java
+# ============================================================
+# JMusic / JMedia .gitignore
+# ============================================================
 
 ### Java ###
 # Compiled class file
@@ -9,18 +9,19 @@
 # Log file
 *.log
 
+# Eclipse prefs
 *.core.prefs
 
 # BlueJ files
 *.ctxt
 
-#DB files
+# DB files
 *.db
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
 
-# Package Files #
+# Package files
 *.jar
 *.war
 *.nar
@@ -29,7 +30,7 @@
 *.tar.gz
 *.rar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# JVM crash logs
 hs_err_pid*
 replay_pid*
 
@@ -43,14 +44,13 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/timing.properties
-# https://github.com/takari/maven-wrapper#usage-without-binary-jar
 .mvn/wrapper/maven-wrapper.jar
 
-# Eclipse m2e generated files
-# Eclipse Core
+### Eclipse ###
 .project
-# JDT-specific (Eclipse Java Development Tools)
 .classpath
+.factorypath
+.settings/
 
 ### NetBeans ###
 **/nbproject/private/
@@ -62,59 +62,57 @@ dist/
 nbdist/
 .nb-gradle/
 
-# End of https://www.toptal.com/developers/gitignore/api/netbeans,maven,java
-.settings/org.eclipse.jdt.apt.core.prefs
-.settings/org.eclipse.jdt.core.prefs
-.settings/org.eclipse.m2e.core.prefs
-.factorypath
-.spotdl-cache
-JMedia-Android/.gradle/8.13/checksums/checksums.lock
-JMedia-Android/.gradle/8.13/checksums/md5-checksums.bin
-JMedia-Android/.gradle/8.13/checksums/sha1-checksums.bin
-JMedia-Android/.gradle/8.13/executionHistory/executionHistory.bin
-JMedia-Android/.gradle/8.13/executionHistory/executionHistory.lock
-JMedia-Android/.gradle/8.13/fileChanges/last-build.bin
-JMedia-Android/.gradle/8.13/fileHashes/fileHashes.bin
-JMedia-Android/.gradle/8.13/fileHashes/fileHashes.lock
-JMedia-Android/.gradle/8.13/fileHashes/resourceHashesCache.bin
-JMedia-Android/.gradle/8.13/gc.properties
-JMedia-Android/.gradle/8.4/checksums/checksums.lock
-JMedia-Android/.gradle/8.4/checksums/md5-checksums.bin
-JMedia-Android/.gradle/8.4/checksums/sha1-checksums.bin
-JMedia-Android/.gradle/8.4/dependencies-accessors/dependencies-accessors.lock
-JMedia-Android/.gradle/8.4/dependencies-accessors/gc.properties
-JMedia-Android/.gradle/8.4/executionHistory/executionHistory.lock
-JMedia-Android/.gradle/8.4/fileChanges/last-build.bin
-JMedia-Android/.gradle/8.4/fileHashes/fileHashes.bin
-JMedia-Android/.gradle/8.4/fileHashes/fileHashes.lock
-JMedia-Android/.gradle/8.4/fileHashes/resourceHashesCache.bin
-JMedia-Android/.gradle/8.4/gc.properties
-JMedia-Android/.gradle/9.0-milestone-1/checksums/checksums.lock
-JMedia-Android/.gradle/9.0-milestone-1/checksums/md5-checksums.bin
-JMedia-Android/.gradle/9.0-milestone-1/checksums/sha1-checksums.bin
-JMedia-Android/.gradle/9.0-milestone-1/fileChanges/last-build.bin
-JMedia-Android/.gradle/9.0-milestone-1/fileHashes/fileHashes.lock
-JMedia-Android/.gradle/9.0-milestone-1/gc.properties
-JMedia-Android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
-JMedia-Android/.gradle/buildOutputCleanup/cache.properties
-JMedia-Android/.gradle/buildOutputCleanup/outputFiles.bin
-JMedia-Android/.gradle/config.properties
-JMedia-Android/.gradle/file-system.probe
-JMedia-Android/.gradle/vcs-1/gc.properties
-JMedia-Android/java_pid22052.hprof
-JMedia-Android/java_pid23364.hprof
+### JMedia ###
+# Thumbnails, storyboards, cookies, keystore
 /JMedia/com.playdeca.JMedia/thumbnails
-JMedia/com.playdeca.JMedia/cookies.txt2
-JMedia/com.playdeca.JMedia/cookies.txt
 /JMedia/com.playdeca.JMedia/storyboards
+JMedia/com.playdeca.JMedia/cookies.txt
+JMedia/com.playdeca.JMedia/cookies.txt2
 JMedia/com.playdeca.JMedia/keystore.p12
-/.claw
-/JMedia/com.playdeca.JMedia/.sisyphus
-/JMedia/com.playdeca.JMedia/.claw
-/.sisyphus
+
+# JMedia sessions & docs
 /JMedia/com.playdeca.JMedia/sessions
-/JMedia/com.playdeca.JMedia/.omo
-JMedia/com.playdeca.JMedia/docs/plan.md
-JMedia/com.playdeca.JMedia/plan.md
-/.omo
+sessions/
+
+# SpotDL cache
+.spotdl-cache
+
+# Node / JS
+node_modules/
+
+### Android build artifacts ###
+JMedia-Android/.gradle/
+JMedia-Android/build/
+JMedia-Android/.idea/
+JMedia-Android/captures/
+JMedia-Android/local.properties
+JMedia-Android/java_pid*.hprof
+**/*.apk
+**/*.aab
+
+### IDE / editor files ###
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.iml
+*.ipr
+*.iws
+out/
+
+### OS files ###
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+### Agent / tool artifacts ###
 .opencode/
+.codegraph/
+.doctor/
+omo/
+.sisyphus/
+.claw/
+
+### Unrelated projects ###
+package/
