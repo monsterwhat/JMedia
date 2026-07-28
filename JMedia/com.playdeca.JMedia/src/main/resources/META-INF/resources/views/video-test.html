@@ -108,6 +108,14 @@
   <section class="cinema-section" id="section-movies" data-category="movies" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">Movies</h2>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
+        <div id="movies-sort-controls" style="display: none; gap: 0.75rem; align-items: center;">
+          <button data-sort="title" onclick="sortShowAll('title')" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Name</button>
+          <button data-sort="dateAdded" onclick="sortShowAll('dateAdded')" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: white;">Date Added</button>
+          <button data-sort="lastWatched" onclick="sortShowAll('lastWatched')" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Recently Watched</button>
+        </div>
+        <button id="movies-show-all-btn" onclick="toggleShowAll('movies')" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6); display: none;">Show All</button>
+      </div>
     </div>
     <div class="cinema-carousel-wrapper">
       <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-left"></i></button>
@@ -120,6 +128,14 @@
   <section class="cinema-section" id="section-tvshows" data-category="shows" style="display:none;">
     <div class="cinema-section-header">
       <h2 class="cinema-section-title">TV Shows</h2>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
+        <div id="tvshows-sort-controls" style="display: none; gap: 0.75rem; align-items: center;">
+          <button data-sort="title" onclick="sortShowAll('title')" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Name</button>
+          <button data-sort="dateAdded" onclick="sortShowAll('dateAdded')" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: white;">Date Added</button>
+          <button data-sort="lastWatched" onclick="sortShowAll('lastWatched')" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Recently Watched</button>
+        </div>
+        <button id="tvshows-show-all-btn" onclick="toggleShowAll('tvshows')" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6); display: none;">Show All</button>
+      </div>
     </div>
     <div class="cinema-carousel-wrapper">
       <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-left"></i></button>
@@ -509,6 +525,14 @@ const seriesLookup = new Map();
 let allContinueWatching = [];
 let _modalGeneration = 0;
 
+// Show All state
+let _showAllMode = null;
+let _showAllData = [];
+let _showAllIndex = 0;
+let _showAllSort = 'dateAdded';
+let _showAllObserver = null;
+const _SHOW_ALL_BATCH = 20;
+
 // ============================================================
 // API Helpers
 // ============================================================
@@ -873,6 +897,7 @@ function renderCarousel(containerId, items) {
 function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
+  if (_showAllMode && section !== _showAllMode) { showLess(); }
 
       if (section === 'home') {
     allSections.forEach(s => {
@@ -898,6 +923,10 @@ function showSection(section) {
   }
 
   renderFilteredContinueWatching(section);
+  ['movies-show-all-btn','tvshows-show-all-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  ['movies-sort-controls','tvshows-sort-controls'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  if(section==='movies'){const b=document.getElementById('movies-show-all-btn');if(b)b.style.display='';}
+  else if(section==='shows'){const b=document.getElementById('tvshows-show-all-btn');if(b)b.style.display='';}
 }
 
 async function loadCinemaData() {
@@ -1087,6 +1116,16 @@ async function loadCinemaData() {
     // --- Recently Added TV Shows (deduped by seriesTitle, top 20 by dateAdded) ---
     const allTvShows = Array.from(seriesMap.values())
       .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''));
+    // Enrich TV show episodes with Series-level metadata (genres, description, backdrop, etc.)
+    allTvShows.forEach(v => {
+      const series = seriesLookup.get(String(v.series?.id));
+      if (series) {
+        if (!v.genres || v.genres.length === 0) v.genres = series.genres || [];
+        if (!v.description) v.description = series.description || series.overview || '';
+        if (!v.backdrop) v.backdrop = series.backdrop || series.backdropPath || '';
+        if (!v.poster) v.poster = series.poster || series.posterPath || '';
+      }
+    });
     const recentlyAddedTvShows = allTvShows.slice(0, 20);
     let lastTvEl = document.getElementById('section-tvshows');
     if (recentlyAddedTvShows.length > 0) {
@@ -1100,12 +1139,16 @@ async function loadCinemaData() {
     // --- TV Show Genre Rows (≥2 shows per genre, sorted by count desc) ---
     const tvShowGenreMap = new Map();
     allTvShows.forEach(v => {
-      if (Array.isArray(v.genres)) {
-        v.genres.forEach(g => {
-          if (!tvShowGenreMap.has(g)) tvShowGenreMap.set(g, []);
-          tvShowGenreMap.get(g).push(v);
-        });
+      // Resolve genres from Series entity (episode Video objects don't have genres)
+      let genres = v.genres;
+      if (!Array.isArray(genres) || genres.length === 0) {
+        const series = seriesLookup.get(String(v.series?.id));
+        genres = series?.genres || [];
       }
+      genres.forEach(g => {
+        if (!tvShowGenreMap.has(g)) tvShowGenreMap.set(g, []);
+        tvShowGenreMap.get(g).push(v);
+      });
     });
     Array.from(tvShowGenreMap.entries())
       .filter(([genre]) => genre.toLowerCase() !== 'anime')
@@ -2516,4 +2559,97 @@ fetchJSON('/api/auth/current-user').then(data => {
 }).catch(() => {});
 
 loadCinemaData();
+
+// === Show All / Show Less toggle ===
+function toggleShowAll(mode) {
+  if (_showAllMode === mode) showLess();
+  else showAll(mode);
+}
+
+function showAll(mode) {
+  if (_showAllMode && _showAllMode !== mode) showLess();
+  _showAllMode = mode;
+  const sectionId = mode === 'movies' ? 'section-movies' : 'section-tvshows';
+  const section = document.getElementById(sectionId);
+  const carouselWrapper = section.querySelector('.cinema-carousel-wrapper');
+  if (carouselWrapper) carouselWrapper.style.display = 'none';
+  let grid = document.getElementById(`${mode}-show-all-grid`);
+  if (!grid) {
+    grid = document.createElement('div');
+    grid.id = `${mode}-show-all-grid`;
+    grid.style.cssText = 'display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0 16px 1rem;';
+    section.insertBefore(grid, carouselWrapper);
+  }
+  _showAllData = mode === 'movies' ? allVideos.filter(v => v.type === 'movie') : [...allTvShows];
+  _showAllIndex = 0;
+  grid.innerHTML = '';
+  sortShowAll(_showAllSort);
+  loadMoreShowAll();
+  const sc = document.getElementById(`${mode}-sort-controls`);
+  if (sc) sc.style.display = 'flex';
+  const btn = document.getElementById(`${mode}-show-all-btn`);
+  if (btn) btn.textContent = 'Back';
+  if (_showAllObserver) _showAllObserver.disconnect();
+  let sentinel = document.getElementById(`${mode}-show-all-sentinel`);
+  if (!sentinel) {
+    sentinel = document.createElement('div');
+    sentinel.id = `${mode}-show-all-sentinel`;
+    sentinel.style.cssText = 'width: 100%; height: 1px;';
+    section.appendChild(sentinel);
+  }
+  _showAllObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) loadMoreShowAll();
+  }, { rootMargin: '200px' });
+  _showAllObserver.observe(sentinel);
+}
+
+function showLess() {
+  if (!_showAllMode) return;
+  if (_showAllObserver) { _showAllObserver.disconnect(); _showAllObserver = null; }
+  const sentinel = document.getElementById(`${_showAllMode}-show-all-sentinel`);
+  if (sentinel) sentinel.remove();
+  const grid = document.getElementById(`${_showAllMode}-show-all-grid`);
+  if (grid) grid.remove();
+  const sectionId = _showAllMode === 'movies' ? 'section-movies' : 'section-tvshows';
+  const section = document.getElementById(sectionId);
+  const cw = section.querySelector('.cinema-carousel-wrapper');
+  if (cw) cw.style.display = '';
+  const sc = document.getElementById(`${_showAllMode}-sort-controls`);
+  if (sc) sc.style.display = 'none';
+  const btn = document.getElementById(`${_showAllMode}-show-all-btn`);
+  if (btn) btn.textContent = 'Show All';
+  _showAllMode = null;
+}
+
+function loadMoreShowAll() {
+  if (_showAllIndex >= _showAllData.length) {
+    if (_showAllObserver) _showAllObserver.disconnect();
+    return;
+  }
+  const grid = document.getElementById(`${_showAllMode}-show-all-grid`);
+  if (!grid) return;
+  const batch = _showAllData.slice(_showAllIndex, _showAllIndex + _SHOW_ALL_BATCH);
+  grid.innerHTML += batch.map(v => createCardHTML(v)).join('');
+  _showAllIndex += _SHOW_ALL_BATCH;
+}
+
+function sortShowAll(sortBy) {
+  _showAllSort = sortBy;
+  _showAllData.sort((a, b) => {
+    if (sortBy === 'title') return (a.title || '').toLowerCase().localeCompare((b.title || '').toLowerCase());
+    if (sortBy === 'dateAdded') return (b.dateAdded || '').localeCompare(a.dateAdded || '');
+    if (sortBy === 'lastWatched') return (b.lastWatched || b.dateAdded || '').localeCompare(a.lastWatched || a.dateAdded || '');
+    return 0;
+  });
+  _showAllIndex = 0;
+  const grid = document.getElementById(`${_showAllMode}-show-all-grid`);
+  if (grid) grid.innerHTML = '';
+  loadMoreShowAll();
+  const sc = document.getElementById(`${_showAllMode}-sort-controls`);
+  if (sc) {
+    sc.querySelectorAll('button').forEach(b => {
+      b.style.color = b.dataset.sort === sortBy ? 'white' : 'rgba(255,255,255,0.6)';
+    });
+  }
+}
 </script>
