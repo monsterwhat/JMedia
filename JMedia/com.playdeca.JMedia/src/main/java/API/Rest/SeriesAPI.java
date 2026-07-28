@@ -311,7 +311,7 @@ public class SeriesAPI {
                 }
             }
 
-            return Response.temporaryRedirect(java.net.URI.create("/logo.png")).build();
+            return Response.status(Response.Status.NOT_FOUND).build();
         } catch (Exception e) {
             LOG.error("Error serving {} image for series ID: {}", imageType, seriesId, e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();

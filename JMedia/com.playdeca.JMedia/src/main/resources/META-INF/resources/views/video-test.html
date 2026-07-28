@@ -1110,6 +1110,13 @@ async function openSeriesDetail(seriesTitle) {
       logoHeroImg.style.display = 'none';
       if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
     };
+    // Defense-in-depth: if server returns generic /logo.png as a valid image, override to text
+    logoHeroImg.onload = function() {
+      if (logoHeroImg.src.includes('/logo.png')) {
+        logoHeroImg.style.display = 'none';
+        if (textTitleEl) { textTitleEl.textContent = seriesTitle; textTitleEl.style.display = ''; }
+      }
+    };
   }
 
   // Title logo handled separately via hero logo img
@@ -1473,6 +1480,13 @@ function openDetails(videoId) {
       logoHeroImg.onerror = function() {
         logoHeroImg.style.display = 'none';
         if (textTitleEl) { textTitleEl.textContent = data.title || ''; textTitleEl.style.display = ''; }
+      };
+      // Defense-in-depth: if server returns generic /logo.png as a valid image, override to text
+      logoHeroImg.onload = function() {
+        if (logoHeroImg.src.includes('/logo.png')) {
+          logoHeroImg.style.display = 'none';
+          if (textTitleEl) { textTitleEl.textContent = data.title || ''; textTitleEl.style.display = ''; }
+        }
       };
     }
 

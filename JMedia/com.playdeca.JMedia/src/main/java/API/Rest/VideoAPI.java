@@ -229,7 +229,7 @@ public class VideoAPI {
      *   1. {thumbnailsDir}/{videoId}_{imageType}.webp   (generated image)
      *   2. {thumbnailsDir}/{videoId}_{fallbackType}.webp (optional secondary type, e.g. hero→backdrop)
      *   3. Existing thumbnail path from the Video entity (custom thumbnailPath or generated thumbnail)
-     *   4. Redirect to /logo.png
+     *   4. Return 404 (client shows text title fallback)
      */
     private Response serveImageFromThumbnails(Long videoId, String imageType, String fallbackType) {
         try {
@@ -347,7 +347,7 @@ public class VideoAPI {
                 }
             }
 
-            return Response.temporaryRedirect(java.net.URI.create("/logo.png")).build();
+            return Response.status(Response.Status.NOT_FOUND).build();
 
         } catch (Exception e) {
             LOG.error("Error serving {} image for video ID: {}", imageType, videoId, e);
