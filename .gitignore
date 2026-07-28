@@ -116,3 +116,7 @@ omo/
 
 ### Unrelated projects ###
 package/
+/.omo
+/JMedia/com.playdeca.JMedia/.omo
+JMedia/com.playdeca.JMedia/docs/plan.md
+JMedia/com.playdeca.JMedia/plan.md
