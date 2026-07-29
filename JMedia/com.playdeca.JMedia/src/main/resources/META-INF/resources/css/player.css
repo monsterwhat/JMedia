@@ -390,9 +390,12 @@ body[data-video-active="true"] .music-player {
 }
 
 .info-title {
-    display: inline-block !important;
+    display: flex !important;
+    align-items: center !important;
     font-size: 1.5rem !important;
     font-weight: 600 !important;
+    min-height: 40px !important;
+    gap: 8px !important;
 }
 
 .info-title:hover {
@@ -413,6 +416,38 @@ body[data-video-active="true"] .music-player {
     margin-top: 2px !important;
     font-weight: 400 !important;
     line-height: 1.3 !important;
+}
+
+/* --- Series Logo in Media Info --- */
+.series-logo {
+    display: none;
+    max-height: 48px;
+    width: auto;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.series-title-fallback {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    display: inline-block;
+}
+
+.info-title:hover .series-title-fallback {
+    color: var(--player-primary);
+    text-decoration: underline;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .series-logo {
+        max-height: 32px !important;
+    }
+    
+    .series-title-fallback {
+        font-size: 1rem !important;
+    }
 }
 
 .controls-container {
@@ -1828,3 +1863,5 @@ body[data-video-active="true"] .music-player {
         aspect-ratio: 2 / 3;
     }
 }
+
+/* OPlayer native header hidden via config (header: false) */
