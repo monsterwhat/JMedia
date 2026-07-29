@@ -963,6 +963,19 @@ async function loadCinemaData() {
     allSeries = seriesArray;
     seriesLookup.clear();
     allSeries.forEach(s => seriesLookup.set(String(s.id), s));
+    // Enrich CW items with series-level description (same as allTvShows enrichment at line 1125)
+    if (Array.isArray(cwData) && allSeries.length > 0) {
+      const seriesByTitle = new Map();
+      allSeries.forEach(s => { if (s.title) seriesByTitle.set(s.title.toLowerCase(), s); });
+      cwData.forEach(item => {
+        if (!item.description && item.seriesTitle) {
+          const series = seriesByTitle.get(item.seriesTitle.toLowerCase());
+          if (series) {
+            item.description = series.description || series.overview || '';
+          }
+        }
+      });
+    }
   }
 
   if (allVideos.length) {
