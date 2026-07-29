@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +61,15 @@ public class MetadataOrganizerService {
         
         for (Integer seasonNumber : seasons) {
             organizeSeason(showName, seasonNumber);
+        }
+        
+        // Process null-season content (extras, featurettes, behind-the-scenes) grouped by contentType
+        List<Video> nullSeasonEpisodes = Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null", "episode", showName);
+        Map<String, List<Video>> byContentType = nullSeasonEpisodes.stream()
+            .filter(v -> v.contentType != null && !v.contentType.isEmpty())
+            .collect(Collectors.groupingBy(v -> v.contentType));
+        for (Map.Entry<String, List<Video>> entry : byContentType.entrySet()) {
+            LOGGER.info("Organizing {} content for show {}: {} episodes", entry.getKey(), showName, entry.getValue().size());
         }
     }
     
@@ -204,6 +214,20 @@ public class MetadataOrganizerService {
             LOGGER.info("DEBUG: Added season {} - DisplayName: '{}', Subtitle: '{}', VirtualPath: '{}'", seasonNumber, displayName, subtitle, virtualPath);
         }
         
+        // Add null-season content (extras, featurettes, behind-the-scenes) grouped by contentType
+        List<Video> nullSeasonEpisodes = Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null", "episode", showName);
+        Map<String, List<Video>> byContentType = nullSeasonEpisodes.stream()
+            .filter(v -> v.contentType != null && !v.contentType.isEmpty())
+            .collect(Collectors.groupingBy(v -> v.contentType));
+        for (Map.Entry<String, List<Video>> ctEntry : byContentType.entrySet()) {
+            String ct = ctEntry.getKey();
+            List<Video> ctEpisodes = ctEntry.getValue();
+            String displayName = capitalizeContentType(ct);
+            String subtitle = ctEpisodes.size() + " episode" + (ctEpisodes.size() != 1 ? "s" : "");
+            String virtualPath = "/shows/" + normalizeShowName(showName) + "/" + ct;
+            structure.add(new OrganizedPath(virtualPath, displayName, subtitle));
+        }
+        
         LOGGER.info("DEBUG: Returning {} season structures", structure.size());
         return structure;
     }
@@ -229,6 +253,29 @@ public class MetadataOrganizerService {
         }
         
         return structure;
+    }
+    
+    public List<OrganizedPath> getVirtualEpisodeStructure(String showName, String contentType) {
+        List<OrganizedPath> structure = new ArrayList<>();
+        List<Video> episodes = Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and contentType = ?3", 
+            "episode", showName, contentType);
+        for (Video episode : episodes) {
+            String displayName = episode.title != null ? episode.title : "Untitled " + contentType;
+            String virtualPath = "/shows/" + normalizeShowName(showName) + "/" + contentType + "/" + episode.id;
+            structure.add(new OrganizedPath(virtualPath, displayName, null));
+        }
+        return structure;
+    }
+    
+    /**
+     * Converts a contentType identifier (e.g. "behind_the_scenes") to a human-readable display name
+     */
+    private static String capitalizeContentType(String ct) {
+        if (ct == null || ct.isEmpty()) {
+            return ct;
+        }
+        String withSpaces = ct.replace("_", " ");
+        return toTitleCase(withSpaces);
     }
     
     /**

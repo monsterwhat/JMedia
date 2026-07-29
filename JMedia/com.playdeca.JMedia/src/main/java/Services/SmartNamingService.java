@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.util.Arrays;
+import java.util.ArrayList;
 
 @ApplicationScoped
 public class SmartNamingService {
@@ -43,6 +44,9 @@ public class SmartNamingService {
     private static final Pattern EPISODE_SEASON_CAP_DASH = Pattern.compile("(?i)^([a-z]{2,}.*?)\\s+(\\d{1,2})\\s*[-–—]\\s*Cap[\\s\\._-]*(\\d{1,3})(.*)");
     // Spanish: standalone "Cap 1" / "episodio 1" / "capitulo 1" (like E_ONLY but for Spanish)
     private static final Pattern EPISODE_CAP_ONLY = Pattern.compile("(?i)(.*?)[\\s\\._\\[\\(-]+(?:cap[íi]tulo|cap|episodio)[\\s\\._-]*(\\d{1,3})(.*)");
+    // One Pace / fan-edit naming: "[Group][N] ArcName EE.ext" or "[N] ArcName EE.ext"
+    // e.g., "[Reaktor][02] Skypiea 02.mkv", "[One Pace][1] Romance Dawn 01.mkv"
+    private static final Pattern EPISODE_ONE_PACE = Pattern.compile("(?i)(?:\\[[^\\]]*\\])?\\[(\\d{1,3})\\]\\s+(.+?)\\s+(\\d{1,3})\\.[a-z0-9]+$");
     
     // Season/Folder patterns
     private static final Pattern SEASON_FOLDER_PATTERN = Pattern.compile("(?i)season[s]?[-_.]?(\\d+)");
@@ -52,6 +56,8 @@ public class SmartNamingService {
     private static final Pattern SPECIALS_PATTERN = Pattern.compile("(?i)(specials?)");
     // Folders that should NOT be treated as episode folders (extras, behind the scenes, etc.)
     private static final Pattern EXTRAS_FOLDER_PATTERN = Pattern.compile("(?i)(extras?|xtras?|behind the scenes|deleted scenes|outtakes|bloopers|interviews|bonus|featurette|shorts|pilot|sneak peek)");
+    // WWW release-group wrapper folders like "www.rtkorm.com" that wrap show folders
+    private static final Pattern WWW_FOLDER_PATTERN = Pattern.compile("(?i)^www\\..+\\..+$");
     
     // NEW: Additional season patterns
     private static final Pattern SERIES_FOLDER_PATTERN = Pattern.compile("(?i)series\\s*(\\d+).*");  // Capture number, allow year suffix
@@ -63,6 +69,13 @@ public class SmartNamingService {
     private static final Pattern SEASON_NUMBER_DASH_PATTERN = Pattern.compile("(?i)^\\d{1,3}\\s*[-–—]\\s*(.+)$");  // "2 - text" or "2 - Saga..."
     private static final Pattern SEASON_BARE_S_PATTERN = Pattern.compile("(?i)^s\\d{1,3}$");  // "S2" or "S01"
     private static final Pattern SEASON_MOVIE_PATTERN = Pattern.compile("(?i)s\\d{1,3}m\\d{2}");  // "S07M01"
+    
+    // "Text N Text" pattern: "JoJo 1 Phantom Blood", "One Piece 2 Gold" - text, number, text
+    // Requires at least 2 letters before the number and at least 1 letter after
+    private static final Pattern SEASON_TEXT_N_TEXT = Pattern.compile("(?i)[a-z]{2,}.*?\\s+(\\d{1,3})\\s+[a-z].*");
+    
+    // "[N-M] Text" bracket range pattern: "[1-7] Romance Dawn", "[136-138] Skypiea"
+    private static final Pattern SEASON_BRACKET_RANGE = Pattern.compile("(?i)^\\[(\\d{1,3})-\\d{1,3}\\]\\s+[a-z].*");
     
     // Content type patterns: SxxMxx (movie) and SxxN (extra)
     private static final Pattern CONTENT_TYPE_SXXMXX = Pattern.compile("S(\\d{1,3})M(\\d{2})", Pattern.CASE_INSENSITIVE);
@@ -191,8 +204,21 @@ public class SmartNamingService {
 
         // If no season folder found and no season from filename, default to season 0 (specials)
         // but ONLY for non-flat structures (flat structures may not use season numbers)
-        if (episodeDetection.season == null && pathAnalysis.seasonFolder == null && !pathAnalysis.isFlatStructure) {
-            episodeDetection.season = 0;
+        if (episodeDetection.season == null && pathAnalysis.seasonFolder == null && !pathAnalysis.isFlatStructure && !pathAnalysis.hasExtrasFolder) {
+            // Tighten season=0: only set for explicit specials indicators in the path
+            // Check if parent/grandparent folder matches SPECIALS_PATTERN
+            boolean hasSpecialsInPath = (pathAnalysis.grandParentFolder != null && SPECIALS_PATTERN.matcher(pathAnalysis.grandParentFolder).find()) ||
+                                         (pathAnalysis.parentFolder != null && SPECIALS_PATTERN.matcher(pathAnalysis.parentFolder).find());
+            // Also check full relative path for /specials/ folder segment
+            if (!hasSpecialsInPath && relativePath != null) {
+                String pathLower = relativePath.toLowerCase().replace('\\', '/');
+                hasSpecialsInPath = pathLower.contains("specials") || pathLower.contains("/special/") || pathLower.endsWith("/special");
+            }
+            
+            if (hasSpecialsInPath) {
+                episodeDetection.season = 0;
+            }
+            // Otherwise, season stays null — handled by contentType grouping downstream
         }
 
         // Determine media type with confidence scoring
@@ -301,6 +327,12 @@ public class SmartNamingService {
             int showIdx = analysis.libraryRootIndex + 1;
             String showFolder = pathSegments[showIdx];
             
+            // Skip www.* release-group wrapper folders to find actual show folder
+            if (WWW_FOLDER_PATTERN.matcher(showFolder).matches() && pathSegments.length > showIdx + 1) {
+                showIdx++;
+                showFolder = pathSegments[showIdx];
+            }
+            
             // Check if show folder looks like a show name (not a season/quality folder)
             boolean showFolderLooksLikeShow = !isSeasonFolderName(showFolder) && 
                 !showFolder.matches("(?i).*\\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v)$");
@@ -326,6 +358,13 @@ public class SmartNamingService {
         // Identify explicit show folder and season folder from path structure
         if (analysis.libraryRootIndex != -1 && pathSegments.length > analysis.libraryRootIndex + 1) {
             int showIdx = analysis.libraryRootIndex + 1;
+            
+            // Skip www.* release-group wrapper to find the actual show folder
+            String segmentAtShowIdx = pathSegments[showIdx];
+            if (WWW_FOLDER_PATTERN.matcher(segmentAtShowIdx).matches() && pathSegments.length > showIdx + 1) {
+                showIdx++;
+            }
+            
             if (showIdx < pathSegments.length - 1) {
                 analysis.showFolderIndex = showIdx;
                 analysis.showFolder = pathSegments[showIdx];
@@ -349,7 +388,13 @@ public class SmartNamingService {
                     
                     boolean isExtrasFolder = EXTRAS_FOLDER_PATTERN.matcher(folder).find();
                     if (isExtrasFolder) {
+                        analysis.hasExtrasFolder = true;
                         // Skip extras folders but continue searching
+                        continue;
+                    }
+                    
+                    // Skip www.* release-group wrappers
+                    if (WWW_FOLDER_PATTERN.matcher(folder).matches()) {
                         continue;
                     }
                     
@@ -360,6 +405,36 @@ public class SmartNamingService {
                         foundSeasonIdx = i;
                         foundSeasonFolder = folder;
                         break;
+                    } else {
+                        // Track unrecognized intermediate folders (arc names, part names, etc.)
+                        // but exclude resolution/quality folders and year-only folders
+                        String folderLower = folder.toLowerCase();
+                        if (!folderLower.matches("^(1080p|720p|2160p|4k|bluray|web-dl|webrip|hdtv|dvdrip|x264|x265|hevc|remux|hdr|dolbyvision|web)?$") &&
+                            !folderLower.matches("^\\d{4}$")) {
+                            analysis.intermediateFolders.add(folder);
+                        }
+                    }
+                }
+                
+                // T6: Fallback to intermediate folder if no season folder found
+                if (foundSeasonFolder == null && !analysis.intermediateFolders.isEmpty()) {
+                    String lastIntermediate = analysis.intermediateFolders.get(analysis.intermediateFolders.size() - 1);
+                    // Find the index of the last intermediate folder in the path segments
+                    for (int j = pathSegments.length - 1; j > showIdx; j--) {
+                        String seg = pathSegments[j];
+                        if (seg.equals(lastIntermediate) && !seg.matches("(?i).*\\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg)$")) {
+                            // Apply exclusion rules: skip quality/resolution/year-only folders
+                            String segLower = seg.toLowerCase();
+                            if (!segLower.matches("^(1080p|720p|2160p|4k|bluray|web-dl|webrip|hdtv|dvdrip|x264|x265|hevc|remux|hdr|dolbyvision|web)?$") &&
+                                !segLower.matches("^\\d{4}$")) {
+                                Integer fallbackSeason = extractSeasonFromFolder(seg);
+                                if (fallbackSeason != null) {
+                                    foundSeasonIdx = j;
+                                    foundSeasonFolder = seg;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
                 
@@ -395,7 +470,14 @@ public class SmartNamingService {
         boolean isSeasonWord = SEASON_WORD_PATTERN.matcher(analysis.parentFolder).matches();
         analysis.hasSeasonFolder = isSeasonFolder || isSeasonEmbedded || isSeasonWord || analysis.seasonFolder != null;
         
-        System.out.println("DEBUG: season detection: isSeasonFolder=" + isSeasonFolder + ", isSeasonEmbedded=" + isSeasonEmbedded + ", isSeasonWord=" + isSeasonWord + ", seasonFolder='" + analysis.seasonFolder + "', hasSeasonFolder=" + analysis.hasSeasonFolder);
+        // Override: if the path analysis loop found extras folders but no actual season folder,
+        // the hasSeasonFolder bit was likely set by isSeasonFolderName() matching an extras folder
+        // name like "Vol. 2 Extras" via SEASON_TEXT_N_TEXT. The path analysis loop is authoritative.
+        if (analysis.hasExtrasFolder && analysis.seasonFolder == null) {
+            analysis.hasSeasonFolder = false;
+        }
+        
+        System.out.println("DEBUG: season detection: isSeasonFolder=" + isSeasonFolder + ", isSeasonEmbedded=" + isSeasonEmbedded + ", isSeasonWord=" + isSeasonWord + ", seasonFolder='" + analysis.seasonFolder + "', hasSeasonFolder=" + analysis.hasSeasonFolder + ", hasExtrasFolder=" + analysis.hasExtrasFolder);
 
         // Check for TV show indicators in path
         for (String indicator : Arrays.asList("season", "series", "episode", "tvshow", "libro", "temporada", "arco", "saga", "complete", "specials")) {
@@ -620,6 +702,18 @@ public class SmartNamingService {
             return detection;
         }
 
+        // One Pace / fan-edit naming: "[Group][N] ArcName EE.ext"
+        Matcher mOnePace = EPISODE_ONE_PACE.matcher(filename);
+        if (mOnePace.find()) {
+            detection.season = Integer.parseInt(mOnePace.group(1));
+            detection.episode = Integer.parseInt(mOnePace.group(3));
+            detection.titleHint = mOnePace.group(2).trim();
+            detection.hasEpisodePattern = true;
+            detection.detectionMethod = "OnePace";
+            detection.confidence = 0.85;
+            return detection;
+        }
+
         // Simple pattern for "1 - Title" format (unicode-safe) - check BEFORE EPISODE_SIMPLE
         // to avoid matching "3 - Guerra Civil, Parte 1" as episode 1
         Matcher mDash = EPISODE_DASH.matcher(filename);
@@ -734,9 +828,17 @@ public class SmartNamingService {
         }
 
         if (detection.season == null && pathAnalysis.showFolder != null && !pathAnalysis.hasSeasonFolder) {
-            detection.season = 1;
-            detection.detectionMethod = "PathStructureDefault";
-            detection.confidence = 0.5;
+            if (pathAnalysis.hasExtrasFolder) {
+                // Path has only extras folders — don't assign season=1, set contentType instead
+                detection.detectionMethod = "ExtrasContent";
+                detection.confidence = 0.6;
+                detection.hasEpisodePattern = true;
+                // season stays null — UI will group by contentType
+            } else {
+                detection.season = 1;
+                detection.detectionMethod = "PathStructureDefault";
+                detection.confidence = 0.5;
+            }
         }
         
         if (detection.season == null && pathAnalysis.isFlatStructure) {
@@ -1028,6 +1130,12 @@ public class SmartNamingService {
         }
         if (SEASON_SXX_ONLY_PATTERN.matcher(name).find()) {
             System.out.println("DEBUG: matched SEASON_SXX_ONLY_PATTERN");
+            return true;
+        }
+        if (SEASON_TEXT_N_TEXT.matcher(name).matches()) {
+            return true;
+        }
+        if (SEASON_BRACKET_RANGE.matcher(name).matches()) {
             return true;
         }
         
@@ -1380,6 +1488,18 @@ public class SmartNamingService {
             try { return Integer.parseInt(bareSMatcher.group(1)); } catch (NumberFormatException e) {}
         }
         
+        // NEW: Extract from "Text N Text" pattern like "JoJo 1 Phantom Blood" → season 1
+        Matcher textNTextMatcher = SEASON_TEXT_N_TEXT.matcher(folderName);
+        if (textNTextMatcher.find()) {
+            try { return Integer.parseInt(textNTextMatcher.group(1)); } catch (NumberFormatException e) {}
+        }
+        
+        // NEW: Extract from "[N-M] Text" pattern like "[1-7] Romance Dawn" → season 1
+        Matcher bracketRangeMatcher = SEASON_BRACKET_RANGE.matcher(folderName);
+        if (bracketRangeMatcher.find()) {
+            try { return Integer.parseInt(bracketRangeMatcher.group(1)); } catch (NumberFormatException e) {}
+        }
+        
         return null;
     }
     
@@ -1404,8 +1524,10 @@ public class SmartNamingService {
         public int showFolderIndex = -1;
         public int seasonFolderIndex = -1;
         public boolean isFlatStructure;
+        public boolean hasExtrasFolder;
         public Integer extrasSeason; // For volume-based extras (e.g., "Vol. 1 Extras" -> season=1)
         public String mediaTypeHint; // For folder-name-based media type hints ("movie", "episode")
+        public List<String> intermediateFolders = new ArrayList<>();
     }
     
     private static class TechnicalAnalysis {

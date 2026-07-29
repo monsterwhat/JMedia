@@ -82,18 +82,28 @@ public class UnifiedVideoEntityCreationService {
         }
 
         // FALLBACK: Extract season number from seasonName if season is null
+        // Skip for non-episodic content types (extras, featurettes, behind_the_scenes)
         if (video.seasonNumber == null && video.seasonName != null && !video.seasonName.isEmpty()) {
-            Integer seasonFromName = extractSeasonFromSeasonName(video.seasonName);
-            if (seasonFromName != null) {
-                video.seasonNumber = seasonFromName;
+            if (!"extra".equalsIgnoreCase(video.contentType) && 
+                !"featurette".equalsIgnoreCase(video.contentType) && 
+                !"behind_the_scenes".equalsIgnoreCase(video.contentType)) {
+                Integer seasonFromName = extractSeasonFromSeasonName(video.seasonName);
+                if (seasonFromName != null) {
+                    video.seasonNumber = seasonFromName;
+                }
             }
         }
 
         video.releaseYear = result.year;
         
         // Fallback for episode title (only if not manually edited)
+        // Use contentType label when season is null (e.g., "EXTRA" for extras)
         if ("episode".equalsIgnoreCase(video.type) && video.title == null && !video.titleManuallyEdited) {
-            video.title = (video.seriesTitle != null ? video.seriesTitle : "Unknown") + " - S" + (video.seasonNumber != null ? video.seasonNumber : 1) + "E" + (video.episodeNumber != null ? video.episodeNumber : 0);
+            String seasonLabel = video.seasonNumber != null 
+                ? "S" + video.seasonNumber 
+                : (video.contentType != null ? video.contentType.toUpperCase() : "EXT");
+            video.title = (video.seriesTitle != null ? video.seriesTitle : "Unknown") 
+                + " - " + seasonLabel + "E" + (video.episodeNumber != null ? video.episodeNumber : 0);
         }
         
         // Technical metadata from MediaFile

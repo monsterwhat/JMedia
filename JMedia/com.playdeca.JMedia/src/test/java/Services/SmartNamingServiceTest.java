@@ -73,8 +73,8 @@ public class SmartNamingServiceTest {
         assertNotNull(result.showName, "showName should not be null");
         assertEquals("Family Guy The", result.showName,
                 "showName resolves to 'Family Guy The' via cleanShowName fallback on show folder");
-        assertEquals(1, result.season,
-                "season=1 via PathStructureDefault (showFolder present, no seasonFolder found)");
+        assertNull(result.season,
+                "season=null via ExtrasContent (hasExtrasFolder=true, no seasonFolder found)");
     }
 
     /**
@@ -181,8 +181,8 @@ public class SmartNamingServiceTest {
                 "showName resolves to 'Trailer Park Boys' via grandParentFolder cleanShowName");
         assertEquals("episode", result.mediaType,
                 "mediaType is 'episode' (movieFilmWordPattern no longer matches 'Movies' mid-name in collection)");
-        assertEquals(1, result.season,
-                "season=1 via PathStructureDefault (showFolder present, no seasonFolder found)");
+        assertNull(result.season,
+                "season=null via ExtrasContent (hasExtrasFolder=true, no seasonFolder found)");
     }
 
     /**
@@ -277,5 +277,109 @@ public class SmartNamingServiceTest {
         assertTrue(matcher.find(), "CONTENT_TYPE_SXXMXX should match 'S06M01'");
         assertEquals("06", matcher.group(1), "group(1) should be '06' (season)");
         assertEquals("01", matcher.group(2), "group(2) should be '01' (movie number)");
+    }
+
+    // ── Regression locks (season fallback behavior) ─────────────────────
+
+    /**
+     * Locks the T8 tightening: season=0 fallback now ONLY fires when the path
+     * contains an explicit specials indicator (parent/grandparent folder matching
+     * SPECIALS_PATTERN, or /specials/ in the relative path).
+     *
+     * Path: "Show/episode.mp4" — parentFolder="Show" does NOT match SPECIALS_PATTERN,
+     * grandParentFolder is empty, relativePath contains no "specials" segment.
+     * Therefore season stays null.
+     */
+    @Test
+    void testSeasonZeroFallback() {
+        String filename = "episode.mp4";
+        String relativePath = "Show/episode.mp4";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType,
+                "mediaType should be 'episode' (no movie indicators)");
+        assertNull(result.season,
+                "season=null via T8 tightening (no specials indicator in path)");
+    }
+
+    /**
+     * Locks the season=1 PathStructureDefault at detectEpisodeInfo line 736-740
+     * (SmartNamingService.java).
+     *
+     * Path: TV Shows/Show/DVD Extras/Something.mp4 — library root "TV Shows" sets
+     * showFolder="Show". The "DVD Extras" folder is skipped during season search
+     * because EXTRAS_FOLDER_PATTERN matches "extras" → no seasonFolder found,
+     * hasSeasonFolder=false.
+     *
+     * In detectEpisodeInfo: season==null AND showFolder!=null AND !hasSeasonFolder
+     * → sets season=1 (detectionMethod="PathStructureDefault"). No SxxExx in
+     * filename "Something.mp4".
+     */
+    @Test
+    void testSeasonOnePathStructureDefault() {
+        String filename = "Something.mp4";
+        String relativePath = "TV Shows/Show/DVD Extras/Something.mp4";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType,
+                "mediaType should be 'episode' (directoryTypeHint='episode' from TV Shows)");
+        assertNull(result.season,
+                "season=null via ExtrasContent (hasExtrasFolder=true, no seasonFolder found)");
+    }
+
+    // ── P9b: Vol. X Extras regression tests ───────────────────────────────
+
+    /**
+     * Regression: "Vol. 2 Extras" was being matched by SEASON_TEXT_N_TEXT and
+     * incorrectly setting season=2. The path analysis loop correctly identifies
+     * it as extras via EXTRAS_FOLDER_PATTERN, but the fallback
+     * isSeasonFolderName(parentFolder) check was overriding hasSeasonFolder=true.
+     *
+     * Path: TV Shows/Show/Vol. 2 Extras/file.mkv — parentFolder="Vol. 2 Extras"
+     * must NOT be treated as a season folder.
+     */
+    @Test
+    void testVolExtrasNotMistakenForSeason() {
+        String filename = "some_episode.mkv";
+        String relativePath = "TV Shows/Show/Vol. 2 Extras/some_episode.mkv";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType,
+                "mediaType should be 'episode' (directoryTypeHint='episode' from TV Shows)");
+        assertNull(result.season,
+                "season=null via ExtrasContent (Vol. 2 Extras matched as extras, not as season=2)");
+    }
+
+    /**
+     * Regression: Family Guy collection with "DVD Extras Vol. 1 - Vol. 7/Vol. 2 Extras/"
+     * subfolders was assigning season=2 to files inside Vol. 2 Extras, causing
+     * 27 extras episodes to merge into Season 2 (48 total instead of 21).
+     *
+     * The show folder name contains "Season 1 to 19" which triggers
+     * showFolderHasSeason, but the path analysis loop must correctly classify
+     * "Vol. 2 Extras" as extras despite SEASON_TEXT_N_TEXT matching.
+     */
+    @Test
+    void testFamilyGuyCollectionVolExtras() {
+        String filename = "Random Episode.mkv";
+        String relativePath = "TV Shows/Family Guy Season 1 to 19 Including the Movie and DVD Extras Complete Collection [NVEnc H265 1080p][AAC 6Ch]/DVD Extras Vol. 1 - Vol. 7/Vol. 2 Extras/Random Episode.mkv";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType,
+                "mediaType should be 'episode' (library root is TV Shows)");
+        assertNull(result.season,
+                "season=null via ExtrasContent (Vol. 2 Extras correctly identified; not season 2)");
     }
 }
