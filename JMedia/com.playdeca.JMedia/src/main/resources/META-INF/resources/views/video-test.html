@@ -984,6 +984,7 @@ async function loadCinemaData() {
     // Tier 1: Most recently watched from continue-watching endpoint
     if (Array.isArray(cwData) && cwData.length > 0) {
       heroItems = cwData.slice(0, 5);
+
     }
 
     // Tier 2: Highest-rated movie (with a rating > 0)
