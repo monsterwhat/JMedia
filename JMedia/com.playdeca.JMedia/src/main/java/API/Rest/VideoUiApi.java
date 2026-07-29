@@ -95,6 +95,8 @@ public class VideoUiApi {
     Template detailsFragment;
     @Inject @io.quarkus.qute.Location("playbackFragment.html")
     Template playbackFragment;
+    @Inject @io.quarkus.qute.Location("playbackFragmentCinema.html")
+    Template playbackFragmentCinema;
     @Inject @io.quarkus.qute.Location("videoHistoryFragment.html")
     Template videoHistoryFragment;
     @Inject @io.quarkus.qute.Location("videoWatchlistFragment.html")
@@ -560,22 +562,29 @@ public class VideoUiApi {
                     .collect(Collectors.toList());
             }
 
-            final List<Models.Video> finalEpisodes = seriesEpisodes;
-            List<Integer> seasonNumbers = finalEpisodes.stream()
-                    .map(v -> v.seasonNumber != null ? v.seasonNumber : 1) // Treat null as Season 1
+            // Split episodes into normal (with seasonNumber) and extras (null seasonNumber)
+            List<Models.Video> normalEpisodes = seriesEpisodes.stream()
+                    .filter(v -> v.seasonNumber != null)
+                    .collect(Collectors.toList());
+            List<Models.Video> noSeasonEpisodes = seriesEpisodes.stream()
+                    .filter(v -> v.seasonNumber == null)
+                    .collect(Collectors.toList());
+
+            List<Integer> seasonNumbers = normalEpisodes.stream()
+                    .map(v -> v.seasonNumber)
                     .distinct()
                     .sorted()
                     .collect(Collectors.toList());
 
-            // If it's still empty but we have episodes, ensure we have at least season 1
-            if (seasonNumbers.isEmpty() && !finalEpisodes.isEmpty()) {
+            // If it's still empty but we have normal episodes, ensure we have at least season 1
+            if (seasonNumbers.isEmpty() && !normalEpisodes.isEmpty()) {
                 seasonNumbers = Collections.singletonList(1);
             }
 
             List<SeasonEntry> seasons = new ArrayList<>();
             for (Integer sn : seasonNumbers) {
-                Models.Video sample = finalEpisodes.stream()
-                        .filter(v -> (v.seasonNumber != null ? v.seasonNumber : 1) == sn)
+                Models.Video sample = normalEpisodes.stream()
+                        .filter(v -> v.seasonNumber.equals(sn))
                         .findFirst()
                         .orElse(null);
                 String seasonName = sample != null ? sample.seasonName : null;
@@ -592,24 +601,27 @@ public class VideoUiApi {
             }
             seasons.sort(Comparator.comparingInt(SeasonEntry::seasonNumber));
 
-            Models.Video sampleVideo = finalEpisodes.isEmpty() ? null : finalEpisodes.get(0);
+            // Group null-season episodes by contentType
+            Map<String, List<Models.Video>> extrasContentTypes = noSeasonEpisodes.stream()
+                    .collect(Collectors.groupingBy(v -> v.contentType != null ? v.contentType : "other"));
+
+            Models.Video sampleVideo = seriesEpisodes.isEmpty() ? null : seriesEpisodes.get(0);
             
             // Find the last played video (or first one)
-            Models.Video lastPlayedVideo = finalEpisodes.stream()
+            Models.Video lastPlayedVideo = seriesEpisodes.stream()
                     .filter(v -> v.lastWatched != null)
                     .sorted(Comparator.comparing(v -> ((Models.Video)v).lastWatched).reversed())
                     .findFirst()
                     .orElse(sampleVideo);
 
-            // Compute per-season watch progress (batch)
-            Map<Long, Models.VideoState> seasonStates = videoStateService.getOrCreateBatch(finalEpisodes);
+            // Compute per-season watch progress (batch) — only for normal episodes
+            Map<Long, Models.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
             Map<Integer, SeasonProgress> seasonProgress = new HashMap<>();
             for (SeasonEntry entry : seasons) {
                 int total = 0;
                 int watched = 0;
-                for (Models.Video ep : finalEpisodes) {
-                    int sn = ep.seasonNumber != null ? ep.seasonNumber : 1;
-                    if (sn == entry.seasonNumber()) {
+                for (Models.Video ep : normalEpisodes) {
+                    if (ep.seasonNumber.equals(entry.seasonNumber())) {
                         total++;
                         Models.VideoState vs = seasonStates.get(ep.id);
                         if (vs != null && Boolean.TRUE.equals(vs.watched)) {
@@ -633,13 +645,14 @@ public class VideoUiApi {
                 seriesInfo.put("awards", sampleVideo.awards != null ? sampleVideo.awards : "");
             }
             seriesInfo.put("seriesTitle", decodedTitle);
-            seriesInfo.put("totalSeasons", seasons.size());
+            seriesInfo.put("totalSeasons", seasons.size() + extrasContentTypes.size());
 
             return seasonListContent
                     .data("seriesTitle", decodedTitle)
                     .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
                     .data("seasons", seasons)
                     .data("seasonProgress", seasonProgress)
+                    .data("extrasContentTypes", extrasContentTypes)
                     .data("sampleVideo", sampleVideo)
                     .data("lastPlayedVideo", lastPlayedVideo)
                     .data("seriesInfo", seriesInfo)
@@ -1024,6 +1037,7 @@ public class VideoUiApi {
             @QueryParam("videoId") Long videoId,
             @QueryParam("collectionId") Long collectionId,
             @QueryParam("entryId") Long entryId,
+            @QueryParam("cinema") Boolean cinema,
             @HeaderParam("User-Agent") String userAgent) {
         Models.Video item = videoService.find(videoId);
         if (item == null) return "<div class='notification is-warning'>No video available for playback</div>";
@@ -1154,7 +1168,8 @@ public class VideoUiApi {
 
         boolean hasCarousel = !carouselItems.isEmpty();
 
-        return playbackFragment
+        Template tmpl = Boolean.TRUE.equals(cinema) ? playbackFragmentCinema : playbackFragment;
+        return tmpl
                 .data("item", item)
                 .data("resumeTime", resumeTime)
                 .data("needsTranscoding", needsTranscoding)

@@ -389,12 +389,39 @@ public class VideoAPI {
 
     @GET
     @Path("/logo/{videoId}")
-    @Produces("image/webp")
     public Response getLogoImage(@PathParam("videoId") Long videoId) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        return serveImageFromThumbnails(videoId, "logo", null);
+
+        try {
+            Video video = videoService.find(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+
+            if (video.logoPath == null || video.logoPath.isBlank()) {
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+
+            File logoFile = new File(video.logoPath);
+            if (!logoFile.exists() || !logoFile.isFile()) {
+                LOG.warn("Logo file not found on disk for video {}: {}", videoId, video.logoPath);
+                return Response.status(Response.Status.NOT_FOUND).build();
+            }
+
+            String contentType = getImageContentType(video.logoPath);
+
+            return Response.ok(logoFile)
+                    .header("Content-Type", contentType)
+                    .header("Cache-Control", "public, max-age=86400")
+                    .header("ETag", "\"" + logoFile.lastModified() + "\"")
+                    .build();
+
+        } catch (Exception e) {
+            LOG.error("Error serving logo for video ID: " + videoId, e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     @GET
@@ -499,6 +526,19 @@ public class VideoAPI {
         if (lower.endsWith(".m4v")) return "video/x-m4v";
         if (lower.endsWith(".ts")) return "video/mp2t";
         return "video/mp4";
+    }
+
+    private String getImageContentType(String filename) {
+        if (filename == null) return "application/octet-stream";
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".svg")) return "image/svg+xml";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".ico")) return "image/x-icon";
+        return "application/octet-stream";
     }
 
     @GET
@@ -1487,8 +1527,17 @@ public class VideoAPI {
         List<Models.VideoState> inProgress = videoStateService.getInProgressVideos();
         List<ContinueWatchingDTO> dtos = new ArrayList<>();
         Set<Long> enrichedSeries = new HashSet<>();
+        // Dedup by seriesTitle: only keep the latest episode per series.
+        // inProgress is sorted by lastUpdated DESC, so the first encounter per series is the latest.
+        Set<String> seenSeriesForContinue = new HashSet<>();
         for (Models.VideoState vs : inProgress) {
             if (vs.video == null) continue;
+            if ("episode".equals(vs.video.type) && vs.video.seriesTitle != null && !vs.video.seriesTitle.isBlank()) {
+                String seriesKey = vs.video.seriesTitle.toLowerCase(Locale.ROOT).trim();
+                if (!seenSeriesForContinue.add(seriesKey)) {
+                    continue;
+                }
+            }
             // Enrich metadata (mirrors getVideo pattern)
             try {
                 thumbnailService.ensureMediaImages(vs.video.id);

@@ -956,7 +956,7 @@ public class VideoMetadataService {
                             }
                         }
                         if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
-                        if (logoFilePath != null) {
+                        if (logoFilePath != null && video.logoPath == null) {
                             video.logoPath = TMDB_IMAGE_W500 + logoFilePath;
                             LOG.info("[EnrichMovie] Set logo path: {}", video.logoPath);
                         } else {

@@ -839,7 +839,7 @@ public class ThumbnailService {
             // a different code path without persisting the path to the DB)
             boolean dbUpdated = false;
             if (hasPoster && video.posterPath == null)     { video.posterPath   = findExistingPath(thumbnailsDir, videoId, "poster");   if (video.posterPath != null) dbUpdated = true; }
-            if (hasLogo && video.logoPath == null)         { video.logoPath     = findExistingPath(thumbnailsDir, videoId, "logo");     if (video.logoPath != null) dbUpdated = true; }
+            if (hasLogo && (video.logoPath == null || video.logoPath.startsWith("http"))) { video.logoPath = findExistingPath(thumbnailsDir, videoId, "logo"); if (video.logoPath != null) dbUpdated = true; }
             if (hasBackdrop && video.backdropPath == null) { video.backdropPath = findExistingPath(thumbnailsDir, videoId, "backdrop"); if (video.backdropPath != null) dbUpdated = true; }
             if (hasHero && video.heroPath == null)         { video.heroPath     = findExistingPath(thumbnailsDir, videoId, "hero");     if (video.heroPath != null) dbUpdated = true; }
             if (dbUpdated) {
