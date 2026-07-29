@@ -34,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
@@ -1485,26 +1486,48 @@ public class VideoAPI {
     public Response getContinueWatching() {
         List<Models.VideoState> inProgress = videoStateService.getInProgressVideos();
         List<ContinueWatchingDTO> dtos = new ArrayList<>();
+        Set<Long> enrichedSeries = new HashSet<>();
         for (Models.VideoState vs : inProgress) {
             if (vs.video == null) continue;
+            // Enrich metadata (mirrors getVideo pattern)
+            try {
+                thumbnailService.ensureMediaImages(vs.video.id);
+            } catch (Exception e) {
+                LOG.warn("Could not enrich images for video {}: {}", vs.video.id, e.getMessage());
+            }
+            try {
+                videoMetadataService.ensureMediaTextMetadata(vs.video.id);
+            } catch (Exception e) {
+                LOG.warn("Could not enrich text metadata for video {}: {}", vs.video.id, e.getMessage());
+            }
+            // Series enrichment with deduplication
+            if (vs.video.series != null && enrichedSeries.add(vs.video.series.id)) {
+                try {
+                    videoMetadataService.ensureSeriesTextMetadata(vs.video.series.id);
+                } catch (Exception e) {
+                    LOG.warn("Could not enrich series text metadata for series {}: {}", vs.video.series.id, e.getMessage());
+                }
+            }
+            // Re-fetch video to get enriched values
+            Models.Video enriched = Models.Video.findById(vs.video.id);
             ContinueWatchingDTO dto = new ContinueWatchingDTO();
-            dto.id = vs.video.id;
-            dto.title = vs.video.title;
-            dto.type = vs.video.type;
-            dto.seriesTitle = vs.video.seriesTitle;
-            dto.episodeTitle = vs.video.episodeTitle;
-            dto.seasonNumber = vs.video.seasonNumber;
-            dto.episodeNumber = vs.video.episodeNumber;
-            dto.description = vs.video.description;
-            dto.overview = vs.video.overview;
-            dto.releaseYear = vs.video.releaseYear;
-            dto.imdbRating = vs.video.imdbRating;
-            dto.duration = vs.video.duration;
-            dto.thumbnailPath = vs.video.thumbnailPath;
-            dto.backdropPath = vs.video.backdropPath;
-            dto.posterPath = vs.video.posterPath;
-            dto.logoPath = vs.video.logoPath;
-            dto.genres = vs.video.genres;
+            dto.id = enriched.id;
+            dto.title = enriched.title;
+            dto.type = enriched.type;
+            dto.seriesTitle = enriched.seriesTitle;
+            dto.episodeTitle = enriched.episodeTitle;
+            dto.seasonNumber = enriched.seasonNumber;
+            dto.episodeNumber = enriched.episodeNumber;
+            dto.description = enriched.description;
+            dto.overview = enriched.overview;
+            dto.releaseYear = enriched.releaseYear;
+            dto.imdbRating = enriched.imdbRating;
+            dto.duration = enriched.duration;
+            dto.thumbnailPath = enriched.thumbnailPath;
+            dto.backdropPath = enriched.backdropPath;
+            dto.posterPath = enriched.posterPath;
+            dto.logoPath = enriched.logoPath;
+            dto.genres = enriched.genres;
             // Explicitly populate transient fields from VideoState
             dto.watchProgress = vs.watchProgress;
             dto.watchProgressPercent = vs.watchProgress != null ? (int)(vs.watchProgress * 100) : 0;
