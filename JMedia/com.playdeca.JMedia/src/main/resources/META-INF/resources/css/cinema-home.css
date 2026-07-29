@@ -54,9 +54,9 @@ html, body {
   inset: -20%;
   width: 140%;
   height: 140%;
-  opacity: 0.72;
-  filter: blur(52px) saturate(1.3) brightness(0.32);
-  -webkit-filter: blur(52px) saturate(1.3) brightness(0.32);
+  opacity: 0.85;
+  filter: blur(52px) saturate(1.3) brightness(0.5);
+  -webkit-filter: blur(52px) saturate(1.3) brightness(0.5);
   transform: scale(1.18);
   object-fit: cover;
   object-position: top;
@@ -73,7 +73,7 @@ html, body {
 .cinema-ambient-gradient {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 0%, transparent 30%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,1) 100%);
+  background: linear-gradient(180deg, transparent 0%, transparent 30%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.85) 100%);
 }
 
 /* ============================================================
@@ -223,11 +223,17 @@ html, body {
   pointer-events: none;
   z-index: 30;
   max-width: 672px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 @media (min-width: 768px) {
   .cinema-hero-content {
     padding: 0 1.5rem 12rem;
+    align-items: flex-start;
+    text-align: left;
   }
 }
 
@@ -338,7 +344,14 @@ html, body {
 .cinema-hero-actions {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .cinema-hero-actions {
+    justify-content: flex-start;
+  }
 }
 
 .cinema-hero-play {
@@ -454,8 +467,8 @@ html, body {
   -webkit-backdrop-filter: blur(88px) saturate(1.4);
   contain: paint;
   translateZ(0px);
-  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 75%, rgba(0,0,0,0.5) 90%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 65%, rgba(0,0,0,0.5) 82%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.2) 8%, rgba(0,0,0,0.5) 15%, rgba(0,0,0,0.8) 25%, black 35%, black 65%, rgba(0,0,0,0.5) 82%, transparent 100%);
   z-index: -1;
   pointer-events: none;
 }
@@ -466,7 +479,7 @@ html, body {
   left: 0;
   right: 0;
   height: 680px;
-  background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.08) 10%, rgba(0,0,0,0.22) 25%, rgba(0,0,0,0.42) 45%, rgba(0,0,0,0.62) 65%, rgba(0,0,0,0.84) 85%, rgba(0,0,0,1) 100%);
+  background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.08) 10%, rgba(0,0,0,0.22) 25%, rgba(0,0,0,0.42) 45%, rgba(0,0,0,0.62) 65%, rgba(0,0,0,0.82) 80%, rgba(0,0,0,0.65) 92%, transparent 100%);
   z-index: -1;
   pointer-events: none;
 }
@@ -1228,14 +1241,27 @@ html, body {
   max-height: 64px;
   max-width: 280px;
   object-fit: contain;
-  object-position: left;
+  object-position: center;
   filter: none;
   margin-bottom: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .cinema-hero-logo {
+    object-position: left;
+  }
 }
 
 .cinema-hero-title-wrap {
   display: flex;
   align-items: flex-end;
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .cinema-hero-title-wrap {
+    justify-content: flex-start;
+  }
 }
 
 .cinema-modal-logo-hero {
