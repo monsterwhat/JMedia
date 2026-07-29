@@ -422,6 +422,9 @@
   flex: 1;
   overflow: hidden;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Hide under-player sections inside the modal */
@@ -444,6 +447,509 @@
     display: none;
   }
 }
+
+/* Episode Sidebar Styles - Liquid Glass Redesign */
+.episode-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.episode-sidebar-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.episode-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 384px;
+  background: rgba(15, 15, 15, 0.95);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-radius: 40px 0 0 40px;
+  box-shadow: -4px 0 30px rgba(0, 0, 0, 0.5);
+  z-index: 20000;
+  transform: translateX(100%);
+  transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Liquid glass glow - full sidebar overlay */
+.episode-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.035) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 40px 0 0 40px;
+}
+
+/* Liquid glass shimmer elements */
+.episode-sidebar-glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  border-radius: 40px 0 0 40px;
+}
+.episode-sidebar-glass-shimmer {
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 120%;
+  height: 120%;
+  border-radius: 50%;
+  mix-blend-mode: plus-lighter;
+  opacity: 0.2;
+  background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+  animation: liquidShimmer 8s ease-in-out infinite alternate;
+}
+.episode-sidebar-glass-blob {
+  position: absolute;
+  top: 20%;
+  right: -10%;
+  width: 40%;
+  height: 40%;
+  background: rgba(96, 165, 250, 0.15);
+  filter: blur(100px);
+  border-radius: 50%;
+  mix-blend-mode: screen;
+}
+
+@keyframes liquidShimmer {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(5%, 3%) scale(1.05); }
+  100% { transform: translate(-3%, -2%) scale(0.95); }
+}
+
+.episode-sidebar.open {
+  transform: translateX(0);
+}
+
+.episode-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  position: relative;
+  z-index: 1;
+  min-height: 48px;
+  flex-shrink: 0;
+}
+
+.episode-sidebar-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.episode-sidebar-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.2rem;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+.episode-sidebar-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.episode-sidebar-seasons {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+  position: relative;
+  z-index: 1;
+}
+.episode-sidebar-seasons::-webkit-scrollbar {
+  display: none;
+}
+
+/* --- Season pill scroll affordance --- */
+.episode-sidebar-seasons-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.episode-sidebar-scroll-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  width: 24px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: none;
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  padding: 0;
+}
+
+.episode-sidebar-scroll-left {
+  left: 4px;
+}
+
+.episode-sidebar-scroll-right {
+  right: 4px;
+}
+
+.episode-sidebar-seasons-wrap:hover .episode-sidebar-scroll-btn {
+  opacity: 1;
+}
+
+.episode-sidebar-scroll-btn.hidden {
+  display: none;
+}
+
+/* Fade-edge gradients */
+.episode-sidebar-seasons-wrap::before,
+.episode-sidebar-seasons-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 4;
+  transition: opacity 0.25s ease;
+}
+
+.episode-sidebar-seasons-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(15, 15, 15, 0.9), transparent);
+  opacity: 0;
+}
+
+.episode-sidebar-seasons-wrap::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(15, 15, 15, 0.9), transparent);
+  opacity: 0;
+}
+
+.episode-sidebar-seasons-wrap.fade-left::before {
+  opacity: 1;
+}
+
+.episode-sidebar-seasons-wrap.fade-right::after {
+  opacity: 1;
+}
+
+/* Mobile: always show scroll buttons (no hover on touch) */
+@media (hover: none) and (pointer: coarse) {
+  .episode-sidebar-scroll-btn {
+    opacity: 1;
+  }
+}
+
+/* Audio language pill in sidebar header */
+.episode-sidebar-audio {
+  position: relative;
+  display: inline-flex;
+  margin: 0 8px;
+}
+.episode-sidebar-audio-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  letter-spacing: -0.01em;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.episode-sidebar-audio-btn:hover {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.episode-sidebar-audio-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: rgba(20, 20, 22, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  min-width: 200px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+  z-index: 10001;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.episode-sidebar-audio-header {
+  padding: 10px 14px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.episode-sidebar-audio-list {
+  max-height: 250px;
+  overflow-y: auto;
+}
+.episode-sidebar-audio-list .audio-track-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+.episode-sidebar-audio-list .audio-track-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.episode-sidebar-audio-list .audio-track-item.selected {
+  color: #48c774;
+}
+
+.episode-sidebar-season-btn {
+  padding: 6px 16px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.episode-sidebar-season-btn:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+.episode-sidebar-season-btn.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.episode-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  z-index: 1;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+.episode-sidebar-list::-webkit-scrollbar {
+  width: 4px;
+}
+.episode-sidebar-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.episode-sidebar-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+/* Episode Cards */
+.episode-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  transition: background 0.2s;
+  font-family: inherit;
+  color: inherit;
+}
+.episode-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.episode-sidebar-item.active {
+  background: rgba(255, 255, 255, 0.1);
+  cursor: default;
+}
+
+.episode-sidebar-thumb {
+  position: relative;
+  width: 112px;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.episode-sidebar-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.episode-sidebar-thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  transition: opacity 0.2s;
+}
+.episode-sidebar-item:not(.active) .episode-sidebar-thumb-overlay {
+  opacity: 0;
+}
+.episode-sidebar-item.active .episode-sidebar-thumb-overlay {
+  opacity: 1;
+}
+.episode-sidebar-item:not(.active):hover .episode-sidebar-thumb-overlay {
+  opacity: 1;
+}
+
+.episode-sidebar-thumb-tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(96, 165, 250, 0.1);
+  pointer-events: none;
+}
+
+.episode-sidebar-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.episode-sidebar-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.episode-sidebar-ep-number {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.episode-sidebar-item.active .episode-sidebar-ep-number {
+  color: #fff;
+}
+.episode-sidebar-item:not(.active) .episode-sidebar-ep-number {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.episode-sidebar-duration-badge {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.episode-sidebar-ep-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+.episode-sidebar-item.active .episode-sidebar-ep-title {
+  color: #fff;
+}
+.episode-sidebar-item:not(.active) .episode-sidebar-ep-title {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.episode-sidebar-ep-description {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  line-height: 1.625;
+}
+
+.episode-sidebar-toggle-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 18px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+.episode-sidebar-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.episode-sidebar-toggle-btn.active {
+  color: #48c774;
+}
+
+@media (max-width: 767px) {
+  .episode-sidebar {
+    width: 100vw;
+    border-radius: 0;
+  }
+  .episode-sidebar::before {
+    border-radius: 0;
+  }
+  .episode-sidebar-glass {
+    border-radius: 0;
+  }
+}
 </style>
 
 <div class="player-modal-backdrop" id="player-modal-backdrop" onclick="closePlayerModal()"></div>
@@ -456,8 +962,47 @@
     <button class="player-modal-topbar-btn player-expand-btn" onclick="togglePlayerExpand()" title="Toggle fullscreen">
       <i class="fa-solid fa-expand" id="player-expand-icon"></i>
     </button>
+    <button class="episode-sidebar-toggle-btn" id="episode-sidebar-toggle" onclick="toggleEpisodeSidebar()" title="Episodes" style="display:none;">
+      <i class="fa-solid fa-list"></i>
+    </button>
   </div>
   <div class="player-modal-content" id="player-modal-content"></div>
+  <!-- Episode Sidebar -->
+  <div class="episode-sidebar-backdrop" id="episode-sidebar-backdrop" onclick="closeEpisodeSidebar()"></div>
+  <div class="episode-sidebar" id="episode-sidebar" onclick="event.stopPropagation()">
+    <!-- Liquid glass effects -->
+    <div class="episode-sidebar-glass">
+      <div class="episode-sidebar-glass-shimmer"></div>
+      <div class="episode-sidebar-glass-blob"></div>
+    </div>
+    <div class="episode-sidebar-header">
+      <span class="episode-sidebar-title">Episodes</span>
+      <div class="episode-sidebar-audio" id="episodeSidebarAudio" style="display:none;">
+        <button class="episode-sidebar-audio-btn" id="sidebarAudioBtn" onclick="toggleSidebarAudioMenu(event)">
+          <i class="fa-solid fa-language"></i>
+          <span id="sidebarAudioLabel">Audio</span>
+          <i class="fa-solid fa-chevron-down" style="font-size:0.6rem;"></i>
+        </button>
+        <div class="episode-sidebar-audio-menu" id="sidebarAudioMenu" style="display:none;">
+          <div class="episode-sidebar-audio-header">Audio Tracks</div>
+          <div class="episode-sidebar-audio-list" id="sidebarAudioList"></div>
+        </div>
+      </div>
+      <button class="episode-sidebar-close" onclick="closeEpisodeSidebar()">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div class="episode-sidebar-seasons-wrap">
+      <button class="episode-sidebar-scroll-btn episode-sidebar-scroll-left" id="season-scroll-left" aria-label="Scroll seasons left" onclick="scrollSeasonsLeft();event.stopPropagation();">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <div class="episode-sidebar-seasons" id="episode-sidebar-seasons"></div>
+      <button class="episode-sidebar-scroll-btn episode-sidebar-scroll-right" id="season-scroll-right" aria-label="Scroll seasons right" onclick="scrollSeasonsRight();event.stopPropagation();">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+    </div>
+    <div class="episode-sidebar-list" id="episode-sidebar-list"></div>
+  </div>
 </div>
 
 
@@ -2267,7 +2812,7 @@ async function openPlayerModal(videoId) {
   document.body.style.overflow = 'hidden';
 
   try {
-    const resp = await fetch(`/api/video/ui/playback-fragment?videoId=${videoId}`);
+    const resp = await fetch(`/api/video/ui/playback-fragment?videoId=${videoId}&cinema=true`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const html = await resp.text();
 
@@ -2292,6 +2837,9 @@ async function openPlayerModal(videoId) {
       }
       content.appendChild(el);
     }
+
+    // Init episode sidebar after player fragment is loaded
+    initEpisodeSidebar();
   } catch (err) {
     console.error('[player-modal] failed to load playback fragment', err);
     content.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);">Failed to load player</div>`;
@@ -2308,7 +2856,11 @@ function closePlayerModal() {
       if (window.currentPlayerInstance.progressReporter) {
         window.currentPlayerInstance.progressReporter.saveNow();
       }
-      if (window.currentPlayerInstance.pause) window.currentPlayerInstance.pause();
+      if (typeof window.currentPlayerInstance.destroy === 'function') {
+        window.currentPlayerInstance.destroy();
+      } else if (window.currentPlayerInstance.pause) {
+        window.currentPlayerInstance.pause();
+      }
     } catch (_) { /* best-effort cleanup */ }
   }
   window.currentPlayerInstance = null;
@@ -2326,6 +2878,296 @@ function closePlayerModal() {
   if (expandIcon) {
     expandIcon.className = 'fa-solid fa-expand';
   }
+
+  closeEpisodeSidebar();
+}
+
+// ============================================================
+// Episode Sidebar
+// ============================================================
+
+function getPlayerContainer() {
+  return document.querySelector('#player-modal-content [data-series-title]');
+}
+
+function initEpisodeSidebar() {
+  const toggleBtn = document.getElementById('episode-sidebar-toggle');
+  if (!toggleBtn) return;
+  const container = getPlayerContainer();
+  if (container && container.dataset.seriesTitle && (container.dataset.type === 'episode' || container.dataset.type === 'Episode')) {
+    toggleBtn.style.display = '';
+  } else {
+    toggleBtn.style.display = 'none';
+    closeEpisodeSidebar();
+  }
+}
+
+/**
+ * Fetch missing episode metadata (description, title, duration) from the backend
+ * for any episodes that lack these fields. Runs asynchronously and re-renders
+ * the sidebar list when data arrives.
+ */
+async function fetchMissingEpisodeData(episodes, currentVideoId, activeSeason) {
+  const missing = episodes.filter(ep => {
+    const hasTitle = !!(ep.episodeTitle || ep.title);
+    const hasDesc = !!(ep.description || ep.overview);
+    const hasDur = !!ep.duration;
+    return !hasTitle || !hasDesc || !hasDur;
+  });
+
+  if (missing.length === 0) return;
+
+  const sidebar = document.getElementById('episode-sidebar');
+  if (!sidebar || !sidebar.classList.contains('open')) return;
+
+  await Promise.all(missing.map(async (ep) => {
+    try {
+      const data = await fetchJSON(`/api/video/${ep.id}`);
+      if (!data) return;
+      // Merge fetched data back into the episode object (mutates allVideos entry)
+      if (!ep.episodeTitle) ep.episodeTitle = data.episodeTitle || data.title || '';
+      if (!ep.title) ep.title = data.title || data.episodeTitle || '';
+      if (!ep.description) ep.description = data.description || data.overview || '';
+      if (!ep.overview) ep.overview = data.overview || data.description || '';
+      if (!ep.duration) ep.duration = data.duration || 0;
+      if (!ep.seasonNumber) ep.seasonNumber = data.seasonNumber || 1;
+      if (!ep.episodeNumber) ep.episodeNumber = data.episodeNumber || 0;
+    } catch (e) {
+      // Silently skip — UI shows fallback text
+    }
+  }));
+
+  // Re-render if sidebar is still open (data may have been populated)
+  if (sidebar.classList.contains('open')) {
+    renderEpisodeSidebarList(episodes, currentVideoId, activeSeason);
+  }
+}
+
+function toggleEpisodeSidebar() {
+  const sidebar = document.getElementById('episode-sidebar');
+  const backdrop = document.getElementById('episode-sidebar-backdrop');
+  const toggleBtn = document.getElementById('episode-sidebar-toggle');
+  if (!sidebar || !backdrop) return;
+
+  if (sidebar.classList.contains('open')) {
+    closeEpisodeSidebar();
+    return;
+  }
+
+  // Gather current video context from the player container
+  const container = getPlayerContainer();
+  if (!container) return;
+
+  const seriesTitle = container.dataset.seriesTitle;
+  const currentVideoId = container.dataset.videoId;
+  const currentSeason = parseInt(container.dataset.seasonNumber) || 1;
+  if (!seriesTitle) return;
+
+  // Filter allVideos for episodes of this series
+  const episodes = allVideos
+    .filter(v => v.seriesTitle === seriesTitle)
+    .sort((a, b) => {
+      const sa = a.seasonNumber || 1, sb = b.seasonNumber || 1;
+      const ea = a.episodeNumber || 0, eb = b.episodeNumber || 0;
+      return sa - sb || ea - eb;
+    });
+
+  if (!episodes.length) return;
+
+  // Group by season
+  const seasons = {};
+  episodes.forEach(ep => {
+    const sn = ep.seasonNumber || 1;
+    if (!seasons[sn]) seasons[sn] = [];
+    seasons[sn].push(ep);
+  });
+  const seasonNumbers = Object.keys(seasons).sort((a, b) => a - b);
+
+  // Determine initial season: prefer the current one, else the first
+  const initialSeason = seasonNumbers.includes(String(currentSeason))
+    ? currentSeason
+    : parseInt(seasonNumbers[0]);
+
+  // Render season tabs
+  renderEpisodeSidebarSeasons(seasonNumbers, initialSeason);
+
+  // Render episode list immediately with whatever data we have
+  renderEpisodeSidebarList(episodes, currentVideoId, initialSeason);
+
+  sidebar.classList.add('open');
+  backdrop.classList.add('active');
+  if (toggleBtn) toggleBtn.classList.add('active');
+
+  // Asynchronously fetch missing metadata and re-render when available
+  fetchMissingEpisodeData(episodes, currentVideoId, initialSeason);
+}
+
+function closeEpisodeSidebar() {
+  const sidebar = document.getElementById('episode-sidebar');
+  const backdrop = document.getElementById('episode-sidebar-backdrop');
+  const toggleBtn = document.getElementById('episode-sidebar-toggle');
+  if (sidebar) sidebar.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('active');
+  if (toggleBtn) toggleBtn.classList.remove('active');
+}
+
+// Audio language pill in sidebar header
+function toggleSidebarAudioMenu(e) {
+  e.stopPropagation();
+  var menu = document.getElementById('sidebarAudioMenu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close audio menu when clicking outside
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('sidebarAudioMenu');
+  var btn = document.getElementById('sidebarAudioBtn');
+  if (menu && menu.style.display !== 'none' && !menu.contains(e.target) && !btn.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
+function renderEpisodeSidebarSeasons(seasonNumbers, activeSeason) {
+  const container = document.getElementById('episode-sidebar-seasons');
+  if (!container) return;
+
+  if (seasonNumbers.length <= 1) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  container.innerHTML = seasonNumbers.map(sn => {
+    const isActive = sn === activeSeason;
+    return `<button class="episode-sidebar-season-btn${isActive ? ' active' : ''}"
+      onclick="switchEpisodeSidebarSeason(${sn})">Season ${sn}</button>`;
+  }).join('');
+  updateSeasonScrollButtons();
+}
+
+function switchEpisodeSidebarSeason(seasonNumber) {
+  // Update active tab
+  document.querySelectorAll('.episode-sidebar-season-btn').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.textContent.replace('Season ', '')) === seasonNumber);
+  });
+
+  // Auto-center the active season pill
+  var seasonsContainer = document.getElementById('episode-sidebar-seasons');
+  if (seasonsContainer) {
+    var activeBtn = seasonsContainer.querySelector('.episode-sidebar-season-btn.active');
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }
+
+  // Re-gather current context and re-render list for the selected season
+  const container = getPlayerContainer();
+  if (!container) return;
+  const seriesTitle = container.dataset.seriesTitle;
+  const currentVideoId = container.dataset.videoId;
+  if (!seriesTitle) return;
+
+  const episodes = allVideos
+    .filter(v => v.seriesTitle === seriesTitle)
+    .sort((a, b) => {
+      const sa = a.seasonNumber || 1, sb = b.seasonNumber || 1;
+      const ea = a.episodeNumber || 0, eb = b.episodeNumber || 0;
+      return sa - sb || ea - eb;
+    });
+
+  renderEpisodeSidebarList(episodes, currentVideoId, seasonNumber);
+}
+
+function renderEpisodeSidebarList(episodes, currentVideoId, seasonNumber) {
+  const container = document.getElementById('episode-sidebar-list');
+  if (!container) return;
+
+  const filtered = episodes.filter(ep => (ep.seasonNumber || 1) === seasonNumber);
+
+  container.innerHTML = filtered.map(ep => {
+    const epId = String(ep.id);
+    const epNum = ep.episodeNumber || 0;
+    const epTitle = ep.episodeTitle || ep.title || `Episode ${epNum}`;
+    const dur = formatDuration(ep.duration);
+    const isCurrent = epId === String(currentVideoId);
+    const thumbSrc = getThumbnailUrl(ep.id);
+    const description = ep.description || '';
+    const overlayHtml = isCurrent
+      ? '<div class="episode-sidebar-thumb-overlay"><div class="episode-sidebar-thumb-tint"></div></div>'
+      : '<div class="episode-sidebar-thumb-overlay"></div>';
+
+    return `<button type="button" class="episode-sidebar-item${isCurrent ? ' active' : ''}" onclick="playSidebarEpisode(${ep.id})">
+      <div class="episode-sidebar-thumb">
+        <img src="${thumbSrc}" alt="${epTitle}" loading="lazy">
+        ${overlayHtml}
+      </div>
+      <div class="episode-sidebar-info">
+        <div class="episode-sidebar-top-row">
+          <span class="episode-sidebar-ep-number">E${epNum}</span>
+          ${dur ? `<span class="episode-sidebar-duration-badge">${dur}</span>` : ''}
+        </div>
+        <div class="episode-sidebar-ep-title">${epTitle}</div>
+        ${description ? `<div class="episode-sidebar-ep-description">${description}</div>` : ''}
+      </div>
+    </button>`;
+  }).join('');
+}
+
+// --- Season pill scroll affordance ---
+function updateSeasonScrollButtons() {
+  var wrap = document.querySelector('.episode-sidebar-seasons-wrap');
+  var container = document.getElementById('episode-sidebar-seasons');
+  var leftBtn = document.getElementById('season-scroll-left');
+  var rightBtn = document.getElementById('season-scroll-right');
+  if (!container || !leftBtn || !rightBtn) return;
+
+  var hasOverflow = container.scrollWidth > container.clientWidth;
+
+  if (!hasOverflow) {
+    leftBtn.classList.add('hidden');
+    rightBtn.classList.add('hidden');
+    if (wrap) { wrap.classList.remove('fade-left', 'fade-right'); }
+    return;
+  }
+
+  leftBtn.classList.remove('hidden');
+  rightBtn.classList.remove('hidden');
+
+  if (wrap) {
+    wrap.classList.toggle('fade-left', container.scrollLeft > 4);
+    wrap.classList.toggle('fade-right', container.scrollLeft + container.clientWidth < container.scrollWidth - 4);
+  }
+}
+
+// Season scroll arrow handlers (used by onclick on buttons)
+function scrollSeasonsLeft() {
+  var c = document.getElementById('episode-sidebar-seasons');
+  if (c) c.scrollBy({ left: -200, behavior: 'smooth' });
+}
+function scrollSeasonsRight() {
+  var c = document.getElementById('episode-sidebar-seasons');
+  if (c) c.scrollBy({ left: 200, behavior: 'smooth' });
+}
+
+// Wire season scroll state (fade edges) when seasons container scrolls
+(function() {
+  var container = document.getElementById('episode-sidebar-seasons');
+  if (container) {
+    container.addEventListener('scroll', updateSeasonScrollButtons);
+  }
+})();
+
+function playSidebarEpisode(videoId) {
+  // Close the sidebar
+  closeEpisodeSidebar();
+
+  // Close the current player modal
+  closePlayerModal();
+
+  // Open a new player for the clicked episode (small delay to let close animation finish)
+  setTimeout(() => openPlayerModal(videoId), 100);
 }
 
 function togglePlayerExpand() {
@@ -2503,6 +3345,14 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const dock = document.querySelector('.cinema-dock');
     const playerModal = document.getElementById('player-modal');
+    const sidebar = document.getElementById('episode-sidebar');
+
+    // Close episode sidebar first if open
+    if (sidebar && sidebar.classList.contains('open')) {
+      closeEpisodeSidebar();
+      return;
+    }
+
     if (dock && dock.classList.contains('searching')) {
       closeSearch();
     } else if (playerModal?.classList.contains('active')) {
@@ -2564,7 +3414,10 @@ function updateCarouselArrows() {
 }
 
 document.querySelectorAll('.cinema-carousel').forEach(c => c.addEventListener('scroll', updateCarouselArrows));
-window.addEventListener('resize', updateCarouselArrows);
+window.addEventListener('resize', function() {
+  updateCarouselArrows();
+  updateSeasonScrollButtons();
+});
 
 // ============================================================
 // Init
@@ -2578,6 +3431,26 @@ fetchJSON('/api/auth/current-user').then(data => {
 }).catch(() => {});
 
 loadCinemaData();
+
+// === Autoplay query parameter handler ===
+(function handleAutoplay() {
+    const params = new URLSearchParams(window.location.search);
+    const autoplayId = params.get('autoplay');
+    if (autoplayId) {
+        const id = parseInt(autoplayId, 10);
+        if (!isNaN(id)) {
+            // Wait for page to fully initialize before opening player
+            const checkReady = setInterval(() => {
+                if (typeof openPlayerModal === 'function' && typeof allVideos !== 'undefined') {
+                    clearInterval(checkReady);
+                    setTimeout(() => openPlayerModal(id), 300);
+                }
+            }, 100);
+            // Fallback: stop checking after 10 seconds
+            setTimeout(() => clearInterval(checkReady), 10000);
+        }
+    }
+})();
 
 // === Show All / Show Less toggle ===
 function toggleShowAll(mode) {
