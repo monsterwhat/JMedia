@@ -482,6 +482,11 @@ body[data-video-active="true"] .music-player {
     pointer-events: none !important;
 }
 
+.player-container.controls-hidden .series-logo {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 /* Fullscreen Specific Styles */
 .player-container.is-fullscreen {
     width: 100vw !important;

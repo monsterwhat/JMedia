@@ -484,6 +484,26 @@ html, body {
   pointer-events: none;
 }
 
+/* Smooth dark transition to the bottom */
+.cinema-content::after {
+  content: '';
+  position: absolute;
+  top: 408px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(0,0,0,0.1) 20%,
+    rgba(0,0,0,0.25) 40%,
+    rgba(0,0,0,0.45) 60%,
+    rgba(0,0,0,0.6) 80%,
+    rgba(0,0,0,0.7) 100%
+  );
+}
+
 .cinema-section {
   width: 100%;
   padding: 0 1rem;

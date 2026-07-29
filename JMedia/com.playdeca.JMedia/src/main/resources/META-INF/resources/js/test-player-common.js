@@ -318,7 +318,7 @@
                     var logoImg = this.container ? this.container.querySelector('.back-button-container .series-logo') : null;
                     if (logoImg) {
                         logoImg.src = '/api/video/logo/' + encodeURIComponent(this.videoId);
-                        logoImg.style.display = '';
+                        logoImg.style.display = 'block';
                     }
                 } else {
                     var logoImg = this.container ? this.container.querySelector('.back-button-container .series-logo') : null;
