@@ -145,6 +145,11 @@
   </section>
 </main>
 
+<!-- Dynamic Content Section -->
+<div class="cinema-section" id="section-dynamic" style="display:none;">
+  <div id="dynamic-content"></div>
+</div>
+
 <!-- Floating Dock Navigation -->
 <div class="cinema-dock">
   <nav class="cinema-dock-nav">
@@ -152,8 +157,11 @@
     <a href="#" data-section="movies" class="cinema-dock-item" title="Movies"><i class="fa-solid fa-film"></i></a>
     <a href="#" data-section="shows" class="cinema-dock-item" title="TV Shows"><i class="fa-solid fa-tv"></i></a>
     <a href="#" data-section="music" class="cinema-dock-item" title="Music"><i class="fa-solid fa-music"></i></a>
+    <a href="#" data-section="liveTv" class="cinema-dock-item" title="Live TV"><i class="fa-solid fa-tower-broadcast"></i></a>
+    <a href="#" data-section="collections" class="cinema-dock-item" title="Collections"><i class="fa-solid fa-layer-group"></i></a>
     <div class="cinema-dock-separator"></div>
     <button class="cinema-dock-item" id="settingsDockBtn" title="Settings" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-gear"></i></button>
+    <button class="cinema-dock-item mobile-only" id="nowPlayingDockBtn" title="Now Playing" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-play"></i></button>
   </nav>
   <button class="cinema-dock-search" id="searchDockBtn" title="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
   <!-- Search Bar (replaces nav when searching) -->
@@ -938,6 +946,11 @@
   color: #48c774;
 }
 
+.mobile-only { display: none !important; }
+@media (max-width: 767px) {
+  .mobile-only { display: flex !important; }
+}
+
 @media (max-width: 767px) {
   .episode-sidebar {
     width: 100vw;
@@ -1441,13 +1454,213 @@ function renderCarousel(containerId, items) {
 }
 
 // ============================================================
+// Live Channel Card & Playback
+// ============================================================
+function createChannelCard(channel) {
+  const id = channel.id;
+  const name = channel.name || 'Untitled';
+  const num = channel.channelNumber || '';
+  const logo = channel.logoUrl || '';
+  const group = channel.groupTitle || '';
+  return `
+    <div class="cinema-card" data-video-id="${id}" data-type="live-channel" data-title="${name.replace(/"/g, '&quot;')}" onclick="playChannel(${id})">
+      <div class="cinema-card-poster">
+        <img src="${logo || '/logo.png'}" alt="${name}" loading="lazy" onerror="this.src='/logo.png'">
+        <div class="cinema-card-play-overlay">
+          <div class="cinema-card-play-icon">
+            <i class="fa-solid fa-play"></i>
+          </div>
+        </div>
+      </div>
+      <div class="cinema-card-title">${name}</div>
+      <div class="cinema-card-meta"><i class="fa-solid fa-tower-broadcast" style="font-size:0.65rem;margin-right:2px;"></i> ${num ? `CH ${num}` : group}</div>
+    </div>
+  `;
+}
+
+async function playChannel(channelId) {
+  // Use existing player modal + live channel playback fragment
+  const backdrop = document.getElementById('player-modal-backdrop');
+  const modal = document.getElementById('player-modal');
+  const content = document.getElementById('player-modal-content');
+  if (!backdrop || !modal || !content) return;
+
+  backdrop.classList.add('active');
+  modal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  // Set title
+  const titleEl = document.getElementById('player-modal-title');
+  if (titleEl) titleEl.textContent = 'Live TV';
+
+  try {
+    const resp = await fetch(`/api/video/ui/live-channel-playback-fragment?channelId=${channelId}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const html = await resp.text();
+
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+
+    const scripts = Array.from(tmp.querySelectorAll('script'));
+    scripts.forEach(s => s.remove());
+
+    content.innerHTML = tmp.innerHTML;
+
+    for (const old of scripts) {
+      const el = document.createElement('script');
+      if (old.src) {
+        for (const attr of old.attributes) el.setAttribute(attr.name, attr.value);
+        el.async = false;
+      } else {
+        el.textContent = old.textContent;
+      }
+      content.appendChild(el);
+    }
+  } catch (err) {
+    console.error('[cinema] failed to load channel playback', err);
+    content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);">Failed to load channel</div>';
+  }
+  closeEpisodeSidebar();
+}
+
+// ============================================================
+// Collection Card & Detail
+// ============================================================
+function createCollectionCard(collection) {
+  const id = collection.id;
+  const name = collection.name || 'Untitled';
+  const desc = collection.description || '';
+  const coverId = collection.coverVideoId || null;
+  const imgSrc = coverId ? `/api/video/thumbnail/${coverId}` : '';
+  return `
+    <div class="cinema-card" data-video-id="" data-type="collection" data-title="${name.replace(/"/g, '&quot;')}" onclick="openCollectionDetail(${id})">
+      <div class="cinema-card-poster">
+        <img src="${imgSrc || '/logo.png'}" alt="${name}" loading="lazy" onerror="this.src='/logo.png'">
+        <div class="cinema-card-play-overlay">
+          <div class="cinema-card-play-icon">
+            <i class="fa-solid fa-eye"></i>
+          </div>
+        </div>
+      </div>
+      <div class="cinema-card-title">${name}</div>
+      <div class="cinema-card-meta"><i class="fa-solid fa-layer-group" style="font-size:0.65rem;margin-right:2px;"></i> ${desc ? desc.substring(0, 60) + (desc.length > 60 ? '…' : '') : 'Collection'}</div>
+    </div>
+  `;
+}
+
+let _collectionDataCache = null;
+
+async function openCollectionDetail(collectionId) {
+  // Close any existing player modal
+  closePlayerModal();
+
+  const hero = document.getElementById('cinema-hero');
+  const allSections = document.querySelectorAll('.cinema-section');
+  const dynamicSection = document.getElementById('section-dynamic');
+
+  allSections.forEach(s => { s.style.display = 'none'; });
+
+  // Show the dynamic section (hero stays visible)
+  if (dynamicSection) dynamicSection.style.display = '';
+
+  const container = document.getElementById('dynamic-content');
+  container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
+
+  try {
+    const [collectionResp, entriesResp] = await Promise.all([
+      fetch('/api/collections/' + collectionId),
+      fetch('/api/collections/' + collectionId + '/entries')
+    ]);
+
+    if (!collectionResp.ok || !entriesResp.ok) throw new Error('Failed to fetch');
+
+    const collectionData = await collectionResp.json();
+    const entriesData = await entriesResp.json();
+
+    // Parse ApiResponse wrappers
+    const collection = (collectionData && collectionData.success ? collectionData.data : collectionData);
+    const entries = (entriesData && entriesData.success ? entriesData.data : entriesData);
+
+    let html = '<div class="collection-detail-header" style="padding:1.5rem 0;">';
+    html += '<button onclick="showCollectionsGrid()" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:0.9rem;margin-bottom:0.5rem;"><i class="fa-solid fa-arrow-left"></i> Back to Collections</button>';
+    html += '<h2 style="font-size:1.5rem;font-weight:600;margin:0;">' + (collection.name || 'Collection') + '</h2>';
+    if (collection.description) html += '<p style="color:rgba(255,255,255,0.5);margin:0.25rem 0 0 0;">' + collection.description + '</p>';
+    html += '</div>';
+
+    const items = Array.isArray(entries) ? entries : [];
+    if (items.length === 0) {
+      html += '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.3);">This collection is empty.</div>';
+    } else {
+      html += '<div class="cinema-carousel scrollbar-hide" style="display:flex;gap:0.5rem;overflow-x:auto;padding:0 0 1rem 0;">';
+      for (const entry of items) {
+        const videoId = entry.videoId || entry.video?.id || entry.externalVideoId;
+        const title = entry.video?.title || entry.title || 'Untitled';
+        const imgSrc = videoId ? `/api/video/thumbnail/${videoId}` : '';
+        html += '<div class="cinema-card" data-video-id="' + videoId + '" onclick="playVideo(' + videoId + ')" style="cursor:pointer;flex-shrink:0;">';
+        html += '  <div class="cinema-card-poster">';
+        html += '    <img src="' + imgSrc + '" alt="' + title + '" loading="lazy" onerror="this.src=\'/logo.png\'">';
+        html += '    <div class="cinema-card-play-overlay"><div class="cinema-card-play-icon"><i class="fa-solid fa-play"></i></div></div>';
+        html += '  </div>';
+        html += '  <div class="cinema-card-title">' + title + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Error loading collection.</div>';
+  }
+}
+
+async function showCollectionsGrid() {
+  const container = document.getElementById('dynamic-content');
+  container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
+  await renderCollectionsSection(container);
+}
+
+// ============================================================
 // Data Fetching
 // ============================================================
-function showSection(section) {
+async function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
   const _showAllModeSection = _showAllMode === 'tvshows' ? 'shows' : _showAllMode;
   if (_showAllMode && section !== _showAllModeSection) { showLess(); }
+
+  // Handle dynamic sections (liveTv, collections, nowPlaying)
+  if (section === 'liveTv' || section === 'collections' || section === 'nowPlaying') {
+    // Hide all static sections
+    allSections.forEach(s => { s.style.display = 'none'; });
+    document.querySelectorAll('.cinema-section-header[id]').forEach(h => h.style.display = 'none');
+
+    // Show dynamic container with hero still visible
+    const dynamicSection = document.getElementById('section-dynamic');
+    if (dynamicSection) dynamicSection.style.display = '';
+
+    const container = document.getElementById('dynamic-content');
+    container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
+
+    if (section === 'liveTv') {
+      renderLiveTvSection(container);
+    } else if (section === 'collections') {
+      renderCollectionsSection(container);
+    } else if (section === 'nowPlaying') {
+      // Keep fragment approach for nowPlaying (mobile-only)
+      try {
+        const resp = await fetch('/api/video/ui/now-playing-fragment');
+        if (resp.ok) {
+          container.innerHTML = await resp.text();
+        } else {
+          container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">No media currently playing.</div>';
+        }
+      } catch(e) {
+        container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Error loading now playing.</div>';
+      }
+    }
+
+    return;
+  }
 
       if (section === 'home') {
     allSections.forEach(s => {
@@ -1477,6 +1690,104 @@ function showSection(section) {
   ['movies-sort-controls','tvshows-sort-controls'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
   if(section==='movies'){const b=document.getElementById('movies-show-all-btn');if(b)b.style.display='';}
   else if(section==='shows'){const b=document.getElementById('tvshows-show-all-btn');if(b)b.style.display='';}
+}
+
+async function renderLiveTvSection(container) {
+  try {
+    // Fetch channel groups
+    const groupsResp = await fetch('/api/channels/groups');
+    if (!groupsResp.ok) throw new Error('Failed to fetch groups');
+    const groupsJson = await groupsResp.json();
+    const groupsData = groupsJson.success ? groupsJson.data : groupsJson;
+    const groups = Array.isArray(groupsData) ? groupsData : [];
+
+    if (groups.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">No live channels available.</div>';
+      return;
+    }
+
+    // Build the HTML by loading channels per group
+    let html = '';
+    for (const group of groups) {
+      const groupName = group.name || 'Uncategorized';
+      html += `
+        <section class="cinema-section" style="display:block;margin-bottom:1.5rem;">
+          <div class="cinema-section-header">
+            <h2 class="cinema-section-title">${groupName} <span style="font-size:0.8rem;color:rgba(255,255,255,0.35);font-weight:400;">(${group.count || 0})</span></h2>
+          </div>
+          <div class="cinema-carousel-wrapper">
+            <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="live-${groupName.replace(/[^a-zA-Z0-9]/g, '-')}-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+            <div class="cinema-carousel scrollbar-hide" id="live-${groupName.replace(/[^a-zA-Z0-9]/g, '-')}-carousel">
+              <div style="text-align:center;padding:2rem;color:rgba(255,255,255,0.3);width:100%;"><i class="fa-solid fa-spinner fa-spin"></i></div>
+            </div>
+            <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="live-${groupName.replace(/[^a-zA-Z0-9]/g, '-')}-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+        </section>
+      `;
+    }
+    container.innerHTML = html;
+
+    // Load channels for each group in parallel
+    const loadPromises = groups.map(async (group) => {
+      const groupName = group.name || 'Uncategorized';
+      const carouselId = 'live-' + groupName.replace(/[^a-zA-Z0-9]/g, '-') + '-carousel';
+      const carousel = document.getElementById(carouselId);
+      if (!carousel) return;
+
+      try {
+        const resp = await fetch('/api/channels?group=' + encodeURIComponent(groupName) + '&limit=50');
+        if (!resp.ok) throw new Error('Failed');
+        const json = await resp.json();
+        const data = json.success ? json.data : json;
+        const channels = Array.isArray(data) ? data : [];
+        if (channels.length === 0) {
+          carousel.innerHTML = '<div style="text-align:center;padding:2rem;color:rgba(255,255,255,0.3);width:100%;">No channels</div>';
+          return;
+        }
+        carousel.innerHTML = channels.map(ch => createChannelCard(ch)).join('');
+      } catch (e) {
+        carousel.innerHTML = '<div style="text-align:center;padding:2rem;color:rgba(255,255,255,0.3);width:100%;">Error loading</div>';
+      }
+    });
+
+    await Promise.all(loadPromises);
+    updateCarouselArrows();
+
+  } catch (e) {
+    container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Failed to load Live TV.</div>';
+  }
+}
+
+async function renderCollectionsSection(container) {
+  try {
+    const resp = await fetch('/api/collections');
+    if (!resp.ok) throw new Error('Failed to fetch collections');
+    const json = await resp.json();
+    const data = json.success ? json.data : json;
+    const collections = Array.isArray(data) ? data : [];
+
+    if (collections.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">No collections yet.</div>';
+      return;
+    }
+
+    // Render as a carousel of collection cards
+    let html = `
+      <div class="cinema-section" style="display:block;">
+        <div class="cinema-section-header">
+          <h2 class="cinema-section-title">All Collections</h2>
+        </div>
+        <div class="cinema-carousel-wrapper">
+          <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="collections-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+          <div class="cinema-carousel scrollbar-hide" id="collections-carousel">
+    `;
+    html += collections.map(c => createCollectionCard(c)).join('');
+    html += '</div><button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="collections-carousel"><i class="fa-solid fa-chevron-right"></i></button></div></div>';
+    container.innerHTML = html;
+
+  } catch (e) {
+    container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Failed to load Collections.</div>';
+  }
 }
 
 async function loadCinemaData() {
@@ -3223,6 +3534,15 @@ async function toggleWatchlist(videoId) {
 // ============================================================
 document.getElementById('settingsDockBtn')?.addEventListener('click', openSettingsModal);
 document.getElementById('searchDockBtn')?.addEventListener('click', openSearch);
+document.getElementById('nowPlayingDockBtn')?.addEventListener('click', function(e) {
+  e.preventDefault();
+  const sec = 'nowPlaying';
+  const url = `/video-test?section=${sec}`;
+  history.pushState({}, '', url);
+  showSection(sec);
+  document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
+  this.classList.add('active');
+});
 
 // SPA section navigation
 document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
