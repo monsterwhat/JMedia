@@ -1496,6 +1496,7 @@ public class VideoAPI {
             dto.seasonNumber = vs.video.seasonNumber;
             dto.episodeNumber = vs.video.episodeNumber;
             dto.description = vs.video.description;
+            dto.overview = vs.video.overview;
             dto.releaseYear = vs.video.releaseYear;
             dto.imdbRating = vs.video.imdbRating;
             dto.duration = vs.video.duration;

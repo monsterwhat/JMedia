@@ -13,6 +13,7 @@ public class ContinueWatchingDTO {
     public Integer seasonNumber;
     public Integer episodeNumber;
     public String description;
+    public String overview;
     public Integer releaseYear;
     public Double imdbRating;
     public Long duration;
