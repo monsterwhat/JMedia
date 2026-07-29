@@ -30,7 +30,6 @@
         var container       = document.getElementById('customPlayer');
         var oplayerContainer= document.getElementById('oplayerContainer');
         var subtitleMenu    = document.getElementById('subtitleMenu');
-        var backBtn         = document.getElementById('backBtn');
         var assCanvas       = document.getElementById('assCanvas');
         var settingsToggleBtn = document.getElementById('settingsToggleBtn');
 
@@ -46,6 +45,40 @@
         var video = null;
         var _destroyed = false;
         var _wsManager = null;
+        var _controlsTimer = null;
+
+        /* ---------- Idle timer: auto-hide custom controls ---------- */
+        function showControls() {
+            if (_destroyed) return;
+            container.classList.remove('controls-hidden');
+            if (_controlsTimer) {
+                clearTimeout(_controlsTimer);
+                _controlsTimer = null;
+            }
+            /* Only auto-hide when video is playing */
+            if (video && !video.paused) {
+                _controlsTimer = setTimeout(function() {
+                    if (_destroyed) return;
+                    container.classList.add('controls-hidden');
+                }, 3000);
+            }
+        }
+
+        function hideControls() {
+            if (_destroyed) return;
+            if (_controlsTimer) {
+                clearTimeout(_controlsTimer);
+                _controlsTimer = null;
+            }
+            container.classList.add('controls-hidden');
+        }
+
+        container.addEventListener('mousemove', showControls);
+        container.addEventListener('touchstart', showControls);
+        container.addEventListener('keydown', showControls);
+        container.addEventListener('mouseleave', function() {
+            if (video && !video.paused) hideControls();
+        });
 
         /* ---------- Settings Menu Navigation ---------- */
         onTap(subtitleMenu, function(e) {
@@ -134,10 +167,11 @@
             }
         }
         document.addEventListener('click', closeMenuIfOpen);
-        document.addEventListener('touchend', function(e) {
+        var _onTouchEnd = function(e) {
             /* Only close, never preventDefault — must not break scrolling */
             closeMenuIfOpen(e);
-        }, { passive: true });
+        };
+        document.addEventListener('touchend', _onTouchEnd, { passive: true });
 
         /* ---------- Subtitle Timing Offset ---------- */
         (function() {
@@ -273,13 +307,14 @@
             container.classList.toggle('is-fullscreen', !!isFS);
         }
 
-        /* ---------- Back button ---------- */
-        onTap(backBtn, function() { history.back(); });
+        /* ---------- Back button (if present) ---------- */
+        var oBackBtn = document.getElementById('backBtn');
+        if (oBackBtn) onTap(oBackBtn, function() { history.back(); });
 
         /* ---------- Keyboard shortcuts ---------- */
         /* Use capture phase so shortcuts work even when OPlayer UI has focus
          * and would otherwise consume keyboard events during bubbling.         */
-        document.addEventListener('keydown', function(e) {
+        var _onKeydown = function(e) {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             switch (e.key) {
                 case ' ':
@@ -297,7 +332,8 @@
                     if (video) { video.volume = Math.max(0, (video.volume || 0) - 0.1); }
                     break;
             }
-        }, true);
+        };
+        document.addEventListener('keydown', _onKeydown, true);
 
         /* ---------- WebSocket state sync ---------- */
         function _initWebSocket() {
@@ -440,6 +476,7 @@
 
         /* ---------- Initialize OPlayer ---------- */
         function initPlayer() {
+            if (_destroyed) return;
             if (typeof OPlayer === 'undefined' || typeof OUI === 'undefined') {
                 setTimeout(initPlayer, 200);
                 return;
@@ -451,7 +488,6 @@
                 var oplayerOptions = {
                     source: {
                         src: streamUrl,
-                        title: 'Video ' + videoId,
                         format: 'auto'
                     },
                     autoplay: true,
@@ -474,8 +510,7 @@
                             },
                             theme: {
                                 controller: {
-                                    header: true,
-                                    display: 'always',
+                                    header: false,
                                     coverButton: true
                                 }
                             },
@@ -575,7 +610,7 @@
                         })];
 
                         if (typeof OHls !== 'undefined') {
-                            var hlsLibUrl = 'https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js';
+                            var hlsLibUrl = 'lib/hls.min.js';
                             oPlugins.push(OHls({ library: hlsLibUrl }));
                             console.log('[OPlayerAdapter] HLS plugin registered');
                         } else {
@@ -656,9 +691,11 @@
                             var thumbReady = false;
 
                             function pollMeta() {
+                                if (_destroyed) return;
                                 fetch(metaUrl)
                                     .then(function(r) { return r.json(); })
                                     .then(function(json) {
+                                        if (_destroyed) return;
                                         var d = json.data || json;
                                         if (d && d.isReady && d.totalTiles > 0) {
                                             sbMeta = d;
@@ -671,6 +708,7 @@
                             }
 
                             function tryInit() {
+                                if (_destroyed) return;
                                 if (thumbReady) return;
                                 if (!player || !player.context || !player.context.ui) {
                                     return setTimeout(tryInit, 500);
@@ -795,11 +833,17 @@
                 PlayerUtils?.requestWakeLock?.();
                 _reportStreamStatus('working');
                 _broadcastState();
+                showControls();
             });
 
             video.addEventListener('pause', function() {
                 PlayerUtils?.releaseWakeLock?.();
                 _broadcastState();
+                showControls();
+            });
+
+            video.addEventListener('seeking', function() {
+                showControls();
             });
 
             video.addEventListener('error', function() {
@@ -860,6 +904,7 @@
 
             /* ---------- Inject seek buttons into OPlayer controller bar ---------- */
             (function injectSeekButtons() {
+                if (_destroyed) return;
                 if (!player || !player.context || !player.context.ui) {
                     setTimeout(injectSeekButtons, 300);
                     return;
@@ -979,18 +1024,26 @@
         }
 
         /* Re-acquire wake lock when page becomes visible again and video is playing */
-        document.addEventListener('visibilitychange', function() {
+        var _onVisibilityChange = function() {
             if (document.visibilityState === 'visible' && video && !video.paused) {
                 PlayerUtils?.requestWakeLock?.();
             }
-        });
+        };
+        document.addEventListener('visibilitychange', _onVisibilityChange);
 
         window.destroyOPlayerAdapter = function() {
             _destroyed = true;
+            if (_controlsTimer) { clearTimeout(_controlsTimer); _controlsTimer = null; }
             if (_wsManager) { _wsManager.disconnect(); _wsManager = null; }
             if (player && typeof player.destroy === 'function') {
                 player.destroy();
             }
+            document.removeEventListener('click', closeMenuIfOpen);
+            document.removeEventListener('touchend', _onTouchEnd);
+            document.removeEventListener('fullscreenchange', syncFSIcon);
+            document.removeEventListener('webkitfullscreenchange', syncFSIcon);
+            document.removeEventListener('keydown', _onKeydown, true);
+            document.removeEventListener('visibilitychange', _onVisibilityChange);
         };
     };
 
