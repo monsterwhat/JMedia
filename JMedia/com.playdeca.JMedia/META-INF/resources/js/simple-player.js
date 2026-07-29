@@ -2906,6 +2906,28 @@ formatTime(s) {
             });
         }
 
+        async _navigateToVideo(videoId) {
+            console.log('[SimplePlayer] Navigating to video:', videoId);
+            if (window.videoSPA) {
+                window.videoSPA.playVideo(videoId);
+            } else if (typeof window.openPlayerModal === 'function') {
+                console.log('[SimplePlayer] Using openPlayerModal for navigation');
+                if (typeof window.closePlayerModal === 'function') {
+                    window.closePlayerModal();
+                }
+                setTimeout(() => {
+                    try {
+                        window.openPlayerModal(videoId).catch(e => console.error('[SimplePlayer] openPlayerModal rejected:', e));
+                    } catch (e) {
+                        console.error('[SimplePlayer] openPlayerModal threw:', e);
+                    }
+                }, 50);
+            } else {
+                console.log('[SimplePlayer] Falling back to URL navigation');
+                window.location.href = `/video-test?autoplay=${videoId}`;
+            }
+        }
+
         async playNextEpisode() {
             // Remember fullscreen state to restore on next episode (including iOS native fullscreen)
             const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || 
@@ -2924,8 +2946,8 @@ formatTime(s) {
                 const res = await fetch(`/api/video/playback/next/${this.videoId}`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.nextVideoId && window.videoSPA) {
-                        window.videoSPA.playVideo(data.nextVideoId);
+                    if (data.nextVideoId) {
+                        this._navigateToVideo(data.nextVideoId);
                     }
                 }
             } catch (e) { console.error('Failed to load next episode', e); }
@@ -2949,8 +2971,8 @@ formatTime(s) {
                 const res = await fetch(`/api/video/playback/previous/${this.videoId}`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.previousVideoId && window.videoSPA) {
-                        window.videoSPA.playVideo(data.previousVideoId);
+                    if (data.previousVideoId) {
+                        this._navigateToVideo(data.previousVideoId);
                     }
                 }
             } catch (e) { console.error('Failed to load previous episode', e); }

@@ -222,20 +222,6 @@
                 }
             }
 
-            // ---- audio track selector container ----
-            if (!document.getElementById('audioTrackSelector')) {
-                var ats = document.createElement('div');
-                ats.id = 'audioTrackSelector';
-                ats.style.cssText = 'display:none;align-items:center;gap:4px;';
-                var fsBtnEl = document.getElementById('fullscreenBtn') || fsBtn;
-                if (fsBtnEl && fsBtnEl.parentElement) {
-                    fsBtnEl.parentElement.insertBefore(ats, fsBtnEl);
-                } else {
-                    var cnt = document.getElementById('customPlayer');
-                    if (cnt) cnt.appendChild(ats);
-                }
-            }
-
             // buffer indicator (sibling of loadingOverlay, positioned absolutely)
             var container = this.container || document.getElementById('customPlayer');
             if (container && !document.getElementById('bufferInfo')) {
@@ -322,6 +308,23 @@
                 }
                 if (this.container && data.title) {
                     this.container.dataset.title = data.title;
+                }
+                if (this.container) {
+                    this.container.dataset.logoPath = data.logoPath || '';
+                }
+
+                // Update logo image
+                if (data.logoPath) {
+                    var logoImg = this.container ? this.container.querySelector('.back-button-container .series-logo') : null;
+                    if (logoImg) {
+                        logoImg.src = '/api/video/logo/' + encodeURIComponent(this.videoId);
+                        logoImg.style.display = '';
+                    }
+                } else {
+                    var logoImg = this.container ? this.container.querySelector('.back-button-container .series-logo') : null;
+                    if (logoImg) {
+                        logoImg.style.display = 'none';
+                    }
                 }
 
                 // Store file size for byte-level buffer tracking
@@ -427,10 +430,52 @@
                 var data = await res.json();
                 var targetId = direction === 'next' ? data.nextVideoId : data.previousVideoId;
                 if (targetId) {
-                    window.location.href = '?videoId=' + encodeURIComponent(targetId);
+                    this._loadVideoFragment(targetId);
                 }
             } catch (err) {
                 console.warn('[TestPlayerFeatures] Navigation failed:', err);
+            }
+        }
+
+        /**
+         * Load a new video by swapping the playback fragment in-place,
+         * avoiding a full page reload. Mirrors NavigationManager._navigateToVideo.
+         */
+        async _loadVideoFragment(videoId) {
+            try {
+                var content = document.getElementById('player-modal-content');
+                if (content) {
+                    content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
+                    var res = await fetch('/api/video/ui/playback-fragment?videoId=' + encodeURIComponent(videoId));
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    var html = await res.text();
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = html;
+                    var scripts = Array.from(tmp.querySelectorAll('script'));
+                    scripts.forEach(function (s) { s.remove(); });
+                    content.innerHTML = tmp.innerHTML;
+                    for (var i = 0; i < scripts.length; i++) {
+                        var old = scripts[i];
+                        var el = document.createElement('script');
+                        if (old.src) {
+                            for (var j = 0; j < old.attributes.length; j++) {
+                                el.setAttribute(old.attributes[j].name, old.attributes[j].value);
+                            }
+                            el.async = false;
+                        } else {
+                            el.textContent = old.textContent;
+                        }
+                        content.appendChild(el);
+                    }
+                    if (typeof window.initEpisodeSidebar === 'function') {
+                        window.initEpisodeSidebar();
+                    }
+                } else {
+                    window.location.href = '/video-test?autoplay=' + encodeURIComponent(videoId);
+                }
+            } catch (err) {
+                console.error('[TestPlayerFeatures] Fragment navigation failed:', err);
+                window.location.href = '/video-test?autoplay=' + encodeURIComponent(videoId);
             }
         }
 
@@ -626,57 +671,87 @@
         }
 
         // ====================================================================
-        // 6. Audio Track Selector
+        // 6. Audio Track Selector (sidebar pill + dropdown)
         // ====================================================================
         async loadAudioTracks() {
-            var selector = document.getElementById('audioTrackSelector');
-            if (!selector) return;
             try {
                 var res = await fetch('/api/video/' + encodeURIComponent(this.videoId) + '/audio-tracks');
                 if (!res.ok) return;
                 var json = await res.json();
                 var tracks = json.data || [];
 
+                var sidebarEl = document.getElementById('episodeSidebarAudio');
+                var listEl = document.getElementById('sidebarAudioList');
+                var labelEl = document.getElementById('sidebarAudioLabel');
+                if (!sidebarEl || !listEl || !labelEl) return;
+
                 if (tracks.length <= 1) {
-                    selector.style.display = 'none';
+                    sidebarEl.style.display = 'none';
                     return;
                 }
+                sidebarEl.style.display = 'inline-flex';
 
-                var select = selector.querySelector('select');
-                if (!select) {
-                    select = document.createElement('select');
-                    select.style.cssText = 'background:#333;color:#fff;border:1px solid #48c774;border-radius:4px;padding:4px 8px;font-size:0.85rem;';
-                    selector.innerHTML = '<span style="color:#aaa;font-size:0.8rem;margin-right:4px;">Audio</span>';
-                    selector.appendChild(select);
+                // Check for a session-persisted preference
+                var savedTrackId = sessionStorage.getItem('jmedia_sidebar_audio_track');
+                var defaultIdx = 0;
+                if (savedTrackId) {
+                    var found = tracks.findIndex(function(t) { return t.id == savedTrackId || t.trackIndex == savedTrackId; });
+                    if (found >= 0) defaultIdx = found;
                 }
-                select.innerHTML = '';
 
+                listEl.innerHTML = '';
                 var self = this;
-                tracks.forEach(function (track, index) {
-                    var opt = document.createElement('option');
-                    opt.value = track.trackIndex != null ? track.trackIndex : index;
-                    opt.textContent = track.displayName || 'Audio ' + (index + 1);
-                    if (track.isDefault) opt.selected = true;
-                    select.appendChild(opt);
+                tracks.forEach(function(track, idx) {
+                    var item = document.createElement('div');
+                    item.className = 'audio-track-item' + (idx === defaultIdx ? ' selected' : '');
+                    var label = track.displayName || track.languageName || track.languageCode || 'Audio ' + (idx + 1);
+                    if (track.channels === 6) label += ' 5.1';
+                    else if (track.channels === 8) label += ' 7.1';
+                    else if (track.channels === 2) label += ' Stereo';
+                    item.textContent = label;
+                    item.dataset.trackIndex = track.trackIndex != null ? track.trackIndex : idx;
+                    item.dataset.trackId = track.id;
+                    item.onclick = function() {
+                        var ti = parseInt(this.dataset.trackIndex);
+                        self._switchAudioTrack(ti);
+                        listEl.querySelectorAll('.audio-track-item').forEach(function(el) { el.classList.remove('selected'); });
+                        this.classList.add('selected');
+                        labelEl.textContent = label;
+                        sessionStorage.setItem('jmedia_sidebar_audio_track', this.dataset.trackId || ti);
+                        var menu = document.getElementById('sidebarAudioMenu');
+                        if (menu) menu.style.display = 'none';
+                    };
+                    listEl.appendChild(item);
                 });
 
-                select.onchange = function (e) {
-                    var trackIndex = parseInt(e.target.value);
-                    self._switchAudioTrack(trackIndex);
-                };
-
-                selector.style.display = 'inline-flex';
+                // Show current label
+                var currentLabel = tracks[defaultIdx].displayName || tracks[defaultIdx].languageName || tracks[defaultIdx].languageCode || 'Audio ' + (defaultIdx + 1);
+                labelEl.textContent = currentLabel;
             } catch (err) {
                 console.warn('[TestPlayerFeatures] Audio tracks failed:', err);
             }
         }
 
         _switchAudioTrack(trackIndex) {
-            var currentTime = this.video.currentTime;
-            var url = '/api/video/stream/' + encodeURIComponent(this.videoId) + '.mp4?start=' + currentTime + '&audioTrack=' + trackIndex;
+            var savedTime = this.video.currentTime;
+            var url = '/api/video/stream/' + encodeURIComponent(this.videoId) + '.mp4?audioTrack=' + trackIndex;
             this.adapter.setVideoSrc(url);
             this.video.load();
-            this.video.play().catch(function () { });
+            // After metadata loads, seek to the saved position so the browser's
+            // currentTime and timer match the actual playback position. Without
+            // this explicit seek, the server-side ?start= parameter would cause
+            // a mismatch (stream starts at offset, browser shows currentTime=0).
+            var self = this;
+            var onReady = function () {
+                if (self.video.readyState >= 2) {
+                    self.video.currentTime = savedTime;
+                    self.video.play().catch(function () { });
+                    self.video.removeEventListener('loadedmetadata', onReady);
+                    self.video.removeEventListener('canplay', onReady);
+                }
+            };
+            this.video.addEventListener('loadedmetadata', onReady);
+            this.video.addEventListener('canplay', onReady);
         }
 
         // ====================================================================

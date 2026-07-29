@@ -287,7 +287,6 @@
         }
 
         switchAudioTrack(trackIndex) {
-            const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
             const p = this.player;
             console.log('[SimplePlayer] Switching audio track to:', trackIndex);
 
@@ -302,22 +301,27 @@
 
             p.currentAudioTrackIndex = trackIndex;
 
-            const currentTime = p.video.currentTime + (p.streamStartOffset || 0);
+            const savedTime = p.video.currentTime + (p.streamStartOffset || 0);
 
             const audioParam = (trackIndex !== null && trackIndex >= 0) ? `&audioTrack=${trackIndex}` : '';
-            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${audioParam}&trace=${_traceId()}`;
+            // Do NOT use ?start= — server-side seeking makes the browser think
+            // currentTime=0 while content is at the offset, breaking the timer
+            // and seekbar. Instead, let the browser seek explicitly after load.
+            p.video.src = `/api/video/stream/${p.videoId}.mp4${audioParam}`;
             p.video.load();
-            p._seekErrorHandler = (e) => {
-                console.error('[SimplePlayer] Audio-switched stream error, retrying');
-                if (p._destroyed) return;
-                p._seekErrorHandler = null;
-                const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}&trace=${_traceId()}`;
-                p.video.load();
-                p.video.play().catch(() => {});
+
+            // After metadata is ready, seek to saved position and reset offset
+            p.streamStartOffset = 0;
+            const onReady = () => {
+                if (p.video.readyState >= 2) {
+                    p.video.currentTime = savedTime;
+                    p.video.play().catch(() => {});
+                    p.video.removeEventListener('loadedmetadata', onReady);
+                    p.video.removeEventListener('canplay', onReady);
+                }
             };
-            p.video.addEventListener('error', p._seekErrorHandler, { once: true });
-            p.video.play().catch(() => {});
+            p.video.addEventListener('loadedmetadata', onReady);
+            p.video.addEventListener('canplay', onReady);
 
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
@@ -326,8 +330,6 @@
                 clearTimeout(p._stallTimer);
                 p._stallTimer = null;
             }
-
-            p.streamStartOffset = currentTime;
         }
 
         setAudioTrack(trackId) {
