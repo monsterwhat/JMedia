@@ -1,4 +1,4 @@
-@font-face {
+﻿@font-face {
     font-family: 'primeicons';
     font-display: block;
     src: url('./fonts/primeicons.eot');
@@ -1327,3 +1327,4 @@
 .pi-spinner:before {
     content: "\e926";
 }
+

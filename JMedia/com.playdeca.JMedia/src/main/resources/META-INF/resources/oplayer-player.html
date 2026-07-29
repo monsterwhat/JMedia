@@ -101,9 +101,13 @@
             <button id="nextBtn" class="nav-overlay-btn" aria-label="Next video"><i class="pi pi-step-forward"></i></button>
         </div>
 
-        <!-- Back button -->
-        <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;">
-            <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
+        <!-- Back button + logo overlay -->
+        <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;display:flex;align-items:center;gap:12px;">
+            <img class="series-logo" src="" alt=""
+                 onload="this.style.display='block';this.nextElementSibling.style.display='none';"
+                 onerror="this.style.display='none';"
+                 style="display:none;max-height:40px;width:auto;pointer-events:none;">
+            <span class="series-title-fallback" style="display:inline;color:#fff;font-weight:600;font-size:1rem;pointer-events:none;">OPlayer</span>
         </div>
 
         <!-- Settings toggle button (top-right so it doesn't overlap native control bars at the bottom) -->
@@ -203,9 +207,9 @@
     <!-- Shared test player feature module -->
     <script src="/js/test-player-common.js"></script>
 
-    <!-- OPlayer Core + UI -->
-    <script src="https://cdn.jsdelivr.net/npm/@oplayer/core@latest/dist/index.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@oplayer/ui@latest/dist/index.min.js"></script>
+    <!-- OPlayer Core + UI (local) -->
+    <script src="lib/oplayer/core.min.js"></script>
+    <script src="lib/oplayer/ui.min.js"></script>
 
     <!-- Video WebSocket Manager (remote control) -->
     <script src="/js/video/VideoWebSocketManager.js"></script>

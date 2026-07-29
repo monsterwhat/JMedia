@@ -15,7 +15,6 @@
         var container   = document.getElementById('customPlayer');
         var videoEl     = document.getElementById('videoElement');
         var subtitleMenu= document.getElementById('subtitleMenu');
-        var backBtn     = document.getElementById('backBtn');
         var assCanvas   = document.getElementById('assCanvas');
         var settingsToggleBtn = document.getElementById('settingsToggleBtn');
 
@@ -296,8 +295,9 @@
             }
         });
 
-        /* ---------- Back button ---------- */
-        backBtn.addEventListener('click', function() { history.back(); });
+        /* ---------- Back button (if present) ---------- */
+        var backBtn = document.getElementById('backBtn');
+        if (backBtn) backBtn.addEventListener('click', function() { history.back(); });
 
         /* ---------- Keyboard shortcuts (capture phase to bypass Video.js internal handlers) ---------- */
         document.addEventListener('keydown', function(e) {

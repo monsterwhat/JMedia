@@ -76,9 +76,13 @@
             <canvas id="assCanvas" class="ass-canvas"></canvas>
         </div>
 
-        <!-- Back button -->
-        <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;">
-            <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
+        <!-- Back button / logo -->
+        <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;display:flex;align-items:center;gap:12px;">
+            <img class="series-logo" src="" alt=""
+                 onload="this.style.display='block';this.nextElementSibling.style.display='none';"
+                 onerror="this.style.display='none';"
+                 style="display:none;max-height:40px;width:auto;pointer-events:none;">
+            <span class="series-title-fallback" style="display:inline;color:#fff;font-weight:600;font-size:1rem;pointer-events:none;">Video.js Player</span>
         </div>
 
         <!-- Settings toggle button (top-right so it doesn't overlap native control bars at the bottom) -->
