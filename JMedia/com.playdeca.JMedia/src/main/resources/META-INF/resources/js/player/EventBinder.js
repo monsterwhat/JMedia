@@ -172,7 +172,7 @@
             p.clickOverlay.onclick = toggle;
             p.bigPlay.onclick = toggle;
             p.playBtn.onclick = toggle;
-            p.backBtn.onclick = (e) => { e.stopPropagation(); p.navMgr.goBack(); };
+            if (p.backBtn) p.backBtn.onclick = (e) => { e.stopPropagation(); p.navMgr.goBack(); };
             p.prevBtn.onclick = (e) => { e.stopPropagation(); p.navMgr.playPreviousEpisode(); };
             p.nextBtn.onclick = (e) => { e.stopPropagation(); p.navMgr.playNextEpisode(); };
             p.container.querySelector('#videoTitleLink').onclick = (e) => { e.stopPropagation(); p.navMgr.goToDetails(); };

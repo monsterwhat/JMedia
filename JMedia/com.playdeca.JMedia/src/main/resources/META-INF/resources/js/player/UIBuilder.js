@@ -13,6 +13,14 @@
                 <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
                 <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
 
+                <div class="player-logo-overlay" style="position:absolute;top:15px;left:15px;z-index:100;display:flex;align-items:center;gap:12px;pointer-events:none;">
+                    <img class="series-logo" src="${p.container.dataset.logoPath || ''}" alt=""
+                         onload="this.style.display='block';var f=this.parentElement.querySelector('.series-title-fallback');if(f)f.style.display='none';"
+                         onerror="this.style.display='none';"
+                         style="display:none;max-height:40px;width:auto;pointer-events:none;">
+                    <span class="series-title-fallback" style="display:inline;color:#fff;font-weight:600;font-size:1rem;pointer-events:none;">${p.container.dataset.title || 'Video'}</span>
+                </div>
+
                 <div class="skip-recap-container" id="skipRecapBtn" style="display: none;">
                     <button class="button is-info is-rounded"><i class="pi pi-history mr-2"></i> Skip Recap</button>
                     <label class="skip-auto-toggle ${p.autoSkipRecap ? 'active' : ''}" data-section="recap">
@@ -39,7 +47,6 @@
                 </div>
 
                 <div class="media-info">
-                    <div class="back-button-container"><button class="back-btn" id="videoBackBtn"><i class="pi pi-arrow-left"></i></button></div>
                     <div class="info-text">
                         <div class="info-title" id="videoTitleLink">${p.container.dataset.title || 'Video'}</div>
                         <div class="info-subtitle" id="videoSubtitle"></div>
@@ -242,7 +249,6 @@
             p.dialogRefreshStatus = p.container.querySelector('#dialog-refresh-status');
             p.dialogRefreshError = p.container.querySelector('#dialog-refresh-error');
             p.buffering = p.container.querySelector('.buffering-overlay');
-            p.backBtn = p.container.querySelector('#videoBackBtn');
             p.clickOverlay = p.container.querySelector('.video-click-overlay');
             p.prevBtn = p.container.querySelector('#videoPrevBtn');
             p.nextBtn = p.container.querySelector('#videoNextBtn');
@@ -263,18 +269,63 @@
             const audioSelector = document.getElementById('audioTrackSelector');
             const audioPlaceholder = p.container.querySelector('#audioSelectorPlaceholder');
             if (audioSelector && audioPlaceholder) {
-                audioPlaceholder.appendChild(audioSelector);
-                console.log('[SimplePlayer] Moved audioTrackSelector into player UI');
+                // Clone the selector into the player so the ORIGINAL stays in the
+                // static page layout.  Previously we used appendChild, which MOVED
+                // the element into the player DOM.  When the SPA later navigates
+                // (e.g. episode change, section switch), contentDiv.innerHTML = html
+                // destroys the player — and the moved selector with it.  On re-init
+                // document.getElementById('audioTrackSelector') returns null and the
+                // audio-track selector is permanently gone until the page reloads.
+                const clone = audioSelector.cloneNode(true);
+                audioPlaceholder.appendChild(clone);
+                console.log('[SimplePlayer] Cloned audioTrackSelector into player UI');
 
                 // Move the dropdown menu OUT of .controls-row so overflow-x:auto
                 // doesn't clip the absolutely-positioned menu (CSS spec forces
-                // overflow-y:auto when overflow-x is auto).
-                const audioMenu = document.getElementById('audioTrackMenu');
+                // overflow-y:auto when overflow-x is auto).  Find the menu inside
+                // the cloned content, not the original in the static layout.
+                const audioMenu = audioPlaceholder.querySelector('#audioTrackMenu');
                 const controlsContainer = p.container.querySelector('.controls-container');
                 if (audioMenu && controlsContainer) {
                     controlsContainer.appendChild(audioMenu);
                     console.log('[SimplePlayer] Moved audioTrackMenu outside controls-row');
                 }
+            } else if (audioPlaceholder) {
+                // Safety net: the original #audioTrackSelector was destroyed by a
+                // previous SPA navigation (e.g. Bug 3 before this fix).  Build a
+                // minimal inline replacement so the player still has track controls.
+                console.warn('[SimplePlayer] audioTrackSelector missing — creating inline replacement');
+                audioPlaceholder.innerHTML =
+                    '<div class="audio-track-selector" id="audioTrackSelector">' +
+                        '<button class="audio-track-button" onclick="window.toggleAudioTrackMenu()" title="Audio Language">' +
+                            '<i class="fa-solid fa-language"></i>' +
+                            '<span class="current-track" id="currentAudioTrackDisplay">Default</span>' +
+                            '<i class="fa-solid fa-chevron-down" style="font-size:0.6rem;"></i>' +
+                        '</button>' +
+                        '<div class="audio-track-menu" id="audioTrackMenu" style="display:none;">' +
+                            '<div class="track-list-header">Audio Tracks</div>' +
+                            '<div class="track-list" id="audioTrackList">' +
+                                '<div class="track-item" data-track="default" onclick="window.selectAudioTrack(\'default\')">' +
+                                    '<span class="track-name">Default</span>' +
+                                    '<i class="pi pi-check track-selected" style="display:none;"></i>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+                // Also move the newly created menu out of the controls-row
+                const newMenu = audioPlaceholder.querySelector('#audioTrackMenu');
+                const ctrlCont = p.container.querySelector('.controls-container');
+                if (newMenu && ctrlCont) {
+                    ctrlCont.appendChild(newMenu);
+                }
+            }
+
+            // Raise logo-overlay z-index above .media-info (z-index:100) so the
+            // logo image and fallback title are always visible, not covered by
+            // the gradient overlay.
+            const logoOverlay = p.container.querySelector('.player-logo-overlay');
+            if (logoOverlay) {
+                logoOverlay.style.setProperty('z-index', '101', 'important');
             }
 
             if (p.debugDialogClose) {
