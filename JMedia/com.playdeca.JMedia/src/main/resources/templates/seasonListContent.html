@@ -20,7 +20,7 @@
 
         <div class="series-info-overlay">
             <div class="series-meta-overlay">
-                <span class="tag is-info" style="background: var(--standard-accent); color: white; font-weight: bold; padding: 0.5rem 1rem; height: auto; border-radius: 8px;">{seasons.size()} SEASONS</span>
+                <span class="tag is-info" style="background: var(--standard-accent); color: white; font-weight: bold; padding: 0.5rem 1rem; height: auto; border-radius: 8px;">{seriesInfo.totalSeasons} SEASONS</span>
                 {#if sampleVideo && sampleVideo.releaseYear}
                     <span class="ml-4" style="font-weight: 600; font-size: 1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.8); color: rgba(255,255,255,0.7);">{sampleVideo.releaseYear}</span>
                 {/if}
@@ -66,6 +66,27 @@
                 </div>
             </div>
         {/for}
+    </div>
+{/if}
+{#if extrasContentTypes}
+    <div class="extras-section">
+        <div class="standard-grid" style="padding: 0 1rem;">
+            <div class="section-label" style="grid-column: 1 / -1; font-size: 1.1rem; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.5rem;">Extras</div>
+            {#for entry in extrasContentTypes}
+                <div class="standard-card extras-card">
+                    <div class="standard-card-poster">
+                        <div class="extras-card-icon">
+                            <i class="pi pi-folder-open"></i>
+                        </div>
+                    </div>
+                    <div class="standard-card-info">
+                        <div class="standard-card-title" style="text-transform: capitalize;">{entry.key}</div>
+                        <div class="standard-card-meta">{entry.value.size()} episode{#if entry.value.size() != 1}s{/if}</div>
+                        <div class="extras-subtitle">Not tracked</div>
+                    </div>
+                </div>
+            {/for}
+        </div>
     </div>
 {/if}
 </div>
@@ -157,6 +178,38 @@
 .standard-card-meta {
     font-size: 0.8rem;
     color: rgba(255,255,255,0.5);
+}
+
+/* Extras cards — subtly distinct from regular season cards */
+.extras-card {
+    border: 1px dashed rgba(255,255,255,0.15) !important;
+    background: rgba(255,255,255,0.02) !important;
+    opacity: 0.85;
+    transition: opacity 0.2s ease, border-color 0.2s ease;
+    cursor: default !important;
+}
+.extras-card:hover {
+    opacity: 1;
+    border-color: rgba(255,255,255,0.3) !important;
+}
+.extras-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 2.5rem;
+    color: rgba(255,255,255,0.2);
+}
+.extras-subtitle {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.3);
+    margin-top: 4px;
+    font-style: italic;
+}
+.extras-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255,255,255,0.06);
 }
 
 /* Series metadata section */

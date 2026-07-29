@@ -3,7 +3,6 @@
 
 {#if defaultPlayer == 'simple'}
 {#include subtitleSettingsComponent}{/include}
-{#include audioTrackSelector}{/include}
 <div class="player-container paused" id="customPlayer"
       data-video-id="{item.id}"
       data-title="{item.title ?: item.seriesTitle}"
@@ -11,6 +10,7 @@
       data-duration="{item.duration}"
       data-type="{item.type ?: 'movie'}"
       data-series-title="{item.seriesTitle ?: ''}"
+      data-logo-path="/api/video/logo/{item.id}"
       data-season-number="{item.seasonNumber ?: 1}"
       data-episode-number="{item.episodeNumber ?: 0}"
       data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
@@ -53,7 +53,7 @@
 <script src="/js/player/KeyboardShortcuts.js"></script>
 <script src="/js/player/SkipController.js"></script>
 <script src="/js/player/ProgressReporter.js"></script>
-<script src="/js/player/NavigationManager.js"></script>
+<script src="/js/player/NavigationManager.js?v=2"></script>
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {
@@ -74,7 +74,6 @@
 </script>
 {#else}
 {#include subtitleSettingsComponent}{/include}
-{#include audioTrackSelector}{/include}
 <div class="player-container" id="customPlayer"
       data-video-id="{item.id}"
       data-title="{item.title ?: item.seriesTitle}"
@@ -82,6 +81,7 @@
       data-duration="{item.duration}"
       data-type="{item.type ?: 'movie'}"
       data-series-title="{item.seriesTitle ?: ''}"
+      data-logo-path="/api/video/logo/{item.id}"
       data-season-number="{item.seasonNumber ?: 1}"
       data-episode-number="{item.episodeNumber ?: 0}"
       data-series-imdb-id="{item.showImdbId ?: 'Not found'}"
@@ -113,12 +113,18 @@
         <canvas id="assCanvas" class="ass-canvas"></canvas>
     </div>
 
-    <!-- Back button -->
-    <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;">
+    <!-- Back button + logo (original player keeps the back button) -->
+    <div class="back-button-container" style="position:absolute;top:15px;left:15px;z-index:100;margin:0;display:flex;align-items:center;gap:12px;">
         <button class="back-btn" id="backBtn"><i class="pi pi-arrow-left"></i></button>
+        <img class="series-logo" src="/api/video/logo/{item.id}" alt=""
+             onload="this.style.display='block';this.nextElementSibling.style.display='none';"
+             onerror="this.style.display='none';"
+             style="display:none;max-height:40px;width:auto;pointer-events:none;">
+        <span class="series-title-fallback" style="display:inline;color:#fff;font-weight:600;font-size:1rem;pointer-events:none;">{item.title ?: item.seriesTitle}</span>
     </div>
 
     <!-- Settings toggle button (top-right so it doesn't overlap native control bars at the bottom) -->
+
     <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings" style="position:absolute;top:15px;right:15px;z-index:1000;background:rgba(0,0,0,0.6);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);font-size:1.2rem;">
         <i class="pi pi-cog"></i>
     </button>
@@ -207,7 +213,7 @@
 <script src="https://vjs.zencdn.net/8.17.4/video.min.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/videojs-adapter.js?v=4"></script>
-<script src="/js/test-player-common.js"></script>
+<script src="/js/test-player-common.js?v=2"></script>
 <script>
     (function() {
         console.log("[Playback] Initializing Video.js...");
@@ -229,7 +235,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@oplayer/hls@latest/dist/index.min.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/oplayer-adapter.js?v=4"></script>
-<script src="/js/test-player-common.js"></script>
+<script src="/js/test-player-common.js?v=2"></script>
 <script>
     (function() {
         console.log("[Playback] Initializing OPlayer...");

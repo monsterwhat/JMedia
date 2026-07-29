@@ -93,7 +93,7 @@
                 {#for video in episodes}
                 <tr class="manage-episode-row" data-id="{video.id}" data-index="{video_index}" style="cursor:pointer;">
                     <td><input type="checkbox" class="manage-episode-check" data-id="{video.id}"></td>
-                    <td><span class="has-text-grey">S{video.seasonNumber ?: 0}E{video.episodeNumber ?: 0}</span></td>
+                    <td><span class="has-text-grey">{#if video.seasonNumber != null}S{video.seasonNumber}E{video.episodeNumber ?: 0}{#else}{video.contentType ?: 'EXT'}:{video.episodeNumber ?: 0}{/if}</span></td>
                     <td>{video.episodeTitle ?: video.title ?: video.filename}</td>
                     <td class="is-size-7 has-text-grey is-hidden-mobile" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{video.path}</td>
                     <td><div style="display: flex; gap: 4px;">

@@ -1,9 +1,10 @@
 <!-- Audio Track Selector Component -->
 <div class="audio-track-selector" id="audioTrackSelector">
-    <div class="audio-track-button" onclick="window.toggleAudioTrackMenu()" title="Audio Language">
-        <i class="pi pi-volume-up"></i>
+    <button class="audio-track-button" onclick="window.toggleAudioTrackMenu()" title="Audio Language">
+        <i class="fa-solid fa-language"></i>
         <span class="current-track" id="currentAudioTrackDisplay">Default</span>
-    </div>
+        <i class="fa-solid fa-chevron-down" style="font-size:0.6rem;"></i>
+    </button>
     
     <div class="audio-track-menu" id="audioTrackMenu" style="display: none;">
         <div class="track-list-header">Audio Tracks</div>
@@ -16,33 +17,35 @@
     </div>
 </div>
 
-
-
 <style>
 .audio-track-selector {
     position: relative;
-    display: inline-block;
-    z-index: 100;
-    margin-right: 10px;
+    display: inline-flex;
 }
 
 .audio-track-button {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: white;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.7);
     cursor: pointer;
-    font-size: 0.85rem;
+    white-space: nowrap;
     transition: all 0.2s;
-    height: 36px;
+    letter-spacing: -0.01em;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
 }
 
 .audio-track-button:hover {
-    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
 }
 
 .audio-track-button .current-track {
@@ -54,24 +57,27 @@
 
 .audio-track-menu {
     position: absolute;
-    bottom: 100%;
-    right: 0;
-    margin-bottom: 10px;
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 6px;
-    min-width: 180px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-    z-index: 1001;
+    top: calc(100% + 4px);
+    left: 0;
+    background: rgba(20, 20, 22, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    min-width: 200px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+    z-index: 10001;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
 }
 
 .audio-track-menu .track-list-header {
-    padding: 10px 15px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    color: #888;
+    padding: 10px 14px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.35);
     text-transform: uppercase;
-    border-bottom: 1px solid #333;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .audio-track-menu .track-list {
@@ -83,14 +89,15 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 15px;
+    padding: 10px 14px;
     cursor: pointer;
-    color: #eee;
-    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85rem;
+    transition: background 0.15s;
 }
 
 .audio-track-menu .track-item:hover {
-    background: #333;
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .audio-track-menu .track-item.selected {
