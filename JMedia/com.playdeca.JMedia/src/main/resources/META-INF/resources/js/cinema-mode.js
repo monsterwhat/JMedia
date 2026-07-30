@@ -2218,6 +2218,12 @@ function savePlayerSetting(value) {
 
 function saveDefaultPlayerSetting(value) {
   localStorage.setItem('video-test-default-player', value);
+  const profileId = localStorage.getItem('activeProfileId');
+  fetch(`/api/settings/${profileId}/default-player`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ defaultPlayer: value })
+  }).catch(() => {});
   reloadPlayerIfOpen();
 }
 
@@ -2239,6 +2245,7 @@ function reloadPlayerIfOpen() {
 function updateCrossfadeDisplay(value) {
   const display = document.getElementById('crossfade-value');
   if (display) display.textContent = `${value}s`;
+  localStorage.setItem('video-crossfade', value);
   saveSettingsDebounced();
 }
 
@@ -2254,21 +2261,18 @@ function saveSettingsDebounced() {
 }
 
 function saveSettings() {
-  const player = document.getElementById('player-select')?.value || 'jmedia';
-  const crossfade = document.getElementById('crossfade-slider')?.value || '0';
   const skipIntro = document.getElementById('skip-intro-toggle')?.classList.contains('active') || false;
   const skipRecap = document.getElementById('skip-recap-toggle')?.classList.contains('active') || false;
   const skipOutro = document.getElementById('skip-outro-toggle')?.classList.contains('active') || false;
+  const profileId = localStorage.getItem('activeProfileId');
 
-  fetch('/api/settings/playback', {
+  fetch(`/api/settings/${profileId}/auto-skip`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      videoPlayer: player,
-      crossfadeDuration: parseInt(crossfade, 10),
-      skipIntro,
-      skipRecap,
-      skipOutro
+      autoSkipIntro: skipIntro,
+      autoSkipRecap: skipRecap,
+      autoSkipOutro: skipOutro
     })
   }).catch(() => {});
 }
@@ -2286,22 +2290,31 @@ async function loadSettings() {
   }
 
   try {
-    const playbackData = await fetchJSON('/api/settings/playback');
+    const profileId = localStorage.getItem('activeProfileId');
+    const playbackData = await fetchJSON(`/api/settings/${profileId}`);
     if (playbackData) {
-      const slider = document.getElementById('crossfade-slider');
-      if (slider && playbackData.crossfadeDuration !== undefined) {
-        slider.value = playbackData.crossfadeDuration;
-        updateCrossfadeDisplay(playbackData.crossfadeDuration);
-      }
-      const toggles = { intro: 'skip-intro-toggle', recap: 'skip-recap-toggle', outro: 'skip-outro-toggle' };
+      const toggles = { autoSkipIntro: 'skip-intro-toggle', autoSkipRecap: 'skip-recap-toggle', autoSkipOutro: 'skip-outro-toggle' };
       for (const [key, id] of Object.entries(toggles)) {
         const toggle = document.getElementById(id);
         if (toggle && playbackData[key] !== undefined) {
           toggle.classList.toggle('active', !!playbackData[key]);
         }
       }
+      if (playbackData.defaultPlayer) {
+        const defaultSel = document.getElementById('default-player-select');
+        if (defaultSel) defaultSel.value = playbackData.defaultPlayer;
+      }
     }
   } catch (e) {}
+
+  const savedCrossfade = localStorage.getItem('video-crossfade');
+  if (savedCrossfade !== null) {
+    const slider = document.getElementById('crossfade-slider');
+    if (slider) {
+      slider.value = savedCrossfade;
+      updateCrossfadeDisplay(parseInt(savedCrossfade, 10));
+    }
+  }
 
   try {
     const verData = await fetchJSON('/api/update/latest');
