@@ -440,4 +440,50 @@ public class SmartNamingServiceTest {
         assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
         assertEquals(1, result.season, "season should be 1 from SEASON_TEXT_N_TEXT matching 'Shinden 1...'");
     }
+
+    // ── Fix: Extras contentType override ────────────────────────────────
+
+    /**
+     * "Show - 6.mp4" matches EPISODE_SIMPLE which returns early with contentType=null.
+     * But the path has "Extras" folder → should get contentType="extra".
+     */
+    @Test
+    void testExtrasFolderWithSimpleNumberPattern() {
+        String filename = "Show - 6.mp4";
+        String relativePath = "TV Shows/Show/Extras/Show - 6.mp4";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals("extra", result.contentType, "contentType should be 'extra' for file in Extras folder");
+    }
+
+    /**
+     * "Family Guy - Vol. 1 Disk 1 - Extra 6.mp4" likely matches EPISODE_SHOW_NUMBER_DASH
+     * which returns early with contentType=null. Path has "Vol. 1 Extras" → hasExtrasFolder=true.
+     */
+    @Test
+    void testFamilyGuyVolExtrasWithShowNumberDash() {
+        String filename = "Family Guy - Vol. 1 Disk 1 - Extra 6.mp4";
+        String relativePath = "TV Shows/Family Guy Season 1 to 19 Including the Movie and DVD Extras Complete Collection [NVEnc H265 1080p][AAC 6Ch]/DVD Extras Vol. 1 - Vol. 7/Vol. 1 Extras/Family Guy - Vol. 1 Disk 1 - Extra 6.mp4";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals("extra", result.contentType, "contentType should be 'extra' for file in Vol. 1 Extras folder");
+    }
+
+    /**
+     * "Extra 6.mp4" → some pattern match but in "Behind the Scenes" → should be "extra".
+     */
+    @Test
+    void testBehindTheScenesFolderWithNumberPattern() {
+        String filename = "Extra 6.mp4";
+        String relativePath = "TV Shows/Show/Season 1/Behind the Scenes/Extra 6.mp4";
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals("extra", result.contentType, "contentType should be 'extra' for file in Behind the Scenes folder");
+    }
 }

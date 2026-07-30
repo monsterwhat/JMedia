@@ -271,6 +271,12 @@ public class SmartNamingService {
             reasoning
         );
         result.contentType = episodeDetection.contentType;
+        // Override: files in extras folders get contentType="extra" regardless of filename pattern match
+        // Catches early returns from filename patterns (EPISODE_SIMPLE, etc.) that skip path-based extras detection
+        boolean isExtrasSubfolder = pathAnalysis.subFolder != null && EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.subFolder).find();
+        if ((pathAnalysis.hasExtrasFolder || isExtrasSubfolder) && (result.contentType == null || "episode".equals(result.contentType))) {
+            result.contentType = "extra";
+        }
         result.seasonSuffix = episodeDetection.seasonSuffix;
         return result;
     }
