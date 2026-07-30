@@ -28,7 +28,24 @@
                 if (err && err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return;
                 _reportStreamStatus('dead');
             });
+            const touchToggle = (e) => {
+                e.preventDefault();
+                p._touchToggled = true;
+                if (p.video.paused) p.video.play().catch(() => {});
+                else p.video.pause();
+                p.controlsManager.showControls();
+                setTimeout(function() { p._touchToggled = false; }, 500);
+            };
+
+            p.clickOverlay.addEventListener('touchstart', touchToggle, { passive: false });
+            p.bigPlay.addEventListener('touchstart', touchToggle, { passive: false });
+            p.playBtn.addEventListener('touchstart', touchToggle, { passive: false });
+
             const toggle = (e) => {
+                if (p._touchToggled) {
+                    p._touchToggled = false;
+                    return;
+                }
                 if (e) e.stopPropagation();
                 if (p.video.paused) p.video.play().catch(() => {});
                 else p.video.pause();
@@ -39,6 +56,7 @@
                 if (p.utils.isIOS()) console.debug('[iOS-DEBUG] Play event fired, setting 20s stall timer');
                 p.playIcon.className = 'pi pi-pause';
                 p.bigPlay.style.display = 'none';
+                if (p.tapToPlayOverlay) p.tapToPlayOverlay.classList.remove('visible');
                 p.container.classList.remove('paused');
                 p.controlsManager.showControls();
                 _reportStreamStatus('working');
@@ -78,12 +96,15 @@
             p.video.addEventListener('pause', () => {
                 p.playIcon.className = 'pi pi-play';
                 p.bigPlay.style.display = 'flex';
+                if (p.tapToPlayOverlay) p.tapToPlayOverlay.classList.add('visible');
                 p.container.classList.add('paused');
                 p.controlsManager.showControls();
                 p.progressReporter.saveNow();
             });
 
             p.video.addEventListener('timeupdate', () => {
+                p._touchToggled = false;
+
                 let dur = p.totalDuration;
                 if (!dur || dur === Infinity) {
                     dur = p.video.duration;
@@ -463,6 +484,13 @@
                 episodeNumber: parseInt(p.container.dataset.episodeNumber || '0'),
                 seriesImdbId: p.container.dataset.seriesImdbId || ''
             };
+
+            p._bigPlayGuardTimer = setInterval(function() {
+                if (p._destroyed) { clearInterval(p._bigPlayGuardTimer); return; }
+                if (p.bigPlay.style.display !== 'none' && p.video.readyState >= 2 && !p.video.paused) {
+                    p.bigPlay.style.display = 'none';
+                }
+            }, 2000);
 
             p.controlsManager.showControls();
             p.controlsManager.updatePageTitle();

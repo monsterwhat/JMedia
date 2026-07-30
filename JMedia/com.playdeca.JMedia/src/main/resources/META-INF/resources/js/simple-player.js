@@ -121,13 +121,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                         this.streamStartOffset = 0;
                         this.video.src = `/api/video/stream/${this.videoId}.mp4?trace=${_traceId()}`;
                     }
-                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Setting video src:', this.video.src);
                     this.subtitleController.loadSubtitles();
-                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Calling play()');
                     this.video.play().then(() => {
-                        if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() resolved successfully');
                     }).catch(e => {
-                        if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() rejected:', e.message);
                         console.log('[SimplePlayer] Play requires user gesture:', e);
                     });
                 };
@@ -159,13 +155,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                 if (this._canNativeHevc) params.push('nativeHevc=1');
                 params.push(`trace=${_traceId()}`);
                 this.video.src = `/api/video/stream/${this.videoId}.mp4?${params.join('&')}`;
-                if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Setting video src:', this.video.src);
                 this.subtitleController.loadSubtitles();
-                if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] Calling play()');
                 this.video.play().then(() => {
-                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() resolved successfully');
                 }).catch(e => {
-                    if (PlayerUtils.isIOS()) console.debug('[iOS-DEBUG] play() rejected:', e.message);
                     console.log('[SimplePlayer] Play requires user gesture:', e);
                 });
             }

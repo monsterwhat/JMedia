@@ -418,10 +418,10 @@ public class VideoService {
 
     @Transactional
     public List<Video> findEpisodesForSeason(String seriesTitle, Integer seasonNumber) {
-        if (seasonNumber == null || seasonNumber == 1) {
-            return Video.list("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and (folder is null or folder = '') and isActive = ?4",
+        if (seasonNumber == null) {
+            return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and (folder is null or folder = '') and isActive = ?3",
                              Sort.by("episodeNumber", Sort.Direction.Ascending),
-                             "episode", seriesTitle, 1, true);
+                             "episode", seriesTitle, true);
         }
         return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and (folder is null or folder = '') and isActive = ?4",
                          Sort.by("episodeNumber", Sort.Direction.Ascending),
@@ -443,10 +443,10 @@ public class VideoService {
         if (folder == null || folder.isEmpty()) {
             return findEpisodesForSeason(seriesTitle, seasonNumber);
         }
-        if (seasonNumber == null || seasonNumber == 1) {
-            return Video.list("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and folder = ?4 and isActive = ?5",
+        if (seasonNumber == null) {
+            return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and folder = ?3 and isActive = ?4",
                              Sort.by("episodeNumber", Sort.Direction.Ascending),
-                             "episode", seriesTitle, 1, folder, true);
+                             "episode", seriesTitle, folder, true);
         }
         return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5",
                          Sort.by("episodeNumber", Sort.Direction.Ascending),
@@ -456,12 +456,19 @@ public class VideoService {
     @Transactional
     public long countEpisodesInFolder(String seriesTitle, Integer seasonNumber, String folder) {
         if (folder == null || folder.isEmpty()) return 0;
-        if (seasonNumber == null || seasonNumber == 1) {
-            return Video.count("type = ?1 and seriesTitle = ?2 and (seasonNumber = ?3 or seasonNumber is null) and folder = ?4 and isActive = ?5",
-                              "episode", seriesTitle, 1, folder, true);
+        if (seasonNumber == null) {
+            return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber is null and folder = ?3 and isActive = ?4",
+                              "episode", seriesTitle, folder, true);
         }
         return Video.count("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5",
                           "episode", seriesTitle, seasonNumber, folder, true);
+    }
+
+    @Transactional
+    public List<Video> findEpisodesForContentType(String seriesTitle, String contentType) {
+        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and contentType = ?3 and isActive = ?4",
+                         Sort.by("episodeNumber", Sort.Direction.Ascending),
+                         "episode", seriesTitle, contentType, true);
     }
 
     @Transactional

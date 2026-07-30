@@ -1,0 +1,140 @@
+
+/* Player Modal � cinema-modal overrides for near-fullscreen playback */
+.player-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 300;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.player-modal-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.player-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90vw;
+  height: 90vh;
+  max-width: none;
+  max-height: none;
+  background: #0a0a0a;
+  border-radius: 12px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+  z-index: 301;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.player-modal.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.player-modal.is-expanded {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+}
+
+/* Topbar */
+.player-modal-topbar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  min-height: 44px;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.player-modal-topbar-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 18px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+.player-modal-topbar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.player-modal-topbar-title {
+  flex: 1;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Expanded: auto-hide topbar */
+.player-modal.is-expanded .player-modal-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.player-modal.is-expanded .player-modal-topbar:hover,
+.player-modal.is-expanded:hover .player-modal-topbar {
+  opacity: 1;
+}
+.player-modal.is-expanded:hover {
+  cursor: default;
+}
+
+/* Content container */
+.player-modal-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Hide under-player sections inside the modal */
+.player-modal-content .underplayer-carousel-section,
+.player-modal-content .underplayer-info-section {
+  display: none !important;
+}
+
+/* Mobile: fullscreen by default */
+@media (max-width: 767px) {
+  .player-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+  }
+  .player-modal-topbar .player-expand-btn {
+    display: none;
+  }
+}
+
+/* 

@@ -570,33 +570,60 @@ public class VideoUiApi {
                     .filter(v -> v.seasonNumber == null)
                     .collect(Collectors.toList());
 
-            List<Integer> seasonNumbers = normalEpisodes.stream()
-                    .map(v -> v.seasonNumber)
-                    .distinct()
-                    .sorted()
+            // Group by (seasonNumber, seasonSuffix) — Season 2 and Season 2 OVA are separate cards
+            Map<String, List<Models.Video>> seasonGroups = new LinkedHashMap<>();
+            for (Models.Video ep : normalEpisodes) {
+                String key = ep.seasonNumber + "|" + (ep.seasonSuffix != null ? ep.seasonSuffix : "");
+                seasonGroups.computeIfAbsent(key, k -> new ArrayList<>()).add(ep);
+            }
+
+            List<String> sortedKeys = seasonGroups.keySet().stream()
+                    .sorted(Comparator.comparing(k -> {
+                        String[] parts = k.split("\\|", 2);
+                        return Integer.parseInt(parts[0]);
+                    }))
                     .collect(Collectors.toList());
 
-            // If it's still empty but we have normal episodes, ensure we have at least season 1
-            if (seasonNumbers.isEmpty() && !normalEpisodes.isEmpty()) {
-                seasonNumbers = Collections.singletonList(1);
-            }
+            // Batch load video states for all normal episodes
+            Map<Long, Models.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
 
             List<SeasonEntry> seasons = new ArrayList<>();
-            for (Integer sn : seasonNumbers) {
-                Models.Video sample = normalEpisodes.stream()
-                        .filter(v -> v.seasonNumber.equals(sn))
-                        .findFirst()
-                        .orElse(null);
-                String seasonName = sample != null ? sample.seasonName : null;
-                seasons.add(new SeasonEntry(sn, sample != null ? sample.id : null, seasonName));
+            for (String key : sortedKeys) {
+                String[] parts = key.split("\\|", 2);
+                int sn = Integer.parseInt(parts[0]);
+                String ss = parts[1].isEmpty() ? null : parts[1];
+                List<Models.Video> group = seasonGroups.get(key);
+                Models.Video sample = group.get(0);
+
+                String displayName;
+                if (sn == 0) {
+                    displayName = sample.seasonName != null ? sample.seasonName : "Specials";
+                } else if (ss != null) {
+                    displayName = sample.seasonName != null ? sample.seasonName : ("Season " + sn + " " + ss);
+                } else {
+                    displayName = sample.seasonName != null ? sample.seasonName : ("Season " + sn);
+                }
+
+                // Compute progress for THIS group only
+                int total = 0;
+                int watched = 0;
+                for (Models.Video ep : group) {
+                    total++;
+                    Models.VideoState vs = seasonStates.get(ep.id);
+                    if (vs != null && Boolean.TRUE.equals(vs.watched)) {
+                        watched++;
+                    }
+                }
+
+                seasons.add(new SeasonEntry(sn, sample.id, displayName, ss, watched, total));
             }
 
-            // Merge external season numbers
+            // Merge external season numbers (no way to know suffix from external service, so add as separate card)
             List<Integer> externalSeasonNumbers = externalVideoService.findSeasonNumbersForSeries(decodedTitle);
             Set<Integer> existingSeasonNums = seasons.stream().map(s -> s.seasonNumber()).collect(Collectors.toSet());
             for (Integer extSn : externalSeasonNumbers) {
                 if (!existingSeasonNums.contains(extSn)) {
-                    seasons.add(new SeasonEntry(extSn, null, null));
+                    seasons.add(new SeasonEntry(extSn, null, "Season " + extSn, null, 0, 0));
                 }
             }
             seasons.sort(Comparator.comparingInt(SeasonEntry::seasonNumber));
@@ -614,26 +641,17 @@ public class VideoUiApi {
                     .findFirst()
                     .orElse(sampleVideo);
 
-            // Compute per-season watch progress (batch) — only for normal episodes
-            Map<Long, Models.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
-            Map<Integer, SeasonProgress> seasonProgress = new HashMap<>();
-            for (SeasonEntry entry : seasons) {
-                int total = 0;
-                int watched = 0;
-                for (Models.Video ep : normalEpisodes) {
-                    if (ep.seasonNumber.equals(entry.seasonNumber())) {
-                        total++;
-                        Models.VideoState vs = seasonStates.get(ep.id);
-                        if (vs != null && Boolean.TRUE.equals(vs.watched)) {
-                            watched++;
-                        }
-                    }
-                }
-                seasonProgress.put(entry.seasonNumber(), new SeasonProgress(watched, total));
-            }
-
             // Build series metadata from first episode (scalar fields only; lazy Hibernate collections need a service method)
             Map<String, Object> seriesInfo = new LinkedHashMap<>();
+            // Pre-populate all keys with defaults so template never gets KeyNotFoundException when sampleVideo is null
+            seriesInfo.put("overview", "");
+            seriesInfo.put("releaseYear", null);
+            seriesInfo.put("runtimeMins", null);
+            seriesInfo.put("mpaaRating", "");
+            seriesInfo.put("imdbRating", null);
+            seriesInfo.put("tmdbRating", null);
+            seriesInfo.put("metacriticRating", null);
+            seriesInfo.put("awards", "");
             if (sampleVideo != null) {
                 seriesInfo.put("overview", sampleVideo.overview != null ? sampleVideo.overview : (sampleVideo.description != null ? sampleVideo.description : ""));
                 seriesInfo.put("releaseYear", sampleVideo.releaseYear);
@@ -651,7 +669,6 @@ public class VideoUiApi {
                     .data("seriesTitle", decodedTitle)
                     .data("encodedSeriesTitle", seriesTitle) // Keep original encoded for HTMX sub-requests
                     .data("seasons", seasons)
-                    .data("seasonProgress", seasonProgress)
                     .data("extrasContentTypes", extrasContentTypes)
                     .data("sampleVideo", sampleVideo)
                     .data("lastPlayedVideo", lastPlayedVideo)
@@ -680,7 +697,7 @@ public class VideoUiApi {
                 episodes = Models.Video.<Models.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
                             decodedTitle.equalsIgnoreCase(v.seriesTitle) && 
-                            (seasonNumber.equals(v.seasonNumber) || (seasonNumber == 1 && v.seasonNumber == null)) &&
+                            (seasonNumber.equals(v.seasonNumber)) &&
                             (v.folder == null || v.folder.isEmpty()))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
                     .collect(Collectors.toList());
@@ -761,6 +778,52 @@ public class VideoUiApi {
         } catch (Exception e) {
             LOG.error("Error rendering folder episodes for {} season {} folder {}: {}", seriesTitle, seasonNumber, folderName, e.getMessage(), e);
             return "<div class='carousel-empty-state'><i class='pi pi-exclamation-circle'></i><h3>Error loading folder</h3><p>" + e.getMessage() + "</p></div>";
+        }
+    }
+
+    @GET
+    @Path("/shows/{seriesTitle}/extras/{contentType}/episodes-fragment")
+    @Blocking
+    public String getExtrasEpisodesFragment(
+            @PathParam("seriesTitle") String seriesTitle,
+            @PathParam("contentType") String contentType) {
+        try {
+            String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
+            String decodedContentType = java.net.URLDecoder.decode(contentType, StandardCharsets.UTF_8);
+            LOG.info("Loading extras episodes for series: {}, contentType: {}", decodedTitle, decodedContentType);
+
+            List<Models.Video> episodes = videoService.findEpisodesForContentType(decodedTitle, decodedContentType);
+
+            // Enrich with progress (batch)
+            Map<Long, Models.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video ep : episodes) {
+                Models.VideoState vs = epStates.get(ep.id);
+                if (vs != null) {
+                    ep.watchProgress = vs.watchProgress;
+                    ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
+                    ep.watched = vs.watched;
+                }
+            }
+
+            // Group episodes by folder for organized display
+            Map<String, List<Models.Video>> folderGroups = new LinkedHashMap<>();
+            for (Models.Video ep : episodes) {
+                String folder = (ep.folder != null && !ep.folder.isEmpty()) ? ep.folder : "Other";
+                folderGroups.computeIfAbsent(folder, k -> new ArrayList<>()).add(ep);
+            }
+
+            return folderEpisodesContent
+                    .data("seriesTitle", decodedTitle)
+                    .data("seasonNumber", null)
+                    .data("folderName", decodedContentType)
+                    .data("episodes", episodes)
+                    .data("folderGroups", folderGroups)
+                    .data("formatDuration", (Function<Integer, String>) this::formatDuration)
+                    .data("encodedSeriesTitle", seriesTitle)
+                    .render();
+        } catch (Exception e) {
+            LOG.error("Error loading extras episodes for {} contentType {}: {}", seriesTitle, contentType, e.getMessage(), e);
+            return "<div class='carousel-empty-state'><i class='pi pi-exclamation-circle'></i><h3>Error loading content</h3></div>";
         }
     }
 
@@ -1458,7 +1521,9 @@ public class VideoUiApi {
 
     // Helper records for passing series and season info to templates
     public record SeriesTitleEntry(String rawTitle, String encodedTitle, String cssId, Long sampleVideoId) {}
-    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId, String seasonName) {}
+    public record SeasonEntry(Integer seasonNumber, Long sampleVideoId, String seasonName, String seasonSuffix, int watched, int total) {
+        public int getPercent() { return total > 0 ? watched * 100 / total : 0; }
+    }
     public static class SeasonProgress {
         public int watched;
         public int total;

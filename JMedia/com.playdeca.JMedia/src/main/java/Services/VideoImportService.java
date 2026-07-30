@@ -536,7 +536,7 @@ public class VideoImportService {
             video.seasonNumber = 0;
         }
 
-        if ("special".equalsIgnoreCase(video.contentType)) {
+        if ("special".equalsIgnoreCase(video.contentType) && video.seasonNumber == null) {
             video.seasonNumber = 0;
         }
     }

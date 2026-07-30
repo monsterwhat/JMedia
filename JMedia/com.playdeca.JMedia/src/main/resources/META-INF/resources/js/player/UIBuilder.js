@@ -10,6 +10,10 @@
             const p = this.player;
             const uiHTML = `
                 <div class="video-click-overlay" id="clickOverlay"></div>
+                <div class="tap-to-play-overlay" id="tapToPlayOverlay">
+                    <div class="tap-to-play-icon"><i class="pi pi-play" style="font-size:2.5rem;"></i></div>
+                    <div class="tap-to-play-text">Tap to Play</div>
+                </div>
                 <div class="big-play-btn"><img src="/logo.png" alt="Play"></div>
                 <div class="buffering-overlay"><i class="pi pi-spin pi-spinner" style="font-size: 3rem; color: #48c774;"></i></div>
 
@@ -215,6 +219,7 @@
             p.playBtn = p.container.querySelector('#videoPlayPauseBtn');
             p.playIcon = p.playBtn.querySelector('i');
             p.bigPlay = p.container.querySelector('.big-play-btn');
+            p.tapToPlayOverlay = p.container.querySelector('.tap-to-play-overlay');
             p.progressBar = p.container.querySelector('.progress-filled');
             p.progressContainer = p.container.querySelector('.progress-container');
             p.timeCurrent = p.container.querySelector('#videoCurrentTime');

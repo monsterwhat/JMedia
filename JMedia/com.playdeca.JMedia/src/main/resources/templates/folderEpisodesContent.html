@@ -2,8 +2,8 @@
     <script>
         (function() {
             videoSPA.backDestination = { 
-                section: 'episodes', 
-                params: { seriesTitle: '{encodedSeriesTitle}', seasonNumber: {seasonNumber} } 
+                section: '{#if seasonNumber}episodes{#else}seasons{/if}', 
+                params: { {#if seasonNumber}seriesTitle: '{encodedSeriesTitle}', seasonNumber: {seasonNumber}{#else}encodedTitle: '{encodedSeriesTitle}'{/if}} 
             };
         })();
     </script>
@@ -12,7 +12,9 @@
     </button>
     <div class="is-flex is-align-items-center">
         <h1 class="library-title mb-0">{seriesTitle}</h1>
+        {#if seasonNumber}
         <span class="tag ml-4" style="background: var(--standard-accent); color: white; padding: 0.5rem 1rem; height: auto; border-radius: 8px; font-weight: bold;">SEASON {seasonNumber}</span>
+        {/if}
         <span class="tag ml-2" style="background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); padding: 0.5rem 1rem; height: auto; border-radius: 8px; font-weight: bold;">
             <i class="pi pi-folder-open mr-1"></i> {folderName}
         </span>
@@ -20,18 +22,41 @@
 </div>
 
 <div class="episodes-container p-4">
-{#if episodes.empty}
-    <div class="carousel-empty-state">
-        <i class="pi pi-folder-open"></i>
-        <h3>No videos found</h3>
-        <p>This folder is empty.</p>
-    </div>
+{#if seasonNumber}
+    {#if episodes.empty}
+        <div class="carousel-empty-state">
+            <i class="pi pi-folder-open"></i>
+            <h3>No videos found</h3>
+            <p>This folder is empty.</p>
+        </div>
+    {#else}
+        <div class="episodes-list">
+            {#for episode in episodes}
+               {#include videoEntryFragment.html video=episode external=false /}
+            {/for}
+        </div>
+    {/if}
 {#else}
-    <div class="episodes-list">
-        {#for episode in episodes}
-           {#include videoEntryFragment.html video=episode external=false /}
+    {#if episodes.empty}
+        <div class="carousel-empty-state">
+            <i class="pi pi-folder-open"></i>
+            <h3>No videos found</h3>
+            <p>This folder is empty.</p>
+        </div>
+    {#else}
+        {#for folderGroup in folderGroups.entrySet}
+        <div class="folder-group mb-5">
+            <h3 class="section-label" style="font-size: 1.2rem; font-weight: 700; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 1px;">
+                <i class="pi pi-folder mr-2"></i>{folderGroup.key}
+            </h3>
+            <div class="episodes-list">
+                {#for episode in folderGroup.value}
+                   {#include videoEntryFragment.html video=episode external=false /}
+                {/for}
+            </div>
+        </div>
         {/for}
-    </div>
+    {/if}
 {/if}
 </div>
 

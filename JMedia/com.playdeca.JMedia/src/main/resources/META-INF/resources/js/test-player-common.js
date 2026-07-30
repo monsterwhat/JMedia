@@ -319,11 +319,26 @@
                     if (logoImg) {
                         logoImg.src = '/api/video/logo/' + encodeURIComponent(this.videoId);
                         logoImg.style.display = 'block';
+                        // Hide fallback title
+                        var fb = logoImg.parentElement ? logoImg.parentElement.querySelector('.series-title-fallback') : null;
+                        if (fb) fb.style.display = 'none';
                     }
                 } else {
                     var logoImg = this.container ? this.container.querySelector('.back-button-container .series-logo') : null;
                     if (logoImg) {
-                        logoImg.style.display = 'none';
+                        // If the logo has already loaded successfully (onload already fired),
+                        // DON'T hide it based on metadata logoPath being null.
+                        // This prevents a race where the HTML loads the logo but the DTO
+                        // returns a null logoPath (common for movies where video-level
+                        // logoPath may differ from series-level).
+                        if (logoImg.complete && logoImg.naturalWidth > 0) {
+                            logoImg.style.display = 'block';
+                        } else {
+                            logoImg.style.display = 'none';
+                            // Show fallback title only when logo legitimately unavailable
+                            var fb = logoImg.parentElement ? logoImg.parentElement.querySelector('.series-title-fallback') : null;
+                            if (fb) fb.style.display = '';
+                        }
                     }
                 }
 

@@ -4,15 +4,25 @@
     })();
 </script>
 
-<div class="series-hero" style="background-image: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(10,10,10,1)), url('{#if sampleVideo}/api/video/thumbnail/{sampleVideo.id}{/if}'); margin: 0 2rem 2rem 2rem; border-radius: 16px; height: 45vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-color: #1a1a1a;">
+<div class="series-hero" style="background-image: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(10,10,10,1)), url('{#if sampleVideo}/api/video/hero/{sampleVideo.id}{/if}'); margin: 0 2rem 2rem 2rem; border-radius: 16px; height: 45vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-color: #1a1a1a;">
     <div class="series-hero-content">
         <div class="mb-2" onclick="videoSPA.goBack()" style="cursor: pointer; display: inline-block; color: rgba(255,255,255,0.6); font-weight: 700; text-transform: uppercase; letter-spacing: 2px; font-size: 0.8rem; transition: color 0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">
             <i class="pi pi-chevron-left mr-1" style="font-size: 0.7rem;"></i> TV Shows
         </div>
 
+        {#if sampleVideo}
+        <img class="series-hero-logo mb-4" 
+             src="/api/video/logo/{sampleVideo.id}" 
+             alt="{seriesTitle}"
+             {#if lastPlayedVideo}onclick="window.selectItem({lastPlayedVideo.id}, 'play')"{/if}
+             style="cursor: pointer; max-width: 288px; max-height: 80px; object-fit: contain; display: block;"
+             title="{lastPlayedVideo ? 'Play / Resume ' + (lastPlayedVideo.episodeTitle ?: lastPlayedVideo.title) : ''}"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='block'"
+             onload="this.classList.remove('is-skeleton')">
+        {/if}
         <h1 class="series-hero-title mb-4" 
             {#if lastPlayedVideo}onclick="window.selectItem({lastPlayedVideo.id}, 'play')"{/if}
-            style="cursor: pointer; display: block;" 
+            style="cursor: pointer; {#if sampleVideo}display: none;{/if}" 
             title="{lastPlayedVideo ? 'Play / Resume ' + (lastPlayedVideo.episodeTitle ?: lastPlayedVideo.title) : ''}">
             {seriesTitle}
             <i class="pi pi-play-circle ml-4 play-hint-icon" style="font-size: 0.6em; vertical-align: middle; opacity: 0; transition: all 0.3s;"></i>
@@ -54,15 +64,13 @@
                     {/if}
                 </div>
                 <div class="standard-card-info">
-                    <div class="standard-card-title">{#if season.seasonName}{season.seasonName}{#else}Season {season.seasonNumber}{/if}</div>
-                    {#let sp = seasonProgress.get(season.seasonNumber)}
-                    <div class="standard-card-meta">{#if season.seasonName}Season {season.seasonNumber} · {/if}{sp.watched}/{sp.total} watched</div>
-                    {#if sp.total > 0}
+                    <div class="standard-card-title">{season.seasonName}</div>
+                    {#if season.total > 0}
+                    <div class="standard-card-meta">{season.watched}/{season.total} watched</div>
                     <div class="season-progress-track">
-                        <div class="season-progress-bar" style="width: {sp.percent}%;"></div>
+                        <div class="season-progress-bar" style="width: {season.percent}%;"></div>
                     </div>
                     {/if}
-                    {/let}
                 </div>
             </div>
         {/for}
@@ -73,7 +81,9 @@
         <div class="standard-grid" style="padding: 0 1rem;">
             <div class="section-label" style="grid-column: 1 / -1; font-size: 1.1rem; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.5rem;">Extras</div>
             {#for entry in extrasContentTypes}
-                <div class="standard-card extras-card">
+                <div class="standard-card extras-card"
+                     onclick="window.videoSPA.switchSection('extras', \{seriesTitle: '{encodedSeriesTitle}', contentType: '{entry.key}'\})"
+                     style="cursor: pointer;">
                     <div class="standard-card-poster">
                         <div class="extras-card-icon">
                             <i class="pi pi-folder-open"></i>
@@ -82,7 +92,7 @@
                     <div class="standard-card-info">
                         <div class="standard-card-title" style="text-transform: capitalize;">{entry.key}</div>
                         <div class="standard-card-meta">{entry.value.size()} episode{#if entry.value.size() != 1}s{/if}</div>
-                        <div class="extras-subtitle">Not tracked</div>
+                        <div class="extras-subtitle">Click to browse</div>
                     </div>
                 </div>
             {/for}
@@ -186,7 +196,6 @@
     background: rgba(255,255,255,0.02) !important;
     opacity: 0.85;
     transition: opacity 0.2s ease, border-color 0.2s ease;
-    cursor: default !important;
 }
 .extras-card:hover {
     opacity: 1;

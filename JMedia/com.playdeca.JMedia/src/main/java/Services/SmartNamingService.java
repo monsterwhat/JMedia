@@ -72,7 +72,7 @@ public class SmartNamingService {
     
     // "Text N Text" pattern: "JoJo 1 Phantom Blood", "One Piece 2 Gold" - text, number, text
     // Requires at least 2 letters before the number and at least 1 letter after
-    private static final Pattern SEASON_TEXT_N_TEXT = Pattern.compile("(?i)[a-z]{2,}.*?\\s+(\\d{1,3})\\s+[a-z].*");
+    private static final Pattern SEASON_TEXT_N_TEXT = Pattern.compile("(?i)[a-z]{2,}.*?\\s+(\\d{1,3})\\s+[a-z\\-–—].*");
     
     // "[N-M] Text" bracket range pattern: "[1-7] Romance Dawn", "[136-138] Skypiea"
     private static final Pattern SEASON_BRACKET_RANGE = Pattern.compile("(?i)^\\[(\\d{1,3})-\\d{1,3}\\]\\s+[a-z].*");
@@ -389,7 +389,10 @@ public class SmartNamingService {
                     boolean isExtrasFolder = EXTRAS_FOLDER_PATTERN.matcher(folder).find();
                     if (isExtrasFolder) {
                         analysis.hasExtrasFolder = true;
-                        // Skip extras folders but continue searching
+                        // Extract season number from named extras folders like "Vol. 1 Extras" -> season 1
+                        if (analysis.extrasSeason == null) {
+                            analysis.extrasSeason = extractSeasonFromFolder(folder);
+                        }
                         continue;
                     }
                     
@@ -607,6 +610,7 @@ public class SmartNamingService {
         Matcher mSxxN = CONTENT_TYPE_SXXXN.matcher(filename);
         if (mSxxN.find()) {
             detection.season = Integer.parseInt(mSxxN.group(1));
+            detection.episode = Integer.parseInt(mSxxN.group(2));
             detection.contentType = "extra";
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SxxN";
@@ -618,6 +622,7 @@ public class SmartNamingService {
         if (mSxxXep.find()) {
             detection.season = Integer.parseInt(mSxxXep.group(1));
             detection.episode = Integer.parseInt(mSxxXep.group(2));
+            detection.contentType = "extra";
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SxxXep";
             detection.confidence = 0.85;
@@ -827,13 +832,40 @@ public class SmartNamingService {
             detection.confidence = 0.7;
         }
 
+        // Check for fractional season in the season folder name (e.g., "Season 2.5 OVA")
+        if (detection.season != null && pathAnalysis.seasonFolder != null) {
+            Matcher fractionalMatcher = SEASON_FRACTIONAL.matcher(pathAnalysis.seasonFolder);
+            if (fractionalMatcher.find()) {
+                String fractionalPart = fractionalMatcher.group(2);
+                String folderLower = pathAnalysis.seasonFolder.toLowerCase();
+                String suffix = "part" + fractionalPart;
+                if (folderLower.contains("ova")) {
+                    suffix = "OVA";
+                } else if (folderLower.contains("oad")) {
+                    suffix = "OAD";
+                }
+                detection.seasonSuffix = suffix;
+            }
+        }
+
+        // Apply extras content type when the video sits in an extras subfolder
+        // (e.g., "Season 1/Extras/video.mp4" → season=1, contentType="extra")
+        if (pathAnalysis.subFolder != null && EXTRAS_FOLDER_PATTERN.matcher(pathAnalysis.subFolder).find()) {
+            detection.contentType = "extra";
+        }
+
         if (detection.season == null && pathAnalysis.showFolder != null && !pathAnalysis.hasSeasonFolder) {
             if (pathAnalysis.hasExtrasFolder) {
-                // Path has only extras folders — don't assign season=1, set contentType instead
+                detection.contentType = "extra";
                 detection.detectionMethod = "ExtrasContent";
                 detection.confidence = 0.6;
                 detection.hasEpisodePattern = true;
-                // season stays null — UI will group by contentType
+                // Apply season from extras folder if available (e.g., "Vol. 1 Extras" → season 1)
+                if (pathAnalysis.extrasSeason != null) {
+                    detection.season = pathAnalysis.extrasSeason;
+                }
+                // If extrasSeason is null (e.g., just "Xtras" folder), season stays null
+                // The applyContentType fallback will set it to 0
             } else {
                 detection.season = 1;
                 detection.detectionMethod = "PathStructureDefault";
@@ -1122,6 +1154,11 @@ public class SmartNamingService {
         }
         if (SEASON_BARE_S_PATTERN.matcher(name).matches()) {
             System.out.println("DEBUG: matched SEASON_BARE_S_PATTERN");
+            return true;
+        }
+        // Matches "S1 MP4", "S01 HEVC", etc. (S-prefix with trailing text)
+        if (name.matches("(?i)^s\\d{1,3}[\\s\\._-].*")) {
+            System.out.println("DEBUG: matched S-prefix folder pattern");
             return true;
         }
         if (SEASON_MOVIE_PATTERN.matcher(name).matches()) {
@@ -1486,6 +1523,11 @@ public class SmartNamingService {
         Matcher bareSMatcher = Pattern.compile("(?i)^s(\\d{1,3})$").matcher(folderName);
         if (bareSMatcher.matches()) {
             try { return Integer.parseInt(bareSMatcher.group(1)); } catch (NumberFormatException e) {}
+        }
+        // NEW: Extract from "S1 MP4" pattern (S-prefix with trailing text)
+        Matcher sPrefixFolderMatcher = Pattern.compile("(?i)^s(\\d{1,3})[\\s\\._-]").matcher(folderName);
+        if (sPrefixFolderMatcher.find()) {
+            try { return Integer.parseInt(sPrefixFolderMatcher.group(1)); } catch (NumberFormatException e) {}
         }
         
         // NEW: Extract from "Text N Text" pattern like "JoJo 1 Phantom Blood" → season 1

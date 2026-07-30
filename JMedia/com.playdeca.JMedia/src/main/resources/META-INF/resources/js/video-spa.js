@@ -20,6 +20,7 @@ class VideoSPA {
             seasons: '/api/video/ui/shows/{encodedTitle}/seasons-fragment',
             episodes: '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/episodes-fragment',
             'folder-episodes': '/api/video/ui/shows/{seriesTitle}/seasons/{seasonNumber}/folders/{folderName}/episodes-fragment',
+            extras: '/api/video/ui/shows/{seriesTitle}/extras/{contentType}/episodes-fragment',
             details: '/api/video/ui/details-fragment/{videoId}',
             playback: '/api/video/ui/playback-fragment?videoId={videoId}',
             external: '/api/video/external/fragment',
@@ -61,7 +62,7 @@ class VideoSPA {
         }
         
         if (!bypassHistory) {
-            if (section === 'playback' || section === 'details' || section === 'episodes' || section === 'seasons' || section === 'folder-episodes' || section === 'collectionEntries') {
+            if (section === 'playback' || section === 'details' || section === 'episodes' || section === 'seasons' || section === 'folder-episodes' || section === 'extras' || section === 'collectionEntries') {
                  if (this.currentSection !== section) {
                      this.backDestination = { section: this.currentSection, params: { ...this.currentParams } };
                      console.log('[VideoSPA] Saved back destination:', this.backDestination);
@@ -562,6 +563,7 @@ class VideoSPA {
             collections: 'Collections', adminHistory: 'All History',
             suggestion: 'Suggestions', adminSuggestions: 'All Suggestions',
             manageSeries: 'Manage Series',
+            extras: 'Extras',
             liveTv: 'Live TV',
             liveTvPlayback: 'Live TV',
             nowPlaying: 'Now Playing'
@@ -590,6 +592,15 @@ class VideoSPA {
                 bcHome, bcShows, fepBack,
                 'Season ' + params.seasonNumber,
                 this._decodeBcParam(params.folderName)
+            ]);
+        } else if (section === 'extras' && params.seriesTitle && params.contentType) {
+            var decoded = this._decodeBcParam(params.seriesTitle);
+            var exBack = { label: decoded, navigate: function() {
+                self.switchSection('seasons', { encodedTitle: encodeURIComponent(decoded) });
+            }};
+            window.Breadcrumbs.set([
+                bcHome, bcShows, exBack,
+                this._decodeBcParam(params.contentType)
             ]);
         } else if (section === 'playback' && params.videoId) {
             var player = document.getElementById('customPlayer');
@@ -669,6 +680,7 @@ class VideoSPA {
             seasons: heroSkel + '<div class="standard-grid" style="padding:0 1rem;">' + seasonCardGrid + '</div>',
             episodes: heroSkel + '<div class="episodes-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem;padding:1rem;">' + episodeCardGrid + '</div>',
             'folder-episodes': heroSkel + '<div class="episodes-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem;padding:1rem;">' + episodeCardGrid + '</div>',
+            extras: heroSkel + '<div class="episodes-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem;padding:1rem;">' + episodeCardGrid + '</div>',
             details: '<div class="detail-container" style="display:flex;gap:4rem;padding:3rem;margin:1rem;min-height:calc(100vh - 200px);"><div class="poster-section" style="flex:0 0 400px;"><div class="skeleton-block is-skeleton" style="width:100%;aspect-ratio:2/3;border-radius:16px;"></div></div><div class="info-section" style="flex:1;display:flex;flex-direction:column;gap:2rem;"><div class="skeleton-block is-skeleton" style="height:2.5rem;width:120px;border-radius:8px;"></div><div><div class="skeleton-block is-skeleton" style="height:4.5rem;width:550px;border-radius:8px;margin-bottom:0.75rem;"></div><div class="skeleton-block is-skeleton" style="height:1.2rem;width:350px;border-radius:4px;"></div></div><div class="is-flex" style="gap:1rem;"><div class="skeleton-block is-skeleton" style="width:90px;height:60px;border-radius:8px;"></div><div class="skeleton-block is-skeleton" style="width:90px;height:60px;border-radius:8px;"></div></div><div class="is-flex" style="gap:1rem;"><div class="skeleton-block is-skeleton" style="height:3rem;width:160px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:3rem;width:160px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:3rem;width:160px;border-radius:999px;"></div></div><div class="skeleton-lines" style="max-width:800px;"><div></div><div></div><div style="width:70%;"></div></div><div class="is-flex mt-2" style="gap:0.5rem;"><div class="skeleton-block is-skeleton" style="height:2rem;width:90px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:2rem;width:110px;border-radius:999px;"></div><div class="skeleton-block is-skeleton" style="height:2rem;width:70px;border-radius:999px;"></div></div></div></div>',
             adminHistory: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>',
             external: headerSkel + '<div class="standard-grid">' + cardGrid + '</div>',

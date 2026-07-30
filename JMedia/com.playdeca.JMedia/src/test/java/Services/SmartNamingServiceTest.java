@@ -382,4 +382,62 @@ public class SmartNamingServiceTest {
         assertNull(result.season,
                 "season=null via ExtrasContent (Vol. 2 Extras correctly identified; not season 2)");
     }
+
+    // ── Fix A: Fractional season folder tests ─────────────────────────────
+
+    /**
+     * "Season 2.5 OVA" folder — fractional season not detected in folder names.
+     * Path: "TV Shows/Blue Exorcist/Season 2.5 OVA/episode.mkv"
+     * Expected: season=2, seasonSuffix="OVA"
+     */
+    @Test
+    void testSeason25OVAFolder() {
+        String filename = "episode.mkv";
+        String relativePath = "TV Shows/Blue Exorcist/Season 2.5 OVA/episode.mkv";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals(2, result.season, "season should be 2 (integer part of 2.5)");
+        assertEquals("OVA", result.seasonSuffix, "seasonSuffix should be 'OVA' from '.5 OVA'");
+    }
+
+    /**
+     * "S1 MP4" folder — folder name starting with S\\d+ not recognized as season folder.
+     * Path: "TV Shows/Naruto Kai/S1 MP4/some_episode.mp4"
+     * Expected: season=1
+     */
+    @Test
+    void testS1MP4Folder() {
+        String filename = "some_episode.mp4";
+        String relativePath = "TV Shows/Naruto Kai/S1 MP4/some_episode.mp4";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals(1, result.season, "season should be 1 from S1 MP4 folder");
+    }
+
+    /**
+     * "Shinden 1 - Itachi Shinden - Book of Light and Darkness" folder —
+     * dash after number breaks SEASON_TEXT_N_TEXT pattern.
+     * Path: "TV Shows/Naruto Kai/Shinden 1 - Itachi Shinden - Book of Light and Darkness/some_episode.mkv"
+     * Expected: season=1
+     */
+    @Test
+    void testShindenDashTextNText() {
+        String filename = "some_episode.mkv";
+        String relativePath = "TV Shows/Naruto Kai/Shinden 1 - Itachi Shinden - Book of Light and Darkness/some_episode.mkv";
+
+        SmartNamingService.NamingResult result = service.detectSmartNames(
+                null, filename, relativePath, null, null, null, null, null, null);
+
+        assertNotNull(result, "NamingResult should not be null");
+        assertEquals("episode", result.mediaType, "mediaType should be 'episode'");
+        assertEquals(1, result.season, "season should be 1 from SEASON_TEXT_N_TEXT matching 'Shinden 1...'");
+    }
 }
