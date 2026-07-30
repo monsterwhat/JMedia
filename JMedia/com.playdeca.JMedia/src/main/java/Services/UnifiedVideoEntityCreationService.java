@@ -136,7 +136,7 @@ public class UnifiedVideoEntityCreationService {
         // Link or create Series entity by showName
         if (result.showName != null && !result.showName.isEmpty()) {
             // Standalone movies with no season number don't belong to a Series
-            if ("movie".equals(video.contentType) && video.seasonNumber == null) {
+            if ("movie".equals(video.type) && video.seasonNumber == null) {
                 video.series = null;
             } else {
                 Series series = Series.find("title", result.showName).firstResult();
