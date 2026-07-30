@@ -905,7 +905,8 @@ public class SmartNamingService {
         // Short-circuit: extras/featurette content with a subfolder stays as episode
         if (("featurette".equals(episodeDetection.contentType) || "extra".equals(episodeDetection.contentType)
              || "behind_the_scenes".equals(episodeDetection.contentType) || "interview".equals(episodeDetection.contentType))
-            && (pathAnalysis.subFolder != null || pathAnalysis.hasExtrasFolder)) {
+            && (pathAnalysis.subFolder != null || pathAnalysis.hasExtrasFolder)
+            && !"movie".equals(pathAnalysis.directoryTypeHint)) {
             return new MediaTypeDecision("episode", 0.85, "Extras/featurette subfolder content: episode");
         }
 
