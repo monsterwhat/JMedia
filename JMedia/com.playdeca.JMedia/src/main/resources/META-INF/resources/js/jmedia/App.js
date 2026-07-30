@@ -5,11 +5,11 @@
 
     class App {
         constructor() {
-            this.routes = {
-                '/': 'music', '/music': 'music', '/video': 'video',
-                '/video-test': 'video-test',
-                '/settings': 'settings', '/import': 'import'
-            };
+        this.routes = {
+            '/': 'music', '/music': 'music', '/video': 'video',
+            '/video-classic': 'video-classic',
+            '/settings': 'settings', '/import': 'import'
+        };
             this.currentView = null;
         }
 
@@ -71,8 +71,10 @@
 
         navigate(path) {
             if (window.location.pathname === path && !path.includes('?')) {
-                if (path === '/video' && window.videoSPA) {
-                    window.videoSPA.goHome();
+                if (path === '/video') {
+                    this.handleRoute('/video');
+                } else if (path === '/video-classic') {
+                    if (window.videoSPA) window.videoSPA.goHome();
                 } else if (path === '/' && window.loadMobilePlaylistSongs) {
                     window.loadMobilePlaylistSongs(0);
                     history.pushState(null, null, '/');
@@ -88,8 +90,16 @@
         handleRoute() {
             const path = window.location.pathname;
             let viewName = this.routes[path] || 'music';
-            if (path.startsWith('/video-test')) viewName = 'video-test';
-            else if (path.startsWith('/video')) viewName = 'video';
+            if (path.startsWith('/video-classic')) {
+                viewName = 'video-classic';
+            } else if (path.startsWith('/video-test')) {
+                // Old bookmark redirect — preserve query params
+                const search = window.location.search;
+                window.history.replaceState(null, '', '/video' + search);
+                viewName = 'video';
+            } else if (path.startsWith('/video')) {
+                viewName = 'video';
+            }
             if (path.startsWith('/settings')) viewName = 'settings';
             if (path.startsWith('/import')) viewName = 'import';
             this.loadView(viewName);
@@ -127,10 +137,10 @@
                 container.innerHTML = html;
                 this.currentView = viewName;
 
-                const viewLabels = { music: 'Music', video: 'Video', settings: 'Settings', import: 'Import' };
+                const viewLabels = { music: 'Music', video: 'Video', 'video-classic': 'Video Classic', settings: 'Settings', import: 'Import' };
                 if (window.Breadcrumbs) window.Breadcrumbs.set([viewLabels[viewName] || viewName]);
 
-                const isVideoPage = viewName === 'video' || viewName === 'video-test';
+                const isVideoPage = viewName === 'video' || viewName === 'video-classic';
                 const musicPlayer = document.querySelector('.persistent-music-player') ||
                                    document.querySelector('.mobile-player') ||
                                    document.getElementById('musicPlayerContainer');
@@ -197,7 +207,7 @@
                 this.executeScripts(container);
                 if (window.htmx) htmx.process(container);
 
-                if (viewName === 'video' && window.videoSPA) window.videoSPA.init();
+                if (viewName === 'video-classic' && window.videoSPA) window.videoSPA.init();
                 if (viewName === 'import' && window.initImportView) window.initImportView();
                 if (viewName === 'music') {
                     if (window.loadMobilePlaylists) window.loadMobilePlaylists();
@@ -222,7 +232,7 @@
         getViewSkeleton(viewName) {
             var skeletons = {
                 music: '<div class="skeleton-shell"><div class="field has-addons m-2"><div class="control is-expanded"><div class="skeleton-block is-skeleton" style="height:2em;border-radius:999px;"></div></div><div class="control"><div class="skeleton-block is-skeleton" style="width:60px;height:2em;border-radius:999px;"></div></div></div><div class="is-flex is-flex-wrap-wrap px-3 py-2" style="gap:0.75rem;"><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div></div></div>',
-                video: '<div class="skeleton-shell">' +
+                'video-classic': '<div class="skeleton-shell">' +
                     '<div class="mb-5 px-4"><div class="level is-mobile mb-3"><div class="level-left"><div class="level-item"><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="card is-skeleton" style="width:28px;height:28px;border-radius:6px;"></div><div class="skeleton-lines" style="width:200px;"><div></div></div></div></div></div><div class="level-right"><div class="level-item"><div class="buttons are-small"><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button></div></div></div></div><div class="is-flex" style="gap:1rem;overflow:hidden;"><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div></div></div>' +
                     '<div class="mb-5 px-4"><div class="level is-mobile mb-3"><div class="level-left"><div class="level-item"><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="card is-skeleton" style="width:28px;height:28px;border-radius:6px;"></div><div class="skeleton-lines" style="width:240px;"><div></div></div></div></div></div><div class="level-right"><div class="level-item"><div class="buttons are-small"><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button></div></div></div></div><div class="is-flex" style="gap:1rem;overflow:hidden;"><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div></div></div>' +
                     '<div class="mb-5 px-4"><div class="level is-mobile mb-3"><div class="level-left"><div class="level-item"><div class="is-flex is-align-items-center" style="gap:0.75rem;"><div class="card is-skeleton" style="width:28px;height:28px;border-radius:6px;"></div><div class="skeleton-lines" style="width:180px;"><div></div></div></div></div></div><div class="level-right"><div class="level-item"><div class="buttons are-small"><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button><button class="button is-skeleton is-rounded" style="width:40px;height:40px;border:none;"></button></div></div></div></div><div class="is-flex" style="gap:1rem;overflow:hidden;"><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div><div class="card is-skeleton" style="width:200px;flex-shrink:0;border-radius:12px;"><div class="card-image" style="height:300px;"></div><div class="card-content" style="padding:1rem;"><div class="tags mb-2"><span class="tag is-skeleton" style="width:40px;height:18px;border:none;"></span></div><div class="skeleton-lines"><div></div><div></div></div></div></div></div></div>' +
@@ -256,7 +266,7 @@
 
             const isMusic = (viewName === 'music');
             const isImport = (viewName === 'import');
-            const isVideo = (viewName === 'video');
+            const isVideo = (viewName === 'video-classic');
             const isSettings = (viewName === 'settings');
 
             if (settingsLibs) settingsLibs.style.display = isSettings ? 'block' : 'none';
@@ -288,7 +298,7 @@
             if (videoSubNav) videoSubNav.style.display = isVideo ? 'block' : 'none';
 
             if (viewName === 'music') document.getElementById('nav-music')?.classList.add('active');
-            if (viewName === 'video' || viewName === 'video-test') {
+            if (viewName === 'video-classic') {
                 const urlParams = new URLSearchParams(window.location.search);
                 const section = urlParams.get('section') || 'home';
                 const sidebarItems = ['movies', 'shows', 'history', 'watchlist', 'manage', 'adminHistory'];

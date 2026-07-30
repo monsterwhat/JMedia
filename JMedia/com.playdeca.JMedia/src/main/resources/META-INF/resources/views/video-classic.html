@@ -1,0 +1,228 @@
+<main id="spa-container" class="standard-content">
+    <div id="loading-state" class="loading-overlay">
+        <div class="is-flex is-justify-content-center is-flex-wrap-wrap" style="gap: 1rem; max-width: 900px; padding: 2rem; margin: 0 auto;">
+            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
+            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
+            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
+            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
+            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
+        </div>
+    </div>
+
+    <div id="spa-content" class="spa-content">
+        <div id="carousels-section" 
+             hx-get="/api/video/ui/optimized-carousels"
+             hx-trigger="load"
+             hx-target="#carousels-section"
+             hx-swap="innerHTML">
+            <div class="skeleton-shell">
+                <!-- Carousel Row 1 -->
+                <div class="mb-5 px-4">
+                    <div class="level is-mobile mb-3">
+                        <div class="level-left">
+                            <div class="level-item">
+                                <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
+                                    <div class="card is-skeleton" style="width: 28px; height: 28px; border-radius: 6px;"></div>
+                                    <div class="skeleton-lines" style="width: 200px;"><div></div></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="level-right">
+                            <div class="level-item">
+                                <div class="buttons are-small">
+                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
+                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="is-flex" style="gap: 1rem; overflow: hidden;">
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Carousel Row 2 -->
+                <div class="mb-5 px-4">
+                    <div class="level is-mobile mb-3">
+                        <div class="level-left">
+                            <div class="level-item">
+                                <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
+                                    <div class="card is-skeleton" style="width: 28px; height: 28px; border-radius: 6px;"></div>
+                                    <div class="skeleton-lines" style="width: 240px;"><div></div></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="level-right">
+                            <div class="level-item">
+                                <div class="buttons are-small">
+                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
+                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="is-flex" style="gap: 1rem; overflow: hidden;">
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Carousel Row 3 -->
+                <div class="mb-5 px-4">
+                    <div class="level is-mobile mb-3">
+                        <div class="level-left">
+                            <div class="level-item">
+                                <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
+                                    <div class="card is-skeleton" style="width: 28px; height: 28px; border-radius: 6px;"></div>
+                                    <div class="skeleton-lines" style="width: 180px;"><div></div></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="level-right">
+                            <div class="level-item">
+                                <div class="buttons are-small">
+                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
+                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="is-flex" style="gap: 1rem; overflow: hidden;">
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
+                            <div class="card-image" style="height: 300px;"></div>
+                            <div class="card-content" style="padding: 1rem;">
+                                <div class="tags mb-2">
+                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
+                                </div>
+                                <div class="skeleton-lines"><div></div><div></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>

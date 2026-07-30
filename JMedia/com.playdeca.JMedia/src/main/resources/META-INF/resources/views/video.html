@@ -1,228 +1,373 @@
-<main id="spa-container" class="standard-content">
-    <div id="loading-state" class="loading-overlay">
-        <div class="is-flex is-justify-content-center is-flex-wrap-wrap" style="gap: 1rem; max-width: 900px; padding: 2rem; margin: 0 auto;">
-            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
-            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
-            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
-            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
-            <div class="card is-skeleton" style="width: 160px; height: 240px; border-radius: 12px;"></div>
-        </div>
+<link rel="stylesheet" href="/css/cinema-home.css">
+<link rel="stylesheet" href="/css/player-modal.css">
+<link rel="stylesheet" href="/css/episode-sidebar.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+<!-- Ambient Blur Background -->
+<div class="cinema-ambient-container">
+  <img class="cinema-ambient-blur" id="ambient-blur-img" src="" alt="" style="background: #0a0a0a;">
+  <div class="cinema-ambient-gradient"></div>
+</div>
+
+<!-- Glass Navbar -->
+<nav class="cinema-nav">
+  <div class="cinema-nav-left">
+    <a href="/" class="cinema-nav-logo"><img src="/logo.png" alt="JMedia" class="cinema-nav-logo-img"></a>
+  </div>
+
+  <div class="cinema-nav-right">
+    <a href="/video-classic" class="cinema-nav-classic-btn">Classic UI</a>
+  </div>
+
+</nav>
+
+<!-- Hero Section -->
+<section class="cinema-hero" id="cinema-hero">
+  <img class="cinema-hero-backdrop" id="hero-backdrop"
+       src="" 
+       alt="Featured backdrop"
+       style="background: #0a0a0a;">
+  <div class="cinema-hero-top-gradient"></div>
+  <div class="cinema-hero-left-gradient"></div>
+  
+  <div class="cinema-hero-content" id="hero-content">
+    <div class="cinema-hero-badge" id="hero-badge">
+      <i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching
     </div>
-
-    <div id="spa-content" class="spa-content">
-        <div id="carousels-section" 
-             hx-get="/api/video/ui/optimized-carousels"
-             hx-trigger="load"
-             hx-target="#carousels-section"
-             hx-swap="innerHTML">
-            <div class="skeleton-shell">
-                <!-- Carousel Row 1 -->
-                <div class="mb-5 px-4">
-                    <div class="level is-mobile mb-3">
-                        <div class="level-left">
-                            <div class="level-item">
-                                <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
-                                    <div class="card is-skeleton" style="width: 28px; height: 28px; border-radius: 6px;"></div>
-                                    <div class="skeleton-lines" style="width: 200px;"><div></div></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="level-right">
-                            <div class="level-item">
-                                <div class="buttons are-small">
-                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
-                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="is-flex" style="gap: 1rem; overflow: hidden;">
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Carousel Row 2 -->
-                <div class="mb-5 px-4">
-                    <div class="level is-mobile mb-3">
-                        <div class="level-left">
-                            <div class="level-item">
-                                <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
-                                    <div class="card is-skeleton" style="width: 28px; height: 28px; border-radius: 6px;"></div>
-                                    <div class="skeleton-lines" style="width: 240px;"><div></div></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="level-right">
-                            <div class="level-item">
-                                <div class="buttons are-small">
-                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
-                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="is-flex" style="gap: 1rem; overflow: hidden;">
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Carousel Row 3 -->
-                <div class="mb-5 px-4">
-                    <div class="level is-mobile mb-3">
-                        <div class="level-left">
-                            <div class="level-item">
-                                <div class="is-flex is-align-items-center" style="gap: 0.75rem;">
-                                    <div class="card is-skeleton" style="width: 28px; height: 28px; border-radius: 6px;"></div>
-                                    <div class="skeleton-lines" style="width: 180px;"><div></div></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="level-right">
-                            <div class="level-item">
-                                <div class="buttons are-small">
-                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
-                                    <button class="button is-skeleton is-rounded" style="width: 40px; height: 40px; border: none;"></button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="is-flex" style="gap: 1rem; overflow: hidden;">
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                        <div class="card is-skeleton" style="width: 200px; flex-shrink: 0; border-radius: 12px;">
-                            <div class="card-image" style="height: 300px;"></div>
-                            <div class="card-content" style="padding: 1rem;">
-                                <div class="tags mb-2">
-                                    <span class="tag is-skeleton" style="width: 40px; height: 18px; border: none;"></span>
-                                </div>
-                                <div class="skeleton-lines"><div></div><div></div></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="cinema-hero-title-wrap" id="hero-title-wrap">
+      <img class="cinema-hero-logo is-skeleton" id="hero-logo-img" src="" alt="">
     </div>
+    <div class="cinema-hero-rating">
+      <span class="cinema-hero-rating-stars" id="hero-stars"></span>
+      <span class="cinema-hero-rating-value" id="hero-rating"></span>
+      <span class="cinema-hero-rating-year" id="hero-year"></span>
+    </div>
+    <div class="cinema-hero-meta" id="hero-meta"></div>
+    <p class="cinema-hero-desc" id="hero-desc"></p>
+    <div class="cinema-hero-actions">
+      <button class="cinema-hero-play" id="hero-play-btn">
+        <i class="fa-solid fa-play"></i> Play
+      </button>
+      <div class="cinema-hero-secondary-group">
+        <button class="cinema-hero-secondary" id="hero-watchlist-btn" title="Add to Watchlist">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+        <div class="cinema-hero-secondary-divider"></div>
+        <button class="cinema-hero-secondary" id="hero-info-btn" title="More Info">
+          <i class="fa-solid fa-circle-info"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hero Timer Indicators -->
+  <div class="cinema-hero-timers" id="heroTimers"></div>
+
+  <!-- Color gradient overlay -->
+  <div class="cinema-hero-color-gradient" id="hero-color-gradient"></div>
+</section>
+
+<!-- Content Sections -->
+<main class="cinema-content">
+  <div class="cinema-content-blur-layer"></div>
+  <div class="cinema-content-blur-overlay"></div>
+  <!-- Continue Watching Section -->
+  <section class="cinema-section" id="section-continue-watching" style="display:none;">
+    <div class="cinema-section-header">
+      <h2 class="cinema-section-title">Continue Watching</h2>
+    </div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="continue-watching-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  </section>
+  <!-- Recently Updated Section -->
+  <section class="cinema-section" id="section-recently-updated" style="display:none;">
+    <div class="cinema-section-header">
+      <h2 class="cinema-section-title">Recently Updated</h2>
+    </div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="recently-updated-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="recently-updated-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="recently-updated-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  </section>
+
+  <!-- Trending Now Section -->
+  <section class="cinema-section" id="section-trending" style="display:none;">
+    <div class="cinema-section-header">
+      <h2 class="cinema-section-title">Trending Now</h2>
+    </div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="trending-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="trending-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="trending-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  </section>
+
+  <!-- Movies Section -->
+  <section class="cinema-section" id="section-movies" data-category="movies" style="display:none;">
+    <div class="cinema-section-header">
+      <h2 class="cinema-section-title">Movies</h2>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
+        <div id="movies-sort-controls" style="display: none; gap: 0.75rem; align-items: center;">
+          <button data-sort="title" data-click="sortShowAll:title" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Name</button>
+          <button data-sort="dateAdded" data-click="sortShowAll:dateAdded" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: white;">Date Added</button>
+          <button data-sort="lastWatched" data-click="sortShowAll:lastWatched" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Recently Watched</button>
+        </div>
+        <button id="movies-show-all-btn" data-click="toggleShowAll:movies" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6); display: none;">Show All</button>
+      </div>
+    </div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="movies-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  </section>
+
+  <!-- TV Shows Section -->
+  <section class="cinema-section" id="section-tvshows" data-category="shows" style="display:none;">
+    <div class="cinema-section-header">
+      <h2 class="cinema-section-title">TV Shows</h2>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
+        <div id="tvshows-sort-controls" style="display: none; gap: 0.75rem; align-items: center;">
+          <button data-sort="title" data-click="sortShowAll:title" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Name</button>
+          <button data-sort="dateAdded" data-click="sortShowAll:dateAdded" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: white;">Date Added</button>
+          <button data-sort="lastWatched" data-click="sortShowAll:lastWatched" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Recently Watched</button>
+        </div>
+        <button id="tvshows-show-all-btn" data-click="toggleShowAll:tvshows" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6); display: none;">Show All</button>
+      </div>
+    </div>
+    <div class="cinema-carousel-wrapper">
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="cinema-carousel scrollbar-hide" id="tvshows-carousel"></div>
+      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  </section>
 </main>
+
+<!-- Dynamic Content Section -->
+<div class="cinema-section" id="section-dynamic" style="display:none;">
+  <div id="dynamic-content"></div>
+</div>
+
+<!-- Floating Dock Navigation -->
+<div class="cinema-dock">
+  <nav class="cinema-dock-nav">
+    <a href="/video" class="cinema-dock-item active" title="Home"><i class="fa-solid fa-house"></i></a>
+    <a href="#" data-section="movies" class="cinema-dock-item" title="Movies"><i class="fa-solid fa-film"></i></a>
+    <a href="#" data-section="shows" class="cinema-dock-item" title="TV Shows"><i class="fa-solid fa-tv"></i></a>
+    <a href="#" data-section="collections" class="cinema-dock-item" title="Collections"><i class="fa-solid fa-layer-group"></i></a>
+    <div class="cinema-dock-separator"></div>
+    <button class="cinema-dock-item" id="settingsDockBtn" title="Settings" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-gear"></i></button>
+    <button class="cinema-dock-item mobile-only" id="nowPlayingDockBtn" title="Now Playing" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-play"></i></button>
+  </nav>
+  <button class="cinema-dock-search" id="searchDockBtn" title="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
+  <!-- Search Bar (replaces nav when searching) -->
+  <div class="cinema-search-bar" id="searchBar">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input class="cinema-search-input" id="searchInput" type="text" placeholder="Search movies, shows..." autocomplete="off">
+    <button class="cinema-search-close" data-click="closeSearch" aria-label="Close search">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <div class="cinema-search-dropdown" id="searchDropdown"></div>
+  </div>
+</div>
+
+<!-- Details Modal -->
+<div class="cinema-modal-backdrop" id="cinema-modal-backdrop" data-click="closeModal"></div>
+<div class="cinema-modal" id="cinema-modal">
+  <button class="cinema-modal-close" data-click="closeModal">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+  <div class="cinema-modal-scroll">
+    <!-- Blurred background layers -->
+    <div class="cinema-modal-bg-blur" id="modal-bg-blur"></div>
+    <div class="cinema-modal-bg-blur-inner" id="modal-bg-blur-inner"></div>
+    <!-- Hero image + title overlay + bottom gradient -->
+    <div class="cinema-modal-hero-overlay">
+      <img class="cinema-modal-hero-img" id="modal-backdrop-img" src="" alt="Backdrop">
+      <div class="cinema-modal-blur-transition"></div>
+      <div class="cinema-modal-title-overlay">
+        <h2 id="modal-text-title" class="cinema-modal-title" style="display:none;"></h2>
+        <img src="" id="modal-logo-hero-img" class="cinema-modal-logo-hero is-skeleton" alt="">
+        <div class="cinema-modal-actions">
+          <button class="cinema-modal-play" id="modal-play-btn">
+            <i class="fa-solid fa-play"></i> Play Now
+          </button>
+          <button class="cinema-modal-watchlist" id="modal-watchlist-btn" title="Add to Watchlist">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        <div class="cinema-modal-meta-badges" id="modal-meta-row"></div>
+      </div>
+    </div>
+    <!-- Content � sits on top of the blurred background -->
+    <div class="cinema-modal-content">
+      <div class="cinema-modal-info-grid">
+        <div class="cinema-modal-info-left">
+          <div class="cinema-modal-desc-wrapper">
+            <p class="cinema-modal-desc is-skeleton" id="modal-desc"></p>
+            <button class="cinema-modal-desc-toggle" id="modal-desc-toggle" data-click="toggleDescription" style="display:none;">more...</button>
+          </div>
+        </div>
+        <div class="cinema-modal-info-right">
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-bottom:0.5rem;font-weight:600;">Genres:</div>
+          <div class="cinema-modal-genres is-skeleton" id="modal-genres"></div>
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-top:0.75rem;margin-bottom:0.25rem;font-weight:600;">Creator:</div>
+          <div class="cinema-modal-creator is-skeleton" id="modal-creator"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="cinema-modal-backdrop" id="settings-modal-backdrop" data-click="closeSettingsModal"></div>
+<div class="cinema-modal" id="settings-modal">
+  <button class="cinema-modal-close" data-click="closeSettingsModal" aria-label="Close settings">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+  <div class="cinema-modal-content" style="padding: 0;">
+    <div class="cinema-settings-layout">
+      <!-- Sidebar Navigation -->
+      <aside class="cinema-settings-sidebar">
+        <div class="cinema-settings-profile" data-click="switchSettingsTab:account" style="cursor:pointer;">
+          <div class="cinema-settings-avatar"><i class="fa-solid fa-user"></i></div>
+          <span class="cinema-settings-username" id="settings-username">User</span>
+        </div>
+        <nav class="cinema-settings-nav">
+          <button class="cinema-settings-tab cinema-settings-nav-item active" data-tab="playback" data-click="switchSettingsTab:playback"><i class="fa-solid fa-forward"></i> <span>Playback</span></button>
+
+          <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="about" data-click="switchSettingsTab:about"><i class="fa-solid fa-circle-info"></i> <span>About</span></button>
+        </nav>
+
+      </aside>
+
+      <!-- Main Content Area -->
+      <div class="cinema-settings-main">
+        <h2 class="cinema-modal-title">Settings</h2>
+
+    <div class="cinema-settings-panel" id="settings-panel-playback">
+      <div class="cinema-settings-section">
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Video Player</span>
+          <select class="cinema-settings-select" id="player-select" data-change="savePlayerSetting">
+            <option value="jmedia">JMedia Player</option>
+            <option value="videojs">Video.js</option>
+            <option value="oplayer">OPlayer</option>
+          </select>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Default Video Player</span>
+          <select class="cinema-settings-select" id="default-player-select" data-change="saveDefaultPlayerSetting">
+            <option value="simple">JMedia Player</option>
+            <option value="videojs">Video.js</option>
+            <option value="oplayer">OPlayer</option>
+          </select>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Auto-Skip Intro</span>
+          <div class="cinema-settings-toggle" id="skip-intro-toggle" data-click="toggleAutoSkip:intro"><div></div></div>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Auto-Skip Recap</span>
+          <div class="cinema-settings-toggle" id="skip-recap-toggle" data-click="toggleAutoSkip:recap"><div></div></div>
+        </div>
+        <div class="cinema-settings-row">
+          <span class="cinema-settings-label">Auto-Skip Outro</span>
+          <div class="cinema-settings-toggle" id="skip-outro-toggle" data-click="toggleAutoSkip:outro"><div></div></div>
+        </div>
+      </div>
+    </div>
+
+
+
+    <div class="cinema-settings-panel" id="settings-panel-about">
+      <div class="cinema-settings-section">
+        <div class="cinema-settings-row" style="border-bottom:none; flex-direction:column; align-items:flex-start; gap:0.5rem;">
+          <div class="cinema-settings-version">
+            <strong>JMedia</strong><br>
+            Version: <span id="cinema-version">checking...</span>
+          </div>
+        </div>
+        <div class="cinema-settings-divider"></div>
+        <div class="cinema-settings-row" style="border-bottom:none;">
+          <a class="cinema-settings-link" href="/settings" target="_blank">Open Full Settings Page &rarr;</a>
+        </div>
+      </div>
+        </div>
+
+<div class="cinema-settings-panel" id="settings-panel-account">
+  <div class="cinema-settings-section">
+    <div class="cinema-settings-row" style="border-bottom:none; flex-direction:column; align-items:flex-start; gap:0.75rem;">
+      <h3 style="font-size:0.9rem;font-weight:600;color:var(--cinema-text);margin-bottom:0.25rem;">Account</h3>
+      
+      <!-- Switch Profile -->
+      <div style="width:100%;">
+        <span class="cinema-settings-label" style="margin-bottom:0.5rem;display:block;">Switch Profile</span>
+        <div id="profile-list" style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+          <span style="color:var(--cinema-text-dim);font-size:0.75rem;">Loading profiles...</span>
+        </div>
+      </div>
+      
+      <div class="cinema-settings-divider" style="width:100%;"></div>
+      
+      <!-- Create New Profile -->
+      <div style="width:100%;">
+        <span class="cinema-settings-label" style="margin-bottom:0.5rem;display:block;">Create New Profile</span>
+        <div style="display:flex;gap:0.5rem;">
+          <input id="create-profile-input" type="text" placeholder="Profile name..." 
+                 style="flex:1;padding:0.5rem 0.75rem;border-radius:0.5rem;border:none;background:rgba(255,255,255,0.06);color:var(--cinema-text);font-size:0.8125rem;font-family:inherit;">
+          <button class="cinema-settings-btn" id="create-profile-btn" data-click="createProfile" style="white-space:nowrap;">Create</button>
+        </div>
+      </div>
+      
+      <div class="cinema-settings-divider" style="width:100%;"></div>
+      
+      <!-- Change Password -->
+      <button class="cinema-settings-action-btn" onclick="window.open('/settings','_blank')" style="width:100%;">
+        <i class="fa-solid fa-key"></i> Change Password
+      </button>
+      
+      <!-- Log Out -->
+      <button class="cinema-settings-action-btn secondary" id="logout-btn" data-click="logout" style="width:100%;">
+        <i class="fa-solid fa-right-from-bracket"></i> Log Out
+      </button>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Player Modal -->
+
+
+<div class="player-modal-backdrop" id="player-modal-backdrop" data-click="closePlayerModal"></div>
+<div class="player-modal" id="player-modal">
+  <div class="player-modal-topbar">
+    <button class="player-modal-topbar-btn player-close-btn" data-click="closePlayerModal" title="Close">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <span class="player-modal-topbar-title" id="player-modal-title"></span>
+    <button class="player-modal-topbar-btn player-expand-btn" data-click="togglePlayerExpand" title="Toggle fullscreen">
+      <i class="fa-solid fa-expand" id="player-expand-icon"></i>
+    </button>
+    <button class="episode-sidebar-toggle-btn" id="episode-sidebar-toggle" data-click="toggleEpisodeSidebar" title="Episodes" style="display:none;">
+      <i class="fa-solid fa-list"></i>
+    </button>
+  </div>
+  <div class="player-modal-content" id="player-modal-content"></div>
+  <!-- Episode Sidebar (injected by createEpisodeSidebar.js) -->
+  <div id="episode-sidebar-root"></div>
+
+
+<script src="/js/createEpisodeSidebar.js"></script>
+<script src="/js/cinema-mode.js"></script>
+
+
+

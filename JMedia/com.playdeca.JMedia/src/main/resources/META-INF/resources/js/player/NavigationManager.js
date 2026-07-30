@@ -75,7 +75,7 @@
             } else {
                 // No modal found — last-resort: navigate to video-test page
                 console.log('[NavigationManager] No player modal found, navigating to URL');
-                window.location.href = `/video-test?autoplay=${videoId}`;
+                window.location.href = `/video?autoplay=${videoId}`;
             }
         }
 

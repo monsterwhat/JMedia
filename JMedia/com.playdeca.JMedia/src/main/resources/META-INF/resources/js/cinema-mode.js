@@ -913,8 +913,20 @@ async function loadCinemaData() {
     });
     const tvShows = Array.from(seriesMap.values()).slice(0, 20);
 
-    // Trending: sorted by rating
-    const trending = [...allVideos].sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0)).slice(0, 20);
+    // Trending: sorted by rating, deduplicated by title/series (one per show/franchise)
+    const trendingMap = new Map();
+    [...allVideos].forEach(v => {
+      const rating = parseFloat(v.imdbRating || v.tmdbRating) || 0;
+      const key = (v.seriesTitle || v.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!key) return;
+      const existing = trendingMap.get(key);
+      if (!existing || rating > (parseFloat(existing.imdbRating || existing.tmdbRating) || 0)) {
+        trendingMap.set(key, v);
+      }
+    });
+    const trending = Array.from(trendingMap.values())
+      .sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0))
+      .slice(0, 20);
 
     // Recently Updated: episodes sorted by dateAdded (new releases)
     const recentlyUpdated = allVideos
@@ -2216,12 +2228,12 @@ function setTheme(theme) {
 }
 
 function savePlayerSetting(value) {
-  localStorage.setItem('video-test-player', value);
+  localStorage.setItem('video-player', value);
   reloadPlayerIfOpen();
 }
 
 function saveDefaultPlayerSetting(value) {
-  localStorage.setItem('video-test-default-player', value);
+  localStorage.setItem('video-default-player', value);
   const profileId = localStorage.getItem('activeProfileId');
   fetch(`/api/settings/${profileId}/default-player`, {
     method: 'POST',
@@ -2282,12 +2294,23 @@ function saveSettings() {
 }
 
 async function loadSettings() {
-  const savedPlayer = localStorage.getItem('video-test-player');
+  // Migrate old localStorage keys (swap-video-areas)
+  ['video-test-player', 'video-test-default-player'].forEach(oldKey => {
+      const val = localStorage.getItem(oldKey);
+      if (val !== null) {
+          const newKey = oldKey.replace('video-test-', 'video-');
+          if (localStorage.getItem(newKey) === null) {
+              localStorage.setItem(newKey, val);
+          }
+          localStorage.removeItem(oldKey);
+      }
+  });
+  const savedPlayer = localStorage.getItem('video-player');
   if (savedPlayer) {
     const select = document.getElementById('player-select');
     if (select) select.value = savedPlayer;
   }
-  const savedDefaultPlayer = localStorage.getItem('video-test-default-player');
+  const savedDefaultPlayer = localStorage.getItem('video-default-player');
   if (savedDefaultPlayer) {
     const defaultSel = document.getElementById('default-player-select');
     if (defaultSel) defaultSel.value = savedDefaultPlayer;
@@ -2829,7 +2852,7 @@ document.getElementById('searchDockBtn')?.addEventListener('click', openSearch);
 document.getElementById('nowPlayingDockBtn')?.addEventListener('click', function(e) {
   e.preventDefault();
   const sec = 'nowPlaying';
-  const url = `/video-test?section=${sec}`;
+  const url = `/video?section=${sec}`;
   history.pushState({}, '', url);
   showSection(sec);
   document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
@@ -2841,7 +2864,7 @@ document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
   item.addEventListener('click', function(e) {
     e.preventDefault();
     const sec = this.dataset.section;
-    const url = `/video-test?section=${sec}`;
+    const url = `/video?section=${sec}`;
     history.pushState({}, '', url);
     showSection(sec);
     document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
@@ -2849,11 +2872,11 @@ document.querySelectorAll('.cinema-dock-item[data-section]').forEach(item => {
   });
 });
 // Home button � SPA style
-const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video-test"]');
+const homeDockBtn = document.querySelector('.cinema-dock-item[href="/video"]');
 if (homeDockBtn) {
   homeDockBtn.addEventListener('click', function(e) {
     e.preventDefault();
-    history.pushState({}, '', '/video-test');
+    history.pushState({}, '', '/video');
     showSection('home');
     document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
     this.classList.add('active');

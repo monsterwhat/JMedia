@@ -2924,7 +2924,7 @@ formatTime(s) {
                 }, 50);
             } else {
                 console.log('[SimplePlayer] Falling back to URL navigation');
-                window.location.href = `/video-test?autoplay=${videoId}`;
+                window.location.href = `/video?autoplay=${videoId}`;
             }
         }
 

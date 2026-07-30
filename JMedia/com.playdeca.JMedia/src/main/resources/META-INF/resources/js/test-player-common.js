@@ -486,11 +486,11 @@
                         window.initEpisodeSidebar();
                     }
                 } else {
-                    window.location.href = '/video-test?autoplay=' + encodeURIComponent(videoId);
+                    window.location.href = '/video?autoplay=' + encodeURIComponent(videoId);
                 }
             } catch (err) {
                 console.error('[TestPlayerFeatures] Fragment navigation failed:', err);
-                window.location.href = '/video-test?autoplay=' + encodeURIComponent(videoId);
+                window.location.href = '/video?autoplay=' + encodeURIComponent(videoId);
             }
         }
 

@@ -43,6 +43,12 @@ public class NavigationController {
     }
     
     @GET
+    @Path("/video-classic")
+    public Response serveVideoClassic() {
+        return servePage("index.html", "Video classic page (SPA)");
+    }
+    
+    @GET
     @Path("/setup")
     public Response serveSetup() {
         return servePage("setup.html", "Setup page");
