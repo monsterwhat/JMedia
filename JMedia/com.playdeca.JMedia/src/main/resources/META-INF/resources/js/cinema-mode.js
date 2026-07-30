@@ -1392,7 +1392,7 @@ async function openSeriesDetail(seriesTitle) {
     seasonKeys.forEach((key) => {
         const isActive = key === firstKey;
         const label = getGroupLabel(key);
-        episodesHtml += `<button class="cinema-season-dropdown-item${isActive ? ' active' : ''}" data-sk="${key}" onclick="switchSeason('${key}')">${label}</button>`;
+        episodesHtml += `<button class="cinema-season-dropdown-item${isActive ? ' active' : ''}" data-sk="${key}" onclick="switchSeasonFromSk(this)">${label}</button>`;
     });
     episodesHtml += '</div></div></div>';
   }
@@ -1763,6 +1763,10 @@ function getGroupLabel(key) {
   return label + ' Season ' + sn;
 }
 
+function switchSeasonFromSk(btn) {
+  switchSeason(btn.dataset.sk);
+}
+
 function switchSeason(seasonKey) {
   // Close dropdown
   const list = document.getElementById('cinema-season-list');
@@ -1787,7 +1791,7 @@ function switchSeason(seasonKey) {
   let episodes = allVideos
     .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle
       && (v.seasonNumber != null ? v.seasonNumber : 1) === sn
-      && (v.contentType || 'episode') === ct)
+      && (v.contentType || 'episode') === (ct || 'episode'))
     .sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0));
   
   // Update episode list
@@ -2485,7 +2489,7 @@ function initEpisodeSidebar() {
  * for any episodes that lack these fields. Runs asynchronously and re-renders
  * the sidebar list when data arrives.
  */
-async function fetchMissingEpisodeData(episodes, currentVideoId, activeSeason) {
+async function fetchMissingEpisodeData(episodes, currentVideoId, initialSeasonKey) {
   const missing = episodes.filter(ep => {
     const hasTitle = !!(ep.episodeTitle || ep.title);
     const hasDesc = !!(ep.description || ep.overview);
@@ -2517,7 +2521,7 @@ async function fetchMissingEpisodeData(episodes, currentVideoId, activeSeason) {
 
   // Re-render if sidebar is still open (data may have been populated)
   if (sidebar.classList.contains('open')) {
-    renderEpisodeSidebarList(episodes, currentVideoId, activeSeason);
+    renderEpisodeSidebarList(episodes, currentVideoId, initialSeasonKey);
   }
 }
 
@@ -2552,32 +2556,41 @@ function toggleEpisodeSidebar() {
 
   if (!episodes.length) return;
 
-  // Group by season
-  const seasons = {};
+  // Group by (seasonNumber:contentType) — same key pattern as openSeriesDetail
+  const groups = {};
   episodes.forEach(ep => {
     const sn = ep.seasonNumber ?? 1;
-    if (!seasons[sn]) seasons[sn] = [];
-    seasons[sn].push(ep);
+    const ct = ep.contentType || 'episode';
+    const key = sn + ':' + ct;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(ep);
   });
-  const seasonNumbers = Object.keys(seasons).sort((a, b) => a - b);
+
+  // Sort keys: by seasonNumber (numeric), then by contentType priority
+  const contentTypePriority = { 'episode': 0, 'featurette': 1, 'extra': 2, 'special': 3 };
+  const seasonKeys = Object.keys(groups).sort((a, b) => {
+    const [sa, ca] = a.split(':');
+    const [sb, cb] = b.split(':');
+    const na = parseInt(sa), nb = parseInt(sb);
+    if (na !== nb) return na - nb;
+    return (contentTypePriority[ca] ?? 99) - (contentTypePriority[cb] ?? 99);
+  });
 
   // Determine initial season: prefer the current one, else the first
-  const initialSeason = seasonNumbers.includes(String(currentSeason))
-    ? currentSeason
-    : parseInt(seasonNumbers[0]);
+  const initialSeasonKey = seasonKeys.find(k => k.startsWith(currentSeason + ':')) || seasonKeys[0];
 
   // Render season tabs
-  renderEpisodeSidebarSeasons(seasonNumbers, initialSeason);
+  renderEpisodeSidebarSeasons(seasonKeys, initialSeasonKey);
 
   // Render episode list immediately with whatever data we have
-  renderEpisodeSidebarList(episodes, currentVideoId, initialSeason);
+  renderEpisodeSidebarList(groups[initialSeasonKey] || [], currentVideoId, initialSeasonKey);
 
   sidebar.classList.add('open');
   backdrop.classList.add('active');
   if (toggleBtn) toggleBtn.classList.add('active');
 
   // Asynchronously fetch missing metadata and re-render when available
-  fetchMissingEpisodeData(episodes, currentVideoId, initialSeason);
+  fetchMissingEpisodeData(episodes, currentVideoId, initialSeasonKey);
 }
 
 function closeEpisodeSidebar() {
@@ -2606,29 +2619,34 @@ document.addEventListener('click', function(e) {
   }
 });
 
-function renderEpisodeSidebarSeasons(seasonNumbers, activeSeason) {
+function renderEpisodeSidebarSeasons(seasonKeys, activeSeasonKey) {
   const container = document.getElementById('episode-sidebar-seasons');
   if (!container) return;
 
-  if (seasonNumbers.length <= 1) {
+  if (seasonKeys.length <= 1) {
     container.innerHTML = '';
     container.style.display = 'none';
     return;
   }
 
   container.style.display = 'flex';
-  container.innerHTML = seasonNumbers.map(sn => {
-    const isActive = sn === activeSeason;
+  container.innerHTML = seasonKeys.map(key => {
+    const isActive = key === activeSeasonKey;
     return `<button class="episode-sidebar-season-btn${isActive ? ' active' : ''}"
-      onclick="switchEpisodeSidebarSeason(${sn})">Season ${sn}</button>`;
+      data-sk="${key}"
+      onclick="switchEpisodeSidebarSeason(this.dataset.sk)">${getGroupLabel(key)}</button>`;
   }).join('');
   updateSeasonScrollButtons();
 }
 
-function switchEpisodeSidebarSeason(seasonNumber) {
+function switchEpisodeSidebarSeason(seasonKey) {
+  // Parse the key to get season number and contentType
+  const [snStr, ct] = seasonKey.split(':');
+  const sn = parseInt(snStr);
+
   // Update active tab
   document.querySelectorAll('.episode-sidebar-season-btn').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.textContent.replace('Season ', '')) === seasonNumber);
+    btn.classList.toggle('active', btn.dataset.sk === seasonKey);
   });
 
   // Auto-center the active season pill
@@ -2648,21 +2666,27 @@ function switchEpisodeSidebarSeason(seasonNumber) {
   if (!seriesTitle) return;
 
   const episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle)
+    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle
+      && (v.contentType || 'episode') === ct)
     .sort((a, b) => {
       const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
       const ea = a.episodeNumber || 0, eb = b.episodeNumber || 0;
       return sa - sb || ea - eb;
     });
 
-  renderEpisodeSidebarList(episodes, currentVideoId, seasonNumber);
+  renderEpisodeSidebarList(episodes, currentVideoId, seasonKey);
 }
 
-function renderEpisodeSidebarList(episodes, currentVideoId, seasonNumber) {
+function renderEpisodeSidebarList(episodes, currentVideoId, seasonKey) {
   const container = document.getElementById('episode-sidebar-list');
   if (!container) return;
 
-  const filtered = episodes.filter(ep => (ep.seasonNumber != null ? ep.seasonNumber : 1) === seasonNumber);
+  // Parse seasonKey to extract the numeric season for filtering
+  const [snStr] = seasonKey.split(':');
+  const targetSeason = parseInt(snStr);
+
+  // Caller already passes the correct content-type group; filter only by seasonNumber
+  const filtered = episodes.filter(ep => (ep.seasonNumber != null ? ep.seasonNumber : 1) === targetSeason);
 
   container.innerHTML = filtered.map(ep => {
     const epId = String(ep.id);
@@ -2684,6 +2708,7 @@ function renderEpisodeSidebarList(episodes, currentVideoId, seasonNumber) {
       <div class="episode-sidebar-info">
         <div class="episode-sidebar-top-row">
           <span class="episode-sidebar-ep-number">E${epNum}</span>
+          ${renderContentTypeBadge(ep.contentType)}
           ${dur ? `<span class="episode-sidebar-duration-badge">${dur}</span>` : ''}
         </div>
         <div class="episode-sidebar-ep-title">${epTitle}</div>
