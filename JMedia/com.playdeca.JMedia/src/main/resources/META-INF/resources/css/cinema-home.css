@@ -2115,6 +2115,61 @@ html, body {
 }
 
 /* ============================================================
+   Settings Modal - Account Panel (profiles, logout, etc.)
+   ============================================================ */
+
+/* Profile list items */
+.account-profile-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 0.8125rem;
+  color: var(--cinema-text);
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.account-profile-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.account-profile-item.active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--cinema-accent, rgba(255, 255, 255, 0.3));
+}
+
+.account-profile-item .profile-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.account-profile-item .profile-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.account-profile-item .profile-badge.current {
+  background: var(--cinema-accent, rgba(255, 255, 255, 0.15));
+  color: var(--cinema-text);
+}
+
+.account-profile-item .profile-badge.main {
+  background: rgba(255, 200, 50, 0.15);
+  color: #f0c040;
+}
+
+/* Account action buttons reuse existing .cinema-settings-action-btn */
+
+/* ============================================================
    Hero Timer Indicators
    ============================================================ */
 

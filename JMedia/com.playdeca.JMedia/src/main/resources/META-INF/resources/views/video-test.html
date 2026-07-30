@@ -158,8 +158,6 @@
     <a href="/video-test" class="cinema-dock-item active" title="Home"><i class="fa-solid fa-house"></i></a>
     <a href="#" data-section="movies" class="cinema-dock-item" title="Movies"><i class="fa-solid fa-film"></i></a>
     <a href="#" data-section="shows" class="cinema-dock-item" title="TV Shows"><i class="fa-solid fa-tv"></i></a>
-    <a href="#" data-section="music" class="cinema-dock-item" title="Music"><i class="fa-solid fa-music"></i></a>
-    <a href="#" data-section="liveTv" class="cinema-dock-item" title="Live TV"><i class="fa-solid fa-tower-broadcast"></i></a>
     <a href="#" data-section="collections" class="cinema-dock-item" title="Collections"><i class="fa-solid fa-layer-group"></i></a>
     <div class="cinema-dock-separator"></div>
     <button class="cinema-dock-item" id="settingsDockBtn" title="Settings" style="background:none;border:none;cursor:pointer;"><i class="fa-solid fa-gear"></i></button>
@@ -235,13 +233,12 @@
     <div class="cinema-settings-layout">
       <!-- Sidebar Navigation -->
       <aside class="cinema-settings-sidebar">
-        <div class="cinema-settings-profile">
+        <div class="cinema-settings-profile" data-click="switchSettingsTab:account" style="cursor:pointer;">
           <div class="cinema-settings-avatar"><i class="fa-solid fa-user"></i></div>
           <span class="cinema-settings-username" id="settings-username">User</span>
         </div>
         <nav class="cinema-settings-nav">
-          <button class="cinema-settings-tab cinema-settings-nav-item active" data-tab="appearance" data-click="switchSettingsTab:appearance"><i class="fa-solid fa-palette"></i> <span>Appearance</span></button>
-          <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="playback" data-click="switchSettingsTab:playback"><i class="fa-solid fa-forward"></i> <span>Playback</span></button>
+          <button class="cinema-settings-tab cinema-settings-nav-item active" data-tab="playback" data-click="switchSettingsTab:playback"><i class="fa-solid fa-forward"></i> <span>Playback</span></button>
 
           <button class="cinema-settings-tab cinema-settings-nav-item" data-tab="about" data-click="switchSettingsTab:about"><i class="fa-solid fa-circle-info"></i> <span>About</span></button>
         </nav>
@@ -251,18 +248,6 @@
       <!-- Main Content Area -->
       <div class="cinema-settings-main">
         <h2 class="cinema-modal-title">Settings</h2>
-
-        <div class="cinema-settings-panel active" id="settings-panel-appearance">
-          <div class="cinema-settings-section">
-            <div class="cinema-settings-row">
-              <span class="cinema-settings-label">Theme</span>
-              <div style="display: flex; gap: 0.5rem;">
-                <button class="cinema-settings-btn active" id="theme-dark-btn" data-click="setTheme:dark">Dark</button>
-                <button class="cinema-settings-btn" id="theme-light-btn" data-click="setTheme:light">Light</button>
-              </div>
-            </div>
-          </div>
-        </div>
 
     <div class="cinema-settings-panel" id="settings-panel-playback">
       <div class="cinema-settings-section">
@@ -313,6 +298,47 @@
         </div>
       </div>
         </div>
+
+<div class="cinema-settings-panel" id="settings-panel-account">
+  <div class="cinema-settings-section">
+    <div class="cinema-settings-row" style="border-bottom:none; flex-direction:column; align-items:flex-start; gap:0.75rem;">
+      <h3 style="font-size:0.9rem;font-weight:600;color:var(--cinema-text);margin-bottom:0.25rem;">Account</h3>
+      
+      <!-- Switch Profile -->
+      <div style="width:100%;">
+        <span class="cinema-settings-label" style="margin-bottom:0.5rem;display:block;">Switch Profile</span>
+        <div id="profile-list" style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+          <span style="color:var(--cinema-text-dim);font-size:0.75rem;">Loading profiles...</span>
+        </div>
+      </div>
+      
+      <div class="cinema-settings-divider" style="width:100%;"></div>
+      
+      <!-- Create New Profile -->
+      <div style="width:100%;">
+        <span class="cinema-settings-label" style="margin-bottom:0.5rem;display:block;">Create New Profile</span>
+        <div style="display:flex;gap:0.5rem;">
+          <input id="create-profile-input" type="text" placeholder="Profile name..." 
+                 style="flex:1;padding:0.5rem 0.75rem;border-radius:0.5rem;border:none;background:rgba(255,255,255,0.06);color:var(--cinema-text);font-size:0.8125rem;font-family:inherit;">
+          <button class="cinema-settings-btn" id="create-profile-btn" data-click="createProfile" style="white-space:nowrap;">Create</button>
+        </div>
+      </div>
+      
+      <div class="cinema-settings-divider" style="width:100%;"></div>
+      
+      <!-- Change Password -->
+      <button class="cinema-settings-action-btn" onclick="window.open('/settings','_blank')" style="width:100%;">
+        <i class="fa-solid fa-key"></i> Change Password
+      </button>
+      
+      <!-- Log Out -->
+      <button class="cinema-settings-action-btn secondary" id="logout-btn" data-click="logout" style="width:100%;">
+        <i class="fa-solid fa-right-from-bracket"></i> Log Out
+      </button>
+    </div>
+  </div>
+</div>
+
       </div>
     </div>
   </div>

@@ -1969,6 +1969,31 @@ function openDetails(videoId) {
       content?.insertAdjacentHTML('beforeend', moreLikeHtml);
     }
 
+    // Featurettes & Extras section (for movies with bonus content)
+    if (data.type === 'movie' && data.seriesTitle) {
+      const extras = allVideos.filter(v =>
+        v.seriesTitle === data.seriesTitle &&
+        v.type === 'episode' &&
+        v.id !== data.id
+      );
+      if (extras.length) {
+        const groups = {};
+        extras.forEach(v => {
+          const ct = v.contentType || 'extra';
+          if (!groups[ct]) groups[ct] = [];
+          groups[ct].push(v);
+        });
+        let extrasHtml = '<div class="cinema-episodes-section" style="margin-top:1.5rem;"><div class="cinema-section-header"><h2 class="cinema-section-title">Featurettes & Extras</h2></div>';
+        Object.entries(groups).forEach(([ct, eps]) => {
+          extrasHtml += '<div style="margin-bottom:1rem;"><div style="color:rgba(255,255,255,0.5);font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">' + ct.charAt(0).toUpperCase() + ct.slice(1) + 's</div>';
+          extrasHtml += buildEpisodesList(eps);
+          extrasHtml += '</div>';
+        });
+        extrasHtml += '</div>';
+        content?.insertAdjacentHTML('beforeend', extrasHtml);
+      }
+    }
+
     // Auto-refresh: if key fields are empty, poll for updated video data
     const needsRefresh = !data.overview || !data.genres?.length || (!data.directors?.length && data.type === 'movie') || (!data.networks?.length && data.type !== 'movie');
     if (needsRefresh) {
@@ -2170,6 +2195,9 @@ function switchSettingsTab(tabName) {
   const panel = document.getElementById(`settings-panel-${tabName}`);
   if (tab) tab.classList.add('active');
   if (panel) panel.classList.add('active');
+  if (tabName === 'account') {
+    loadAccountPanel();
+  }
 }
 
 function setTheme(theme) {
@@ -2285,6 +2313,54 @@ async function loadSettings() {
     const verEl = document.getElementById('cinema-version');
     if (verEl) verEl.textContent = 'unknown';
   }
+}
+
+// ============================================================
+// Profile Management
+// ============================================================
+async function loadAccountPanel() {
+  const list = document.getElementById('profile-list');
+  if (!list) return;
+  try {
+    const res = await fetch('/api/profiles');
+    const profiles = await res.json();
+    const curRes = await fetch('/api/profiles/current');
+    const cur = await curRes.json();
+    list.innerHTML = profiles.map(p => `
+      <div class="account-profile-item${cur.id === p.id ? ' active' : ''}" onclick="switchProfile(${p.id})">
+        <span class="profile-name">${p.name}</span>
+        ${p.isMainProfile ? '<span class="profile-badge main">Main</span>' : ''}
+        ${cur.id === p.id ? '<span class="profile-badge current">Current</span>' : ''}
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<span style="color:var(--cinema-text-dim);font-size:0.75rem;">Failed to load profiles</span>';
+  }
+}
+
+function switchProfile(profileId) {
+  fetch(`/api/profiles/switch/${profileId}`, { method: 'POST' })
+    .then(() => { window.location.reload(); })
+    .catch(e => console.error('Error switching profile:', e));
+}
+
+function createProfile() {
+  const input = document.getElementById('create-profile-input');
+  if (!input) return;
+  const name = input.value.trim();
+  if (!name) return;
+  fetch('/api/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name })
+  })
+  .then(response => {
+    if (response.ok) {
+      input.value = '';
+      loadAccountPanel();
+    }
+  })
+  .catch(e => console.error('Error creating profile:', e));
 }
 
 // ============================================================
@@ -2757,6 +2833,13 @@ window.addEventListener('popstate', () => {
   } else {
     document.querySelector('.cinema-dock-item')?.classList.add('active');
   }
+});
+
+// Wire logout
+document.getElementById('logout-btn')?.addEventListener('click', function() {
+  fetch('/api/auth/logout', { method: 'POST' }).then(() => {
+    window.location.href = '/login.html';
+  });
 });
 
 // ============================================================
