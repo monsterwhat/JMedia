@@ -378,7 +378,8 @@ public class VideoUiApi {
             // --- Build TV show genre map ---
             Map<String, List<Models.Video>> tvGenreMap = new LinkedHashMap<>();
             for (Models.Video v : tvShows) {
-                List<String> genres = v.genres;
+                List<String> genres = (v.series != null && v.series.genres != null && !v.series.genres.isEmpty())
+                    ? v.series.genres : v.genres;
                 if (genres != null) {
                     for (String g : genres) {
                         if (g != null && !g.equalsIgnoreCase("anime")) {
@@ -435,11 +436,6 @@ public class VideoUiApi {
             html.append("<script id=\"cinema-home-data\" type=\"application/json\">");
             html.append(toJson(heroItemsList));
             html.append("</script>");
-
-            // Continue Watching section
-            if (!cwItems.isEmpty()) {
-                html.append(createCinemaCWSection(cwItems));
-            }
 
             // Recently Updated
             if (!dedupedUpdates.isEmpty()) {
@@ -1684,7 +1680,8 @@ public class VideoUiApi {
         info.put("mpaaRating", item.mpaaRating != null ? item.mpaaRating : "");
         info.put("overview", item.overview != null ? item.overview : (item.description != null ? item.description : ""));
         info.put("tagline", item.tagline != null ? item.tagline : "");
-        info.put("genres", item.genres);
+        info.put("genres", (item.series != null && "episode".equalsIgnoreCase(item.type) && item.series.genres != null && !item.series.genres.isEmpty())
+            ? item.series.genres : item.genres);
         info.put("imdbRating", item.imdbRating);
         info.put("tmdbRating", item.tmdbRating);
         info.put("metacriticRating", item.metacriticRating);

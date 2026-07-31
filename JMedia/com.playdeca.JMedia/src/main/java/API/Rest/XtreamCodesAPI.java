@@ -427,7 +427,9 @@ public class XtreamCodesAPI {
         info.put("plot", first.overview != null ? first.overview : "");
         info.put("cast", first.cast != null ? String.join(", ", first.cast) : "");
         info.put("director", first.directors != null ? String.join(", ", first.directors) : "");
-        info.put("genre", first.genres != null ? String.join(", ", first.genres) : "");
+        List<String> seriesGenres = (first.series != null && first.series.genres != null && !first.series.genres.isEmpty())
+            ? first.series.genres : first.genres;
+        info.put("genre", seriesGenres != null ? String.join(", ", seriesGenres) : "");
         info.put("releaseDate", first.releaseDate);
         info.put("rating", first.imdbRating != null ? first.imdbRating.toString() : "0");
         info.put("rating_5based", first.imdbRating != null ? Math.ceil(first.imdbRating / 2.0) : 0);
@@ -770,8 +772,10 @@ public class XtreamCodesAPI {
             s.rating5based = first.imdbRating != null ? Math.ceil(first.imdbRating / 2.0) : 0;
             s.releaseDate = first.releaseDate;
             s.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
-            if (first.genres != null && !first.genres.isEmpty()) {
-                Models.Genre g = Models.Genre.find("LOWER(name) = ?1", first.genres.get(0).toLowerCase()).firstResult();
+            List<String> seriesGenres = (first.series != null && first.series.genres != null && !first.series.genres.isEmpty())
+                ? first.series.genres : first.genres;
+            if (seriesGenres != null && !seriesGenres.isEmpty()) {
+                Models.Genre g = Models.Genre.find("LOWER(name) = ?1", seriesGenres.get(0).toLowerCase()).firstResult();
                 s.categoryId = g != null ? g.id.toString() : "0";
             } else {
                 s.categoryId = "0";
