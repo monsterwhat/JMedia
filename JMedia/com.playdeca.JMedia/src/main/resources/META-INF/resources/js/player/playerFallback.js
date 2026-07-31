@@ -174,7 +174,7 @@
         },
         videojs: {
             scripts: [
-                { src: 'https://vjs.zencdn.net/8.17.4/video.min.js', global: 'videojs' },
+                { src: '/lib/videojs/video.min.js', global: 'videojs' },
                 { src: '/js/video/VideoWebSocketManager.js', global: 'VideoWebSocketManager', optional: true },
                 { src: '/js/player/Utils.js?v=3', global: 'PlayerUtils' },
                 { src: '/js/player/videojs-adapter.js?v=4', global: 'initVideoJsAdapter' },
