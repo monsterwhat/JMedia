@@ -52,6 +52,36 @@
         var _wsManager = null;
         var _controlsTimer = null;
 
+        /* ---------- In-place source-swap hardening (per-instance, never global - B9) ----------
+         * While a remote source swap is in progress, suppress stale broadcasts and the
+         * drift-seek so residual timeupdate/play/pause events from the OLD element cannot
+         * feed stale time/playing for the NEW video to the server (D3, F2). */
+        var _swapInProgress = false;
+        var _swapToken = 0;
+        var _swapRetries = 0;
+        var _swapTimeout = null;
+        var _swapHandlers = null;
+
+        function _clearSwapListeners() {
+            if (_swapTimeout) { clearTimeout(_swapTimeout); _swapTimeout = null; }
+            if (_swapHandlers && video) {
+                if (_swapHandlers.playing) video.removeEventListener('playing', _swapHandlers.playing);
+                if (_swapHandlers.loadeddata) video.removeEventListener('loadeddata', _swapHandlers.loadeddata);
+                if (_swapHandlers.error) video.removeEventListener('error', _swapHandlers.error);
+            }
+            _swapHandlers = null;
+        }
+
+        function _endSwap(confirmBroadcast) {
+            _swapToken++;
+            _swapInProgress = false;
+            _swapRetries = 0;
+            _clearSwapListeners();
+            /* B6: on `playing` the swap sends ONE confirmation broadcast, which restarts
+             * the server playback timer with the new videoId. */
+            if (confirmBroadcast) _broadcastState();
+        }
+
         /* ---------- Idle timer: auto-hide custom controls ---------- */
         function showControls() {
             if (_destroyed) return;
@@ -452,22 +482,112 @@
                 onStateUpdate: function(state) {
                     if (!state || _destroyed || !video) return;
                     try {
-                        if (state.currentVideoId && state.currentVideoId.toString() !== videoId.toString()) {
-                            var newId = state.currentVideoId;
-                            var vEl = (player && player.$video) ? player.$video : video;
-                            var url = '/api/video/stream/' + encodeURIComponent(newId) + '.mp4?start=' + Math.floor(vEl.currentTime || 0) + '&trace=' + Date.now();
+                    if (state.currentVideoId && state.currentVideoId.toString() !== videoId.toString()) {
+                        var newId = state.currentVideoId;
+                        var vEl = (player && player.$video) ? player.$video : video;
+
+                        /* Open the swap window BEFORE touching the source: residual
+                         * timeupdate/play/pause from the old element must not broadcast
+                         * stale time under the new id, and the drift-check must not yank
+                         * the new element while it still sits at 0. */
+                        _swapToken++;
+                        var swapToken = _swapToken;
+                        _swapInProgress = true;
+                        _swapRetries = 0;
+                        _clearSwapListeners();
+
+                        /* F5: the NEW episode starts from ITS server state, never from the
+                         * old element's position. selectVideo (resume) broadcasts
+                         * currentTime > 0 (VideoController.selectVideo); advanceVideo
+                         * (auto-next) sets 0 -> omit the start param so it starts at 0. */
+                        var startParam = (typeof state.currentTime === 'number' && state.currentTime > 0)
+                            ? 'start=' + Math.floor(state.currentTime) + '&'
+                            : '';
+                        var url = '/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now();
+
+                        function loadSwapSource() {
                             vEl.src = url;
                             try { vEl.load(); } catch (e) {}
+                            /* Restore volume/mute from localStorage (mirror SimplePlayer swap) */
+                            try {
+                                vEl.volume = Math.pow(parseFloat(localStorage.getItem(volumeKey) || '0.7'), 2);
+                                vEl.muted = localStorage.getItem(muteKey) === 'true';
+                            } catch (e) {}
                             if (state.playing) { try { vEl.play(); } catch (e) {} }
-                            videoId = newId;
-                            console.log('[OplayerAdapter] Remote source swap ->', newId);
-                            return;
                         }
+                        loadSwapSource();
+
+                        videoId = newId;
+                        console.log('[OPlayerAdapter] Remote source swap ->', newId);
+
+                        /* F3 post-swap cleanup: keep downstream UI (episode sidebar,
+                         * breadcrumbs) reading the new episode. videoId is known here;
+                         * title/type/duration are refreshed from the metadata API because
+                         * the WS state payload does not carry them. */
+                        container.dataset.videoId = newId;
+                        try {
+                            fetch('/api/video/' + encodeURIComponent(newId))
+                                .then(function(r) { return r.ok ? r.json() : null; })
+                                .then(function(meta) {
+                                    if (!meta || _destroyed || videoId !== newId) return;
+                                    if (meta.title) container.dataset.title = meta.title;
+                                    if (meta.type) container.dataset.type = meta.type;
+                                    if (typeof meta.duration === 'number' && meta.duration > 0) container.dataset.duration = String(meta.duration);
+                                    if (meta.seriesTitle) container.dataset.seriesTitle = meta.seriesTitle;
+                                    if (typeof meta.seasonNumber === 'number') container.dataset.seasonNumber = String(meta.seasonNumber);
+                                    if (typeof meta.episodeNumber === 'number') container.dataset.episodeNumber = String(meta.episodeNumber);
+                                })
+                                .catch(function() { /* best-effort metadata refresh */ });
+                        } catch (e) {}
+
+                        /* Suppression exit: clear the swap window on the new source's
+                         * `playing` (with ONE confirmation broadcast that restarts the
+                         * server timer), `loadeddata`, or `error`; a 10s safety timeout
+                         * always ends it. Only events from the current swap count. */
+                        var handlers = {
+                            playing: function() {
+                                if (swapToken !== _swapToken) return;
+                                _endSwap(true);
+                            },
+                            loadeddata: function() {
+                                if (swapToken !== _swapToken) return;
+                                _endSwap(false);
+                            },
+                            error: function() {
+                                if (swapToken !== _swapToken) return;
+                                _swapRetries++;
+                                if (_swapRetries <= 3) {
+                                    /* Clear the suppression window on error, log, and retry
+                                     * the swap load with 1s backoff (max 3). Handlers stay
+                                     * bound so a successful retry still fires the
+                                     * confirmation broadcast. */
+                                    console.warn('[OPlayerAdapter] Swap source error; retry ' + _swapRetries + '/3');
+                                    _swapInProgress = false;
+                                    setTimeout(loadSwapSource, 1000);
+                                } else {
+                                    console.error('[OPlayerAdapter] Swap source failed after 3 retries');
+                                    _endSwap(false);
+                                    showPlayerLoadError();
+                                }
+                            }
+                        };
+                        vEl.addEventListener('playing', handlers.playing);
+                        vEl.addEventListener('loadeddata', handlers.loadeddata);
+                        vEl.addEventListener('error', handlers.error);
+                        _swapHandlers = handlers;
+                        _swapTimeout = setTimeout(function() {
+                            if (swapToken !== _swapToken) return;
+                            console.warn('[OPlayerAdapter] Swap window timed out; ending suppression');
+                            _endSwap(false);
+                        }, 10000);
+
+                        return;
+                    }
                         if (typeof state.playing === 'boolean') {
                             if (state.playing && video.paused) { try { video.play(); } catch (e) {} }
                             else if (!state.playing && !video.paused) { try { video.pause(); } catch (e) {} }
                         }
-                        if (typeof state.currentTime === 'number') {
+                        if (typeof state.currentTime === 'number' && !_swapInProgress) {
                             var drift = Math.abs((video.currentTime || 0) - state.currentTime);
                             if (drift > 3) { try { video.currentTime = state.currentTime; } catch (e) {} }
                         }
@@ -883,7 +1003,7 @@
         }, true);
 
         function _broadcastState() {
-            if (!_wsManager || !_wsManager.connected || _destroyed || !video) return;
+            if (!_wsManager || !_wsManager.connected || _destroyed || !video || _swapInProgress) return;
             _wsManager.send('state', {
                 currentVideoId: videoId,
                 playing: !video.paused,
@@ -1101,7 +1221,24 @@
 
         window.destroyOPlayerAdapter = function() {
             _destroyed = true;
+            /* Invalidate any in-flight swap window so late events/timeout can't act post-teardown */
+            _swapToken++;
+            _swapInProgress = false;
+            _clearSwapListeners();
             if (_controlsTimer) { clearTimeout(_controlsTimer); _controlsTimer = null; }
+            /* B8: final state report (playing:false) stops the server playback timer before
+             * the WS is torn down; _wsManager is nulled after disconnect so a second call
+             * cannot double-send. */
+            if (_wsManager && _wsManager.connected && video) {
+                try {
+                    _wsManager.send('state', {
+                        currentVideoId: videoId,
+                        playing: false,
+                        currentTime: video.currentTime || 0,
+                        profileId: (localStorage.getItem('activeProfileId') ? Number(localStorage.getItem('activeProfileId')) : null)
+                    });
+                } catch (e) {}
+            }
             if (_wsManager) { _wsManager.disconnect(); _wsManager = null; }
             if (player && typeof player.destroy === 'function') {
                 player.destroy();
