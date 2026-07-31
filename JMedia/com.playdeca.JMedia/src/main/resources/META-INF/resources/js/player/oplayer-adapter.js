@@ -475,12 +475,75 @@
         }
 
         /* ---------- Initialize OPlayer ---------- */
+        var INIT_MAX_ATTEMPTS = 25;      /* 25 × 200ms ≈ 5s bounded wait for local script eval */
+        var _initAttempts = 0;
+
+        function removePlayerLoadError() {
+            var errEl = document.getElementById('oplayerLoadError');
+            if (errEl && errEl.parentNode) errEl.parentNode.removeChild(errEl);
+        }
+
+        function requestPlayerFallback() {
+            if (_destroyed) return;
+            /* Hook for the fallback chain (separate task). Prefer the window
+             * hook when B3 registers it, otherwise emit a DOM CustomEvent. */
+            if (typeof window.requestPlayerFallback === 'function') {
+                window.requestPlayerFallback(videoId);
+                return;
+            }
+            window.dispatchEvent(new CustomEvent('oplayer:fallback-requested', {
+                detail: { videoId: videoId }
+            }));
+        }
+
+        function showPlayerLoadError() {
+            if (_destroyed) return;
+            if (document.getElementById('oplayerLoadError')) return;
+            var errEl = document.createElement('div');
+            errEl.id = 'oplayerLoadError';
+            errEl.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;' +
+                'align-items:center;justify-content:center;gap:14px;background:#111;color:#eee;' +
+                'z-index:30;text-align:center;padding:16px;font-family:sans-serif;';
+            var msg = document.createElement('div');
+            msg.textContent = 'Player failed to load';
+            msg.style.cssText = 'font-size:16px;font-weight:600;';
+            var retryBtn = document.createElement('button');
+            retryBtn.type = 'button';
+            retryBtn.textContent = 'Retry';
+            retryBtn.style.cssText = 'padding:10px 20px;border:none;border-radius:6px;' +
+                'background:#3273dc;color:#fff;cursor:pointer;font-size:14px;';
+            onTap(retryBtn, function() {
+                if (_destroyed) return;
+                removePlayerLoadError();
+                _initAttempts = 0;
+                initPlayer();
+            });
+            var altBtn = document.createElement('button');
+            altBtn.type = 'button';
+            altBtn.textContent = 'Try another player';
+            altBtn.style.cssText = 'padding:10px 20px;border:1px solid #555;border-radius:6px;' +
+                'background:transparent;color:#ddd;cursor:pointer;font-size:14px;';
+            onTap(altBtn, requestPlayerFallback);
+            errEl.appendChild(msg);
+            errEl.appendChild(retryBtn);
+            errEl.appendChild(altBtn);
+            (oplayerContainer || container).appendChild(errEl);
+        }
+
         function initPlayer() {
             if (_destroyed) return;
             if (typeof OPlayer === 'undefined' || typeof OUI === 'undefined') {
-                setTimeout(initPlayer, 200);
+                _initAttempts++;
+                if (_initAttempts < INIT_MAX_ATTEMPTS) {
+                    setTimeout(initPlayer, 200);
+                } else {
+                    console.error('[OPlayerAdapter] OPlayer/OUI unavailable after ' + _initAttempts +
+                        ' attempts (~' + (INIT_MAX_ATTEMPTS * 200) + 'ms); showing load error');
+                    showPlayerLoadError();
+                }
                 return;
             }
+            removePlayerLoadError();
 
             PlayerUtils?.requestWakeLock?.();
 
