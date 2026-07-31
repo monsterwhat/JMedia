@@ -2927,12 +2927,36 @@ loadCinemaData();
 })();
 
 // === Show All / Show Less toggle ===
+function renderShowAllMessage(text, opts) {
+  opts = opts || {};
+  const mode = opts.mode || _showAllMode || 'movies';
+  const grid = document.getElementById(`${mode}-show-all-grid`);
+  if (!grid) return;
+  let el = document.getElementById(`${mode}-show-all-message`);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = `${mode}-show-all-message`;
+    el.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;width:100%;padding:3rem 24px;text-align:center;color:rgba(255,255,255,0.5);';
+  }
+  if (el.parentNode !== grid) grid.appendChild(el);
+  el.style.display = 'flex';
+  el.innerHTML = (opts.loading ? '<i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i>' : '') + '<div>' + text + '</div>';
+  if (opts.retry) {
+    const btn = document.createElement('button');
+    btn.style.cssText = 'background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:6px;padding:0.5rem 1.5rem;font-size:0.9rem;cursor:pointer;';
+    btn.textContent = 'Retry';
+    btn.onclick = () => { catalogPromise = null; showAll(mode); };
+    el.appendChild(btn);
+  }
+  return el;
+}
+
 function toggleShowAll(mode) {
   if (_showAllMode === mode) showLess();
   else showAll(mode);
 }
 
-function showAll(mode) {
+async function showAll(mode) {
   if (_showAllMode && _showAllMode !== mode) showLess();
   _showAllMode = mode;
   const category = mode === 'movies' ? 'movies' : 'shows';
@@ -2947,9 +2971,17 @@ function showAll(mode) {
     grid.style.cssText = 'display: flex; flex-wrap: wrap; gap: 1rem; padding: 0 24px 1rem;';
     section.insertBefore(grid, carouselWrapper);
   }
+  grid.innerHTML = '';
+  renderShowAllMessage('Loading…', { loading: true, mode });
+  try {
+    await awaitCatalog();
+  } catch (e) {
+    renderShowAllMessage('Failed to load the video catalog.', { retry: true, mode });
+    return;
+  }
+  if (_showAllMode !== mode) return; // user left Show All while the catalog was loading
   _showAllData = mode === 'movies' ? allVideos.filter(v => v.type === 'movie') : [...allTvShows];
   _showAllIndex = 0;
-  grid.innerHTML = '';
   sortShowAll(_showAllSort);
   loadMoreShowAll();
   const sc = document.getElementById(`${mode}-sort-controls`);
@@ -2990,6 +3022,13 @@ function showLess() {
 }
 
 function loadMoreShowAll() {
+  if (_showAllData.length === 0) {
+    if (_showAllObserver) _showAllObserver.disconnect();
+    const grid = document.getElementById(`${_showAllMode}-show-all-grid`);
+    if (grid) grid.innerHTML = '';
+    renderShowAllMessage('No movies/TV shows found.');
+    return;
+  }
   if (_showAllIndex >= _showAllData.length) {
     if (_showAllObserver) _showAllObserver.disconnect();
     return;
