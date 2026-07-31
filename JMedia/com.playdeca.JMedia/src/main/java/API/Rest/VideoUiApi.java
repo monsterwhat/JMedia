@@ -17,6 +17,7 @@ import Services.VideoSuggestionService;
 import Services.ExternalVideoService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.ValueResolver;
+import io.quarkus.cache.CacheResult;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -135,7 +136,8 @@ public class VideoUiApi {
     @Blocking
     public String getHeroFragment() {
         try {
-            List<Models.Video> allVideos = Models.Video.list("isActive", true);
+            List<Models.Video> allVideos = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
+                .range(0, 99).list();
             LOG.info("Hero fragment: Total videos found: " + allVideos.size());
             
             List<Models.Video> featured = allVideos.stream()
@@ -162,6 +164,7 @@ public class VideoUiApi {
     @GET
     @Path("/optimized-carousels")
     @Blocking
+    @CacheResult(cacheName = "optimized-carousels-cache")
     public String getOptimizedCarousels() {
         try {
             Map<String, Object> carouselData = getCarouselData();
@@ -241,6 +244,420 @@ public class VideoUiApi {
         } catch (Exception e) {
             LOG.error("Error getting optimized carousels", e);
             return "<div class='notification is-danger'>Failed to load carousels</div>";
+        }
+    }
+
+    // ==================== CINEMA HOME FRAGMENT (SERVER-RENDERED) ====================
+
+    @GET
+    @Path("/cinema-home-fragment")
+    @Blocking
+    @Transactional
+    @CacheResult(cacheName = "cinema-home-cache")
+    public String getCinemaHomeFragment() {
+        try {
+            long start = System.currentTimeMillis();
+            
+            // Targeted paginated queries
+            List<Models.Video> movies = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
+                .range(0, 99).list();
+            List<Models.Video> episodes = Models.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
+                .range(0, 99).list();
+            
+            // --- Continue Watching ---
+            List<Models.Video> cwItems = new ArrayList<>();
+            java.util.Set<String> seenCW = new java.util.HashSet<>();
+            List<Models.VideoState> inProgress = videoStateService.getInProgressVideos();
+            for (Models.VideoState vs : inProgress) {
+                if (vs.video != null && vs.video.isActive) {
+                    String key = "cw:" + vs.video.id;
+                    if (seenCW.add(key)) {
+                        // Attach progress data
+                        vs.video.watchProgress = vs.watchProgress;
+                        if (vs.watchProgress != null) {
+                            vs.video.watchProgressPercent = (int) (vs.watchProgress * 100);
+                        }
+                        cwItems.add(vs.video);
+                    }
+                    if (cwItems.size() >= 10) break;
+                }
+            }
+
+            // --- TV Shows (deduped by seriesTitle, one card per show) ---
+            Map<String, Models.Video> seriesMap = new LinkedHashMap<>();
+            for (Models.Video v : episodes) {
+                String key = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                Models.Video existing = seriesMap.get(key);
+                if (existing == null || (v.dateAdded != null && existing.dateAdded != null && v.dateAdded.isAfter(existing.dateAdded))) {
+                    seriesMap.put(key, v);
+                }
+            }
+            List<Models.Video> tvShows = new ArrayList<>(seriesMap.values());
+            if (tvShows.size() > 20) tvShows = tvShows.subList(0, 20);
+
+            // --- Trending: dedup by seriesTitle, sorted by rating ---
+            Map<String, Models.Video> trendingMap = new LinkedHashMap<>();
+            List<Models.Video> allCombined = new ArrayList<>();
+            allCombined.addAll(movies);
+            allCombined.addAll(episodes);
+            for (Models.Video v : allCombined) {
+                double rating = (v.imdbRating != null ? v.imdbRating : (v.tmdbRating != null ? v.tmdbRating : 0.0));
+                String key = (v.seriesTitle != null ? v.seriesTitle : v.title != null ? v.title : "").toLowerCase().replaceAll("[^a-z0-9]", "");
+                if (key.isEmpty()) continue;
+                Models.Video existing = trendingMap.get(key);
+                double existingRating = existing != null ? (existing.imdbRating != null ? existing.imdbRating : (existing.tmdbRating != null ? existing.tmdbRating : 0.0)) : 0.0;
+                if (existing == null || rating > existingRating) {
+                    trendingMap.put(key, v);
+                }
+            }
+            List<Models.Video> trending = new ArrayList<>(trendingMap.values());
+            trending.sort((a, b) -> {
+                double ra = a.imdbRating != null ? a.imdbRating : (a.tmdbRating != null ? a.tmdbRating : 0.0);
+                double rb = b.imdbRating != null ? b.imdbRating : (b.tmdbRating != null ? b.tmdbRating : 0.0);
+                return Double.compare(rb, ra);
+            });
+            if (trending.size() > 20) trending = trending.subList(0, 20);
+
+            // --- Recently Updated: episodes sorted by dateAdded, deduped by series ---
+            List<Models.Video> recentlyUpdated = episodes.stream()
+                .sorted((a, b) -> {
+                    if (a.dateAdded == null && b.dateAdded == null) return 0;
+                    if (a.dateAdded == null) return 1;
+                    if (b.dateAdded == null) return -1;
+                    return b.dateAdded.compareTo(a.dateAdded);
+                })
+                .collect(Collectors.toList());
+            // Dedupe by seriesTitle
+            Set<String> seenSeries = new HashSet<>();
+            List<Models.Video> dedupedUpdates = new ArrayList<>();
+            for (Models.Video v : recentlyUpdated) {
+                String key = v.seriesTitle != null ? v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "") : String.valueOf(v.id);
+                if (seenSeries.add(key)) {
+                    dedupedUpdates.add(v);
+                }
+            }
+            if (dedupedUpdates.size() > 20) dedupedUpdates = dedupedUpdates.subList(0, 20);
+
+            // --- Recently Added Movies (sorted by dateAdded) ---
+            List<Models.Video> recentlyAddedMovies = movies.stream()
+                .sorted((a, b) -> {
+                    if (a.dateAdded == null && b.dateAdded == null) return 0;
+                    if (a.dateAdded == null) return 1;
+                    if (b.dateAdded == null) return -1;
+                    return b.dateAdded.compareTo(a.dateAdded);
+                })
+                .limit(20)
+                .collect(Collectors.toList());
+
+            // --- Build movie genre map ---
+            Map<String, List<Models.Video>> movieGenreMap = new LinkedHashMap<>();
+            for (Models.Video v : movies) {
+                if (v.genres != null) {
+                    for (String g : v.genres) {
+                        if (g != null && !g.equalsIgnoreCase("anime")) {
+                            movieGenreMap.computeIfAbsent(g, k -> new ArrayList<>()).add(v);
+                        }
+                    }
+                }
+            }
+            // Filter genres with >= 2 movies, sort by count desc
+            List<Map.Entry<String, List<Models.Video>>> movieGenreEntries = new ArrayList<>(movieGenreMap.entrySet());
+            movieGenreEntries.removeIf(e -> e.getValue().size() < 2);
+            movieGenreEntries.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+
+            // --- Recently Added TV Shows (deduped, sorted by dateAdded) ---
+            List<Models.Video> recentlyAddedShows = new ArrayList<>(seriesMap.values());
+            recentlyAddedShows.sort((a, b) -> {
+                if (a.dateAdded == null && b.dateAdded == null) return 0;
+                if (a.dateAdded == null) return 1;
+                if (b.dateAdded == null) return -1;
+                return b.dateAdded.compareTo(a.dateAdded);
+            });
+            if (recentlyAddedShows.size() > 20) recentlyAddedShows = recentlyAddedShows.subList(0, 20);
+
+            // --- Build TV show genre map ---
+            Map<String, List<Models.Video>> tvGenreMap = new LinkedHashMap<>();
+            for (Models.Video v : tvShows) {
+                List<String> genres = v.genres;
+                if (genres != null) {
+                    for (String g : genres) {
+                        if (g != null && !g.equalsIgnoreCase("anime")) {
+                            tvGenreMap.computeIfAbsent(g, k -> new ArrayList<>()).add(v);
+                        }
+                    }
+                }
+            }
+            List<Map.Entry<String, List<Models.Video>>> tvGenreEntries = new ArrayList<>(tvGenreMap.entrySet());
+            tvGenreEntries.removeIf(e -> e.getValue().size() < 2);
+            tvGenreEntries.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+
+            // --- Hero items: tiered selection ---
+            List<Map<String, Object>> heroItemsList = new ArrayList<>();
+            
+            // Tier 1: Most recently watched from continue-watching
+            if (!cwItems.isEmpty()) {
+                for (Models.Video v : cwItems.subList(0, Math.min(5, cwItems.size()))) {
+                    heroItemsList.add(buildHeroItemData(v));
+                }
+            }
+            
+            // Tier 2: Highest-rated movie with description
+            if (heroItemsList.isEmpty()) {
+                movies.stream()
+                    .filter(v -> v.description != null && !v.description.isBlank())
+                    .sorted((a, b) -> {
+                        double ra = a.imdbRating != null ? a.imdbRating : (a.tmdbRating != null ? a.tmdbRating : 0.0);
+                        double rb = b.imdbRating != null ? b.imdbRating : (b.tmdbRating != null ? b.tmdbRating : 0.0);
+                        return Double.compare(rb, ra);
+                    })
+                    .filter(v -> (v.imdbRating != null ? v.imdbRating : (v.tmdbRating != null ? v.tmdbRating : 0.0)) > 0)
+                    .limit(5)
+                    .forEach(v -> heroItemsList.add(buildHeroItemData(v)));
+            }
+            
+            // Tier 3: Most recently added movie
+            if (heroItemsList.isEmpty()) {
+                movies.stream()
+                    .sorted((a, b) -> {
+                        if (a.dateAdded == null && b.dateAdded == null) return 0;
+                        if (a.dateAdded == null) return 1;
+                        if (b.dateAdded == null) return -1;
+                        return b.dateAdded.compareTo(a.dateAdded);
+                    })
+                    .limit(5)
+                    .forEach(v -> heroItemsList.add(buildHeroItemData(v)));
+            }
+
+            // ----- BUILD HTML -----
+            StringBuilder html = new StringBuilder();
+            
+            // Embedded hero data JSON for client-side hero rotation
+            html.append("<script id=\"cinema-home-data\" type=\"application/json\">");
+            html.append(toJson(heroItemsList));
+            html.append("</script>");
+
+            // Continue Watching section
+            if (!cwItems.isEmpty()) {
+                html.append(createCinemaCWSection(cwItems));
+            }
+
+            // Recently Updated
+            if (!dedupedUpdates.isEmpty()) {
+                html.append(createCinemaCarouselSection("Recently Updated", "recently-updated-carousel", "home", dedupedUpdates));
+            }
+
+            // Trending Now
+            if (!trending.isEmpty()) {
+                html.append(createCinemaCarouselSection("Trending Now", "trending-carousel", "home", trending));
+            }
+
+            // Movies
+            List<Models.Video> moviesSlice = movies.size() > 20 ? movies.subList(0, 20) : movies;
+            if (!moviesSlice.isEmpty()) {
+                html.append(createCinemaCarouselSection("Movies", "movies-carousel", "movies", moviesSlice));
+            }
+
+            // TV Shows
+            if (!tvShows.isEmpty()) {
+                html.append(createCinemaCarouselSection("TV Shows", "tvshows-carousel", "shows", tvShows));
+            }
+
+            // Recently Added Movies
+            if (!recentlyAddedMovies.isEmpty()) {
+                html.append(createCinemaCarouselSection("Recently Added Movies", "movies-recently-added-carousel", "movies", recentlyAddedMovies));
+            }
+
+            // Movie Genre Rows
+            for (Map.Entry<String, List<Models.Video>> e : movieGenreEntries) {
+                String genre = e.getKey();
+                String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
+                String cid = "movies-genre-" + slug + "-carousel";
+                List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
+                html.append(createCinemaCarouselSection(genre, cid, "movies", genreVids));
+            }
+
+            // Recently Added TV Shows
+            if (!recentlyAddedShows.isEmpty()) {
+                html.append(createCinemaCarouselSection("Recently Added TV Shows", "tvshows-recently-added-carousel", "shows", recentlyAddedShows));
+            }
+
+            // TV Show Genre Rows
+            for (Map.Entry<String, List<Models.Video>> e : tvGenreEntries) {
+                String genre = e.getKey();
+                String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
+                String cid = "tvshows-genre-" + slug + "-carousel";
+                List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
+                html.append(createCinemaCarouselSection(genre, cid, "shows", genreVids));
+            }
+
+            long elapsed = System.currentTimeMillis() - start;
+            LOG.info("Cinema home fragment rendered in {}ms ({} movies, {} episodes)", elapsed, movies.size(), episodes.size());
+
+            return html.toString();
+        } catch (Exception e) {
+            LOG.error("Error generating cinema home fragment", e);
+            return "<script id=\"cinema-home-data\" type=\"application/json\">[]</script><div class='cinema-error' style='text-align:center;padding:3rem;color:rgba(255,255,255,0.5);'>Failed to load content</div>";
+        }
+    }
+
+    /**
+     * Builds hero item data map with pre-computed URLs (avoids lazy-loading series).
+     */
+    private Map<String, Object> buildHeroItemData(Models.Video v) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", v.id);
+        item.put("type", v.type != null ? v.type : "movie");
+        item.put("title", v.title != null ? v.title : (v.seriesTitle != null ? v.seriesTitle : ""));
+        item.put("seriesTitle", v.seriesTitle);
+        item.put("description", v.description != null ? v.description : (v.overview != null ? v.overview : ""));
+        item.put("overview", v.overview);
+        item.put("imdbRating", v.imdbRating);
+        item.put("tmdbRating", v.tmdbRating);
+        item.put("releaseYear", v.releaseYear);
+        item.put("duration", v.getDurationSeconds());
+        item.put("favorite", v.favorite);
+        item.put("watchProgressPercent", v.watchProgressPercent != null ? v.watchProgressPercent : 0);
+        return item;
+    }
+
+    /**
+     * Creates a cinema-styled card (matching createCardHTML in cinema-mode.js).
+     */
+    private String createCinemaCardHTML(Models.Video item) {
+        String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled");
+        boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type) && item.seriesTitle != null;
+        String clickAction = isEpisode ? "openSeriesDetailFromCard" : "openDetailsFromCard";
+        String rating = item.imdbRating != null ? String.format("%.1f", item.imdbRating) 
+            : (item.tmdbRating != null ? String.format("%.1f", item.tmdbRating) : "");
+        String year = item.releaseYear != null ? String.valueOf(item.releaseYear) : "";
+        String seriesTitleAttr = isEpisode 
+            ? " data-series-title=\"" + urlEncode(item.seriesTitle != null ? item.seriesTitle : "") + "\""
+            : "";
+
+        return "<div class=\"cinema-card\" data-video-id=\"" + item.id 
+            + "\" data-type=\"" + (item.type != null ? escapeHtml(item.type) : "movie")
+            + "\" data-title=\"" + escapeHtml(title)
+            + "\" data-click=\"" + clickAction + "\""
+            + seriesTitleAttr + ">"
+            + "<div class=\"cinema-card-poster\">"
+            + "<img src=\"/api/video/thumbnail/" + item.id + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\" onerror=\"this.src='/logo.png'\">"
+            + "<div class=\"cinema-card-play-overlay\">"
+            + "<div class=\"cinema-card-play-icon\"><i class=\"fa-solid fa-play\"></i></div>"
+            + "</div></div>"
+            + "<div class=\"cinema-card-title\">" + escapeHtml(title) + "</div>"
+            + "<div class=\"cinema-card-meta\">"
+            + "<i class=\"fa-solid fa-star\" style=\"font-size: 0.7rem;\"></i> " 
+            + escapeHtml(rating) + " " + escapeHtml(year)
+            + "</div></div>";
+    }
+
+    /**
+     * Creates a continue-watching card with progress bar.
+     */
+    private String createCinemaCWCardHTML(Models.Video item) {
+        String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled");
+        boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type);
+        String meta;
+        if (isEpisode) {
+            String sn = item.seasonNumber != null ? String.valueOf(item.seasonNumber) : "1";
+            String en = item.episodeNumber != null ? String.valueOf(item.episodeNumber) : "1";
+            String remaining = "";
+            if (item.duration != null && item.watchProgressPercent != null) {
+                int secs = item.getDurationSeconds();
+                int remainingSecs = (int) (secs * (1.0 - item.watchProgressPercent / 100.0));
+                remaining = " - " + formatDuration(remainingSecs) + " left";
+            }
+            meta = "S" + sn + " E" + en + remaining;
+        } else {
+            meta = item.releaseYear != null ? String.valueOf(item.releaseYear) : "";
+        }
+        int progress = item.watchProgressPercent != null ? Math.min(100, Math.max(0, item.watchProgressPercent)) : 0;
+        String encodedSeries = item.seriesTitle != null ? urlEncode(item.seriesTitle) : "";
+        String cwType = item.type != null ? item.type : "movie";
+
+        return "<div class=\"cw-card\" data-cw-id=\"" + item.id 
+            + "\" data-cw-type=\"" + cwType
+            + "\" data-cw-series=\"" + encodedSeries
+            + "\" data-click=\"playContinueWatchingFromCard\">"
+            + "<div class=\"cw-card-img-wrap\">"
+            + "<img src=\"/api/video/backdrop/" + item.id + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\">"
+            + "<div class=\"cw-play-overlay\">"
+            + "<button class=\"cw-play-btn\" data-click=\"playContinueWatchingFromCard\" data-cw-id=\"" + item.id 
+            + "\" data-cw-type=\"" + cwType 
+            + "\" data-cw-series=\"" + encodedSeries 
+            + "\" data-stop-propagation><i class=\"fa-solid fa-play\"></i></button>"
+            + "</div>"
+            + "<button class=\"cw-remove-btn\" onclick=\"event.stopPropagation(); removeContinueWatching(" + item.id + ")\" title=\"Remove\">"
+            + "<i class=\"fa-solid fa-xmark\"></i></button>"
+            + "<div class=\"cw-progress-bar\"><div class=\"cw-progress-fill\" style=\"width: " + progress + "%\"></div></div>"
+            + "</div>"
+            + "<div class=\"cw-card-info\">"
+            + "<div class=\"cw-card-title\">" + escapeHtml(title) + "</div>"
+            + "<div class=\"cw-card-meta\">" + escapeHtml(meta) + "</div>"
+            + "</div></div>";
+    }
+
+    /**
+     * Creates a cinema-styled carousel section with header and arrows.
+     */
+    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video> items) {
+        if (items == null || items.isEmpty()) return "";
+        StringBuilder html = new StringBuilder();
+        html.append("<section class=\"cinema-section\" data-category=\"").append(escapeHtml(category)).append("\">");
+        html.append("<div class=\"cinema-section-header\">");
+        html.append("<h2 class=\"cinema-section-title\">").append(escapeHtml(title)).append("</h2>");
+        if ("movies".equals(category) || "shows".equals(category)) {
+            String mode = "movies".equals(category) ? "movies" : "tvshows";
+            html.append("<div style=\"margin-left:auto;display:flex;align-items:center;gap:1rem;\">");
+            html.append("<div id=\"").append(mode).append("-sort-controls\" style=\"display:none;gap:0.75rem;align-items:center;\">");
+            html.append("<button data-sort=\"title\" data-click=\"sortShowAll:title\" style=\"font-size:0.75rem;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;transition:color 0.2s;background:none;border:none;padding:0;color:rgba(255,255,255,0.6);\">Name</button>");
+            html.append("<button data-sort=\"dateAdded\" data-click=\"sortShowAll:dateAdded\" style=\"font-size:0.75rem;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;transition:color 0.2s;background:none;border:none;padding:0;color:white;\">Date Added</button>");
+            html.append("<button data-sort=\"lastWatched\" data-click=\"sortShowAll:lastWatched\" style=\"font-size:0.75rem;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;transition:color 0.2s;background:none;border:none;padding:0;color:rgba(255,255,255,0.6);\">Recently Watched</button>");
+            html.append("</div>");
+            html.append("<button id=\"").append(mode).append("-show-all-btn\" data-click=\"toggleShowAll:").append(mode).append("\" style=\"font-size:0.85rem;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;transition:color 0.2s;background:none;border:none;padding:0;color:rgba(255,255,255,0.6);display:none;\">Show All</button>");
+            html.append("</div>");
+        }
+        html.append("</div>");
+        html.append("<div class=\"cinema-carousel-wrapper\">");
+        html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-left\" data-carousel=\"").append(carouselId).append("\"><i class=\"fa-solid fa-chevron-left\"></i></button>");
+        html.append("<div class=\"cinema-carousel scrollbar-hide\" id=\"").append(carouselId).append("\">");
+        for (Models.Video item : items) {
+            html.append(createCinemaCardHTML(item));
+        }
+        html.append("</div>");
+        html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-right\" data-carousel=\"").append(carouselId).append("\"><i class=\"fa-solid fa-chevron-right\"></i></button>");
+        html.append("</div></section>");
+        return html.toString();
+    }
+
+    /**
+     * Creates a continue-watching section with progress-bar cards.
+     */
+    private String createCinemaCWSection(List<Models.Video> items) {
+        if (items == null || items.isEmpty()) return "";
+        StringBuilder html = new StringBuilder();
+        html.append("<section class=\"cinema-section\" data-category=\"home\">");
+        html.append("<div class=\"cinema-section-header\">");
+        html.append("<h2 class=\"cinema-section-title\">Continue Watching</h2>");
+        html.append("</div>");
+        html.append("<div class=\"cinema-carousel-wrapper\">");
+        html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-left\" data-carousel=\"continue-watching-carousel\"><i class=\"fa-solid fa-chevron-left\"></i></button>");
+        html.append("<div class=\"cinema-carousel scrollbar-hide\" id=\"continue-watching-carousel\">");
+        for (Models.Video item : items) {
+            html.append(createCinemaCWCardHTML(item));
+        }
+        html.append("</div>");
+        html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-right\" data-carousel=\"continue-watching-carousel\"><i class=\"fa-solid fa-chevron-right\"></i></button>");
+        html.append("</div></section>");
+        return html.toString();
+    }
+
+    private String urlEncode(String s) {
+        if (s == null) return "";
+        try {
+            return URLEncoder.encode(s, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return s;
         }
     }
 
@@ -1446,7 +1863,10 @@ public class VideoUiApi {
     }
 
     private Map<String, Object> getCarouselData() {
-        List<Models.Video> all = Models.Video.list("isActive", true);
+        List<Models.Video> movies = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
+            .range(0, 99).list();
+        List<Models.Video> episodes = Models.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
+            .range(0, 99).list();
         Map<String, Object> data = new HashMap<>();
         
         // Continue Watching - based on per-profile VideoState progress
@@ -1468,8 +1888,11 @@ public class VideoUiApi {
         data.put("continueWatching", continueWatching);
         
         // New releases - dedupe by show/movie to avoid multiple episodes of same show
+        List<Models.Video> allNewReleases = new ArrayList<>();
+        allNewReleases.addAll(movies);
+        allNewReleases.addAll(episodes);
         java.util.Set<String> seenNewReleases = new java.util.HashSet<>();
-        data.put("newReleases", all.stream()
+        data.put("newReleases", allNewReleases.stream()
             .sorted((v1, v2) -> (v2.dateAdded != null ? v2.dateAdded : java.time.LocalDateTime.MIN).compareTo(v1.dateAdded != null ? v1.dateAdded : java.time.LocalDateTime.MIN))
             .filter(v -> {
                 String key = getDedupeKey(v);
@@ -1477,11 +1900,11 @@ public class VideoUiApi {
             })
             .limit(20).collect(Collectors.toList()));
         
-        data.put("movies", all.stream().filter(v -> v.type != null && "movie".equalsIgnoreCase(v.type)).limit(20).collect(Collectors.toList()));
+        data.put("movies", movies.stream().limit(20).collect(Collectors.toList()));
         
         // TV Shows - dedupe by series title
         java.util.Set<String> seenShows = new java.util.HashSet<>();
-        data.put("tvShows", all.stream()
+        data.put("tvShows", episodes.stream()
             .filter(v -> v.type != null && "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null)
             .filter(v -> {
                 String normalized = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
@@ -1490,9 +1913,12 @@ public class VideoUiApi {
             .limit(20).collect(Collectors.toList()));
         
         // Trending - dedupe by show/movie
+        List<Models.Video> allTrending = new ArrayList<>();
+        allTrending.addAll(movies);
+        allTrending.addAll(episodes);
         java.util.Set<String> seenTrending = new java.util.HashSet<>();
-        data.put("trending", all.stream()
-            .skip(Math.min(10, all.size()))
+        data.put("trending", allTrending.stream()
+            .skip(Math.min(10, allTrending.size()))
             .filter(v -> {
                 String key = getDedupeKey(v);
                 return seenTrending.add(key);
@@ -1638,6 +2064,72 @@ public class VideoUiApi {
                 .data("carouselTitle", carouselTitle)
                 .data("hasCarousel", hasCarousel)
                 .render();
+    }
+
+    @GET
+    @Path("/series/{seriesTitle}/episodes")
+    @Blocking
+    @Produces(MediaType.APPLICATION_JSON)
+    public String getSeriesEpisodesJSON(@PathParam("seriesTitle") String seriesTitle) {
+        try {
+            String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
+            List<Models.Video> episodes = videoService.findEpisodesForSeries(decodedTitle);
+
+            // Fallback for case-insensitivity
+            if (episodes.isEmpty()) {
+                episodes = Models.Video.<Models.Video>listAll().stream()
+                    .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode")
+                            && decodedTitle.equalsIgnoreCase(v.seriesTitle))
+                    .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
+                    .collect(java.util.stream.Collectors.toList());
+            }
+
+            // Enrich with progress (batch)
+            Map<Long, Models.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video ep : episodes) {
+                Models.VideoState vs = epStates.get(ep.id);
+                if (vs != null) {
+                    ep.watchProgress = vs.watchProgress;
+                    ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
+                    ep.watched = vs.watched;
+                }
+            }
+
+            // Build lightweight list — never trigger lazy loading
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Models.Video v : episodes) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", v.id);
+                item.put("title", v.title);
+                item.put("seriesTitle", v.seriesTitle);
+                item.put("type", v.type);
+                item.put("seasonNumber", v.seasonNumber);
+                item.put("episodeNumber", v.episodeNumber);
+                item.put("seasonName", v.seasonName);
+                item.put("seasonSuffix", v.seasonSuffix);
+                item.put("contentType", v.contentType);
+                item.put("releaseYear", v.releaseYear);
+                item.put("description", v.description);
+                item.put("overview", v.overview);
+                item.put("imdbRating", v.imdbRating);
+                item.put("tmdbRating", v.tmdbRating);
+                item.put("duration", v.duration);
+                item.put("runtimeMins", v.runtimeMins);
+                item.put("dateAdded", v.dateAdded != null ? v.dateAdded.toString() : null);
+                item.put("favorite", v.favorite);
+                item.put("thumbnailPath", v.thumbnailPath);
+                item.put("backdropPath", v.backdropPath);
+                item.put("posterPath", v.posterPath);
+                item.put("watchProgress", v.watchProgress);
+                item.put("watchProgressPercent", v.watchProgressPercent);
+                item.put("watched", v.watched);
+                result.add(item);
+            }
+            return toJson(result);
+        } catch (Exception e) {
+            LOG.error("Error fetching episodes for series {}: {}", seriesTitle, e.getMessage(), e);
+            return "[]";
+        }
     }
 
     private String formatDateTime(java.time.LocalDateTime dt) {

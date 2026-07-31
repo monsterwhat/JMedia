@@ -67,6 +67,7 @@
                 <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
                      alt="{item.title ?: item.seriesTitle}"
+                     loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
                      onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
@@ -112,6 +113,7 @@
                 <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
                      alt="{item.title ?: item.seriesTitle}"
+                     loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
                      onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
@@ -160,6 +162,7 @@
                 <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
                      alt="{item.title ?: item.seriesTitle}"
+                     loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
                      onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
@@ -204,7 +207,8 @@
             <div class="content-card video-card" data-video-id="{item.id}" onclick="window.selectItem({json.apply(item)}, 'play')">
                 <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
-                     alt="{item.title}"
+                     alt="{item.title ?: item.seriesTitle}"
+                     loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
                      onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">
@@ -250,6 +254,7 @@
                 <img class="card-image is-skeleton" 
                      src="/api/video/thumbnail/{item.id}" 
                      alt="{item.seriesTitle}"
+                     loading="lazy" decoding="async"
                      onload="this.classList.remove('is-skeleton')"
                      onerror="this.classList.remove('is-skeleton')">
                 <div class="play-icon">

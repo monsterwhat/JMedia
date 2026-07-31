@@ -196,6 +196,32 @@ public class VideoAPI {
                 }
             }
 
+            // Tier 2 - TMDB poster as fallback thumbnail (NEW)
+            try {
+                thumbnailService.ensureMediaImages(videoId);
+                java.nio.file.Path posterPath = thumbnailService.getThumbnailDirectory().resolve(videoId + "_poster.webp");
+                if (java.nio.file.Files.exists(posterPath)) {
+                    File posterFile = posterPath.toFile();
+                    return Response.ok(posterFile)
+                            .header("Content-Type", "image/webp")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + posterFile.lastModified() + "\"")
+                            .build();
+                }
+                // Try PNG fallback for poster
+                java.nio.file.Path posterPng = thumbnailService.getThumbnailDirectory().resolve(videoId + "_poster.png");
+                if (java.nio.file.Files.exists(posterPng)) {
+                    File posterFile = posterPng.toFile();
+                    return Response.ok(posterFile)
+                            .header("Content-Type", "image/png")
+                            .header("Cache-Control", "public, max-age=86400")
+                            .header("ETag", "\"" + posterFile.lastModified() + "\"")
+                            .build();
+                }
+            } catch (Exception e) {
+                LOG.warn("TMDB enrichment failed for thumbnail {}: {}", videoId, e.getMessage());
+            }
+
             String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
             if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
                 LOG.error("Video library path is not configured.");
