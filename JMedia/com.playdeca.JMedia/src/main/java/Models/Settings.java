@@ -109,7 +109,7 @@ public class Settings extends PanacheEntity {
     private Boolean syncSubtitlesEnabled = false;
     private Integer syncItemLimit = 0; // 0 = no limit
 
-    private String defaultPlayer = "oplayer";
+    private String defaultPlayer = "simple";
 
     // Streaming / transcoding configuration
     private Integer maxConcurrentTranscodes = 2; // Max concurrent transcode sessions (0 = use default)
