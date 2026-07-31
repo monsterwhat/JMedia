@@ -55,9 +55,21 @@
             }
         }
 
+        async loadJassub() {
+            if (window.JASSUB) return;
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = '/lib/jassub/jassub.bundle.js';
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('Failed to load JASSUB'));
+                document.head.appendChild(s);
+            });
+        }
+
         async initAssSubtitle(trackId) {
             const p = this.player;
             console.log('[SimplePlayer] Initializing ASS subtitle for track:', trackId);
+            await this.loadJassub();
             this.destroyAssSubtitle();
             try {
                 const res = await fetch(`/api/video/subtitles/track/${trackId}/raw`);
