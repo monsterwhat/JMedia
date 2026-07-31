@@ -33,7 +33,7 @@ public class IntroDbService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public static class Timestamps {
         public Double start;
@@ -86,7 +86,11 @@ public class IntroDbService {
                 
                 metadata.intro = parseSegment(root.path("intro"));
                 metadata.recap = parseSegment(root.path("recap"));
-                metadata.outro = parseSegment(root.path("credits"));
+                Optional<Timestamps> outro = parseSegment(root.path("outro"));
+                if (outro.isEmpty()) {
+                    outro = parseSegment(root.path("credits"));
+                }
+                metadata.outro = outro;
                 
                 if (metadata.intro.isPresent() || metadata.recap.isPresent() || metadata.outro.isPresent()) {
                     LOG.info("IntroDB: Successfully retrieved data from {}", baseUrl);
@@ -99,28 +103,71 @@ public class IntroDbService {
         return Optional.empty();
     }
 
-    private Optional<Timestamps> parseSegment(JsonNode segmentArray) {
-        if (segmentArray != null && segmentArray.isArray() && segmentArray.size() > 0) {
-            JsonNode first = segmentArray.get(0);
-            Timestamps ts = new Timestamps();
-            
-            // Check for milliseconds first
-            if (first.has("start_ms") && !first.get("start_ms").isNull()) {
-                ts.start = first.get("start_ms").asDouble() / 1000.0;
-            } else if (first.has("start_sec") && !first.get("start_sec").isNull()) {
-                ts.start = first.get("start_sec").asDouble();
+    /**
+     * Parses a full IntroDB response body into MediaMetadata.
+     * Accepts BOTH response shapes:
+     * - Source 1 (/segments): segments are OBJECTS, e.g. {"outro":{"start_ms":...,"end_ms":...}}
+     * - Source 2 (/media):    segments are ARRAYS, e.g. {"credits":[{"start_ms":...,"end_ms":...}]}
+     * Outro falls back to the "credits" key when the "outro" key is absent.
+     */
+    static Optional<MediaMetadata> parseBody(String json) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (root == null) {
+                return Optional.empty();
             }
-            
-            if (first.has("end_ms") && !first.get("end_ms").isNull()) {
-                ts.end = first.get("end_ms").asDouble() / 1000.0;
-            } else if (first.has("end_sec") && !first.get("end_sec").isNull()) {
-                ts.end = first.get("end_sec").asDouble();
+            MediaMetadata metadata = new MediaMetadata();
+            metadata.intro = parseSegment(root.path("intro"));
+            metadata.recap = parseSegment(root.path("recap"));
+            Optional<Timestamps> outro = parseSegment(root.path("outro"));
+            if (outro.isEmpty()) {
+                outro = parseSegment(root.path("credits"));
             }
+            metadata.outro = outro;
             
-            // Only return if we actually got values
-            if (ts.start != null || ts.end != null) {
-                return Optional.of(ts);
+            if (metadata.intro.isPresent() || metadata.recap.isPresent() || metadata.outro.isPresent()) {
+                return Optional.of(metadata);
             }
+        } catch (Exception e) {
+            LOG.warn("IntroDB: Failed to parse response body: {}", e.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Parses a single intro/recap/outro segment.
+     * Accepts BOTH shapes: an OBJECT node (Source 1, read the fields directly)
+     * or an ARRAY node (Source 2, read the first element as today).
+     */
+    static Optional<Timestamps> parseSegment(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return Optional.empty();
+        }
+        JsonNode segment = node;
+        if (node.isArray()) {
+            if (node.size() == 0) {
+                return Optional.empty();
+            }
+            segment = node.get(0);
+        }
+        Timestamps ts = new Timestamps();
+        
+        // Check for milliseconds first
+        if (segment.has("start_ms") && !segment.get("start_ms").isNull()) {
+            ts.start = segment.get("start_ms").asDouble() / 1000.0;
+        } else if (segment.has("start_sec") && !segment.get("start_sec").isNull()) {
+            ts.start = segment.get("start_sec").asDouble();
+        }
+        
+        if (segment.has("end_ms") && !segment.get("end_ms").isNull()) {
+            ts.end = segment.get("end_ms").asDouble() / 1000.0;
+        } else if (segment.has("end_sec") && !segment.get("end_sec").isNull()) {
+            ts.end = segment.get("end_sec").asDouble();
+        }
+        
+        // Only return if we actually got values
+        if (ts.start != null || ts.end != null) {
+            return Optional.of(ts);
         }
         return Optional.empty();
     }
