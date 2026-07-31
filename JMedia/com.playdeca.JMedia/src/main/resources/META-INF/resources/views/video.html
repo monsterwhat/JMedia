@@ -82,69 +82,8 @@
       <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="continue-watching-carousel"><i class="fa-solid fa-chevron-right"></i></button>
     </div>
   </section>
-  <!-- Recently Updated Section -->
-  <section class="cinema-section" id="section-recently-updated" style="display:none;">
-    <div class="cinema-section-header">
-      <h2 class="cinema-section-title">Recently Updated</h2>
-    </div>
-    <div class="cinema-carousel-wrapper">
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="recently-updated-carousel"><i class="fa-solid fa-chevron-left"></i></button>
-      <div class="cinema-carousel scrollbar-hide" id="recently-updated-carousel"></div>
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="recently-updated-carousel"><i class="fa-solid fa-chevron-right"></i></button>
-    </div>
-  </section>
-
-  <!-- Trending Now Section -->
-  <section class="cinema-section" id="section-trending" style="display:none;">
-    <div class="cinema-section-header">
-      <h2 class="cinema-section-title">Trending Now</h2>
-    </div>
-    <div class="cinema-carousel-wrapper">
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="trending-carousel"><i class="fa-solid fa-chevron-left"></i></button>
-      <div class="cinema-carousel scrollbar-hide" id="trending-carousel"></div>
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="trending-carousel"><i class="fa-solid fa-chevron-right"></i></button>
-    </div>
-  </section>
-
-  <!-- Movies Section -->
-  <section class="cinema-section" id="section-movies" data-category="movies" style="display:none;">
-    <div class="cinema-section-header">
-      <h2 class="cinema-section-title">Movies</h2>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
-        <div id="movies-sort-controls" style="display: none; gap: 0.75rem; align-items: center;">
-          <button data-sort="title" data-click="sortShowAll:title" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Name</button>
-          <button data-sort="dateAdded" data-click="sortShowAll:dateAdded" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: white;">Date Added</button>
-          <button data-sort="lastWatched" data-click="sortShowAll:lastWatched" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Recently Watched</button>
-        </div>
-        <button id="movies-show-all-btn" data-click="toggleShowAll:movies" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6); display: none;">Show All</button>
-      </div>
-    </div>
-    <div class="cinema-carousel-wrapper">
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-left"></i></button>
-      <div class="cinema-carousel scrollbar-hide" id="movies-carousel"></div>
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="movies-carousel"><i class="fa-solid fa-chevron-right"></i></button>
-    </div>
-  </section>
-
-  <!-- TV Shows Section -->
-  <section class="cinema-section" id="section-tvshows" data-category="shows" style="display:none;">
-    <div class="cinema-section-header">
-      <h2 class="cinema-section-title">TV Shows</h2>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
-        <div id="tvshows-sort-controls" style="display: none; gap: 0.75rem; align-items: center;">
-          <button data-sort="title" data-click="sortShowAll:title" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Name</button>
-          <button data-sort="dateAdded" data-click="sortShowAll:dateAdded" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: white;">Date Added</button>
-          <button data-sort="lastWatched" data-click="sortShowAll:lastWatched" style="font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6);">Recently Watched</button>
-        </div>
-        <button id="tvshows-show-all-btn" data-click="toggleShowAll:tvshows" style="font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: color 0.2s; background: none; border: none; padding: 0; color: rgba(255,255,255,0.6); display: none;">Show All</button>
-      </div>
-    </div>
-    <div class="cinema-carousel-wrapper">
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-left"></i></button>
-      <div class="cinema-carousel scrollbar-hide" id="tvshows-carousel"></div>
-      <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="tvshows-carousel"><i class="fa-solid fa-chevron-right"></i></button>
-    </div>
-  </section>
+  <!-- Server-rendered carousel sections go here -->
+  <div class="cinema-sections"></div>
 </main>
 
 <!-- Dynamic Content Section -->

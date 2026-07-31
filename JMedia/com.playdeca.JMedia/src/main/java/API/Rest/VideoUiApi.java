@@ -265,7 +265,7 @@ public class VideoUiApi {
             List<Models.Video> movies = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
                 .range(0, 99).list();
             List<Models.Video> episodes = Models.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
-                .range(0, 99).list();
+                .list();
             
             // --- Continue Watching ---
             List<Models.Video> cwItems = new ArrayList<>();
@@ -298,25 +298,85 @@ public class VideoUiApi {
             List<Models.Video> tvShows = new ArrayList<>(seriesMap.values());
             if (tvShows.size() > 20) tvShows = tvShows.subList(0, 20);
 
+            // --- Cache and enrich Series entities for TV shows ---
+            Map<String, Models.Series> seriesCache = new HashMap<>();
+            for (Models.Video v : tvShows) {
+                try {
+                    String seriesTitle = v.seriesTitle;
+                    if (seriesTitle == null || seriesTitle.isBlank()) continue;
+                    String cacheKey = seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                    if (seriesCache.containsKey(cacheKey)) continue;
+                    Models.Series series = v.series;
+                    if (series == null) {
+                        series = Models.Series.find("title", seriesTitle).firstResult();
+                    }
+                    if (series != null && series.id != null) {
+                        videoMetadataService.ensureSeriesTextMetadata(series.id);
+                        seriesCache.put(cacheKey, series);
+                    }
+                } catch (Exception e) {
+                    LOG.debug("Could not enrich series for '{}': {}", v.seriesTitle, e.getMessage());
+                }
+            }
+
             // --- Trending: dedup by seriesTitle, sorted by rating ---
             Map<String, Models.Video> trendingMap = new LinkedHashMap<>();
             List<Models.Video> allCombined = new ArrayList<>();
             allCombined.addAll(movies);
             allCombined.addAll(episodes);
             for (Models.Video v : allCombined) {
-                double rating = (v.imdbRating != null ? v.imdbRating : (v.tmdbRating != null ? v.tmdbRating : 0.0));
+                double rating = 0.0;
+                if (v.imdbRating != null) rating = v.imdbRating;
+                else if (v.tmdbRating != null) rating = v.tmdbRating;
+                else if ("episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
+                    try {
+                        String trendingKey = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                        Models.Series series = seriesCache.get(trendingKey);
+                        if (series == null) {
+                            series = Models.Series.find("title", v.seriesTitle).firstResult();
+                            if (series != null) seriesCache.put(trendingKey, series);
+                        }
+                        if (series != null) {
+                            rating = series.tmdbRating != null ? series.tmdbRating : (series.imdbRating != null ? series.imdbRating : 0.0);
+                        }
+                    } catch (Exception e) {
+                        // Fall through with 0.0 rating
+                    }
+                }
                 String key = (v.seriesTitle != null ? v.seriesTitle : v.title != null ? v.title : "").toLowerCase().replaceAll("[^a-z0-9]", "");
                 if (key.isEmpty()) continue;
                 Models.Video existing = trendingMap.get(key);
                 double existingRating = existing != null ? (existing.imdbRating != null ? existing.imdbRating : (existing.tmdbRating != null ? existing.tmdbRating : 0.0)) : 0.0;
+                if (existingRating <= 0 && existing != null && "episode".equalsIgnoreCase(existing.type) && existing.seriesTitle != null) {
+                    try {
+                        String exKey = existing.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                        Models.Series exSeries = seriesCache.get(exKey);
+                        if (exSeries != null) {
+                            existingRating = exSeries.tmdbRating != null ? exSeries.tmdbRating : (exSeries.imdbRating != null ? exSeries.imdbRating : 0.0);
+                        }
+                    } catch (Exception e) {}
+                }
                 if (existing == null || rating > existingRating) {
                     trendingMap.put(key, v);
                 }
             }
             List<Models.Video> trending = new ArrayList<>(trendingMap.values());
             trending.sort((a, b) -> {
-                double ra = a.imdbRating != null ? a.imdbRating : (a.tmdbRating != null ? a.tmdbRating : 0.0);
-                double rb = b.imdbRating != null ? b.imdbRating : (b.tmdbRating != null ? b.tmdbRating : 0.0);
+                double ra = 0.0, rb = 0.0;
+                if (a.imdbRating != null) ra = a.imdbRating;
+                else if (a.tmdbRating != null) ra = a.tmdbRating;
+                else if ("episode".equalsIgnoreCase(a.type) && a.seriesTitle != null) {
+                    String k = a.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                    Models.Series s = seriesCache.get(k);
+                    if (s != null) ra = s.tmdbRating != null ? s.tmdbRating : (s.imdbRating != null ? s.imdbRating : 0.0);
+                }
+                if (b.imdbRating != null) rb = b.imdbRating;
+                else if (b.tmdbRating != null) rb = b.tmdbRating;
+                else if ("episode".equalsIgnoreCase(b.type) && b.seriesTitle != null) {
+                    String k = b.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                    Models.Series s = seriesCache.get(k);
+                    if (s != null) rb = s.tmdbRating != null ? s.tmdbRating : (s.imdbRating != null ? s.imdbRating : 0.0);
+                }
                 return Double.compare(rb, ra);
             });
             if (trending.size() > 20) trending = trending.subList(0, 20);
@@ -352,7 +412,7 @@ public class VideoUiApi {
                 .limit(20)
                 .collect(Collectors.toList());
 
-            // --- Build movie genre map ---
+            // --- Build movie genre map (deduplicated across genres) ---
             Map<String, List<Models.Video>> movieGenreMap = new LinkedHashMap<>();
             for (Models.Video v : movies) {
                 if (v.genres != null) {
@@ -367,6 +427,18 @@ public class VideoUiApi {
             List<Map.Entry<String, List<Models.Video>>> movieGenreEntries = new ArrayList<>(movieGenreMap.entrySet());
             movieGenreEntries.removeIf(e -> e.getValue().size() < 2);
             movieGenreEntries.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+            // Deduplicate: each video appears only in the first (largest) genre row it matches
+            Set<Long> movieIdsInGenres = new HashSet<>();
+            for (Map.Entry<String, List<Models.Video>> entry : movieGenreEntries) {
+                List<Models.Video> deduped = new ArrayList<>();
+                for (Models.Video v : entry.getValue()) {
+                    if (v.id != null && movieIdsInGenres.add(v.id)) {
+                        deduped.add(v);
+                    }
+                }
+                entry.setValue(deduped);
+            }
+            movieGenreEntries.removeIf(e -> e.getValue().size() < 2);
 
             // --- Recently Added TV Shows (deduped, sorted by dateAdded) ---
             List<Models.Video> recentlyAddedShows = new ArrayList<>(seriesMap.values());
@@ -378,23 +450,16 @@ public class VideoUiApi {
             });
             if (recentlyAddedShows.size() > 20) recentlyAddedShows = recentlyAddedShows.subList(0, 20);
 
-            // --- Ensure series text metadata is populated for TV genres ---
-            for (Models.Video v : tvShows) {
-                if (v.series != null && v.series.id != null) {
-                    try {
-                        videoMetadataService.ensureSeriesTextMetadata(v.series.id);
-                    } catch (Exception e) {
-                        // Log but continue — enrichment failure shouldn't break the page
-                        LOG.debug("Could not enrich series {}: {}", v.series.id, e.getMessage());
-                    }
-                }
-            }
-
-            // --- Build TV show genre map ---
+            // --- Build TV show genre map (deduplicated across genres) ---
             Map<String, List<Models.Video>> tvGenreMap = new LinkedHashMap<>();
             for (Models.Video v : tvShows) {
-                List<String> genres = (v.series != null && v.series.genres != null && !v.series.genres.isEmpty())
-                    ? v.series.genres : v.genres;
+                String cacheKey = v.seriesTitle != null ? v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "") : null;
+                Models.Series series = cacheKey != null ? seriesCache.get(cacheKey) : null;
+                List<String> genres = (series != null && series.genres != null && !series.genres.isEmpty())
+                    ? series.genres
+                    : ((v.series != null && v.series.genres != null && !v.series.genres.isEmpty())
+                        ? v.series.genres
+                        : v.genres);
                 if (genres != null) {
                     for (String g : genres) {
                         if (g != null && !g.equalsIgnoreCase("anime")) {
@@ -404,8 +469,18 @@ public class VideoUiApi {
                 }
             }
             List<Map.Entry<String, List<Models.Video>>> tvGenreEntries = new ArrayList<>(tvGenreMap.entrySet());
-            tvGenreEntries.removeIf(e -> e.getValue().size() < 2);
             tvGenreEntries.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+            // Deduplicate: each show appears only in the first (largest) genre row it matches
+            Set<Long> tvIdsInGenres = new HashSet<>();
+            for (Map.Entry<String, List<Models.Video>> entry : tvGenreEntries) {
+                List<Models.Video> deduped = new ArrayList<>();
+                for (Models.Video v : entry.getValue()) {
+                    if (v.id != null && tvIdsInGenres.add(v.id)) {
+                        deduped.add(v);
+                    }
+                }
+                entry.setValue(deduped);
+            }
 
             // --- Hero items: tiered selection ---
             List<Map<String, Object>> heroItemsList = new ArrayList<>();
@@ -1884,7 +1959,7 @@ public class VideoUiApi {
         List<Models.Video> movies = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
             .range(0, 99).list();
         List<Models.Video> episodes = Models.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
-            .range(0, 99).list();
+            .list();
         Map<String, Object> data = new HashMap<>();
         
         // Continue Watching - based on per-profile VideoState progress

@@ -85,6 +85,7 @@ let heroTimer = null;
 const HERO_INTERVAL = 15000;
 let allSeries = [];
 const seriesLookup = new Map();
+var _episodesCache = new Map();
 let allContinueWatching = [];
 let _modalGeneration = 0;
 
@@ -683,7 +684,7 @@ async function showSection(section) {
 
       if (section === 'home') {
     allSections.forEach(s => {
-      if (s.id === 'section-movies' || s.id === 'section-tvshows' || !s.dataset.category) {
+      if (!s.dataset.category || s.dataset.category === 'home' || s.dataset.category === 'movies' || s.dataset.category === 'shows') {
         s.style.display = '';
       } else {
         s.style.display = 'none';
@@ -812,286 +813,77 @@ async function renderCollectionsSection(container) {
 async function loadCinemaData() {
   const params = new URLSearchParams(window.location.search);
   const section = params.get('section') || 'home';
-  // Fetch videos, continue-watching, and carousels in parallel
-  const [allVideosResp, cwResp, seriesResp, carouselsHtml] = await Promise.all([
-    fetch('/api/video/videos'),
-    fetch('/api/video/continue-watching'),
+
+  // Fetch series data for lookup map (used by multiple features)
+  const [seriesResp, cwResp] = await Promise.all([
     fetch('/api/series').then(r => r.ok ? r.json() : null).catch(() => null),
-    fetch('/api/video/ui/optimized-carousels').then(r => r.ok ? r.text() : '').catch(() => '')
+    fetch('/api/video/continue-watching').then(r => r.ok ? r.json() : null).catch(() => null)
   ]);
 
-  // Parse responses � handle both ApiResponse {success, data} and raw arrays
+  // Parse series data into lookup map
   const parseResponse = (json) => {
     if (json && typeof json === 'object' && json.success !== undefined && json.data !== undefined) return json.data;
     return json;
   };
-  const allVideosData = allVideosResp.ok ? parseResponse(await allVideosResp.json()) : [];
-  const cwData = cwResp.ok ? parseResponse(await cwResp.json()) : [];
-  allVideos = Array.isArray(allVideosData) ? allVideosData : [];
-  allContinueWatching = Array.isArray(cwData) ? cwData : [];
-  // Parse series data into lookup map
   if (seriesResp) {
     const seriesDataParsed = parseResponse(seriesResp);
-    // Paginated response: {series: [...], page, size, ...} or plain array
     const seriesArray = Array.isArray(seriesDataParsed) ? seriesDataParsed
       : (seriesDataParsed && Array.isArray(seriesDataParsed.series) ? seriesDataParsed.series : []);
     allSeries = seriesArray;
     seriesLookup.clear();
     allSeries.forEach(s => seriesLookup.set(String(s.id), s));
-    // Enrich CW items with series-level description (same as allTvShows enrichment at line 1125)
-    if (Array.isArray(cwData) && allSeries.length > 0) {
-      const seriesByTitle = new Map();
-      allSeries.forEach(s => { if (s.title) seriesByTitle.set(s.title.toLowerCase(), s); });
-      cwData.forEach(item => {
-        if (!item.description && item.seriesTitle) {
-          const series = seriesByTitle.get(item.seriesTitle.toLowerCase());
-          if (series) {
-            item.description = series.description || series.overview || '';
-          }
-        }
-      });
-    }
   }
+  const cwData = Array.isArray(cwResp) ? cwResp : (cwResp ? parseResponse(cwResp) : []);
+  allContinueWatching = Array.isArray(cwData) ? cwData : [];
 
-  if (allVideos.length) {
-    // Hero: 3-tier fallback � continue-watching ? top-rated ? most recently added
-
-    // Tier 1: Most recently watched from continue-watching endpoint
-    if (Array.isArray(cwData) && cwData.length > 0) {
-      heroItems = cwData.slice(0, 5);
-
+  // Fetch server-rendered cinema home fragment (carousels + hero data)
+  const fragmentResp = await fetch('/api/video/ui/cinema-home-fragment').catch(() => null);
+  if (fragmentResp && fragmentResp.ok) {
+    const html = await fragmentResp.text();
+    // Insert into the cinema-sections container (replacing any placeholder)
+    const container = document.querySelector('.cinema-sections');
+    if (container) {
+      container.innerHTML = html;
     }
-
-    // Tier 2: Highest-rated movie (with a rating > 0)
-    if (heroItems.length === 0) {
-      heroItems = allVideos.filter(v => v.type === 'movie' && v.description)
-        .sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0))
-        .filter(v => (parseFloat(v.imdbRating || v.tmdbRating) || 0) > 0)
-        .slice(0, 5);
+    // Parse embedded hero data
+    const scriptTag = document.getElementById('cinema-home-data');
+    if (scriptTag) {
+      try {
+        const heroData = JSON.parse(scriptTag.textContent);
+        if (Array.isArray(heroData) && heroData.length > 0) {
+          heroItems = heroData;
+          updateHero(0);
+          startHeroRotation();
+        }
+      } catch (e) {
+        console.warn('Failed to parse cinema home data', e);
+      }
     }
-
-    // Tier 3: Most recently added movie
-    if (heroItems.length === 0) {
-      heroItems = [...allVideos]
-        .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
-        .slice(0, 5);
-    }
-
-    if (heroItems.length > 0) {
-      updateHero(0);
-      startHeroRotation();
-    }
-
-    // Update hero badge based on continue watching data
+    // Update hero badge
     const heroBadge = document.getElementById('hero-badge');
     if (heroBadge) {
-      if (Array.isArray(cwData) && cwData.length > 0) {
+      if (allContinueWatching.length > 0) {
         heroBadge.innerHTML = '<i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching';
         heroBadge.style.display = '';
-      } else {
-        // Keep the badge but could change text or hide
-        // For now, keep it visible as a fallback
       }
     }
-
-    // Render Continue Watching carousel
-    if (Array.isArray(cwData) && cwData.length > 0) {
-      renderContinueWatchingCarousel(cwData);
-    }
-
-    // Render carousels
-    const movies = allVideos.filter(v => v.type === 'movie');
-
-    // TV Shows: dedup by seriesTitle � one card per series
-    const seriesMap = new Map();
-    allVideos.filter(v => v.type === 'episode' && v.seriesTitle).forEach(v => {
-      const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const existing = seriesMap.get(key);
-      if (!existing || (v.dateAdded || '') > (existing.dateAdded || '')) {
-        seriesMap.set(key, v);
-      }
-    });
-    const tvShows = Array.from(seriesMap.values()).slice(0, 20);
-
-    // Trending: sorted by rating, deduplicated by title/series (one per show/franchise)
-    const trendingMap = new Map();
-    [...allVideos].forEach(v => {
-      const rating = parseFloat(v.imdbRating || v.tmdbRating) || 0;
-      const key = (v.seriesTitle || v.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (!key) return;
-      const existing = trendingMap.get(key);
-      if (!existing || rating > (parseFloat(existing.imdbRating || existing.tmdbRating) || 0)) {
-        trendingMap.set(key, v);
-      }
-    });
-    const trending = Array.from(trendingMap.values())
-      .sort((a, b) => (parseFloat(b.imdbRating || b.tmdbRating) || 0) - (parseFloat(a.imdbRating || a.tmdbRating) || 0))
-      .slice(0, 20);
-
-    // Recently Updated: episodes sorted by dateAdded (new releases)
-    const recentlyUpdated = allVideos
-      .filter(v => v.type === 'episode')
-      .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
-      .slice(0, 20);
-
-    // Deduplicate TV episodes � keep only the latest per series
-    const seenSeries = new Set();
-    const dedupedUpdates = [];
-    for (const item of recentlyUpdated) {
-      if (item.type === 'episode') {
-        const key = item.seriesTitle || item.seriesId || item.id;
-        if (seenSeries.has(key)) continue;
-        seenSeries.add(key);
-      }
-      dedupedUpdates.push(item);
-    }
-
-    // Render and show sections with data
-    if (dedupedUpdates.length) {
-      renderCarousel('recently-updated-carousel', dedupedUpdates);
-      document.getElementById('section-recently-updated').style.display = '';
-    }
-    if (trending.length) {
-      renderCarousel('trending-carousel', trending);
-      document.getElementById('section-trending').style.display = '';
-    }
-    if (movies.length) {
-      renderCarousel('movies-carousel', movies.slice(0, 20));
-      document.getElementById('section-movies').style.display = '';
-    }
-    if (tvShows.length) {
-      renderCarousel('tvshows-carousel', tvShows);
-      document.getElementById('section-tvshows').style.display = '';
-    }
+    // Render continue-watching carousel if server didn't (server does include it)
+    // Initialize carousel arrow visibility
     updateCarouselArrows();
-
-    // === Dynamic genre-based carousel rows & "Recently Added" rows ===
-    // Helper: create a cinema-section with carousel structure
-    function _buildSection(title, carouselId, category) {
-      const sec = document.createElement('section');
-      sec.className = 'cinema-section';
-      sec.setAttribute('data-category', category);
-      sec.innerHTML = `
-        <div class="cinema-section-header">
-          <h2 class="cinema-section-title">${title}</h2>
-        </div>
-        <div class="cinema-carousel-wrapper">
-          <button class="cinema-carousel-arrow cinema-carousel-arrow-left" data-carousel="${carouselId}"><i class="fa-solid fa-chevron-left"></i></button>
-          <div class="cinema-carousel scrollbar-hide" id="${carouselId}"></div>
-          <button class="cinema-carousel-arrow cinema-carousel-arrow-right" data-carousel="${carouselId}"><i class="fa-solid fa-chevron-right"></i></button>
-        </div>`;
-      return sec;
-    }
-
-    // --- Recently Added Movies ---
-    const recentlyAddedMovies = [...movies]
-      .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''))
-      .slice(0, 20);
-    let lastMovieEl = document.getElementById('section-movies');
-    if (recentlyAddedMovies.length > 0) {
-      const cid = 'movies-recently-added-carousel';
-      const sec = _buildSection('Recently Added Movies', cid, 'movies');
-      lastMovieEl.before(sec);
-      lastMovieEl = sec;
-      renderCarousel(cid, recentlyAddedMovies);
-    }
-
-    // --- Movie Genre Rows (=2 movies per genre, sorted by count desc) ---
-    const movieGenreMap = new Map();
-    movies.forEach(v => {
-      if (Array.isArray(v.genres)) {
-        v.genres.forEach(g => {
-          if (!movieGenreMap.has(g)) movieGenreMap.set(g, []);
-          movieGenreMap.get(g).push(v);
-        });
-      }
-    });
-    Array.from(movieGenreMap.entries())
-      .filter(([genre]) => genre.toLowerCase() !== 'anime')
-      .filter(([, vids]) => vids.length >= 2)
-      .sort((a, b) => b[1].length - a[1].length)
-      .forEach(([genre, vids]) => {
-        const slug = genre.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const cid = `movies-genre-${slug}-carousel`;
-        const sec = _buildSection(genre, cid, 'movies');
-        lastMovieEl.after(sec);
-        lastMovieEl = sec;
-        renderCarousel(cid, vids.slice(0, 20));
-      });
-
-    // --- Recently Added TV Shows (deduped by seriesTitle, top 20 by dateAdded) ---
-    allTvShows = Array.from(seriesMap.values())
-      .sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''));
-    // Enrich TV show episodes with Series-level metadata (genres, description, backdrop, etc.)
-    allTvShows.forEach(v => {
-      const series = seriesLookup.get(String(v.series?.id));
-      if (series) {
-        if (!v.genres || v.genres.length === 0) v.genres = series.genres || [];
-        if (!v.description) v.description = series.description || series.overview || '';
-        if (!v.backdrop) v.backdrop = series.backdrop || series.backdropPath || '';
-        if (!v.poster) v.poster = series.poster || series.posterPath || '';
-      }
-    });
-    const recentlyAddedTvShows = allTvShows.slice(0, 20);
-    let lastTvEl = document.getElementById('section-tvshows');
-    if (recentlyAddedTvShows.length > 0) {
-      const cid = 'tvshows-recently-added-carousel';
-      const sec = _buildSection('Recently Added TV Shows', cid, 'shows');
-      lastTvEl.before(sec);
-      lastTvEl = sec;
-      renderCarousel(cid, recentlyAddedTvShows);
-    }
-
-    // --- TV Show Genre Rows (=2 shows per genre, sorted by count desc) ---
-    const tvShowGenreMap = new Map();
-    allTvShows.forEach(v => {
-      // Resolve genres from Series entity (episode Video objects don't have genres)
-      let genres = v.genres;
-      if (!Array.isArray(genres) || genres.length === 0) {
-        const series = seriesLookup.get(String(v.series?.id));
-        genres = series?.genres || [];
-      }
-      genres.forEach(g => {
-        if (!tvShowGenreMap.has(g)) tvShowGenreMap.set(g, []);
-        tvShowGenreMap.get(g).push(v);
-      });
-    });
-    Array.from(tvShowGenreMap.entries())
-      .filter(([genre]) => genre.toLowerCase() !== 'anime')
-      .filter(([, vids]) => vids.length >= 2)
-      .sort((a, b) => b[1].length - a[1].length)
-      .forEach(([genre, vids]) => {
-        const slug = genre.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const cid = `tvshows-genre-${slug}-carousel`;
-        const sec = _buildSection(genre, cid, 'shows');
-        lastTvEl.after(sec);
-        lastTvEl = sec;
-        renderCarousel(cid, vids.slice(0, 20));
-      });
-
-    // Re-initialize arrow visibility and attach scroll listeners for new carousels
-    updateCarouselArrows();
-    document.querySelectorAll('.cinema-carousel').forEach(c => {
-      if (!c._scrollBound) {
-        c.addEventListener('scroll', updateCarouselArrows);
-        c._scrollBound = true;
-      }
-    });
   }
 
-  // If we got HTMX carousel HTML, also try rendering it
-  if (carouselsHtml && document.getElementById('movies-carousel')?.children.length === 0) {
-    const container = document.querySelector('.cinema-content');
-    if (container) {
-      // Insert HTMX carousels as fallback
-      const temp = document.createElement('div');
-      temp.innerHTML = carouselsHtml;
-      // Don't replace � we already have cinema-styled carousels
-    }
-  }
+  // Lazy-load allVideos in background for other features (series detail, sidebar, search)
+  fetch('/api/video/videos').then(r => r.ok ? r.json() : []).then(data => {
+    const d = parseResponse(data);
+    allVideos = Array.isArray(d) ? d : [];
+    // Collect TV shows (episodes deduplicated by seriesTitle)
+    const seenTitles = new Set();
+    allTvShows = allVideos.filter(v => v.type === 'episode' && v.seriesTitle)
+      .filter(v => { const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, ''); if (seenTitles.has(key)) return false; seenTitles.add(key); return true; });
+  }).catch(() => {});
 
   showSection(section);
-  
+
   // Set initial active dock state
   document.querySelectorAll('.cinema-dock-item').forEach(i => i.classList.remove('active'));
   if (section !== 'home') {
@@ -1178,15 +970,19 @@ async function openSeriesDetail(seriesTitle) {
   if (resetDescToggle) resetDescToggle.style.display = 'none';
   // Reset gradient overlay
   // gradient overlay removed; nothing to clear
-  // Filter allVideos for this series (only actual episodes)
-  const episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle)
-    .sort((a, b) => {
-      const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
-      const ea = a.episodeNumber || 1, eb = b.episodeNumber || 1;
-      return sa - sb || ea - eb;
-    });
-  if (!episodes.length) return;
+  // Fetch episodes for this series from the JSON endpoint
+  const epResp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`).catch(() => null);
+  if (!epResp || !epResp.ok) return;
+  const episodes = await epResp.json();
+  if (!Array.isArray(episodes) || !episodes.length) return;
+  // Sort episodes by season then episode number
+  episodes.sort((a, b) => {
+    const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
+    const ea = a.episodeNumber || 1, eb = b.episodeNumber || 1;
+    return sa - sb || ea - eb;
+  });
+  // Cache episodes for the season tab handler
+  _episodesCache.set(seriesTitle, episodes);
 
   // Group episodes by (seasonNumber, contentType) pair.
   // Each distinct pair becomes a separate dropdown tab.
@@ -1795,14 +1591,14 @@ function switchSeason(seasonKey) {
     item.classList.toggle('active', item.dataset.sk === seasonKey);
   });
 
-  // Find the episodes for this season key
+  // Find the episodes for this season key from cache
   const seriesTitle = document.getElementById('cinema-modal')?.dataset.seriesTitle || '';
   const [snStr, ct] = seasonKey.split(':');
   const sn = parseInt(snStr);
   
-  let episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle
-      && (v.seasonNumber != null ? v.seasonNumber : 1) === sn
+  const allSeriesEps = _episodesCache.get(seriesTitle) || [];
+  let episodes = allSeriesEps
+    .filter(v => (v.seasonNumber != null ? v.seasonNumber : 1) === sn
       && (v.contentType || 'episode') === (ct || 'episode'))
     .sort((a, b) => (a.episodeNumber || 0) - (b.episodeNumber || 0));
   
@@ -2548,7 +2344,7 @@ async function fetchMissingEpisodeData(episodes, currentVideoId, initialSeasonKe
   }
 }
 
-function toggleEpisodeSidebar() {
+async function toggleEpisodeSidebar() {
   const sidebar = document.getElementById('episode-sidebar');
   const backdrop = document.getElementById('episode-sidebar-backdrop');
   const toggleBtn = document.getElementById('episode-sidebar-toggle');
@@ -2568,15 +2364,25 @@ function toggleEpisodeSidebar() {
   const currentSeason = parseInt(container.dataset.seasonNumber) || 1;
   if (!seriesTitle) return;
 
-  // Filter allVideos for episodes of this series
-  const episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle)
+  // Fetch episodes from the JSON endpoint (or use cache)
+  let episodes = _episodesCache.get(seriesTitle);
+  if (!episodes) {
+    try {
+      const resp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`);
+      if (!resp.ok) return;
+      episodes = await resp.json();
+      if (!Array.isArray(episodes)) return;
+      _episodesCache.set(seriesTitle, episodes);
+    } catch (e) {
+      return;
+    }
+  }
+  episodes = episodes.filter(v => v.type === 'episode')
     .sort((a, b) => {
       const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
       const ea = a.episodeNumber || 0, eb = b.episodeNumber || 0;
       return sa - sb || ea - eb;
     });
-
   if (!episodes.length) return;
 
   // Group by (seasonNumber:contentType) — same key pattern as openSeriesDetail
@@ -2688,9 +2494,9 @@ function switchEpisodeSidebarSeason(seasonKey) {
   const currentVideoId = container.dataset.videoId;
   if (!seriesTitle) return;
 
-  const episodes = allVideos
-    .filter(v => v.type === 'episode' && v.seriesTitle === seriesTitle
-      && (v.contentType || 'episode') === ct)
+  const allSeriesEps = _episodesCache.get(seriesTitle) || [];
+  const episodes = allSeriesEps
+    .filter(v => (v.contentType || 'episode') === ct)
     .sort((a, b) => {
       const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
       const ea = a.episodeNumber || 0, eb = b.episodeNumber || 0;
@@ -3108,8 +2914,9 @@ function toggleShowAll(mode) {
 function showAll(mode) {
   if (_showAllMode && _showAllMode !== mode) showLess();
   _showAllMode = mode;
-  const sectionId = mode === 'movies' ? 'section-movies' : 'section-tvshows';
-  const section = document.getElementById(sectionId);
+  const category = mode === 'movies' ? 'movies' : 'shows';
+  const section = document.querySelector(`.cinema-section[data-category="${category}"]`);
+  if (!section) return;
   const carouselWrapper = section.querySelector('.cinema-carousel-wrapper');
   if (carouselWrapper) carouselWrapper.style.display = 'none';
   let grid = document.getElementById(`${mode}-show-all-grid`);
@@ -3149,8 +2956,9 @@ function showLess() {
   if (sentinel) sentinel.remove();
   const grid = document.getElementById(`${_showAllMode}-show-all-grid`);
   if (grid) grid.remove();
-  const sectionId = _showAllMode === 'movies' ? 'section-movies' : 'section-tvshows';
-  const section = document.getElementById(sectionId);
+  const category = _showAllMode === 'movies' ? 'movies' : 'shows';
+  const section = document.querySelector(`.cinema-section[data-category="${category}"]`);
+  if (!section) { _showAllMode = null; return; }
   const cw = section.querySelector('.cinema-carousel-wrapper');
   if (cw) cw.style.display = '';
   const sc = document.getElementById(`${_showAllMode}-sort-controls`);
