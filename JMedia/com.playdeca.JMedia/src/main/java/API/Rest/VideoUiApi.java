@@ -76,6 +76,12 @@ public class VideoUiApi {
     @Inject
     Services.VideoMetadataService videoMetadataService;
 
+    @Inject
+    java.util.concurrent.ExecutorService executor;
+
+    // Guard against repeated IntroDB enrichment submits for the same video (re-render thrash)
+    private final java.util.Set<Long> enrichmentTriggered = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     @Inject @io.quarkus.qute.Location("suggestionFragment.html")
     Template suggestionFragment;
 
@@ -1607,6 +1613,27 @@ public class VideoUiApi {
             @HeaderParam("User-Agent") String userAgent) {
         Models.Video item = videoService.find(videoId);
         if (item == null) return "<div class='notification is-warning'>No video available for playback</div>";
+
+        // On-demand IntroDB enrichment: async, fire-and-forget, never blocks the fragment response
+        if (item != null && "episode".equalsIgnoreCase(item.type) && item.introStart == null) {
+            Long vid = videoId; // capture, never pass the managed entity across threads
+            if (enrichmentTriggered.add(vid)) {
+                executor.submit(() -> {
+                    io.quarkus.arc.ManagedContext requestContext = io.quarkus.arc.Arc.container().requestContext();
+                    if (!requestContext.isActive()) requestContext.activate();
+                    try {
+                        Models.Video v = videoService.findById(vid);
+                        if (v != null && "episode".equalsIgnoreCase(v.type) && v.introStart == null) {
+                            videoMetadataService.enrichVideoWithIntroData(v);
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("On-demand IntroDB enrichment failed for video {}: {}", vid, e.getMessage());
+                    } finally {
+                        if (requestContext.isActive()) requestContext.deactivate();
+                    }
+                });
+            }
+        }
 
         double resumeTime = 0;
 
