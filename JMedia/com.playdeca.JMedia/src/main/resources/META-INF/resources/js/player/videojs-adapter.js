@@ -25,6 +25,12 @@
         var _applyingServerState = false;
         var _destroyed = false;
         var _wsManager = null;
+        var _swapInProgress = false;
+        var _swapRetries = 0;
+        var _swapErrorHandler = null;
+        var _swapTimeout = null;
+        // pid was previously scoped inside _initWebSocket only; _broadcastState referencing it threw a strict-mode ReferenceError
+        var pid = profileId;
 
         /* ---------- Build stream URL ---------- */
         var streamUrl = document.getElementById('customPlayer').dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
@@ -338,7 +344,6 @@
 
         function _initWebSocket() {
             if (!window.VideoWebSocketManager) return;
-            var pid = localStorage.getItem('activeProfileId');
             if (!pid) return;
             _wsManager = new window.VideoWebSocketManager({
                 profileId: pid,
@@ -349,18 +354,16 @@
                         // Source-reload: if server selected a different video, reinit player for the new source
                         if (state.currentVideoId && state.currentVideoId.toString() !== videoId.toString()) {
                             var newId = state.currentVideoId;
-                            var newUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4');
+                            _swapInProgress = true;
+                            _swapRetries = 0;
+                            clearTimeout(_swapTimeout);
+                            // Cache-bust the new source URL so the browser cannot serve the old episode from cache
+                            var newUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?trace=' + Date.now());
                             videoId = newId;  // update the closure variable
                             var newType = newUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-                            vjsPlayer.src({ src: newUrl, type: newType });
-                            // Restore volume/mute
-                            var savedVol = Math.pow(parseFloat(localStorage.getItem(volumeKey) || '0.7'), 2);
-                            var savedMute = localStorage.getItem(muteKey) === 'true';
-                            vjsPlayer.volume(savedVol);
-                            vjsPlayer.muted(savedMute);
-                            if (state.playing) {
-                                vjsPlayer.play().catch(function() {});
-                            }
+                            // Resume from the NEW video's server state (B10): advanceVideo -> 0 -> no seek; selectVideo -> resume time -> seek
+                            var resumeTime = (typeof state.currentTime === 'number' && state.currentTime > 0) ? state.currentTime : 0;
+                            _performSwapLoad(newUrl, newType, resumeTime, !!state.playing);
                             return;  // still hits the finally block
                         }
                         if (state.playing && videoEl.paused) {
@@ -368,7 +371,7 @@
                         } else if (!state.playing && !videoEl.paused) {
                             videoEl.pause();
                         }
-                        if (typeof state.currentTime === 'number') {
+                        if (typeof state.currentTime === 'number' && !_swapInProgress) {
                             var drift = Math.abs(videoEl.currentTime - state.currentTime);
                             if (drift > 3) {
                                 videoEl.currentTime = state.currentTime;
@@ -447,13 +450,63 @@
         }
 
         function _broadcastState() {
-            if (!_wsManager || !_wsManager.connected || _applyingServerState || _destroyed || !videoEl) return;
+            if (!_wsManager || !_wsManager.connected || _applyingServerState || _swapInProgress || _destroyed || !videoEl) return;
             _wsManager.send('state', {
                 currentVideoId: videoId,
                 playing: !videoEl.paused,
                 currentTime: videoEl.currentTime || 0,
                 profileId: (pid ? Number(pid) : null)
             });
+        }
+
+        function _performSwapLoad(newUrl, newType, resumeTime, shouldPlay) {
+            // Bind one-time swap listeners BEFORE changing the source so no broadcast window is left open
+            if (_swapErrorHandler) { vjsPlayer.off('error', _swapErrorHandler); _swapErrorHandler = null; }
+            _swapErrorHandler = function() {
+                var err = vjsPlayer.error();
+                // MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) is a transient false-positive during probing — playback may still start
+                if (err && err.code === 4) return;
+                _swapInProgress = false;
+                _swapRetries++;
+                if (_swapRetries <= 3) {
+                    console.warn('[VideoJsAdapter] Swap load failed (' + _swapRetries + '/3), retrying in 1s...');
+                    setTimeout(function() {
+                        if (_destroyed) return;
+                        _swapInProgress = true;
+                        var retryUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?trace=' + Date.now());
+                        _performSwapLoad(retryUrl, retryUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4', resumeTime, shouldPlay);
+                    }, 1000);
+                } else {
+                    console.error('[VideoJsAdapter] Swap load failed after 3 retries');
+                    if (window.Toast) window.Toast.error('Failed to load video');
+                }
+            };
+            vjsPlayer.on('error', _swapErrorHandler);
+            vjsPlayer.one('loadedmetadata', function() {
+                if (resumeTime > 0) vjsPlayer.currentTime(resumeTime);
+            });
+            vjsPlayer.one('playing', function() {
+                _swapInProgress = false;
+                if (_swapErrorHandler) { vjsPlayer.off('error', _swapErrorHandler); _swapErrorHandler = null; }
+                _broadcastState();  // one confirmation: restarts the server playback timer with the new id
+            });
+            vjsPlayer.one('loadeddata', function() {
+                _swapInProgress = false;
+                if (_swapErrorHandler) { vjsPlayer.off('error', _swapErrorHandler); _swapErrorHandler = null; }
+            });
+            _swapTimeout = setTimeout(function() {
+                _swapInProgress = false;
+                if (_swapErrorHandler) { vjsPlayer.off('error', _swapErrorHandler); _swapErrorHandler = null; }
+            }, 10000);
+            vjsPlayer.src({ src: newUrl, type: newType });
+            // Restore volume/mute
+            var savedVol = Math.pow(parseFloat(localStorage.getItem(volumeKey) || '0.7'), 2);
+            var savedMute = localStorage.getItem(muteKey) === 'true';
+            vjsPlayer.volume(savedVol);
+            vjsPlayer.muted(savedMute);
+            if (shouldPlay) {
+                vjsPlayer.play().catch(function() {});
+            }
         }
 
         /* ---------- Video.js Events ---------- */
@@ -551,6 +604,17 @@
 
         window.destroyVideoJsAdapter = function() {
             _destroyed = true;
+            // Send a FINAL state report so the server stops its playback timer when the player is torn down
+            if (_wsManager && _wsManager.connected) {
+                try {
+                    _wsManager.send('state', {
+                        currentVideoId: videoId,
+                        playing: false,
+                        currentTime: videoEl.currentTime || 0,
+                        profileId: (pid ? Number(pid) : null)
+                    });
+                } catch (e) {}
+            }
             if (_wsManager) { _wsManager.disconnect(); _wsManager = null; }
             if (vjsPlayer && typeof vjsPlayer.dispose === 'function') { vjsPlayer.dispose(); }
         };
