@@ -902,6 +902,9 @@ async function loadCinemaData() {
   // Lazy-load allVideos in background for other features (series detail, sidebar, search).
   // Kick-off stays here (same timing as before); showAll awaits this same promise.
   catalogPromise = fetchCatalog();
+  // Suppress unhandledrejection noise when Show All is never opened; the
+  // rejection stays observable via awaitCatalog() (showAll surfaces it).
+  catalogPromise.catch(() => {});
 
   showSection(section);
 
