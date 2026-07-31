@@ -533,18 +533,72 @@ public class VideoService {
             return Collections.emptyList();
         }
 
-        // Find videos associated with this genre
+        // 1. Find movies via VideoGenre join table (existing behavior)
         int offset = (page - 1) * limit;
         
-        String query = "SELECT DISTINCT v FROM Video v JOIN VideoGenre vg ON v.id = vg.video.id WHERE vg.genre.id = :genreId AND v.isActive = :isActive ORDER BY vg.relevance DESC, v.popularityScore DESC";
+        String movieQuery = "SELECT DISTINCT v FROM Video v JOIN VideoGenre vg ON v.id = vg.video.id WHERE vg.genre.id = :genreId AND v.isActive = :isActive ORDER BY vg.relevance DESC, v.popularityScore DESC";
         
-        return em.createQuery(query, Video.class)
+        List<Video> movieResults = em.createQuery(movieQuery, Video.class)
                 .setParameter("genreId", genre.id)
                 .setParameter("isActive", true)
                 .setFirstResult(offset)
                 .setMaxResults(limit)
                 .getResultStream()
                 .collect(Collectors.toList());
+
+        // 2. Also find episodes whose Series entity has matching genres
+        String genreName = genre.name;
+        List<Video> episodeResults = new ArrayList<>();
+        // Use MEMBER OF for @ElementCollection
+        String seriesQuery = "SELECT s FROM Series s WHERE :genreName MEMBER OF s.genres";
+        List<Models.Series> seriesWithGenre = em.createQuery(seriesQuery, Models.Series.class)
+            .setParameter("genreName", genreName)
+            .getResultList();
+
+        // For each matching Series, find active episodes
+        if (!seriesWithGenre.isEmpty()) {
+            List<String> seriesTitles = seriesWithGenre.stream()
+                .map(s -> s.title)
+                .filter(t -> t != null && !t.isBlank())
+                .collect(Collectors.toList());
+
+            if (!seriesTitles.isEmpty()) {
+                String episodeQuery = "SELECT v FROM Video v WHERE v.isActive = :isActive AND v.type = 'episode' AND v.seriesTitle IN :seriesTitles";
+                List<Video> allEpisodes = em.createQuery(episodeQuery, Video.class)
+                    .setParameter("isActive", true)
+                    .setParameter("seriesTitles", seriesTitles)
+                    .getResultList();
+
+                // Deduplicate by seriesTitle (one show per series)
+                Set<String> seenSeries = new HashSet<>();
+                for (Video ep : allEpisodes) {
+                    String key = ep.seriesTitle != null ? ep.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "") : String.valueOf(ep.id);
+                    if (seenSeries.add(key)) {
+                        episodeResults.add(ep);
+                    }
+                }
+            }
+        }
+
+        // 3. Merge: movie results first, then episode results (deduped by video.id)
+        Set<Long> seenIds = new HashSet<>();
+        List<Video> merged = new ArrayList<>();
+        for (Video v : movieResults) {
+            if (v.id != null && seenIds.add(v.id)) {
+                merged.add(v);
+            }
+        }
+        for (Video v : episodeResults) {
+            if (v.id != null && seenIds.add(v.id)) {
+                merged.add(v);
+            }
+        }
+
+        // Apply pagination to merged results
+        return merged.stream()
+            .skip(offset)
+            .limit(limit)
+            .collect(Collectors.toList());
     }
 
     @Transactional
