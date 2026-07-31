@@ -455,52 +455,18 @@
                 var data = await res.json();
                 var targetId = direction === 'next' ? data.nextVideoId : data.previousVideoId;
                 if (targetId) {
-                    this._loadVideoFragment(targetId);
+                    // Q2: full destroy + command + reload instead of the ghost-leaking in-place swap.
+                    // closePlayerModal/openPlayerModal are cinema-only globals (cinema-mode.js),
+                    // NOT defined on the hero page — the guard prevents a ReferenceError there.
+                    if (typeof closePlayerModal === 'function' && document.getElementById('player-modal')) {
+                        closePlayerModal();
+                        openPlayerModal(targetId);
+                    } else {
+                        window.location.href = '/video?autoplay=' + targetId;
+                    }
                 }
             } catch (err) {
                 console.warn('[TestPlayerFeatures] Navigation failed:', err);
-            }
-        }
-
-        /**
-         * Load a new video by swapping the playback fragment in-place,
-         * avoiding a full page reload. Mirrors NavigationManager._navigateToVideo.
-         */
-        async _loadVideoFragment(videoId) {
-            try {
-                var content = document.getElementById('player-modal-content');
-                if (content) {
-                    content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
-                    var res = await fetch('/api/video/ui/playback-fragment?videoId=' + encodeURIComponent(videoId));
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    var html = await res.text();
-                    var tmp = document.createElement('div');
-                    tmp.innerHTML = html;
-                    var scripts = Array.from(tmp.querySelectorAll('script'));
-                    scripts.forEach(function (s) { s.remove(); });
-                    content.innerHTML = tmp.innerHTML;
-                    for (var i = 0; i < scripts.length; i++) {
-                        var old = scripts[i];
-                        var el = document.createElement('script');
-                        if (old.src) {
-                            for (var j = 0; j < old.attributes.length; j++) {
-                                el.setAttribute(old.attributes[j].name, old.attributes[j].value);
-                            }
-                            el.async = false;
-                        } else {
-                            el.textContent = old.textContent;
-                        }
-                        content.appendChild(el);
-                    }
-                    if (typeof window.initEpisodeSidebar === 'function') {
-                        window.initEpisodeSidebar();
-                    }
-                } else {
-                    window.location.href = '/video?autoplay=' + encodeURIComponent(videoId);
-                }
-            } catch (err) {
-                console.error('[TestPlayerFeatures] Fragment navigation failed:', err);
-                window.location.href = '/video?autoplay=' + encodeURIComponent(videoId);
             }
         }
 

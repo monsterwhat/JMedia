@@ -2227,6 +2227,12 @@ function createProfile() {
 // Actions
 // ============================================================
 async function openPlayerModal(videoId) {
+  // B11: teardown before innerHTML — destroys the ghost from the previous episode
+  if (typeof currentPlayerInstance !== 'undefined' && currentPlayerInstance) {
+    currentPlayerInstance.destroy();
+    currentPlayerInstance = null;
+  }
+
   const backdrop = document.getElementById('player-modal-backdrop');
   const modal = document.getElementById('player-modal');
   const content = document.getElementById('player-modal-content');
@@ -2237,6 +2243,17 @@ async function openPlayerModal(videoId) {
   document.body.style.overflow = 'hidden';
 
   try {
+    // Command the server before loading the fragment so the new player's first
+    // state broadcast has the locked id. Only POST when the target differs from
+    // the current server video — selectVideo with the SAME id toggles playing
+    // (VideoController.java:160-163). POSTing without startTime resumes from the
+    // per-video VideoState (VideoController.java:176-181), the same source the
+    // fragment's data-start-time reads.
+    const cur = await fetch('/api/video/playback/current').then(r => r.json());
+    if (!cur.video || cur.video.id !== videoId) {
+      await fetch('/api/video/playback/play/' + videoId, { method: 'POST' });
+    }
+
     const resp = await fetch(`/api/video/ui/playback-fragment?videoId=${videoId}&cinema=true`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const html = await resp.text();

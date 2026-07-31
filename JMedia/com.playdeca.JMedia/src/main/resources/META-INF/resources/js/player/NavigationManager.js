@@ -24,59 +24,32 @@
                 return;
             }
 
-            // Self-contained player navigation: fetch the playback fragment and swap in-content,
-            // without relying on global openPlayerModal / closePlayerModal which may not exist
-            // in all contexts (e.g., minified builds, bundled modules).
-            const backdrop = document.getElementById('player-modal-backdrop');
-            const modal = document.getElementById('player-modal');
-            const content = document.getElementById('player-modal-content');
-
-            if (backdrop && modal && content) {
-                console.log('[NavigationManager] Direct fragment swap for video:', videoId);
-                // Show modal
-                backdrop.classList.add('active');
-                modal.classList.add('active');
-                document.body.style.overflow = 'hidden';
-
-                // Show loading indicator
-                content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;"></i></div>';
-
-                // Fetch new playback fragment
-                fetch(`/api/video/ui/playback-fragment?videoId=${videoId}`)
-                    .then(r => {
-                        if (!r.ok) throw new Error('HTTP ' + r.status);
-                        return r.text();
-                    })
-                    .then(html => {
-                        const tmp = document.createElement('div');
-                        tmp.innerHTML = html;
-                        const scripts = Array.from(tmp.querySelectorAll('script'));
-                        scripts.forEach(s => s.remove());
-                        content.innerHTML = tmp.innerHTML;
-                        for (const old of scripts) {
-                            const el = document.createElement('script');
-                            if (old.src) {
-                                for (const attr of old.attributes) el.setAttribute(attr.name, attr.value);
-                                el.async = false;
-                            } else {
-                                el.textContent = old.textContent;
-                            }
-                            content.appendChild(el);
-                        }
-                        // Init episode sidebar after player fragment loads
-                        if (typeof window.initEpisodeSidebar === 'function') {
-                            window.initEpisodeSidebar();
-                        }
-                    })
-                    .catch(err => {
-                        console.error('[NavigationManager] Failed to load playback fragment:', err);
-                        content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.5);">Failed to load player</div>';
-                    });
-            } else {
-                // No modal found — last-resort: navigate to video-test page
-                console.log('[NavigationManager] No player modal found, navigating to URL');
-                window.location.href = `/video?autoplay=${videoId}`;
+            // Self-contained navigation: destroy the current player, command the
+            // server to switch to the target video (same-id guard avoids the
+            // selectVideo toggle), then reload via the autoplay param. On the
+            // cinema page handleAutoplay opens the modal for the target; its
+            // same-id guard then skips the redundant play command.
+            // window.destroyCurrentPlayer is not a global; only currentPlayerInstance.
+            if (window.currentPlayerInstance) {
+                try {
+                    window.currentPlayerInstance.destroy();
+                } catch (e) {
+                    console.warn('[NavigationManager] Failed to destroy current player:', e);
+                }
+                window.currentPlayerInstance = null;
             }
+
+            (async () => {
+                try {
+                    const cur = await fetch('/api/video/playback/current').then(r => r.json());
+                    if (!cur.video || cur.video.id !== videoId) {
+                        await fetch('/api/video/playback/play/' + videoId, { method: 'POST' });
+                    }
+                } catch (err) {
+                    console.warn('[NavigationManager] Failed to command playback switch:', err);
+                }
+                window.location.href = `/video?autoplay=${videoId}`;
+            })();
         }
 
         async playNextEpisode() {
