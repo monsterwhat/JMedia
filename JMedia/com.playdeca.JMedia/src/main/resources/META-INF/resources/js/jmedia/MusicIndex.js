@@ -33,13 +33,21 @@
 
     JMedia.MusicIndex.loadPlaylists = function() {
         const profileId = JMedia.Helpers.getActiveProfileId();
-        fetch(`/api/music/playlists/${profileId}`).then(r => r.json()).then(data => {
-            const list = document.getElementById('sidebarPlaylistList');
-            if (!list) return;
-            list.innerHTML = (data.data || data).map(p =>
-                `<a href="javascript:void(0)" class="nav-sub-item" id="nav-playlist-${p.id}" onclick="loadMobilePlaylistSongs(${p.id})"><span>${p.name}</span></a>`
-            ).join('');
-        });
+        fetch(`/api/music/playlists/${profileId}`)
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+                return r.json();
+            })
+            .then(data => {
+                const list = document.getElementById('sidebarPlaylistList');
+                if (!list) return;
+                list.innerHTML = (data.data || data).map(p =>
+                    `<a href="javascript:void(0)" class="nav-sub-item" id="nav-playlist-${p.id}" onclick="loadMobilePlaylistSongs(${p.id})"><span>${p.name}</span></a>`
+                ).join('');
+            })
+            .catch(error => {
+                console.warn('[MusicIndex] Failed to load playlists:', error);
+            });
     };
 
     let _musicSearchTimeout = null;
@@ -390,12 +398,18 @@
         if (!submenu) return;
         const profileId = JMedia.Helpers.getActiveProfileId();
         fetch(`/api/music/playlists/${profileId}`)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                return res.json();
+            })
             .then(data => {
                 const playlists = data.data || data;
                 submenu.innerHTML = playlists.map(p =>
                     `<div class="context-menu-item" onclick="addToPlaylist(${p.id}, ${songId})">${p.name}</div>`
                 ).join('');
+            })
+            .catch(error => {
+                console.warn('[MusicIndex] Failed to load playlist submenu:', error);
             });
     }
 
@@ -406,6 +420,10 @@
                     window.Toast.success('Added to playlist');
                     hideCustomContextMenu();
                 }
+            })
+            .catch(error => {
+                console.error('[MusicIndex] Error adding song to playlist:', error);
+                if (window.Toast) window.Toast.error('Failed to add to playlist');
             });
     };
 

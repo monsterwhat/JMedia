@@ -73,6 +73,10 @@
                 .then(res => {
                     if (res.ok && window.Toast) Toast.success('Playlist renamed');
                     location.reload();
+                })
+                .catch(error => {
+                    console.error('Error renaming playlist:', error);
+                    if (window.Toast) Toast.error('Failed to rename playlist');
                 });
         }
     };
@@ -83,6 +87,10 @@
             .then(res => {
                 if (res.ok && window.Toast) Toast.success('Now following playlist');
                 location.reload();
+            })
+            .catch(error => {
+                console.error('Error following playlist:', error);
+                if (window.Toast) Toast.error('Failed to follow playlist');
             });
     };
 
