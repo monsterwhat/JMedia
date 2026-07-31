@@ -748,9 +748,9 @@
                                     name: 'Video Player',
                                     icon: '',
                                     children: [
-                                        { name: 'JMedia Player', value: 'simple' },
+                                        { name: 'JMedia Player', value: 'simple', default: true },
                                         { name: 'Video.js', value: 'videojs' },
-                                        { name: 'OPlayer', value: 'oplayer', default: true }
+                                        { name: 'OPlayer', value: 'oplayer' }
                                     ],
                                     onChange: function onChange(_ref2) {
                                         var value = _ref2.value;
