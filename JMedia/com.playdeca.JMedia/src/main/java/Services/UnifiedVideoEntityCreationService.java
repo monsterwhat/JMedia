@@ -45,7 +45,7 @@ public class UnifiedVideoEntityCreationService {
         String preservedTagline = preserveMetadata ? video.tagline : null;
         String preservedOverview = preserveMetadata ? video.overview : null;
         Double preservedImdbRating = preserveMetadata ? video.imdbRating : null;
-        Integer preservedMetacritic = preserveMetadata ? video.metacriticRating : null;
+        Double preservedMetacritic = preserveMetadata ? video.metacriticRating : null;
         String preservedMpaa = preserveMetadata ? video.mpaaRating : null;
         List<String> preservedGenres = preserveMetadata && video.genres != null ? new ArrayList<>(video.genres) : null;
         List<String> preservedCast = preserveMetadata && video.cast != null ? new ArrayList<>(video.cast) : null;

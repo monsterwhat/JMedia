@@ -21,7 +21,7 @@ public class SyncVideoData {
     public String overview;
     public Double imdbRating;
     public Double tmdbRating;
-    public Integer metacriticRating;
+    public Double metacriticRating;
     public Double userRating;
     public String mpaaRating;
     public List<String> genres;
@@ -75,7 +75,7 @@ public class SyncVideoData {
             else video.tmdbRating = tmdbRating;
         }
         if (metacriticRating != null) {
-            if (s != null) s.metacriticRating = metacriticRating.doubleValue();
+            if (s != null) s.metacriticRating = metacriticRating;
             else video.metacriticRating = metacriticRating;
         }
         if (mpaaRating != null) {
@@ -150,7 +150,7 @@ public class SyncVideoData {
             data.overview = s.overview;
             data.imdbRating = s.imdbRating;
             data.tmdbRating = s.tmdbRating;
-            data.metacriticRating = s.metacriticRating != null ? s.metacriticRating.intValue() : null;
+            data.metacriticRating = s.metacriticRating;
             data.mpaaRating = s.mpaaRating;
             data.genres = s.genres != null ? new ArrayList<>(s.genres) : null;
             data.directors = s.directors != null ? new ArrayList<>(s.directors) : null;

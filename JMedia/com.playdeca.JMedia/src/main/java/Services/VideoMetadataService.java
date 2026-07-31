@@ -684,7 +684,7 @@ public class VideoMetadataService {
         // Metacritic
         if (video.metacriticRating == null) {
             int score = root.path("metacritic").path("score").asInt();
-            if (score > 0) video.metacriticRating = score;
+            if (score > 0) video.metacriticRating = (double) score;
         }
 
         // Plot & Runtime

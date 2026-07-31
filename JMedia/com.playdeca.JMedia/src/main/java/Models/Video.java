@@ -59,7 +59,7 @@ public class Video extends PanacheEntity {
     // Entertainment Metadata
     public Double imdbRating = 0.0;
     public Double tmdbRating = 0.0;
-    public Integer metacriticRating;
+    public Double metacriticRating;
     @Column(length = 1000)
     public String awards;
     public Double userRating = 0.0;
