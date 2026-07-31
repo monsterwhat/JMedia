@@ -73,6 +73,9 @@ public class VideoUiApi {
     @Inject
     CollectionService collectionService;
 
+    @Inject
+    Services.VideoMetadataService videoMetadataService;
+
     @Inject @io.quarkus.qute.Location("suggestionFragment.html")
     Template suggestionFragment;
 
@@ -374,6 +377,18 @@ public class VideoUiApi {
                 return b.dateAdded.compareTo(a.dateAdded);
             });
             if (recentlyAddedShows.size() > 20) recentlyAddedShows = recentlyAddedShows.subList(0, 20);
+
+            // --- Ensure series text metadata is populated for TV genres ---
+            for (Models.Video v : tvShows) {
+                if (v.series != null && v.series.id != null) {
+                    try {
+                        videoMetadataService.ensureSeriesTextMetadata(v.series.id);
+                    } catch (Exception e) {
+                        // Log but continue — enrichment failure shouldn't break the page
+                        LOG.debug("Could not enrich series {}: {}", v.series.id, e.getMessage());
+                    }
+                }
+            }
 
             // --- Build TV show genre map ---
             Map<String, List<Models.Video>> tvGenreMap = new LinkedHashMap<>();
