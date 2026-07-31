@@ -131,15 +131,24 @@ public class VideoController {
         }
     }
 
+    @jakarta.transaction.Transactional
     public synchronized void reportClientState(Long profileId, Long videoId, boolean playing, double currentTime) {
         if (videoId == null) return;
-        Profile profile = (profileId != null) ? Profile.findById(profileId) : null;
         ProfileSessionState st;
-        if (profile != null) {
-            st = ProfileSessionState.find("profile", profile).firstResult();
-            if (st == null) { st = new ProfileSessionState(); st.profile = profile; }
+        // Pause must land on the row the 300ms tick broadcasts, or the timer never stops and keeps force-playing.
+        if (activePlayingProfileId != null) {
+            st = ProfileSessionState.find("profile.id", activePlayingProfileId).firstResult();
+            if (st == null) st = getState();
+        } else if (profileId != null) {
+            Profile profile = Profile.findById(profileId);
+            if (profile != null) {
+                st = ProfileSessionState.find("profile", profile).firstResult();
+                if (st == null) { st = new ProfileSessionState(); st.profile = profile; }
+            } else {
+                st = getState();
+            }
         } else {
-            st = getState(); // fallback to existing getOrCreate path
+            st = getState();
         }
         if (st == null) return;
         // T1 lock: drop reports from a stale player (videoId != commanded currentVideoId); adopt when null

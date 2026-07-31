@@ -61,6 +61,11 @@
         var _swapRetries = 0;
         var _swapTimeout = null;
         var _swapHandlers = null;
+        /* Echo guard (mirrors SimplePlayer): set while applying server-commanded
+         * play/pause so the resulting 'play'/'pause' events do not broadcast back
+         * to the server. Without it, the server's 300ms playing=true broadcast
+         * force-plays and the echo re-confirms it, defeating a local pause. */
+        var _applyingServerState = false;
 
         function _clearSwapListeners() {
             if (_swapTimeout) { clearTimeout(_swapTimeout); _swapTimeout = null; }
@@ -481,6 +486,7 @@
                 },
                 onStateUpdate: function(state) {
                     if (!state || _destroyed || !video) return;
+                    _applyingServerState = true;
                     try {
                     if (state.currentVideoId && state.currentVideoId.toString() !== videoId.toString()) {
                         var newId = state.currentVideoId;
@@ -588,11 +594,20 @@
                             else if (!state.playing && !video.paused) { try { video.pause(); } catch (e) {} }
                         }
                         if (typeof state.currentTime === 'number' && !_swapInProgress) {
-                            var drift = Math.abs((video.currentTime || 0) - state.currentTime);
-                            if (drift > 3) { try { video.currentTime = state.currentTime; } catch (e) {} }
+                            /* Bound the drift-seek to the loaded duration: the server's
+                             * 300ms timer inflates currentTime while a slow stream is
+                             * still buffering; seeking a data-less element past its end
+                             * fires a spurious 'ended', cascading to the next episode. */
+                            var d = video.duration;
+                            var target = state.currentTime;
+                            if (isFinite(d) && d > 0 && target > d - 1) target = d - 1;
+                            var drift = Math.abs((video.currentTime || 0) - target);
+                            if (drift > 3) { try { video.currentTime = target; } catch (e) {} }
                         }
                     } catch (e) {
                         console.error('[OplayerAdapter] onStateUpdate error', e);
+                    } finally {
+                        _applyingServerState = false;
                     }
                 }
             });
@@ -1003,7 +1018,7 @@
         }, true);
 
         function _broadcastState() {
-            if (!_wsManager || !_wsManager.connected || _destroyed || !video || _swapInProgress) return;
+            if (!_wsManager || !_wsManager.connected || _destroyed || !video || _swapInProgress || _applyingServerState) return;
             _wsManager.send('state', {
                 currentVideoId: videoId,
                 playing: !video.paused,
@@ -1043,7 +1058,12 @@
 
             video.addEventListener('ended', function() {
                 PlayerUtils?.releaseWakeLock?.();
-                if (window.testPlayerFeatures) {
+                /* Only auto-advance on a genuine end-of-playback: a spurious 'ended'
+                 * from a slow load (drift-seek past the loaded end, zero-duration blob
+                 * swap) must not cascade through the episode list. */
+                var d = video.duration || 0;
+                var legitEnd = !_swapInProgress && d > 0 && video.currentTime >= d - 1 && video.readyState >= 3 && !video.error;
+                if (legitEnd && window.testPlayerFeatures) {
                     window.testPlayerFeatures._navigate('next');
                 }
             });

@@ -1037,7 +1037,11 @@
                             reader.read().then(function (result) {
                                 if (result.done) {
                                     self._byteTrackController = null;
-                                    if (self.video.readyState <= 1) {
+                                    // Swap to the Blob only if playback was requested but never
+                                    // started; swapping while paused aborts the stream fetch
+                                    // (media-resource-aborted DOMExceptions) and buffers the
+                                    // whole file in memory for nothing (autoplay-blocked case).
+                                    if (self.video.readyState <= 1 && !self.video.paused) {
                                         var mime = response.headers.get('Content-Type') || 'video/mp4';
                                         var blob = new Blob(chunks, { type: mime });
                                         var blobUrl = URL.createObjectURL(blob);

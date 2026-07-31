@@ -2293,8 +2293,10 @@ function closePlayerModal() {
   const modal = document.getElementById('player-modal');
   const content = document.getElementById('player-modal-content');
 
-  if (window.currentPlayerInstance) {
-    try {
+  try {
+    if (typeof window.destroyOPlayerAdapter === 'function') window.destroyOPlayerAdapter();
+    if (typeof window.destroyVideoJsAdapter === 'function') window.destroyVideoJsAdapter();
+    if (window.currentPlayerInstance) {
       if (window.currentPlayerInstance.progressReporter) {
         window.currentPlayerInstance.progressReporter.saveNow();
       }
@@ -2303,8 +2305,8 @@ function closePlayerModal() {
       } else if (window.currentPlayerInstance.pause) {
         window.currentPlayerInstance.pause();
       }
-    } catch (_) { /* best-effort cleanup */ }
-  }
+    }
+  } catch (_) { /* best-effort cleanup */ }
   window.currentPlayerInstance = null;
   window.player = null;
 

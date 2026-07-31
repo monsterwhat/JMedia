@@ -186,6 +186,10 @@
                 }
             };
             p.video.onended = () => {
+                if (p._applyingServerState || !p._hasPlayedData) return;
+                const d = p.video.duration;
+                if (!(d > 0) || p.video.currentTime < d - 1) return;
+                if (p.video.readyState < 3 || p.video.error) return;
                 console.log('[SimplePlayer] Video ended, playing next episode...');
                 p.navMgr.playNextEpisode();
             };
