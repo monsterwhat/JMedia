@@ -529,28 +529,28 @@ public class VideoUiApi {
 
             // Recently Updated
             if (!dedupedUpdates.isEmpty()) {
-                html.append(createCinemaCarouselSection("Recently Updated", "recently-updated-carousel", "home", dedupedUpdates));
+                html.append(createCinemaCarouselSection("Recently Updated", "recently-updated-carousel", "home", dedupedUpdates, false));
             }
 
             // Trending Now
             if (!trending.isEmpty()) {
-                html.append(createCinemaCarouselSection("Trending Now", "trending-carousel", "home", trending));
+                html.append(createCinemaCarouselSection("Trending Now", "trending-carousel", "home", trending, false));
             }
 
             // Movies
             List<Models.Video> moviesSlice = movies.size() > 20 ? movies.subList(0, 20) : movies;
             if (!moviesSlice.isEmpty()) {
-                html.append(createCinemaCarouselSection("Movies", "movies-carousel", "movies", moviesSlice));
+                html.append(createCinemaCarouselSection("Movies", "movies-carousel", "movies", moviesSlice, true));
             }
 
             // TV Shows
             if (!tvShows.isEmpty()) {
-                html.append(createCinemaCarouselSection("TV Shows", "tvshows-carousel", "shows", tvShows));
+                html.append(createCinemaCarouselSection("TV Shows", "tvshows-carousel", "shows", tvShows, true));
             }
 
             // Recently Added Movies
             if (!recentlyAddedMovies.isEmpty()) {
-                html.append(createCinemaCarouselSection("Recently Added Movies", "movies-recently-added-carousel", "movies", recentlyAddedMovies));
+                html.append(createCinemaCarouselSection("Recently Added Movies", "movies-recently-added-carousel", "movies", recentlyAddedMovies, false));
             }
 
             // Movie Genre Rows
@@ -559,12 +559,12 @@ public class VideoUiApi {
                 String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
                 String cid = "movies-genre-" + slug + "-carousel";
                 List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
-                html.append(createCinemaCarouselSection(genre, cid, "movies", genreVids));
+                html.append(createCinemaCarouselSection(genre, cid, "movies", genreVids, false));
             }
 
             // Recently Added TV Shows
             if (!recentlyAddedShows.isEmpty()) {
-                html.append(createCinemaCarouselSection("Recently Added TV Shows", "tvshows-recently-added-carousel", "shows", recentlyAddedShows));
+                html.append(createCinemaCarouselSection("Recently Added TV Shows", "tvshows-recently-added-carousel", "shows", recentlyAddedShows, false));
             }
 
             // TV Show Genre Rows
@@ -573,7 +573,7 @@ public class VideoUiApi {
                 String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
                 String cid = "tvshows-genre-" + slug + "-carousel";
                 List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
-                html.append(createCinemaCarouselSection(genre, cid, "shows", genreVids));
+                html.append(createCinemaCarouselSection(genre, cid, "shows", genreVids, false));
             }
 
             long elapsed = System.currentTimeMillis() - start;
@@ -686,13 +686,13 @@ public class VideoUiApi {
     /**
      * Creates a cinema-styled carousel section with header and arrows.
      */
-    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video> items) {
+    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video> items, boolean isMainSection) {
         if (items == null || items.isEmpty()) return "";
         StringBuilder html = new StringBuilder();
         html.append("<section class=\"cinema-section\" data-category=\"").append(escapeHtml(category)).append("\">");
         html.append("<div class=\"cinema-section-header\">");
         html.append("<h2 class=\"cinema-section-title\">").append(escapeHtml(title)).append("</h2>");
-        if ("movies".equals(category) || "shows".equals(category)) {
+        if (isMainSection && ("movies".equals(category) || "shows".equals(category))) {
             String mode = "movies".equals(category) ? "movies" : "tvshows";
             html.append("<div style=\"margin-left:auto;display:flex;align-items:center;gap:1rem;\">");
             html.append("<div id=\"").append(mode).append("-sort-controls\" style=\"display:none;gap:0.75rem;align-items:center;\">");
