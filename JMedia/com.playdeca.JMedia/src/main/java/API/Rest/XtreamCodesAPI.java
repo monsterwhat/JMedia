@@ -421,20 +421,23 @@ public class XtreamCodesAPI {
         
         java.util.Map<String, Object> info = new java.util.HashMap<>();
         Video first = seriesEpisodes.get(0);
+        boolean hasSeries = first.series != null;
+        Models.Series s = hasSeries ? first.series : null;
         info.put("name", first.seriesTitle);
         info.put("cover", getImageUrl(first));
         info.put("cover_big", getImageUrl(first));
-        info.put("plot", first.overview != null ? first.overview : "");
-        info.put("cast", first.cast != null ? String.join(", ", first.cast) : "");
-        info.put("director", first.directors != null ? String.join(", ", first.directors) : "");
-        List<String> seriesGenres = (first.series != null && first.series.genres != null && !first.series.genres.isEmpty())
-            ? first.series.genres : first.genres;
+        info.put("plot", (s != null && s.overview != null && !s.overview.isBlank()) ? s.overview : (first.overview != null ? first.overview : ""));
+        info.put("cast", (s != null && s.cast != null && !s.cast.isEmpty()) ? String.join(", ", s.cast) : (first.cast != null ? String.join(", ", first.cast) : ""));
+        info.put("director", (s != null && s.directors != null && !s.directors.isEmpty()) ? String.join(", ", s.directors) : (first.directors != null ? String.join(", ", first.directors) : ""));
+        List<String> seriesGenres = (s != null && s.genres != null && !s.genres.isEmpty())
+            ? s.genres : first.genres;
         info.put("genre", seriesGenres != null ? String.join(", ", seriesGenres) : "");
-        info.put("releaseDate", first.releaseDate);
-        info.put("rating", first.imdbRating != null ? first.imdbRating.toString() : "0");
-        info.put("rating_5based", first.imdbRating != null ? Math.ceil(first.imdbRating / 2.0) : 0);
-        info.put("youtube_trailer", "");
-        info.put("episode_run_time", first.runtimeMins != null ? String.valueOf(first.runtimeMins) : "");
+        info.put("releaseDate", (s != null && s.releaseDate != null) ? s.releaseDate : first.releaseDate);
+        Double seriesRating = (s != null && s.tmdbRating != null) ? s.tmdbRating : first.imdbRating;
+        info.put("rating", seriesRating != null ? seriesRating.toString() : "0");
+        info.put("rating_5based", seriesRating != null ? Math.ceil(seriesRating / 2.0) : 0);
+        info.put("youtube_trailer", (s != null && s.trailerUrl != null) ? s.trailerUrl : (first.trailerUrl != null ? first.trailerUrl : ""));
+        info.put("episode_run_time", (s != null && s.runtimeMins != null) ? String.valueOf(s.runtimeMins) : (first.runtimeMins != null ? String.valueOf(first.runtimeMins) : ""));
         info.put("backdrop_path", new ArrayList<>());
         
         response.put("info", info);
@@ -762,25 +765,28 @@ public class XtreamCodesAPI {
             log.infof("getSeries: series=%s, seriesId=%s, episodes=%d, tmdbId=%s, posterPath=%s, imageUrl=%s",
                     entry.getKey(), Math.abs(entry.getKey().hashCode()), entry.getValue().size(),
                     first.tmdbId, first.posterPath, imageUrl);
-            XtreamSeries s = new XtreamSeries();
-            s.num = num++;
-            s.name = entry.getKey();
-            s.seriesId = String.valueOf(Math.abs(entry.getKey().hashCode()));
-            s.cover = imageUrl;
-            s.plot = first.overview;
-            s.rating = first.imdbRating != null ? first.imdbRating.toString() : "0";
-            s.rating5based = first.imdbRating != null ? Math.ceil(first.imdbRating / 2.0) : 0;
-            s.releaseDate = first.releaseDate;
-            s.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
-            List<String> seriesGenres = (first.series != null && first.series.genres != null && !first.series.genres.isEmpty())
-                ? first.series.genres : first.genres;
+            boolean hasSeries = first.series != null;
+            Models.Series ser = hasSeries ? first.series : null;
+            XtreamSeries xs = new XtreamSeries();
+            xs.num = num++;
+            xs.name = entry.getKey();
+            xs.seriesId = String.valueOf(Math.abs(entry.getKey().hashCode()));
+            xs.cover = imageUrl;
+            xs.plot = (ser != null && ser.overview != null && !ser.overview.isBlank()) ? ser.overview : first.overview;
+            Double seriesRating = (ser != null && ser.tmdbRating != null) ? ser.tmdbRating : first.imdbRating;
+            xs.rating = seriesRating != null ? seriesRating.toString() : "0";
+            xs.rating5based = seriesRating != null ? Math.ceil(seriesRating / 2.0) : 0;
+            xs.releaseDate = (ser != null && ser.releaseDate != null) ? ser.releaseDate : first.releaseDate;
+            xs.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
+            List<String> seriesGenres = (ser != null && ser.genres != null && !ser.genres.isEmpty())
+                ? ser.genres : first.genres;
             if (seriesGenres != null && !seriesGenres.isEmpty()) {
                 Models.Genre g = Models.Genre.find("LOWER(name) = ?1", seriesGenres.get(0).toLowerCase()).firstResult();
-                s.categoryId = g != null ? g.id.toString() : "0";
+                xs.categoryId = g != null ? g.id.toString() : "0";
             } else {
-                s.categoryId = "0";
+                xs.categoryId = "0";
             }
-            seriesList.add(s);
+            seriesList.add(xs);
         }
         log.infof("getSeries: returning %d series, sample: %s", seriesList.size(), seriesList.isEmpty() ? "empty" : toJson(seriesList.subList(0, Math.min(2, seriesList.size()))));
         return Response.ok(seriesList).build();
