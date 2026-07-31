@@ -2098,12 +2098,16 @@ public class VideoUiApi {
                 }
             }
 
-            // Build lightweight list — never trigger lazy loading
+            // Build lightweight list — include series.id so JS can fetch full Series entity
             List<Map<String, Object>> result = new ArrayList<>();
             for (Models.Video v : episodes) {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", v.id);
                 item.put("title", v.title);
+                // Include series.id (just the ID, not the full entity) so JS can fetch /api/series/{id}
+                if (v.series != null) {
+                    item.put("series", java.util.Map.of("id", v.series.id));
+                }
                 item.put("seriesTitle", v.seriesTitle);
                 item.put("type", v.type);
                 item.put("seasonNumber", v.seasonNumber);
