@@ -142,6 +142,10 @@ public class VideoController {
             st = getState(); // fallback to existing getOrCreate path
         }
         if (st == null) return;
+        // T1 lock: drop reports from a stale player (videoId != commanded currentVideoId); adopt when null
+        if (st.currentVideoId != null && !st.currentVideoId.equals(videoId)) {
+            return; // DROP: do not write state or timers, do not broadcast
+        }
         st.currentVideoId = videoId;
         st.playing = playing;
         st.currentTime = currentTime;
