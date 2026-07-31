@@ -34,6 +34,7 @@
 
     var _running = false;    /* a fallback cycle is in progress */
     var _completed = false;  /* a fallback already succeeded for this fragment */
+    var _generation = 0;     /* bumped by reset() to invalidate in-flight fallback cycles */
 
     /* ----------------------------- script loading ----------------------------- */
 
@@ -309,6 +310,7 @@
             return;
         }
         _running = true;
+        var gen = _generation;
         var failed = detectFailedEngine();
         var startIdx = ENGINE_CHAIN.indexOf(failed);
         if (startIdx < 0) startIdx = 0;
@@ -318,10 +320,11 @@
         } else {
             console.warn('[PlayerFallback] ' + failed + ' init failed — no engines left');
         }
-        tryNext(nextIdx, videoId);
+        tryNext(nextIdx, videoId, gen);
     }
 
-    function tryNext(idx, videoId) {
+    function tryNext(idx, videoId, gen) {
+        if (gen !== _generation) { console.warn('[PlayerFallback] cycle superseded (fragment changed); aborting stale fallback'); return; }
         if (idx >= ENGINE_CHAIN.length) {
             _running = false;
             console.error('[PlayerFallback] all engines failed for videoId', videoId);
@@ -332,9 +335,10 @@
         ensureEngineReady(engine, function(ok) {
             if (!ok) {
                 console.warn('[PlayerFallback] engine unavailable: ' + name);
-                tryNext(idx + 1, videoId);
+                tryNext(idx + 1, videoId, gen);
                 return;
             }
+            if (gen !== _generation) { console.warn('[PlayerFallback] cycle superseded during engine load; aborting'); return; }
             var initOk = engine.init.call(engine, videoId);
             if (initOk) {
                 _running = false;
@@ -342,7 +346,7 @@
                 console.log('[PlayerFallback] active engine: ' + name);
             } else {
                 console.warn('[PlayerFallback] engine init failed: ' + name);
-                tryNext(idx + 1, videoId);
+                tryNext(idx + 1, videoId, gen);
             }
         });
     }
@@ -365,6 +369,7 @@
 
     window.__playerFallback = {
         reset: function() {
+            _generation++;
             _running = false;
             _completed = false;
             console.log('[PlayerFallback] state reset for new fragment');
