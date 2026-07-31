@@ -47,6 +47,16 @@
 
             if (!this.videoId || !this.adapter || !this.video) {
                 console.warn('[TestPlayerFeatures] Missing videoId, adapter, or video element');
+                /* Signal the cross-engine fallback dispatcher (playerFallback.js)
+                 * so an engine that failed to produce a usable <video> element
+                 * hands off to the next engine in the chain. */
+                if (typeof window.requestPlayerFallback === 'function') {
+                    window.requestPlayerFallback(this.videoId);
+                } else {
+                    window.dispatchEvent(new CustomEvent('oplayer:fallback-requested', {
+                        detail: { videoId: this.videoId }
+                    }));
+                }
                 return;
             }
 

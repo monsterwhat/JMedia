@@ -33,6 +33,11 @@
         var assCanvas       = document.getElementById('assCanvas');
         var settingsToggleBtn = document.getElementById('settingsToggleBtn');
 
+        if (!oplayerContainer) {
+            console.warn('[OPlayerAdapter] #oplayerContainer not found; cannot init OPlayer');
+            return;
+        }
+
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
         var streamUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
