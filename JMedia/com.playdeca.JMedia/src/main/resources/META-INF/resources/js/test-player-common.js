@@ -786,17 +786,19 @@
                 }
 
                 // Auto-skip intro on timeupdate
-                self.video.addEventListener('timeupdate', function () {
-                    var t = self.video.currentTime;
-                    if (self.markers.introStart > 0 && t >= self.markers.introStart && t < self.markers.introEnd) {
-                        var skipTo = self.markers.introEnd;
-                        if (skipTo > d) return;
-                        self._showSkipNotice('Intro skipped', function () {
-                            self.adapter.setCurrentTime(self.markers.introStart);
-                        });
-                        self.adapter.setCurrentTime(skipTo);
-                    }
-                });
+                if (self.container && self.container.dataset && self.container.dataset.autoSkipIntro === 'true') {
+                    self.video.addEventListener('timeupdate', function () {
+                        var t = self.video.currentTime;
+                        if (self.markers.introStart > 0 && t >= self.markers.introStart && t < self.markers.introEnd) {
+                            var skipTo = self.markers.introEnd;
+                            if (skipTo > d) return;
+                            self._showSkipNotice('Intro skipped', function () {
+                                self.adapter.setCurrentTime(self.markers.introStart);
+                            });
+                            self.adapter.setCurrentTime(skipTo);
+                        }
+                    });
+                }
             };
             check();
         }
