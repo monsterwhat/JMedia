@@ -94,7 +94,7 @@ public class SmartNamingService {
     );
     
     // Technical terms regex string (used in composite patterns)
-    private static final String RELEASE_TERMS = "720p|1080p|2160p|4k|480p|360p|576p|bluray|bdrip|dvdrip|web-dl|webrip|re-?webrip|hdtv|yts|imax|hybrid|remastered|extended|collector|ultimate|repack|x264|x265|hevc|aac|ac3|dts|ddp|5\\s*[\\.\\s]?1|7\\s*[\\.\\s]?1|yts\\.mx|yts\\.am|dual-audio|multi-audio|tri-audio|multi-subs|10bit|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|vostfr|amzn|galaxytv|tgx|rzerox|mazar|pahe\\.in|800mb|proper|uncut|unrated|directors?.cut|nf|galaxyty|complete|eztv\\.re|kontrast|elite|hodl|galaxyty|galaxy-tv|galaxy_tv|re-?enc|h264|h265|avc1|avc|mp4a|hevc";
+    private static final String RELEASE_TERMS = "720p|1080p|2160p|4k|480p|360p|576p|bluray|bdrip|brrip|brip|dvdrip|hdrip|cam|camrip|hdcam|hdcamrip|web-dl|webrip|re-?webrip|hdtv|tvrip|pdtv|telesync|remux|screener|scr|dvdscr|workprint|ppv|yts|yify|imax|hybrid|hdr|hdr10\\+|hdr10plus|dolbyvision|dv|theatrical|remastered|restored|extended|collector|ultimate|repack|rerip|internal|x264|x265|xvid|divx|vp9|av1|hevc|aac|aac2[\\s\\.]0|aac5[\\s\\.]1|flac|opus|lpcm|ac3|ac35[\\s\\.]1|eac3|dtshd[\\s\\.]ma|dts-hd-ma|dts[\\s-]?hd|dtsx|dts-x|dts|dts5[\\s\\.]1|truehd|atmos|ddp|ddp5[\\s\\.]1|dd5[\\s\\.]1|dd2[\\s\\.]0|5\\.1|7\\.1|\\d+ch|stereo|mono|yts\\.mx|yts\\.am|dual[\\s-]?audio|multi[\\s-]?audio|tri[\\s-]?audio|multi[\\s-]?subs?|10bits?|latino|dubbed|subbed|readnfo|uncensored|colorized|stv|rarbg|ettv|shaanig|nitro|fgt|ozlem|juggs|axxo|klaxxon|vostfr|amzn|hmax|galaxytv|galaxyrg|tgx|rzerox|mazar|pahe\\.in|800mb|proper|uncut|unrated|directors?.cut|nf|galaxyty|complete|eztv|eztv\\.re|ext\\.to|kontrast|elite|hodl|galaxyty|galaxy-tv|galaxy_tv|re-?enc|h264|h265|avc1|avc|mp4a|hevc|rapta|psa|splice|flux|silence|rmteam";
     
     // Compiled cleaning patterns
     private static final Pattern RELEASE_CLEAN_PATTERN = Pattern.compile("(?i)\\b(" + RELEASE_TERMS + ")($|[\\s\\._-])");
@@ -134,7 +134,7 @@ public class SmartNamingService {
 
     // Quality indicators that suggest movies
     private static final List<String> MOVIE_QUALITY_INDICATORS = Arrays.asList(
-        "bluray", "bdrip", "dvdrip", "web-dl", "webrip", "hdcam", "ts", "tc", "yts", "yify", "imax"
+        "bluray", "bdrip", "brrip", "brip", "dvdrip", "web-dl", "webrip", "hdcam", "ts", "tc", "yts", "yify", "imax"
     );
     
     // TV show indicators in filenames
@@ -1410,6 +1410,18 @@ public class SmartNamingService {
 
         cleaned = LEADING_BRACKETS_PATTERN.matcher(cleaned).replaceAll("");
         cleaned = METADATA_BRACKETS_PATTERN.matcher(cleaned).replaceAll(" ");
+
+        // Structural metadata cut: find the first release metadata term and remove everything from there.
+        // In scene naming, filenames are structured as: [Title Words] [Year?] [SXXEXX?] [Episode Title?] → [METADATA...]
+        // Everything from the first technical tag (resolution, codec, source, quality) onward is
+        // reliably machine metadata, never part of the title. Finding the first match and cutting
+        // the tail is more robust than per-term replacement — it naturally handles unknown release
+        // groups, language tags, and ad-hoc metadata without maintaining an exhaustive term list.
+        Matcher firstMetadataMatcher = RELEASE_CLEAN_PATTERN.matcher(cleaned);
+        if (firstMetadataMatcher.find()) {
+            cleaned = cleaned.substring(0, firstMetadataMatcher.start()).trim();
+        }
+
         cleaned = LEADING_SEQUENCE_PATTERN.matcher(cleaned).replaceAll("");
         cleaned = YEAR_PAREN_PATTERN.matcher(cleaned).replaceAll("");
         cleaned = YEAR_STANDALONE_PATTERN.matcher(cleaned).replaceAll("");
