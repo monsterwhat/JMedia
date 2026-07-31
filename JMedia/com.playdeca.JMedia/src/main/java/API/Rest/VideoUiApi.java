@@ -1677,22 +1677,28 @@ public class VideoUiApi {
         info.put("episodeTitle", item.episodeTitle != null ? item.episodeTitle : "");
         info.put("releaseYear", item.releaseYear);
         info.put("runtimeMins", item.runtimeMins);
-        info.put("mpaaRating", item.mpaaRating != null ? item.mpaaRating : "");
-        info.put("overview", item.overview != null ? item.overview : (item.description != null ? item.description : ""));
-        info.put("tagline", item.tagline != null ? item.tagline : "");
-        info.put("genres", (item.series != null && "episode".equalsIgnoreCase(item.type) && item.series.genres != null && !item.series.genres.isEmpty())
-            ? item.series.genres : item.genres);
-        info.put("imdbRating", item.imdbRating);
-        info.put("tmdbRating", item.tmdbRating);
-        info.put("metacriticRating", item.metacriticRating);
-        info.put("cast", item.cast);
-        info.put("directors", item.directors);
-        info.put("writers", item.writers);
+
+        boolean isEpisode = item.series != null && "episode".equalsIgnoreCase(item.type);
+        Models.Series s = isEpisode ? item.series : null;
+
+        info.put("mpaaRating", (s != null && s.mpaaRating != null) ? s.mpaaRating : item.mpaaRating != null ? item.mpaaRating : "");
+        info.put("overview", (s != null && s.overview != null && !s.overview.isBlank()) ? s.overview
+            : (item.overview != null ? item.overview : (item.description != null ? item.description : "")));
+        info.put("tagline", (s != null && s.tagline != null && !s.tagline.isBlank()) ? s.tagline
+            : (item.tagline != null ? item.tagline : ""));
+        info.put("genres", (s != null && s.genres != null && !s.genres.isEmpty())
+            ? s.genres : item.genres);
+        info.put("imdbRating", (s != null && s.imdbRating != null) ? s.imdbRating : item.imdbRating);
+        info.put("tmdbRating", (s != null && s.tmdbRating != null) ? s.tmdbRating : item.tmdbRating);
+        info.put("metacriticRating", (s != null && s.metacriticRating != null) ? s.metacriticRating : (item.metacriticRating != null ? item.metacriticRating : null));
+        info.put("cast", (s != null && s.cast != null && !s.cast.isEmpty()) ? s.cast : item.cast);
+        info.put("directors", (s != null && s.directors != null && !s.directors.isEmpty()) ? s.directors : item.directors);
+        info.put("writers", (s != null && s.writers != null && !s.writers.isEmpty()) ? s.writers : item.writers);
         info.put("productionCompanies", item.productionCompanies);
         info.put("awards", item.awards != null ? item.awards : "");
         info.put("budget", item.budget);
         info.put("revenue", item.revenue);
-        info.put("originalLanguage", item.originalLanguage != null ? item.originalLanguage : "");
+        info.put("originalLanguage", (s != null && s.originalLanguage != null) ? s.originalLanguage : (item.originalLanguage != null ? item.originalLanguage : ""));
         info.put("productionCountries", item.productionCountries != null ? item.productionCountries : "");
         info.put("releaseDate", item.releaseDate != null ? item.releaseDate : "");
         info.put("trailerUrl", item.trailerUrl != null ? item.trailerUrl : "");
@@ -1703,8 +1709,8 @@ public class VideoUiApi {
         info.put("displayResolution", item.displayResolution != null ? item.displayResolution : "");
         info.put("videoCodec", item.videoCodec != null ? item.videoCodec : "");
         info.put("audioChannels", item.audioChannels);
-        info.put("status", item.status != null ? item.status : "");
-        info.put("networks", item.networks);
+        info.put("status", (s != null && s.status != null) ? s.status : (item.status != null ? item.status : ""));
+        info.put("networks", (s != null && s.networks != null && !s.networks.isEmpty()) ? s.networks : item.networks);
     }
 
     @GET
