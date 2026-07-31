@@ -810,6 +810,33 @@ async function renderCollectionsSection(container) {
   }
 }
 
+// ============================================================
+// Catalog loader — single-flight promise over /api/video/videos
+// ============================================================
+let catalogPromise = null;
+
+const fetchCatalog = () => {
+  if (catalogPromise) return catalogPromise;
+  catalogPromise = fetch('/api/video/videos').then(r => r.ok ? r.json() : []).then(data => {
+    const d = data && typeof data === 'object' && data.success !== undefined && data.data !== undefined ? data.data : data;
+    allVideos = Array.isArray(d) ? d : [];
+    // Collect TV shows (episodes deduplicated by seriesTitle)
+    const seenTitles = new Set();
+    allTvShows = allVideos.filter(v => v.type === 'episode' && v.seriesTitle)
+      .filter(v => { const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, ''); if (seenTitles.has(key)) return false; seenTitles.add(key); return true; });
+    return allVideos;
+  }).catch(err => {
+    // Do NOT swallow: keep the promise rejected so the caller can surface the failure in showAll.
+    console.error('Failed to load video catalog:', err);
+    throw err;
+  });
+  return catalogPromise;
+};
+
+function awaitCatalog() {
+  return catalogPromise;
+}
+
 async function loadCinemaData() {
   const params = new URLSearchParams(window.location.search);
   const section = params.get('section') || 'home';
@@ -872,15 +899,9 @@ async function loadCinemaData() {
     updateCarouselArrows();
   }
 
-  // Lazy-load allVideos in background for other features (series detail, sidebar, search)
-  fetch('/api/video/videos').then(r => r.ok ? r.json() : []).then(data => {
-    const d = parseResponse(data);
-    allVideos = Array.isArray(d) ? d : [];
-    // Collect TV shows (episodes deduplicated by seriesTitle)
-    const seenTitles = new Set();
-    allTvShows = allVideos.filter(v => v.type === 'episode' && v.seriesTitle)
-      .filter(v => { const key = v.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, ''); if (seenTitles.has(key)) return false; seenTitles.add(key); return true; });
-  }).catch(() => {});
+  // Lazy-load allVideos in background for other features (series detail, sidebar, search).
+  // Kick-off stays here (same timing as before); showAll awaits this same promise.
+  catalogPromise = fetchCatalog();
 
   showSection(section);
 
