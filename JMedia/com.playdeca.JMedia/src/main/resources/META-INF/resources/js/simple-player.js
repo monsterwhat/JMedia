@@ -30,6 +30,9 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
             this.streamStartOffset = 0;
             this.lastKnownGoodPosition = 0;
+            // Per-instance suppression window blocking stale broadcasts during an in-place WS source swap (B9).
+            this._swapInProgress = false;
+            this._swapSafetyTimer = null;
 
             this.stateMgr = new window.PlayerStateManager(this);
             this.stateMgr.initState();
@@ -277,16 +280,54 @@ if (typeof window.SimplePlayer === 'undefined') {
                         // Source-reload: if server selected a different video, reinit player for the new source
                         if (state.currentVideoId && state.currentVideoId.toString() !== this.videoId.toString()) {
                             const newId = state.currentVideoId;
+                            const newStateTime = typeof state.currentTime === 'number' ? state.currentTime : 0;
+
+                            // Suppress stale broadcasts (timeupdate/pause/play) from the old element
+                            // while the new source settles; cleared on playing/loadeddata/error or 10s timeout.
+                            this._swapInProgress = true;
+                            if (this._swapSafetyTimer) clearTimeout(this._swapSafetyTimer);
+                            this._swapSafetyTimer = setTimeout(() => this._clearSwapInProgress(), 10000);
+
+                            // Drop the old element's error/retry handlers so the new source gets a
+                            // fresh retry budget via the StreamManager machinery (initDirectStream).
+                            this.streamMgr.clearStreamErrorHandlers();
+                            this._streamFallbackCount = 0;
+
+                            // New episode starts fresh — never inherit the old episode's position.
                             this.videoId = newId;
-                            this.video.src = `/api/video/stream/${encodeURIComponent(newId)}.mp4?trace=${Date.now()}`;
-                            this.video.load();
+                            this.streamStartOffset = 0;
+                            this.lastKnownGoodPosition = 0;
+                            this.initialResumeTime = 0;
+
                             // Restore volume/mute from localStorage
                             const vol = parseFloat(localStorage.getItem('jmedia_video_volume_' + profileId) || '0.7');
                             const mute = localStorage.getItem('jmedia_video_mute_' + profileId) === 'true';
                             this.video.volume = vol;
                             this.video.muted = mute;
-                            if (state.playing) {
-                                this.video.play().catch(() => {});
+
+                            // Resume: selectVideo → state.currentTime > 0 → seek the new source there;
+                            // advanceVideo → server sets 0 → no seek. One-time listener per swap (B10).
+                            this.video.addEventListener('loadedmetadata', () => {
+                                if (newStateTime > 0 && this.video && !this._destroyed) {
+                                    try { this.video.currentTime = newStateTime; } catch (e) {}
+                                }
+                            }, { once: true });
+
+                            // Suppression exit: playing/loadeddata/error, or the 10s safety timeout.
+                            // On playing, send ONE confirmation broadcast so the server playback
+                            // timer restarts with the new id (B6) — it now passes the swap guard.
+                            this.video.addEventListener('playing', () => {
+                                this._clearSwapInProgress();
+                                if (!this._destroyed) this._broadcastState();
+                            }, { once: true });
+                            this.video.addEventListener('loadeddata', () => this._clearSwapInProgress(), { once: true });
+                            this.video.addEventListener('error', () => this._clearSwapInProgress(), { once: true });
+
+                            // Load the new source through the StreamManager retry machinery
+                            // (cache-busted ?trace=, bounded error retry as on initial load).
+                            this.streamMgr.initDirectStream(0);
+                            if (!state.playing) {
+                                try { this.video.pause(); } catch (e) {}
                             }
                             return;  // still hits the finally block
                         }
@@ -295,7 +336,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                         } else if (!state.playing && !this.video.paused) {
                             this.video.pause();
                         }
-                        if (typeof state.currentTime === 'number') {
+                        // Drift protection skipped during a swap window: the new element sits at 0
+                        // while the server timer broadcasts growing time, which would seek-yank it.
+                        if (!this._swapInProgress && typeof state.currentTime === 'number') {
                             const drift = Math.abs(this.video.currentTime - state.currentTime);
                             if (drift > 3) {
                                 this.video.currentTime = state.currentTime;
@@ -368,7 +411,7 @@ if (typeof window.SimplePlayer === 'undefined') {
         }
 
         _broadcastState() {
-            if (!this._wsManager || !this._wsManager.connected || this._applyingServerState) return;
+            if (!this._wsManager || !this._wsManager.connected || this._applyingServerState || this._swapInProgress) return;
 
             const playing = !this.video.paused;
 
@@ -400,8 +443,28 @@ if (typeof window.SimplePlayer === 'undefined') {
             });
         }
 
+        _clearSwapInProgress() {
+            this._swapInProgress = false;
+            if (this._swapSafetyTimer) {
+                clearTimeout(this._swapSafetyTimer);
+                this._swapSafetyTimer = null;
+            }
+        }
+
         destroy() {
+            if (this._destroyed) return;
             this._destroyed = true;
+            this._clearSwapInProgress();
+            // Final state report so the server stops its playback timer when this
+            // player is torn down (B8). Guarded: only sent once, before WS teardown.
+            if (this._wsManager && this._wsManager.connected && !this._finalStateSent) {
+                this._finalStateSent = true;
+                this._wsManager.send('state', {
+                    currentVideo: { id: this.videoId },
+                    playing: false,
+                    currentTime: this.video.currentTime || 0
+                });
+            }
             if (this._wsManager) this._wsManager.disconnect();
             this.subtitleController.destroyAssSubtitle();
             clearInterval(this._prog);
