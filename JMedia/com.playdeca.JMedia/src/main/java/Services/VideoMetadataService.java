@@ -1699,26 +1699,34 @@ public class VideoMetadataService {
                         video.directors != null ? video.directors.size() + " directors" : "none");
 
             } else if ("episode".equalsIgnoreCase(type)) {
-                String seriesSearchQuery = video.seriesTitle != null
-                        ? URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8) : null;
-                if (seriesSearchQuery == null) {
-                    LOG.warn("[EnsureTextMetadata] Episode video {} has no seriesTitle, skipping", videoId);
-                    return;
-                }
+                String showId = (video.tmdbId != null && !video.tmdbId.isBlank() && !video.tmdbId.equals("null"))
+                        ? video.tmdbId : null;
 
-                String searchUrl = isBearerToken(tmdbKey)
-                        ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", seriesSearchQuery)
-                        : String.format(TMDB_SEARCH_TV, tmdbKey, seriesSearchQuery);
-                JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
-                if (searchRoot == null || searchRoot.path("results").isEmpty()) {
-                    LOG.info("[EnsureTextMetadata] No TMDB TV results for '{}'", video.seriesTitle);
-                    return;
-                }
-
-                String showId = searchRoot.path("results").get(0).path("id").asText(null);
                 if (showId == null) {
-                    LOG.info("[EnsureTextMetadata] TMDB returned null showId for video {}", videoId);
-                    return;
+                    String seriesSearchQuery = video.seriesTitle != null
+                            ? URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8) : null;
+                    if (seriesSearchQuery == null) {
+                        LOG.warn("[EnsureTextMetadata] Episode video {} has no seriesTitle, skipping", videoId);
+                        return;
+                    }
+
+                    String searchUrl = isBearerToken(tmdbKey)
+                            ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", seriesSearchQuery)
+                            : String.format(TMDB_SEARCH_TV, tmdbKey, seriesSearchQuery);
+                    JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
+                    if (searchRoot == null || searchRoot.path("results").isEmpty()) {
+                        LOG.info("[EnsureTextMetadata] No TMDB TV results for '{}'", video.seriesTitle);
+                        return;
+                    }
+
+                    showId = searchRoot.path("results").get(0).path("id").asText(null);
+                    if (showId == null) {
+                        LOG.info("[EnsureTextMetadata] TMDB returned null showId for video {}", videoId);
+                        return;
+                    }
+                    video.tmdbId = showId;
+                } else {
+                    LOG.info("[EnsureTextMetadata] Episode '{}' using stored tmdbId={}", video.seriesTitle, showId);
                 }
 
                 if (needsOverview && video.seasonNumber != null && video.episodeNumber != null) {
