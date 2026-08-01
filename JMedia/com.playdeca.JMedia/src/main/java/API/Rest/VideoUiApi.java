@@ -2282,6 +2282,7 @@ public class VideoUiApi {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", v.id);
                 item.put("title", v.title);
+                item.put("episodeTitle", v.episodeTitle);
                 // Include series.id (just the ID, not the full entity) so JS can fetch /api/series/{id}
                 if (v.series != null) {
                     item.put("series", java.util.Map.of("id", v.series.id));

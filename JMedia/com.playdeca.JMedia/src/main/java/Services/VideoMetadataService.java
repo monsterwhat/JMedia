@@ -1629,8 +1629,10 @@ public class VideoMetadataService {
         boolean needsGenres    = video.genres == null || video.genres.isEmpty();
         boolean needsDirectors = !"episode".equalsIgnoreCase(type) && (video.directors == null || video.directors.isEmpty());
         boolean needsNetworks  = "episode".equalsIgnoreCase(type) && (video.networks == null || video.networks.isEmpty());
+        boolean needsEpisodeTitle = "episode".equalsIgnoreCase(type)
+                && (video.episodeTitle == null || video.episodeTitle.isBlank());
 
-        if (!needsOverview && !needsGenres && !needsDirectors && !needsNetworks) {
+        if (!needsOverview && !needsGenres && !needsDirectors && !needsNetworks && !needsEpisodeTitle) {
             LOG.info("[EnsureTextMetadata] Video {} already has all text metadata populated, skipping", videoId);
             return;
         }
@@ -1729,7 +1731,7 @@ public class VideoMetadataService {
                     LOG.info("[EnsureTextMetadata] Episode '{}' using stored tmdbId={}", video.seriesTitle, showId);
                 }
 
-                if (needsOverview && video.seasonNumber != null && video.episodeNumber != null) {
+                if ((needsOverview || needsEpisodeTitle) && video.seasonNumber != null && video.episodeNumber != null) {
                     String episodeUrl = isBearerToken(tmdbKey)
                             ? String.format("https://api.themoviedb.org/3/tv/%s/season/%s/episode/%s?append_to_response=credits",
                                     showId, video.seasonNumber, video.episodeNumber)
@@ -1737,6 +1739,15 @@ public class VideoMetadataService {
                     JsonNode episodeRoot = fetchJson(episodeUrl, authHeaders);
                     if (episodeRoot != null && episodeRoot.has("overview") && !episodeRoot.get("overview").isNull()) {
                         video.overview = episodeRoot.get("overview").asText();
+                    }
+                    if (needsEpisodeTitle && episodeRoot != null && episodeRoot.has("name")
+                            && !episodeRoot.get("name").isNull()) {
+                        String epName = episodeRoot.get("name").asText();
+                        if (epName != null && !epName.isBlank()) {
+                            video.episodeTitle = epName;
+                            LOG.info("[EnsureTextMetadata] Episode '{}' S{}E{}: set episodeTitle='{}'",
+                                    video.seriesTitle, video.seasonNumber, video.episodeNumber, epName);
+                        }
                     }
                 }
 
