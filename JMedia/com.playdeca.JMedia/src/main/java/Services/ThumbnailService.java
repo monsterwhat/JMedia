@@ -932,7 +932,7 @@ public class ThumbnailService {
             if (dbUpdated) entityManager.persist(series);
 
             try {
-                metadataService.ensureSeriesTextMetadata(seriesId);
+                metadataService.enrichSeriesTextMetadataAsync(seriesId);
             } catch (Exception e) {
                 LOGGER.warn("Text metadata enrichment failed for series {}: {}", seriesId, e.getMessage());
             }

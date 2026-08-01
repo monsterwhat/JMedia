@@ -1578,7 +1578,7 @@ public class VideoAPI {
             // Series enrichment with deduplication
             if (vs.video.series != null && enrichedSeries.add(vs.video.series.id)) {
                 try {
-                    videoMetadataService.ensureSeriesTextMetadata(vs.video.series.id);
+                    videoMetadataService.enrichSeriesTextMetadataAsync(vs.video.series.id);
                 } catch (Exception e) {
                     LOG.warn("Could not enrich series text metadata for series {}: {}", vs.video.series.id, e.getMessage());
                 }
