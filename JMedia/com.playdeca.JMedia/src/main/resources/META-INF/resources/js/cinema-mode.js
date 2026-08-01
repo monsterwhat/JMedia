@@ -166,7 +166,9 @@ function createCardHTML(video) {
   const title = isTvCard ? video.seriesTitle : (video.title || video.seriesTitle || 'Untitled');
   const year = video.releaseYear || '';
   const rating = video.imdbRating || video.tmdbRating || '';
-  const imgSrc = getThumbnailUrl(id);
+  const imgSrc = isTvCard && video.series?.id
+    ? getSeriesImageUrl(video.series.id, 'poster')
+    : getThumbnailUrl(id);
   return `
     <div class="cinema-card" data-video-id="${id}" data-type="${video.type || 'movie'}" data-title="${title.replace(/"/g, '&quot;')}" data-click="${(video.type === 'episode' && video.seriesTitle) ? 'openSeriesDetailFromCard' : 'openDetailsFromCard'}"${(video.type === 'episode' && video.seriesTitle) ? ` data-series-title="${encodeURIComponent(video.seriesTitle || '')}"` : ''}>
       <div class="cinema-card-poster">
@@ -1246,6 +1248,9 @@ async function openSeriesDetail(seriesTitle) {
     if (oldMoreLike) oldMoreLike.remove();
     const moreLikeHtml = buildMoreLikeThis(firstEp, imgSource?.genres);
     if (moreLikeHtml) content.insertAdjacentHTML('beforeend', moreLikeHtml);
+
+    const seriesSynopsis = (seriesData && (seriesData.description || seriesData.overview)) || '';
+    fetchMissingModalEpisodeData(seriesTitle, seasonKeys[0], seriesSynopsis);
   }
 
   // Auto-refresh: if key fields are empty, poll for updated series data
@@ -1324,9 +1329,9 @@ function buildEpisodesList(episodeArray) {
     const epTitle = ep.episodeTitle || ep.title || `Episode ${(ep.episodeNumber || i + 1)}`;
     const epNum = ep.episodeNumber || (i + 1);
     const dur = formatDuration(ep.duration);
-    const desc = ep.description || '';
+    const desc = ep.description || ep.overview || '';
     const img = getThumbnailUrl(ep.id);
-    return `<div class="cinema-episode-card" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
+    return `<div class="cinema-episode-card" data-video-id="${ep.id}" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
       <div class="cinema-episode-thumb-wrap">
         <img src="${img}" alt="${epTitle}" loading="lazy">
         <div class="cinema-episode-play-overlay">
@@ -1345,6 +1350,111 @@ function buildEpisodesList(episodeArray) {
       </div>
     </div>`;
   }).join('');
+}
+
+/**
+ * Polls episodes that still show the series-synopsis fallback until their own
+ * per-episode description arrives. The backend injects the series synopsis
+ * into `description` before enrichment lands, so "description exists" is not
+ * proof the episode has its own text. Retries every ~5s (max 6 tries, ~30s),
+ * updates the rendered card in place, and stops when the modal closes or
+ * another series is opened.
+ */
+async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, seriesSynopsis) {
+  const episodes = _episodesCache.get(seriesTitle);
+  if (!Array.isArray(episodes) || !episodes.length) return;
+
+  const modal = document.getElementById('cinema-modal');
+  if (!modal || !modal.classList.contains('active')) return;
+
+  const gen = _modalGeneration;
+  const synopsis = (seriesSynopsis || '').trim();
+
+  // Episode still lacks its own text when it has none at all, or when its
+  // description is exactly the series synopsis injected by the backend.
+  const isFallback = ep => {
+    const desc = (ep.description || '').trim();
+    return desc === '' || (synopsis !== '' && desc === synopsis);
+  };
+
+  const stillMissing = episodes.filter(isFallback);
+  if (!stillMissing.length) return;
+
+  const activeItem = document.querySelector('#cinema-season-list .cinema-season-dropdown-item.active');
+  const seasonKey = activeItem ? activeItem.dataset.sk : defaultSeasonKey;
+  const activeSeason = parseInt((seasonKey || '').split(':')[0]) || null;
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const isStale = () => !modal.classList.contains('active') || gen !== _modalGeneration;
+
+  // Fetch the fresh episodes list; its `overview`/`description` fields expose
+  // the raw per-episode text (the single-video DTO masks it with series text).
+  const fetchFreshList = async () => {
+    try {
+      const resp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`);
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const updateCardInPlace = ep => {
+    const card = modal.querySelector(`.cinema-episode-card[data-video-id="${ep.id}"]`);
+    if (!card) return;
+    const descEl = card.querySelector('.cinema-episode-desc');
+    const text = ep.description || ep.overview || '';
+    if (descEl && text) {
+      descEl.classList.remove('is-skeleton');
+      descEl.textContent = text;
+    }
+  };
+
+  const isActiveSeason = ep => activeSeason != null && (ep.seasonNumber ?? 1) === activeSeason;
+  const activeMissing = stillMissing.filter(isActiveSeason);
+  const restMissing = stillMissing.filter(ep => !isActiveSeason(ep));
+
+  const pollBatch = async (batch) => {
+    for (let attempt = 0; attempt < 6 && batch.length > 0; attempt++) {
+      if (isStale()) return;
+
+      // Fire-and-forget enrichment triggers (batched) — the per-video call
+      // persists the episode's TMDB overview server-side.
+      for (let i = 0; i < batch.length; i += 5) {
+        await Promise.all(batch.slice(i, i + 5).map(ep =>
+          fetchJSON(`/api/video/${ep.id}?textOnly=true`).catch(() => null)));
+        if (isStale()) return;
+      }
+
+      const fresh = await fetchFreshList();
+      if (isStale()) return;
+      if (!Array.isArray(fresh)) {
+        if (attempt < 5) await sleep(5000);
+        continue;
+      }
+
+      const freshById = new Map(fresh.map(f => [String(f.id), f]));
+      const still = [];
+      for (const ep of batch) {
+        const f = freshById.get(String(ep.id));
+        const freshText = f && ((f.overview || '').trim() || (f.description || '').trim());
+        const realText = freshText && (synopsis === '' || freshText !== synopsis) ? freshText : '';
+        if (realText) {
+          ep.description = realText;
+          ep.overview = ep.overview || realText;
+          updateCardInPlace(ep);
+        } else {
+          still.push(ep);
+        }
+      }
+      batch = still;
+      if (batch.length && attempt < 5) await sleep(5000);
+    }
+  };
+
+  await pollBatch(activeMissing);
+  if (isStale()) return;
+  await pollBatch(restMissing);
 }
 
 function buildMoreLikeThis(currentVideo, overrideGenres) {
@@ -1515,8 +1625,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
   genreSeries.forEach(series => {
     const title = series.title || 'Untitled';
     const year = series.releaseYear || '';
-    const repEpisode = allVideos.find(v => v.type === 'episode' && v.seriesTitle === series.title);
-    const img = repEpisode ? getThumbnailUrl(repEpisode.id) : '/logo.png';
+    const img = series.id ? getSeriesImageUrl(series.id, 'poster') : '/logo.png';
     const rating = series.imdbRating || series.tmdbRating || '';
     const matchPct = rating ? Math.round(parseFloat(rating) * 10) : '';
     allCards.push(`<div class="cinema-more-like-card" data-click="openSeriesDetailFromCard" data-series-title="${encodeURIComponent(series.title || '')}">
@@ -2366,7 +2475,7 @@ async function fetchMissingEpisodeData(episodes, currentVideoId, initialSeasonKe
 
   await Promise.all(missing.map(async (ep) => {
     try {
-      const data = await fetchJSON(`/api/video/${ep.id}`);
+      const data = await fetchJSON(`/api/video/${ep.id}?textOnly=true`);
       if (!data) return;
       // Merge fetched data back into the episode object (mutates allVideos entry)
       if (!ep.episodeTitle) ep.episodeTitle = data.episodeTitle || data.title || '';

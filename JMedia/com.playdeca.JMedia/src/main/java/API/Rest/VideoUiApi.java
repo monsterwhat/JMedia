@@ -650,8 +650,9 @@ public class VideoUiApi {
      * Creates a cinema-styled card (matching createCardHTML in cinema-mode.js).
      */
     private String createCinemaCardHTML(Models.Video item) {
-        String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled");
         boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type) && item.seriesTitle != null;
+        String title = isEpisode ? item.seriesTitle
+            : (item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled"));
         String clickAction = isEpisode ? "openSeriesDetailFromCard" : "openDetailsFromCard";
         String rating = item.imdbRating != null ? String.format("%.1f", item.imdbRating) 
             : (item.tmdbRating != null ? String.format("%.1f", item.tmdbRating) : "");
@@ -660,13 +661,27 @@ public class VideoUiApi {
             ? " data-series-title=\"" + urlEncode(item.seriesTitle != null ? item.seriesTitle : "") + "\""
             : "";
 
+        String imgSrc;
+        if (isEpisode) {
+            Long seriesId = item.series != null ? item.series.id : null;
+            if (seriesId == null && item.seriesTitle != null) {
+                Models.Series seriesByTitle = Models.Series.find("title", item.seriesTitle).firstResult();
+                if (seriesByTitle != null) seriesId = seriesByTitle.id;
+            }
+            imgSrc = seriesId != null
+                ? "/api/series/" + seriesId + "/poster"
+                : "/api/video/thumbnail/" + item.id;
+        } else {
+            imgSrc = "/api/video/thumbnail/" + item.id;
+        }
+
         return "<div class=\"cinema-card\" data-video-id=\"" + item.id 
             + "\" data-type=\"" + (item.type != null ? escapeHtml(item.type) : "movie")
             + "\" data-title=\"" + escapeHtml(title)
             + "\" data-click=\"" + clickAction + "\""
             + seriesTitleAttr + ">"
             + "<div class=\"cinema-card-poster\">"
-            + "<img src=\"/api/video/thumbnail/" + item.id + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\" onerror=\"this.src='/logo.png'\">"
+            + "<img src=\"" + imgSrc + "\" alt=\"" + escapeHtml(title) + "\" loading=\"lazy\" onerror=\"this.src='/logo.png'\">"
             + "<div class=\"cinema-card-play-overlay\">"
             + "<div class=\"cinema-card-play-icon\"><i class=\"fa-solid fa-play\"></i></div>"
             + "</div></div>"
