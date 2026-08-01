@@ -19,8 +19,8 @@
 
                 <div class="player-logo-overlay" style="position:absolute;top:15px;left:15px;z-index:100;display:flex;align-items:center;gap:12px;pointer-events:none;">
                     <img class="series-logo" src="${p.container.dataset.logoPath || ''}" alt=""
-                         onload="this.style.display='block';var f=this.parentElement.querySelector('.series-title-fallback');if(f)f.style.display='none';"
-                         onerror="this.style.display='none';"
+                         onload="this.style.display='block';var c=this.closest('.player-container');var m=c&&c.querySelector('.media-info');if(m)m.style.display='none';var f=this.parentElement.querySelector('.series-title-fallback');if(f)f.style.display='none';"
+                         onerror="var o=this.parentElement;if(o)o.style.display='none';"
                          style="display:none;max-height:40px;width:auto;pointer-events:none;">
                     <span class="series-title-fallback" style="display:inline;color:#fff;font-weight:600;font-size:1rem;pointer-events:none;">${p.container.dataset.title || 'Video'}</span>
                 </div>
