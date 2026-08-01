@@ -317,7 +317,7 @@ public class VideoUiApi {
                         series = Models.Series.find("title", seriesTitle).firstResult();
                     }
                     if (series != null && series.id != null) {
-                        videoMetadataService.ensureSeriesTextMetadata(series.id);
+                        videoMetadataService.enrichSeriesTextMetadataAsync(series.id);
                         seriesCache.put(cacheKey, series);
                     }
                 } catch (Exception e) {
@@ -601,7 +601,16 @@ public class VideoUiApi {
         item.put("type", v.type != null ? v.type : "movie");
         item.put("title", v.title != null ? v.title : (v.seriesTitle != null ? v.seriesTitle : ""));
         item.put("seriesTitle", v.seriesTitle);
-        item.put("description", v.description != null ? v.description : (v.overview != null ? v.overview : ""));
+        // Episodes show the series synopsis in the hero: per-episode recaps can be
+        // very long, while the hero is a showcase for the whole title.
+        String description = v.description != null ? v.description : (v.overview != null ? v.overview : "");
+        if ("episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
+            String synopsis = resolveSeriesSynopsis(v);
+            if (!synopsis.isBlank()) {
+                description = synopsis;
+            }
+        }
+        item.put("description", description);
         item.put("overview", v.overview);
         item.put("imdbRating", v.imdbRating);
         item.put("tmdbRating", v.tmdbRating);
@@ -610,6 +619,31 @@ public class VideoUiApi {
         item.put("favorite", v.favorite);
         item.put("watchProgressPercent", v.watchProgressPercent != null ? v.watchProgressPercent : 0);
         return item;
+    }
+
+    /**
+     * Returns the series synopsis for an episode, or "" when unavailable.
+     * Looks up the Series via the video's relationship first, then by title.
+     */
+    private String resolveSeriesSynopsis(Models.Video v) {
+        if (!"episode".equalsIgnoreCase(v.type) || v.seriesTitle == null) {
+            return "";
+        }
+        try {
+            Models.Series series = v.series;
+            if (series == null) {
+                series = Models.Series.find("title", v.seriesTitle).firstResult();
+            }
+            if (series != null) {
+                String synopsis = series.description != null ? series.description : series.overview;
+                if (synopsis != null && !synopsis.isBlank()) {
+                    return synopsis;
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("Could not load series synopsis for '{}': {}", v.seriesTitle, e.getMessage());
+        }
+        return "";
     }
 
     /**
@@ -1069,6 +1103,18 @@ public class VideoUiApi {
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
                             decodedTitle.equalsIgnoreCase(v.seriesTitle))
                     .collect(Collectors.toList());
+            }
+
+            // Fire-and-forget background enrichment for the series (case-insensitive lookup)
+            if (decodedTitle != null && !decodedTitle.isBlank()) {
+                try {
+                    Models.Series series = Models.Series.find("lower(title) = lower(?1)", decodedTitle).firstResult();
+                    if (series != null && series.id != null) {
+                        videoMetadataService.enrichSeriesTextMetadataAsync(series.id);
+                    }
+                } catch (Exception e) {
+                    LOG.debug("Could not trigger async enrichment for series '{}': {}", decodedTitle, e.getMessage());
+                }
             }
 
             // Split episodes into normal (with seasonNumber) and extras (null seasonNumber)
@@ -2233,7 +2279,13 @@ public class VideoUiApi {
                 item.put("seasonSuffix", v.seasonSuffix);
                 item.put("contentType", v.contentType);
                 item.put("releaseYear", v.releaseYear);
-                item.put("description", v.description);
+                // Episode cards prefer the episode's own description; fall back to
+                // the series synopsis when the episode has none.
+                String description = v.description != null ? v.description : (v.overview != null ? v.overview : "");
+                if (description.isBlank()) {
+                    description = resolveSeriesSynopsis(v);
+                }
+                item.put("description", description);
                 item.put("overview", v.overview);
                 item.put("imdbRating", v.imdbRating);
                 item.put("tmdbRating", v.tmdbRating);
