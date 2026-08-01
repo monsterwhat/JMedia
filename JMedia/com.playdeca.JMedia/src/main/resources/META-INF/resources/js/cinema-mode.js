@@ -438,10 +438,27 @@ function formatRemainingTime(durationMs, progressPercent) {
 
 function playContinueWatching(id, type, seriesTitle) {
   if (type === 'episode' && seriesTitle) {
-    openSeriesDetail(seriesTitle);
+    openSeriesDetail(seriesTitle, id);
   } else {
     openDetails(id);
   }
+}
+
+function resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) {
+  if (resumeEpisodeId != null) {
+    return episodes.find(e => Number(e.id) === Number(resumeEpisodeId)) || null;
+  }
+  const cw = allContinueWatching.find(item =>
+    item.type === 'episode' &&
+    item.seriesTitle && item.seriesTitle.toLowerCase() === seriesTitle.toLowerCase()
+  );
+  if (cw) {
+    const match = episodes.find(e => Number(e.id) === Number(cw.id));
+    if (match) return match;
+  }
+  return episodes
+    .filter(e => !e.watched && e.watchProgress > 0 && e.watchProgress < 0.95)
+    .sort((a, b) => (b.watchProgress || 0) - (a.watchProgress || 0))[0] || null;
 }
 
 async function removeContinueWatching(id) {
@@ -979,7 +996,7 @@ async function openSeriesByTitle(seriesTitle) {
   document.body.style.overflow = 'hidden';
 }
 
-async function openSeriesDetail(seriesTitle) {
+async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   if (!seriesTitle) return;
   const gen = ++_modalGeneration;
   const modal = document.getElementById('cinema-modal');
@@ -1031,6 +1048,7 @@ async function openSeriesDetail(seriesTitle) {
     return (contentTypePriority[ca] ?? 99) - (contentTypePriority[cb] ?? 99);
   });
   const firstEp = episodes[0];
+  const resumeEp = resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) || firstEp;
 
   // Open modal immediately with skeleton state � don't wait for network
   modal.dataset.originalParent = modal.parentElement.id || 'app-content';
@@ -1050,7 +1068,7 @@ async function openSeriesDetail(seriesTitle) {
 
   // Show play/watchlist buttons immediately
   const playBtn = document.getElementById('modal-play-btn');
-  if (playBtn) { playBtn.style.display = ''; playBtn.onclick = () => playVideo(firstEp); }
+  if (playBtn) { playBtn.style.display = ''; playBtn.onclick = () => playVideo(resumeEp); }
   const watchBtn = document.getElementById('modal-watchlist-btn');
   if (watchBtn) { watchBtn.style.display = ''; watchBtn.onclick = () => toggleWatchlist(firstEp.id); }
 
@@ -1370,11 +1388,14 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
   const gen = _modalGeneration;
   const synopsis = (seriesSynopsis || '').trim();
 
-  // Episode still lacks its own text when it has none at all, or when its
-  // description is exactly the series synopsis injected by the backend.
+  // Episode still lacks its own text when the description is missing or is
+  // exactly the series synopsis injected by the backend, or when the official
+  // episode name (episodeTitle) has not been fetched yet.
   const isFallback = ep => {
     const desc = (ep.description || '').trim();
-    return desc === '' || (synopsis !== '' && desc === synopsis);
+    const missingDesc = desc === '' || (synopsis !== '' && desc === synopsis);
+    const missingTitle = !((ep.episodeTitle || '').trim());
+    return missingDesc || missingTitle;
   };
 
   const stillMissing = episodes.filter(isFallback);
@@ -1387,8 +1408,9 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const isStale = () => !modal.classList.contains('active') || gen !== _modalGeneration;
 
-  // Fetch the fresh episodes list; its `overview`/`description` fields expose
-  // the raw per-episode text (the single-video DTO masks it with series text).
+  // Fetch the fresh episodes list; its `overview`/`description`/`episodeTitle`
+  // fields expose the raw per-episode data (the single-video DTO masks it with
+  // series text).
   const fetchFreshList = async () => {
     try {
       const resp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`);
@@ -1408,6 +1430,13 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
       descEl.classList.remove('is-skeleton');
       descEl.textContent = text;
     }
+    const titleEl = card.querySelector('.cinema-episode-title');
+    const title = (ep.episodeTitle || '').trim();
+    if (titleEl && title) {
+      const numMatch = (titleEl.textContent || '').match(/^(\d+)\.\s/);
+      const epNum = ep.episodeNumber || (numMatch ? parseInt(numMatch[1], 10) : 1);
+      titleEl.textContent = `${epNum}. ${title}`;
+    }
   };
 
   const isActiveSeason = ep => activeSeason != null && (ep.seasonNumber ?? 1) === activeSeason;
@@ -1419,7 +1448,7 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
       if (isStale()) return;
 
       // Fire-and-forget enrichment triggers (batched) — the per-video call
-      // persists the episode's TMDB overview server-side.
+      // persists the episode's TMDB overview and episode name server-side.
       for (let i = 0; i < batch.length; i += 5) {
         await Promise.all(batch.slice(i, i + 5).map(ep =>
           fetchJSON(`/api/video/${ep.id}?textOnly=true`).catch(() => null)));
@@ -1439,13 +1468,21 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
         const f = freshById.get(String(ep.id));
         const freshText = f && ((f.overview || '').trim() || (f.description || '').trim());
         const realText = freshText && (synopsis === '' || freshText !== synopsis) ? freshText : '';
+        const freshTitle = f && (f.episodeTitle || '').trim();
+        let pending = false;
         if (realText) {
           ep.description = realText;
           ep.overview = ep.overview || realText;
-          updateCardInPlace(ep);
         } else {
-          still.push(ep);
+          pending = true;
         }
+        if (freshTitle) {
+          ep.episodeTitle = freshTitle;
+        } else {
+          pending = true;
+        }
+        updateCardInPlace(ep);
+        if (pending) still.push(ep);
       }
       batch = still;
       if (batch.length && attempt < 5) await sleep(5000);
