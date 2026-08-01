@@ -1745,29 +1745,29 @@ public class VideoMetadataService {
      * @param seriesId the Series entity ID
      */
     @jakarta.transaction.Transactional
-    public void ensureSeriesTextMetadata(Long seriesId) {
+    public SeriesEnrichmentResult ensureSeriesTextMetadata(Long seriesId) {
         if (seriesId == null) {
             LOG.info("[EnsureSeriesTextMetadata] seriesId is null, skipping");
-            return;
+            return SeriesEnrichmentResult.SKIPPED;
         }
 
         LOG.info("[EnsureSeriesTextMetadata] Running for series {}", seriesId);
         Series series = Series.findById(seriesId);
         if (series == null) {
             LOG.warn("[EnsureSeriesTextMetadata] Series {} not found", seriesId);
-            return;
+            return SeriesEnrichmentResult.SKIPPED;
         }
 
         Settings settings = settingsService.getOrCreateSettings();
         if (!Boolean.TRUE.equals(settings.getTmdbEnabled())) {
             LOG.info("[EnsureSeriesTextMetadata] TMDB disabled in settings, skipping series {}", seriesId);
-            return;
+            return SeriesEnrichmentResult.SKIPPED;
         }
 
         String tmdbKey = getApiKey();
         if (tmdbKey == null || tmdbKey.isBlank()) {
             LOG.info("[EnsureSeriesTextMetadata] No TMDB API key available, skipping series {}", seriesId);
-            return;
+            return SeriesEnrichmentResult.SKIPPED;
         }
 
         // Check what needs populating
@@ -1786,7 +1786,7 @@ public class VideoMetadataService {
                 && !needsWriters && !needsCast && !needsRating && !needsVoteCount
                 && !needsStatus && !needsTagline) {
             LOG.info("[EnsureSeriesTextMetadata] Series {} already has all text metadata, skipping", seriesId);
-            return; // Everything already populated
+            return SeriesEnrichmentResult.ALREADY_COMPLETE; // Everything already populated
         }
 
         try {
@@ -1802,15 +1802,19 @@ public class VideoMetadataService {
                         ? URLEncoder.encode(series.title, StandardCharsets.UTF_8) : null;
                 if (searchQuery == null) {
                     LOG.info("[EnsureSeriesTextMetadata] Series {} has no title, skipping", seriesId);
-                    return;
+                    return SeriesEnrichmentResult.SKIPPED;
                 }
                 String searchUrl = isBearerToken(tmdbKey)
                         ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", searchQuery)
                         : String.format(TMDB_SEARCH_TV, tmdbKey, searchQuery);
                 JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
-                if (searchRoot == null || searchRoot.path("results").isEmpty()) {
+                if (searchRoot == null) {
+                    LOG.info("[EnsureSeriesTextMetadata] TMDB search failed (HTTP error) for '{}'", series.title);
+                    return SeriesEnrichmentResult.FAILED;
+                }
+                if (searchRoot.path("results").isEmpty()) {
                     LOG.info("[EnsureSeriesTextMetadata] No TMDB results for '{}'", series.title);
-                    return;
+                    return SeriesEnrichmentResult.NO_MATCH;
                 }
                 showId = searchRoot.path("results").get(0).path("id").asText();
                 // Save the tmdbId for future use
@@ -1826,7 +1830,7 @@ public class VideoMetadataService {
             JsonNode root = fetchJson(detailUrl, authHeaders);
             if (root == null) {
                 LOG.info("[EnsureSeriesTextMetadata] Failed to fetch TMDB details for series {}", seriesId);
-                return;
+                return SeriesEnrichmentResult.FAILED;
             }
 
             boolean updated = false;
@@ -1946,6 +1950,12 @@ public class VideoMetadataService {
             }
         } catch (Exception e) {
             LOG.warn("[EnsureSeriesTextMetadata] Failed for series '{}': {}", series.title, e.getMessage());
+            return SeriesEnrichmentResult.FAILED;
         }
+        return SeriesEnrichmentResult.SUCCESS;
+    }
+
+    public enum SeriesEnrichmentResult {
+        SUCCESS, NO_MATCH, ALREADY_COMPLETE, SKIPPED, FAILED
     }
 }
