@@ -1043,7 +1043,9 @@
                                     // started; swapping while paused aborts the stream fetch
                                     // (media-resource-aborted DOMExceptions) and buffers the
                                     // whole file in memory for nothing (autoplay-blocked case).
-                                    if (self.video.readyState <= 1 && !self.video.paused) {
+                                    // Adapters that manage their own stream lifecycle (OPlayer)
+                                    // opt out via disableBlobSwap to avoid racing the live fetch.
+                                    if (!self.adapter.disableBlobSwap && self.video.readyState <= 1 && !self.video.paused) {
                                         var mime = response.headers.get('Content-Type') || 'video/mp4';
                                         var blob = new Blob(chunks, { type: mime });
                                         var blobUrl = URL.createObjectURL(blob);

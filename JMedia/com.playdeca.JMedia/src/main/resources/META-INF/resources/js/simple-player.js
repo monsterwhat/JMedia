@@ -33,6 +33,12 @@ if (typeof window.SimplePlayer === 'undefined') {
             // Per-instance suppression window blocking stale broadcasts during an in-place WS source swap (B9).
             this._swapInProgress = false;
             this._swapSafetyTimer = null;
+            this._localSeekAt = 0;
+            this._localSeekPos = -1;
+            // Timestamp of the last timeupdate: proves the element is actually
+            // advancing. The drift-seek below refuses to follow the server state
+            // while this is stale (stalled/errored element — phantom clock guard).
+            this._lastProgressAt = 0;
 
             this.stateMgr = new window.PlayerStateManager(this);
             this.stateMgr.initState();
@@ -339,9 +345,27 @@ if (typeof window.SimplePlayer === 'undefined') {
                         // Drift protection skipped during a swap window: the new element sits at 0
                         // while the server timer broadcasts growing time, which would seek-yank it.
                         if (!this._swapInProgress && typeof state.currentTime === 'number') {
-                            const drift = Math.abs(this.video.currentTime - state.currentTime);
-                            if (drift > 3) {
-                                this.video.currentTime = state.currentTime;
+                            // Only follow server truth while this player is genuinely
+                            // progressing. A stalled element (autoplay rejection, failed
+                            // load, endless buffering) emits no timeupdate; yanking it to
+                            // the server's phantom clock (which advances whenever a client
+                            // is silent >1500ms) causes seek storms and repeated
+                            // server-side transcodes. Remote seeks still sync: a healthy
+                            // player fires timeupdate ~4x/sec, keeping the gate open.
+                            const progressAge = Date.now() - this._lastProgressAt;
+                            if (!this.video.paused && progressAge < 8000) {
+                                const target = state.currentTime;
+                                const dur = this.video.duration;
+                                const drift = Math.abs(this.video.currentTime - target);
+                                const lockAge = Date.now() - this._localSeekAt;
+                                const locked = this._localSeekPos >= 0 && lockAge < 3000;
+                                const converged = locked && Math.abs(target - this._localSeekPos) < 5;
+                                if (converged) this._localSeekPos = -1;
+                                if (drift > 3 && (!locked || converged)) {
+                                    // Bound to loaded duration (OPlayer parity): seeking a
+                                    // data-less element past its end fires spurious 'ended'.
+                                    this.video.currentTime = (isFinite(dur) && dur > 0 && target > dur - 1) ? dur - 1 : target;
+                                }
                             }
                         }
                     } finally {
@@ -413,6 +437,7 @@ if (typeof window.SimplePlayer === 'undefined') {
         _broadcastState() {
             if (!this._wsManager || !this._wsManager.connected || this._applyingServerState || this._swapInProgress) return;
 
+            const profileId = this.container.dataset.profileId || localStorage.getItem('activeProfileId');
             const playing = !this.video.paused;
 
             const subtitleEls = this.container.querySelectorAll('.subtitle-option:not(#sub-off)');

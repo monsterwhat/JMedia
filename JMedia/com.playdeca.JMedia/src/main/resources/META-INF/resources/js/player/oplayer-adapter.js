@@ -66,6 +66,10 @@
          * to the server. Without it, the server's 300ms playing=true broadcast
          * force-plays and the echo re-confirms it, defeating a local pause. */
         var _applyingServerState = false;
+        /* Local action is truth: after a local seek the server may not override the
+           player until it echoes the position we reported back to us (echo-lock). */
+        var _localSeekAt = 0;
+        var _localSeekPos = -1;
 
         function _clearSwapListeners() {
             if (_swapTimeout) { clearTimeout(_swapTimeout); _swapTimeout = null; }
@@ -602,7 +606,11 @@
                             var target = state.currentTime;
                             if (isFinite(d) && d > 0 && target > d - 1) target = d - 1;
                             var drift = Math.abs((video.currentTime || 0) - target);
-                            if (drift > 3) { try { video.currentTime = target; } catch (e) {} }
+                            var lockAge = Date.now() - _localSeekAt;
+                            var locked = _localSeekPos >= 0 && lockAge < 3000;
+                            var converged = locked && Math.abs(target - _localSeekPos) < 5;
+                            if (converged) _localSeekPos = -1;
+                            if (drift > 3 && (!locked || converged)) { try { video.currentTime = target; } catch (e) {} }
                         }
                     } catch (e) {
                         console.error('[OplayerAdapter] onStateUpdate error', e);
@@ -748,9 +756,9 @@
                                     name: 'Video Player',
                                     icon: '',
                                     children: [
-                                        { name: 'JMedia Player', value: 'simple', default: true },
+                                        { name: 'JMedia Player', value: 'simple' },
                                         { name: 'Video.js', value: 'videojs' },
-                                        { name: 'OPlayer', value: 'oplayer' }
+                                        { name: 'OPlayer', value: 'oplayer', default: true }
                                     ],
                                     onChange: function onChange(_ref2) {
                                         var value = _ref2.value;
@@ -1049,6 +1057,16 @@
                 showControls();
             });
 
+            video.addEventListener('seeked', function() {
+                _localSeekAt = Date.now();
+                _localSeekPos = video.currentTime || 0;
+                _broadcastState();
+                /* Retry once shortly after: the _applyingServerState guard drops the
+                   immediate report when a broadcast was mid-apply, and the server must
+                   learn the seek or it keeps broadcasting the pre-seek position. */
+                setTimeout(function() { _broadcastState(); }, 150);
+            });
+
             video.addEventListener('error', function() {
                 /* MEDIA_ERR_SRC_NOT_SUPPORTED is suppressed at the container
                    level above.  If we get here it is a real error. */
@@ -1194,6 +1212,10 @@
 
             /* ---------- Build adapter for TestPlayerFeatures ---------- */
             var oAdapter = {
+                /* OPlayer manages its own stream lifecycle; the byte-tracker's full-file
+                 * Blob swap in test-player-common.js races OPlayer's in-flight media fetch
+                 * and aborts it (AbortError), leaving playback stuck on "loading". */
+                disableBlobSwap: true,
                 getVideoElement: function() { return video; },
                 getCurrentTime: function() { return video.currentTime; },
                 setCurrentTime: function(t) { video.currentTime = t; },

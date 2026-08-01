@@ -104,6 +104,7 @@
 
             p.video.addEventListener('timeupdate', () => {
                 p._touchToggled = false;
+                p._lastProgressAt = Date.now();
 
                 let dur = p.totalDuration;
                 if (!dur || dur === Infinity) {
@@ -129,6 +130,13 @@
                         p._stallTimer = null;
                     }
                 }
+            });
+
+            p.video.addEventListener('seeked', () => {
+                p._localSeekAt = Date.now();
+                p._localSeekPos = p.video.currentTime || 0;
+                p._broadcastState();
+                setTimeout(() => p._broadcastState(), 150);
             });
 
             p.video.addEventListener('loadedmetadata', () => {

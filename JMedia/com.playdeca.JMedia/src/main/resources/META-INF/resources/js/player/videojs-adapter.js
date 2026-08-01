@@ -23,6 +23,8 @@
         var muteKey = 'jmedia_video_mute_' + profileId;
 
         var _applyingServerState = false;
+        var _localSeekAt = 0;
+        var _localSeekPos = -1;
         var _destroyed = false;
         var _wsManager = null;
         var _swapInProgress = false;
@@ -373,7 +375,11 @@
                         }
                         if (typeof state.currentTime === 'number' && !_swapInProgress) {
                             var drift = Math.abs(videoEl.currentTime - state.currentTime);
-                            if (drift > 3) {
+                            var lockAge = Date.now() - _localSeekAt;
+                            var locked = _localSeekPos >= 0 && lockAge < 3000;
+                            var converged = locked && Math.abs(state.currentTime - _localSeekPos) < 5;
+                            if (converged) _localSeekPos = -1;
+                            if (drift > 3 && (!locked || converged)) {
                                 videoEl.currentTime = state.currentTime;
                             }
                         }
@@ -526,6 +532,13 @@
 
         vjsPlayer.on('timeupdate', function() {
             _broadcastState();
+        });
+
+        vjsPlayer.on('seeked', function() {
+            _localSeekAt = Date.now();
+            _localSeekPos = vjsPlayer.currentTime() || 0;
+            _broadcastState();
+            setTimeout(function() { _broadcastState(); }, 150);
         });
 
         vjsPlayer.on('ended', function() {

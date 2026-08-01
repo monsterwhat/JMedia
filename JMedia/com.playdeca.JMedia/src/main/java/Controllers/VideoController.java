@@ -65,8 +65,13 @@ public class VideoController {
         }
     }
 
+    /** Window after a client report during which the tick mirrors the client's truth
+     *  instead of advancing the phantom clock, so the server never overrides a local action. */
+    private static final long CLIENT_REPORT_MIRROR_WINDOW_MS = 1500;
+    private volatile long lastClientReportAt = 0;
+
     @jakarta.transaction.Transactional
-    protected void processPlaybackTick() {
+    protected synchronized void processPlaybackTick() {
         if (activePlayingProfileId == null) return;
 
         Profile playingProfile = Profile.findById(activePlayingProfileId);
@@ -76,14 +81,22 @@ public class VideoController {
         try {
             ProfileSessionState st = getState();
             if (st.playing && st.currentVideoId != null) {
-                double newTime = st.currentTime + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
-                Video currentVideo = findVideo(st.currentVideoId);
-                double duration = currentVideo != null && currentVideo.duration != null ? currentVideo.duration / 1000.0 : 0;
-                if (newTime >= duration && duration > 0) {
-                    handleVideoEnded();
-                } else {
-                    st.currentTime = newTime;
+                /* A client just reported its own truth (seek/play/pause): mirror it to every
+                   session WITHOUT advancing the phantom clock, so the server can never
+                   override what the user just did on the player. The phantom clock resumes
+                   only after the client has been silent for the full mirror window. */
+                if (System.currentTimeMillis() - lastClientReportAt < CLIENT_REPORT_MIRROR_WINDOW_MS) {
                     updateState(st, true);
+                } else {
+                    double newTime = st.currentTime + (PLAYBACK_UPDATE_INTERVAL_MS / 1000.0);
+                    Video currentVideo = findVideo(st.currentVideoId);
+                    double duration = currentVideo != null && currentVideo.duration != null ? currentVideo.duration / 1000.0 : 0;
+                    if (newTime >= duration && duration > 0) {
+                        handleVideoEnded();
+                    } else {
+                        st.currentTime = newTime;
+                        updateState(st, true);
+                    }
                 }
             }
         } finally {
@@ -155,6 +168,7 @@ public class VideoController {
         if (st.currentVideoId != null && !st.currentVideoId.equals(videoId)) {
             return; // DROP: do not write state or timers, do not broadcast
         }
+        lastClientReportAt = System.currentTimeMillis();
         st.currentVideoId = videoId;
         st.playing = playing;
         st.currentTime = currentTime;
