@@ -26,8 +26,12 @@ import java.util.Optional;
 import java.util.Map;
 import Models.DTOs.VerificationField;
 import Models.DTOs.VerificationPreview;
+import jakarta.annotation.PreDestroy;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.regex.Pattern;
 
@@ -95,6 +99,25 @@ public class VideoMetadataService {
     // Queue for background metadata enrichment
     private final BlockingQueue<Long> metadataQueue = new LinkedBlockingQueue<>();
     private volatile boolean queueProcessing = false;
+
+    // Dedicated 2-thread executor for background series text enrichment (NOT the shared managed pool — MAJOR-6)
+    private final ExecutorService seriesEnrichmentExecutor = Executors.newFixedThreadPool(2);
+
+    // In-memory cooldown map: seriesId → last enrichment attempt millis (retries after cooldown;
+    // a never-evicting keyed set would permanently skip failures and deadlock the TMDB-disabled case — MAJOR-4)
+    private final Map<Long, Long> seriesEnrichmentAttempts = new ConcurrentHashMap<>();
+
+    @ConfigProperty(name = "metadata.enrichment.retry.cooldown.minutes", defaultValue = "30")
+    int retryCooldownMinutes;
+
+    // CDI self-injection: @ApplicationScoped client proxy so the @Transactional interceptor
+    // applies on the worker thread (direct this-call would bypass it)
+    @Inject
+    VideoMetadataService self;
+
+    @Inject
+    @io.quarkus.cache.CacheName("cinema-home-cache")
+    io.quarkus.cache.Cache cinemaHomeCache;
     
     /**
      * Multi-size media image URLs for a given title, fetched from TMDB.
@@ -293,6 +316,19 @@ public class VideoMetadataService {
     }
 
     private static boolean isBearerToken(String key) { return key != null && key.startsWith("eyJ"); }
+
+    /**
+     * Whether TMDB enrichment is available: enabled in settings AND an API key is resolvable.
+     * MINOR-12: getApiKey() always returns a key (settings → env → built-in token), so in practice
+     * this collapses to the settings check; the per-call settings check inside ensureSeriesTextMetadata stays in sync.
+     */
+    public boolean isTmdbConfigured() {
+        if (!Boolean.TRUE.equals(settingsService.getOrCreateSettings().getTmdbEnabled())) {
+            return false;
+        }
+        String apiKey = getApiKey();
+        return apiKey != null && !apiKey.isBlank();
+    }
 
     private String getOmdbApiKey() {
         String key = settingsService.getOrCreateSettings().getOmdbApiKey();
@@ -1957,5 +1993,42 @@ public class VideoMetadataService {
 
     public enum SeriesEnrichmentResult {
         SUCCESS, NO_MATCH, ALREADY_COMPLETE, SKIPPED, FAILED
+    }
+
+    /**
+     * Fire-and-forget async series text enrichment guarded by a per-series cooldown map.
+     * TMDB-not-configured returns WITHOUT recording (MAJOR-4: enabling TMDB later must resume without restart);
+     * an attempt within retryCooldownMs returns WITHOUT re-recording.
+     */
+    public void enrichSeriesTextMetadataAsync(Long seriesId) {
+        if (seriesId == null) return; // ConcurrentHashMap.getOrDefault(null, ...) would NPE
+        if (!isTmdbConfigured()) return; // MAJOR-4: never record when TMDB disabled
+        long retryCooldownMs = retryCooldownMinutes * 60 * 1000L;
+        if (System.currentTimeMillis() - seriesEnrichmentAttempts.getOrDefault(seriesId, 0L) < retryCooldownMs) return;
+        seriesEnrichmentAttempts.put(seriesId, System.currentTimeMillis());
+        seriesEnrichmentExecutor.submit(() -> {
+            io.quarkus.arc.ManagedContext requestContext = io.quarkus.arc.Arc.container().requestContext();
+            boolean weActivated = false;
+            if (!requestContext.isActive()) {
+                requestContext.activate();
+                weActivated = true;
+            }
+            try {
+                SeriesEnrichmentResult result = self.ensureSeriesTextMetadata(seriesId);
+                if (result == SeriesEnrichmentResult.SUCCESS) {
+                    cinemaHomeCache.invalidateAll().await().indefinitely(); // MAJOR-7: re-render with fresh ratings/genres
+                }
+                LOG.info("[EnrichSeriesTextMetadataAsync] Series {} enrichment result: {}", seriesId, result);
+            } catch (Exception e) {
+                LOG.warn("[EnrichSeriesTextMetadataAsync] Failed for series {}: {}", seriesId, e.getMessage());
+            } finally {
+                if (weActivated) requestContext.deactivate();
+            }
+        });
+    }
+
+    @PreDestroy
+    void shutdown() {
+        seriesEnrichmentExecutor.shutdown();
     }
 }
