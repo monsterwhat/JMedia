@@ -118,13 +118,16 @@ public class VideoAPI {
     @GET
     @Path("/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getVideo(@PathParam("videoId") Long videoId) {
+    public Response getVideo(@PathParam("videoId") Long videoId,
+                             @QueryParam("textOnly") @DefaultValue("false") boolean textOnly) {
         // On-demand enrichment BEFORE loading the entity
         // so the DTO is built from the enriched version
-        try {
-            thumbnailService.ensureMediaImages(videoId);
-        } catch (Exception e) {
-            LOG.warn("Could not enrich images for video {}: {}", videoId, e.getMessage());
+        if (!textOnly) {
+            try {
+                thumbnailService.ensureMediaImages(videoId);
+            } catch (Exception e) {
+                LOG.warn("Could not enrich images for video {}: {}", videoId, e.getMessage());
+            }
         }
         try {
             videoMetadataService.ensureMediaTextMetadata(videoId);
@@ -193,6 +196,35 @@ public class VideoAPI {
                             .header("Cache-Control", "public, max-age=86400")
                             .header("ETag", "\"" + customThumbnail.lastModified() + "\"")
                             .build();
+                }
+            }
+
+            // Tier 1.5 - on-demand episode still: fetch the episode's TMDB image,
+            // store it locally, and serve it (falls back to show poster below).
+            if ("episode".equalsIgnoreCase(video.type) && video.seriesTitle != null && !video.seriesTitle.isBlank()) {
+                String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                if (videoLibraryPath != null && !videoLibraryPath.isBlank()
+                        && video.path != null && !video.path.trim().isEmpty()) {
+                    String fullPath;
+                    java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+                    if (vPath.isAbsolute()) {
+                        fullPath = vPath.toString();
+                    } else {
+                        fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
+                    }
+                    try {
+                        String episodeThumb = thumbnailService.getOrFetchEpisodeThumbnail(videoId, fullPath);
+                        if (episodeThumb != null && java.nio.file.Files.exists(java.nio.file.Paths.get(episodeThumb))) {
+                            File episodeThumbFile = java.nio.file.Paths.get(episodeThumb).toFile();
+                            return Response.ok(episodeThumbFile)
+                                    .header("Content-Type", "image/webp")
+                                    .header("Cache-Control", "public, max-age=86400")
+                                    .header("ETag", "\"" + episodeThumbFile.lastModified() + "\"")
+                                    .build();
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("On-demand episode thumbnail fetch failed for video {}: {}", videoId, e.getMessage());
+                    }
                 }
             }
 

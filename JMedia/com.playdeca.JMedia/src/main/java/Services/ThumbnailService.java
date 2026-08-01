@@ -268,6 +268,21 @@ public class ThumbnailService {
             Files.copy(in, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
     }
+
+    private void downloadAndConvertToWebP(String url, Path outputPath) throws IOException {
+        byte[] rawBytes = downloadBytes(url);
+        if (rawBytes == null || rawBytes.length == 0) {
+            throw new IOException("Failed to download image: " + url);
+        }
+        try {
+            writeWebP(rawBytes, outputPath);
+            LOGGER.info("Saved image as WebP: {} ({} bytes)", outputPath.getFileName(), Files.size(outputPath));
+        } catch (Exception e) {
+            LOGGER.warn("WebP conversion failed for {}, falling back to original format: {}",
+                    outputPath.getFileName(), e.getMessage());
+            Files.write(outputPath, rawBytes);
+        }
+    }
     
     /**
      * Compute a show cache key preferring IMDb ID for stability across rescans.
@@ -368,7 +383,7 @@ public class ThumbnailService {
                     LOGGER.debug("Using cached series metadata for batch: {}", seriesKey);
                     Path thumbnailDir = getThumbnailDirectory();
                     Path outputPath = thumbnailDir.resolve(canonicalName);
-                    downloadImage(cached.posterUrl, outputPath);
+                    downloadAndConvertToWebP(cached.posterUrl, outputPath);
                     return finalizeThumbnail(videoId, outputPath.toString());
                 }
             }
@@ -379,7 +394,7 @@ public class ThumbnailService {
                 if (cachedEpisode != null) {
                     Path thumbnailDir = getThumbnailDirectory();
                     Path outputPath = thumbnailDir.resolve(canonicalName);
-                    downloadImage(cachedEpisode, outputPath);
+                    downloadAndConvertToWebP(cachedEpisode, outputPath);
                     return finalizeThumbnail(videoId, outputPath.toString());
                 }
                 
@@ -389,7 +404,7 @@ public class ThumbnailService {
                     episodeImageCache.put(episodeKey, episodeImage.get());
                     Path thumbnailDir = getThumbnailDirectory();
                     Path outputPath = thumbnailDir.resolve(canonicalName);
-                    downloadImage(episodeImage.get(), outputPath);
+                    downloadAndConvertToWebP(episodeImage.get(), outputPath);
                     return finalizeThumbnail(videoId, outputPath.toString());
                 }
             }
@@ -399,6 +414,17 @@ public class ThumbnailService {
             LOGGER.error("Error generating thumbnail with context for video {}: {}", videoId, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * On-demand entry point used by the thumbnail HTTP endpoint. For episodes,
+     * fetches the episode-specific TMDB still (when missing), stores it locally
+     * under the canonical per-episode name, and returns its path. Falls back to
+     * the show poster / local extraction when no episode still exists.
+     */
+    @Transactional
+    public String getOrFetchEpisodeThumbnail(Long videoId, String videoPath) {
+        return generateThumbnailWithContext(videoId, videoPath, false);
     }
 
     @Inject
@@ -906,8 +932,26 @@ public class ThumbnailService {
             Path thumbnailsDir = getThumbnailDirectory();
             String prefix = "series_" + seriesId;
 
-            VideoMetadataService.MediaImages tmdbImages = metadataService.fetchMediaImages("tv", title, series.releaseYear,
-                null, null, null);
+            // Fast path: all images already on disk — skip the TMDB round-trip.
+            boolean hasPoster   = Files.exists(thumbnailsDir.resolve(prefix + "_poster.webp"))   || Files.exists(thumbnailsDir.resolve(prefix + "_poster.jpg"))   || Files.exists(thumbnailsDir.resolve(prefix + "_poster.png"));
+            boolean hasLogo     = Files.exists(thumbnailsDir.resolve(prefix + "_logo.webp"))     || Files.exists(thumbnailsDir.resolve(prefix + "_logo.png"));
+            boolean hasBackdrop = Files.exists(thumbnailsDir.resolve(prefix + "_backdrop.webp")) || Files.exists(thumbnailsDir.resolve(prefix + "_backdrop.jpg")) || Files.exists(thumbnailsDir.resolve(prefix + "_backdrop.png"));
+            boolean hasHero     = Files.exists(thumbnailsDir.resolve(prefix + "_hero.webp"))     || Files.exists(thumbnailsDir.resolve(prefix + "_hero.jpg"))     || Files.exists(thumbnailsDir.resolve(prefix + "_hero.png"));
+
+            if (hasPoster && hasLogo && hasBackdrop && hasHero) {
+                if (syncSeriesImagePaths(series, thumbnailsDir, prefix)) entityManager.persist(series);
+                return false;
+            }
+
+            // Prefer the stored TMDB show ID over title search, which can yield no match.
+            VideoMetadataService.MediaImages tmdbImages;
+            if (series.tmdbId != null) {
+                tmdbImages = metadataService.fetchMediaImages("tv", title, series.releaseYear,
+                    null, null, null, String.valueOf(series.tmdbId));
+            } else {
+                tmdbImages = metadataService.fetchMediaImages("tv", title, series.releaseYear,
+                    null, null, null);
+            }
             ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
                 tmdbImages.posterPath(), tmdbImages.logoPath(),
                 tmdbImages.backdropPath(), tmdbImages.heroPath(),
@@ -918,18 +962,7 @@ public class ThumbnailService {
             boolean downloaded = paths.posterPath() != null || paths.logoPath() != null
                 || paths.backdropPath() != null || paths.heroPath() != null;
 
-            boolean dbUpdated = false;
-            String posterPath   = findExistingPath(thumbnailsDir, prefix, "poster");
-            String logoPath     = findExistingPath(thumbnailsDir, prefix, "logo");
-            String backdropPath = findExistingPath(thumbnailsDir, prefix, "backdrop");
-            String heroPath     = findExistingPath(thumbnailsDir, prefix, "hero");
-
-            if (!Objects.equals(series.posterPath, posterPath))     { series.posterPath   = posterPath;   dbUpdated = true; }
-            if (!Objects.equals(series.logoPath, logoPath))         { series.logoPath     = logoPath;     dbUpdated = true; }
-            if (!Objects.equals(series.backdropPath, backdropPath)) { series.backdropPath = backdropPath; dbUpdated = true; }
-            if (!Objects.equals(series.heroPath, heroPath))         { series.heroPath     = heroPath;     dbUpdated = true; }
-
-            if (dbUpdated) entityManager.persist(series);
+            if (syncSeriesImagePaths(series, thumbnailsDir, prefix)) entityManager.persist(series);
 
             try {
                 metadataService.enrichSeriesTextMetadataAsync(seriesId);
@@ -942,6 +975,24 @@ public class ThumbnailService {
             LOGGER.error("ensureSeriesMediaImages failed for series {}: {}", seriesId, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Syncs the Series image path fields with the files actually present on disk.
+     * @return true if any DB field was updated
+     */
+    private boolean syncSeriesImagePaths(Series series, Path thumbnailsDir, String prefix) {
+        boolean dbUpdated = false;
+        String posterPath   = findExistingPath(thumbnailsDir, prefix, "poster");
+        String logoPath     = findExistingPath(thumbnailsDir, prefix, "logo");
+        String backdropPath = findExistingPath(thumbnailsDir, prefix, "backdrop");
+        String heroPath     = findExistingPath(thumbnailsDir, prefix, "hero");
+
+        if (!Objects.equals(series.posterPath, posterPath))     { series.posterPath   = posterPath;   dbUpdated = true; }
+        if (!Objects.equals(series.logoPath, logoPath))         { series.logoPath     = logoPath;     dbUpdated = true; }
+        if (!Objects.equals(series.backdropPath, backdropPath)) { series.backdropPath = backdropPath; dbUpdated = true; }
+        if (!Objects.equals(series.heroPath, heroPath))         { series.heroPath     = heroPath;     dbUpdated = true; }
+        return dbUpdated;
     }
 
     /**
