@@ -2,6 +2,7 @@ package Services;
 
 import Models.Video;
 import Models.MediaFile;
+import Models.DTOs.TvShowDTO;
 import Services.SmartNamingService;
 import Models.Genre;
 import Models.VideoGenre;
@@ -50,6 +51,35 @@ public class VideoService {
     @Transactional
     public List<Video> findAll() {
         return Video.listAll();
+    }
+
+    /**
+     * Manage-panel TV shows: groups episodes by series title. Must run in a
+     * transaction (service layer, not API) so the lazy Video.series association
+     * is resolved while building the DTOs.
+     */
+    @Transactional
+    public List<TvShowDTO> findTvShowsForManage(String search) {
+        List<Video> episodes = em.createQuery(
+                "SELECT v FROM Video v LEFT JOIN FETCH v.series WHERE v.type = 'episode' AND v.seriesTitle IS NOT NULL",
+                Video.class).getResultList();
+
+        if (search != null && !search.isEmpty()) {
+            String lowerSearch = search.toLowerCase();
+            episodes = episodes.stream()
+                    .filter(v -> (v.title != null && v.title.toLowerCase().contains(lowerSearch)) ||
+                                 (v.seriesTitle != null && v.seriesTitle.toLowerCase().contains(lowerSearch)) ||
+                                 (v.filename != null && v.filename.toLowerCase().contains(lowerSearch)))
+                    .collect(Collectors.toList());
+        }
+
+        Map<String, List<Video>> grouped = episodes.stream()
+                .collect(Collectors.groupingBy(v -> v.seriesTitle));
+
+        return grouped.entrySet().stream()
+                .map(entry -> new TvShowDTO(entry.getKey(), entry.getValue()))
+                .sorted((a, b) -> a.seriesTitle.compareToIgnoreCase(b.seriesTitle))
+                .collect(Collectors.toList());
     }
 
     @Transactional

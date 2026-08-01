@@ -72,44 +72,38 @@ public class VideoManagementApi {
     @GET
     @Blocking
     public String getManagePanel(@QueryParam("search") String search, @QueryParam("type") String type) {
-        List<Video> allVideos = videoService.findAll();
-        List<Video> filteredVideos = allVideos;
-        
-        if (search != null && !search.isEmpty()) {
-            String lowerSearch = search.toLowerCase();
-            filteredVideos = filteredVideos.stream()
-                    .filter(v -> (v.title != null && v.title.toLowerCase().contains(lowerSearch)) || 
-                                 (v.seriesTitle != null && v.seriesTitle.toLowerCase().contains(lowerSearch)) ||
-                                 (v.filename != null && v.filename.toLowerCase().contains(lowerSearch)))
-                    .collect(Collectors.toList());
-        }
-        
-        if (type != null && !type.isEmpty() && !type.equals("all")) {
-            final String finalType = type;
-            filteredVideos = filteredVideos.stream()
-                    .filter(v -> finalType.equalsIgnoreCase(v.type))
-                    .collect(Collectors.toList());
-        }
-
         List<TvShowDTO> shows = null;
         List<Video> videosToDisplay = null;
-        int totalCount = filteredVideos.size();
+        int totalCount;
 
         if ("episode".equalsIgnoreCase(type)) {
-            // Group by series
-            Map<String, List<Video>> grouped = filteredVideos.stream()
-                    .filter(v -> v.seriesTitle != null)
-                    .collect(Collectors.groupingBy(v -> v.seriesTitle));
-            
-            shows = grouped.entrySet().stream()
-                    .map(entry -> new TvShowDTO(entry.getKey(), entry.getValue()))
-                    .sorted((a, b) -> a.seriesTitle.compareToIgnoreCase(b.seriesTitle))
-                    .collect(Collectors.toList());
+            // Grouping happens in the service layer (transactional) so the lazy
+            // Video.series association is resolved before entities are detached.
+            shows = videoService.findTvShowsForManage(search);
             totalCount = shows.size();
         } else {
+            List<Video> allVideos = videoService.findAll();
+            List<Video> filteredVideos = allVideos;
+
+            if (search != null && !search.isEmpty()) {
+                String lowerSearch = search.toLowerCase();
+                filteredVideos = filteredVideos.stream()
+                        .filter(v -> (v.title != null && v.title.toLowerCase().contains(lowerSearch)) || 
+                                     (v.seriesTitle != null && v.seriesTitle.toLowerCase().contains(lowerSearch)) ||
+                                     (v.filename != null && v.filename.toLowerCase().contains(lowerSearch)))
+                        .collect(Collectors.toList());
+            }
+
+            if (type != null && !type.isEmpty() && !type.equals("all")) {
+                final String finalType = type;
+                filteredVideos = filteredVideos.stream()
+                        .filter(v -> finalType.equalsIgnoreCase(v.type))
+                        .collect(Collectors.toList());
+            }
+
+            totalCount = filteredVideos.size();
             // Limit results for management panel to avoid crashing UI
-            int limit = 100;
-            videosToDisplay = filteredVideos.stream().limit(limit).collect(Collectors.toList());
+            videosToDisplay = filteredVideos.stream().limit(100).collect(Collectors.toList());
         }
 
         return manageFragment
