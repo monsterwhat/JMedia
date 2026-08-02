@@ -1225,6 +1225,11 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   // Title logo handled separately via hero logo img
   modal.dataset.seriesTitle = seriesTitle;
 
+  // Update the browser tab: show name + JMedia logo favicon
+  if (window.JMedia && window.JMedia.PageChrome) {
+    window.JMedia.PageChrome.setForVideoDetails(seriesTitle);
+  }
+
   // Meta badges � from Series entity
   const rating = imgSource.imdbRating || imgSource.tmdbRating || '';
     const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
@@ -1915,6 +1920,11 @@ function openDetails(videoId) {
 
     // Title logo handled via hero logo img
 
+    // Update the browser tab: video title + logo favicon (thumbnail fallback)
+    if (window.JMedia && window.JMedia.PageChrome) {
+      window.JMedia.PageChrome.setForVideoDetails(data.title || data.seriesTitle || 'JMedia', data.id, getLogoUrl(data.id));
+    }
+
     // Meta badges
     const rating = data.imdbRating || data.tmdbRating || '';
     const year = data.releaseYear || '';
@@ -2189,6 +2199,13 @@ function closeModal() {
   // Portal: restore modal to original parent
   const originalParent = document.getElementById(modal.dataset.originalParent) || document.getElementById('app-content');
   if (originalParent) originalParent.appendChild(modal);
+
+  // Reset browser tab chrome to the video home, unless a player is still open
+  const playerModal = document.getElementById('player-modal');
+  const playerActive = playerModal && playerModal.classList.contains('active');
+  if (!playerActive && window.JMedia && window.JMedia.PageChrome) {
+    window.JMedia.PageChrome.setVideoHome();
+  }
 }
 
 function openSettingsModal() {
@@ -2523,6 +2540,10 @@ function initEpisodeSidebar() {
   } else {
     toggleBtn.style.display = 'none';
     closeEpisodeSidebar();
+
+    // Reset the browser tab to the video home branding (the music chrome
+    // must not leak into the video section after playback ends)
+    if (window.JMedia && window.JMedia.PageChrome) window.JMedia.PageChrome.setVideoHome();
   }
 }
 

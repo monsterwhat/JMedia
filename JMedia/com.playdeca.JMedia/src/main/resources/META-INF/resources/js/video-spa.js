@@ -107,9 +107,39 @@ class VideoSPA {
             this.currentSection = section;
             this.currentParams = params;
             this.updateBreadcrumbs();
+
+            // Keep the browser tab on the video home branding while browsing
+            // (an active player overrides this with the video title)
+            if (section !== 'playback' && section !== 'nowPlaying') {
+                if (window.JMedia && window.JMedia.PageChrome) {
+                    if (section === 'details') {
+                        this.updatePageChromeForDetails(params);
+                    } else {
+                        window.JMedia.PageChrome.setVideoHome();
+                    }
+                }
+            }
         } catch (error) {
             this.handleError(error);
         }
+    }
+
+    /**
+     * Tab chrome for the details view: title + logo favicon.
+     * Episodes show the show name (data-series-title) instead of the episode title.
+     */
+    updatePageChromeForDetails(params) {
+        const pc = window.JMedia && window.JMedia.PageChrome;
+        if (!pc) return;
+        const container = document.querySelector('.detail-container');
+        const seriesTitle = container ? container.getAttribute('data-series-title') : '';
+        const type = container ? container.getAttribute('data-type') : '';
+        const isEpisode = type && String(type).toLowerCase() === 'episode';
+        const titleEl = document.querySelector('.title-section h1');
+        let title = titleEl ? titleEl.textContent.trim() : (params.videoTitle || '');
+        if (isEpisode && seriesTitle) title = seriesTitle;
+        if (!title) title = 'JMedia';
+        pc.setForVideoDetails(title);
     }
     
     goBack() {
@@ -180,6 +210,7 @@ class VideoSPA {
         this.currentParams = {};
         this.updateBreadcrumbs();
         this.hideLoading();
+        if (window.JMedia && window.JMedia.PageChrome) window.JMedia.PageChrome.setVideoHome();
     }
 
     async selectItem(item, action, extraParams = {}) {

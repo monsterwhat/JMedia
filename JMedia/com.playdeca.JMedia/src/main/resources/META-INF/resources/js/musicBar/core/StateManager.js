@@ -325,6 +325,7 @@
                 repeatMode: "OFF",
                 cue: [],
                 hasLyrics: false,
+                currentSongData: null,
                 
                 // Responsive/UI state properties
                 playerExpanded: false,
@@ -403,6 +404,7 @@
                     djModeActive: false,
                     cue: [],
                     hasLyrics: false,
+                    currentSongData: null,
                     
                     // Responsive/UI state defaults
                     playerExpanded: false,

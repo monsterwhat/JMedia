@@ -203,6 +203,17 @@
                     window.musicWasPlayingBeforeVideo = false;
                 }
 
+                // Keep the browser tab title/favicon in sync with the current view.
+                if (isVideoPage) {
+                    JMedia.PageChrome.setVideoHome();
+                } else if (viewName === 'music') {
+                    if (window.StateManager && window.StateManager.getState().currentSongId && window.UIUpdater) {
+                        window.UIUpdater.forceRefresh();
+                    } else {
+                        JMedia.PageChrome.setMusicHome();
+                    }
+                }
+
                 this.updateSidebar(viewName);
                 this.executeScripts(container);
                 if (window.htmx) htmx.process(container);

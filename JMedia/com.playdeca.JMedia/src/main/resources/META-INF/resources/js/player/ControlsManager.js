@@ -77,12 +77,17 @@
         updatePageTitle() {
             const p = this.player;
             const title = p.container.dataset.title || 'JMedia';
-            const pageTitleEl = document.getElementById('pageTitle');
-            if (pageTitleEl) {
-                pageTitleEl.textContent = title;
-                pageTitleEl.title = title;
+            const videoId = p.container.dataset.videoId;
+            if (window.JMedia && window.JMedia.PageChrome) {
+                JMedia.PageChrome.setForVideo(title, videoId);
+            } else {
+                const pageTitleEl = document.getElementById('pageTitle');
+                if (pageTitleEl) {
+                    pageTitleEl.textContent = title;
+                    pageTitleEl.title = title;
+                }
+                document.title = title;
             }
-            document.title = title;
         }
 
         updateSubtitle() {

@@ -186,6 +186,16 @@
         },
         
         /**
+         * Force a full UI refresh (e.g. when returning to the music view),
+         * bypassing the song-change guard so artwork/title/favicon are re-applied.
+         */
+        forceRefresh: function() {
+            this.lastSongId = null;
+            this._lastArtworkSongId = null;
+            this.performUIUpdate();
+        },
+
+        /**
          * Update music bar UI (legacy compatibility)
          */
         updateMusicBar: function() {
