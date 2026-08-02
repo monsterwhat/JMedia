@@ -48,8 +48,10 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response togglePlay() {
         try {
+            // togglePlay() already broadcasts the authoritative state (playing=true/false)
+            // to every video WS session; a redundant broadcastCommand("toggle-play") would
+            // make clients apply the state AND toggle again, net-undoing the pause/play.
             videoController.togglePlay();
-            videoSocket.broadcastCommand("toggle-play", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
             return Response.ok("{\"success\":true,\"message\":\"Playback toggled\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
