@@ -661,6 +661,38 @@ async function showCollectionsGrid() {
 // ============================================================
 // Data Fetching
 // ============================================================
+// video.html (cinema) does not load video-spa.js, so the Now Playing
+// section stays an empty shell unless the controller is loaded here.
+function ensureNowPlayingController() {
+  if (window.videoSidebarController) {
+    window.videoSidebarController._lastStructKey = null;
+    return;
+  }
+  if (window.VideoSidebarController) {
+    window.videoSidebarController = new window.VideoSidebarController();
+    return;
+  }
+  if (window.__npControllerScriptLoading) return;
+  window.__npControllerScriptLoading = true;
+  var s = document.createElement('script');
+  s.src = '/js/video/VideoSidebarController.js';
+  document.head.appendChild(s);
+  var attempts = 0;
+  var pollId = setInterval(function() {
+    if (window.VideoSidebarController) {
+      clearInterval(pollId);
+      if (!window.videoSidebarController) {
+        window.videoSidebarController = new window.VideoSidebarController();
+      }
+      window.__npControllerScriptLoading = false;
+    } else if (++attempts >= 20) {
+      clearInterval(pollId);
+      window.__npControllerScriptLoading = false;
+      console.warn('[cinema] ensureNowPlayingController: VideoSidebarController failed to load after 20 attempts');
+    }
+  }, 50);
+}
+
 async function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
@@ -690,6 +722,8 @@ async function showSection(section) {
         const resp = await fetch('/api/video/ui/now-playing-fragment');
         if (resp.ok) {
           container.innerHTML = await resp.text();
+          // Populate the shell with the current playback state
+          ensureNowPlayingController();
         } else {
           container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">No media currently playing.</div>';
         }
@@ -2734,6 +2768,12 @@ function renderEpisodeSidebarList(episodes, currentVideoId, seasonKey) {
       </div>
     </button>`;
   }).join('');
+
+  const activeEl = container.querySelector('.episode-sidebar-item.active');
+  if (activeEl) {
+    const target = activeEl.offsetTop - container.clientHeight / 2 + activeEl.clientHeight / 2;
+    container.scrollTop = Math.max(0, target);
+  }
 }
 
 // --- Season pill scroll affordance ---

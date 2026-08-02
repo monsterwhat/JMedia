@@ -413,4 +413,17 @@
         var c = document.getElementById('npCarousel');
         if (c) c.scrollBy({ left: direction === 'left' ? -400 : 400, behavior: 'smooth' });
     };
+
+    if (!window.underplayerPlayCard) {
+        window.underplayerPlayCard = function(card) {
+            var videoId = card.getAttribute('data-video-id');
+            if (window.openPlayerModal) {
+                window.openPlayerModal(videoId);
+                return;
+            }
+            if (window.__npIsRemoteController && window.npRemoteSwitchVideo) {
+                window.npRemoteSwitchVideo(videoId);
+            }
+        };
+    }
 })();

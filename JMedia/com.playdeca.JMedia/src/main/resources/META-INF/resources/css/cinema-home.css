@@ -510,6 +510,14 @@ html, body {
   margin-bottom: 2rem;
 }
 
+/* Dynamic sections (live TV, collections, Now Playing) must paint above the
+   .cinema-content blur stack (z-index 10); its z-index:-1 blur layers still
+   render on top of static siblings that come after it in the DOM */
+#section-dynamic {
+  position: relative;
+  z-index: 20;
+}
+
 .cinema-section-header {
   display: flex;
   align-items: center;
