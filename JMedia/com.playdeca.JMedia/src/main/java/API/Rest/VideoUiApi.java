@@ -796,7 +796,7 @@ public class VideoUiApi {
     private String urlEncode(String s) {
         if (s == null) return "";
         try {
-            return URLEncoder.encode(s, StandardCharsets.UTF_8);
+            return URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
         } catch (Exception e) {
             return s;
         }
@@ -949,7 +949,7 @@ public class VideoUiApi {
             if (sample != null) {
                 entries.add(new SeriesTitleEntry(
                     title, 
-                    URLEncoder.encode(title, StandardCharsets.UTF_8),
+                    URLEncoder.encode(title, StandardCharsets.UTF_8).replace("+", "%20"),
                     "series-" + Math.abs(title.hashCode()),
                     sample.id
                 ));
@@ -966,7 +966,7 @@ public class VideoUiApi {
             }
             entries.add(new SeriesTitleEntry(
                 extTitle,
-                URLEncoder.encode(extTitle, StandardCharsets.UTF_8),
+                URLEncoder.encode(extTitle, StandardCharsets.UTF_8).replace("+", "%20"),
                 "series-ext-" + Math.abs(extTitle.hashCode()),
                 null // no sample video ID for external series
             ));
@@ -1048,7 +1048,7 @@ public class VideoUiApi {
             if (sample != null) {
                 entries.add(new SeriesTitleEntry(
                     title,
-                    URLEncoder.encode(title, StandardCharsets.UTF_8),
+                    URLEncoder.encode(title, StandardCharsets.UTF_8).replace("+", "%20"),
                     "series-" + Math.abs(title.hashCode()),
                     sample.id
                 ));
@@ -1065,7 +1065,7 @@ public class VideoUiApi {
             }
             entries.add(new SeriesTitleEntry(
                 extTitle,
-                URLEncoder.encode(extTitle, StandardCharsets.UTF_8),
+                URLEncoder.encode(extTitle, StandardCharsets.UTF_8).replace("+", "%20"),
                 "series-ext-" + Math.abs(extTitle.hashCode()),
                 null
             ));
