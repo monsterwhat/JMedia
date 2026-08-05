@@ -37,6 +37,7 @@ public class ImportInstallationStatus {
     public ImportInstallationStatus(boolean chocoInstalled, boolean pythonInstalled, boolean nodeInstalled, boolean spotdlInstalled, boolean ytdlpInstalled, boolean ffmpegInstalled, boolean parakeetInstalled, String chocoMessage, String pythonMessage, String nodeMessage, String spotdlMessage, String ytdlpMessage, String ffmpegMessage, String parakeetMessage) {
         this.chocoInstalled = chocoInstalled;
         this.pythonInstalled = pythonInstalled;
+        this.nodeInstalled = nodeInstalled;
         this.spotdlInstalled = spotdlInstalled;
         this.ytdlpInstalled = ytdlpInstalled;
         this.ffmpegInstalled = ffmpegInstalled;
