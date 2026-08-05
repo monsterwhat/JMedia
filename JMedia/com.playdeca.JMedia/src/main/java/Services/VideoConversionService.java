@@ -17,6 +17,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Scanner;
@@ -34,8 +35,12 @@ public class VideoConversionService {
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoConversionService.class);
 
+    /* Only codecs every browser can decode natively are safe to stream-copy into
+     * MP4. AC3/EAC3/DTS/etc. fit the container but Chrome/Firefox have no decoder
+     * for them — copying them produces an MP4 that plays with no audio. Anything
+     * not in this list gets transcoded to AAC. */
     private static final List<String> MP4_COMPATIBLE_AUDIO_CODECS = List.of(
-        "aac", "mp3", "ac3", "eac3"
+        "aac", "mp3"
     );
 
     private static final List<String> TEXT_SUBTITLE_CODECS = List.of(
@@ -123,10 +128,13 @@ public class VideoConversionService {
     public String startBatchConversion(List<Long> videoIds) {
         if (videoIds == null || videoIds.isEmpty()) return null;
         String batchId = "batch-" + System.currentTimeMillis();
-        BatchInfo batch = new BatchInfo(batchId, new ArrayList<>(videoIds));
+        // De-duplicate the input list so a single video can't be counted twice
+        // in the same batch (remaining() would then never reach 0).
+        List<Long> uniqueIds = new ArrayList<>(new LinkedHashSet<>(videoIds));
+        BatchInfo batch = new BatchInfo(batchId, uniqueIds);
         batches.put(batchId, batch);
         // Enqueue all video IDs
-        for (Long id : videoIds) {
+        for (Long id : uniqueIds) {
             // Skip if already queued or running
             String existingJobId = videoToJob.get(id);
             if (existingJobId != null) {
@@ -135,7 +143,10 @@ public class VideoConversionService {
                     continue;
                 }
             }
-            pendingQueue.add(id);
+            // Avoid duplicate queue entries from overlapping batch requests
+            if (!pendingQueue.contains(id)) {
+                pendingQueue.add(id);
+            }
         }
         // Kick off processing if idle
         processQueue();
@@ -171,34 +182,30 @@ public class VideoConversionService {
     }
 
     private ConversionJob doStartConversion(Long videoId) {
-        String existingJobId = videoToJob.get(videoId);
-        if (existingJobId != null) {
-            ConversionJob existing = jobs.get(existingJobId);
-            if (existing != null && (existing.status == ConversionJob.Status.QUEUED || existing.status == ConversionJob.Status.RUNNING)) {
-                return existing;
+        ConversionStart start = createOrGetConversionJob(videoId);
+        ConversionJob job = start.job();
+        if (job == null) return null;
+
+        if (start.created()) {
+            // This queue item owns the job — run it now (blocking) so the single
+            // conversion executor processes batch items one after another.
+            Video video = videoService.findById(videoId);
+            if (video != null) {
+                try {
+                    runConversion(job, video);
+                } catch (Exception e) {
+                    LOG.error("Conversion failed for video {}: {}", videoId, e.getMessage(), e);
+                    job.status = ConversionJob.Status.FAILED;
+                    job.errorMessage = e.getMessage();
+                    job.endTime = System.currentTimeMillis();
+                }
             }
         }
 
-        Video video = videoService.findById(videoId);
-        if (video == null) return null;
-
-        String jobId = "conv-" + videoId + "-" + System.currentTimeMillis();
-        ConversionJob job = new ConversionJob(jobId, videoId);
-        jobs.put(jobId, job);
-        videoToJob.put(videoId, jobId);
-
-        try {
-            runConversion(job, video);
-        } catch (Exception e) {
-            LOG.error("Conversion failed for video {}: {}", videoId, e.getMessage(), e);
-            job.status = ConversionJob.Status.FAILED;
-            job.errorMessage = e.getMessage();
-            job.endTime = System.currentTimeMillis();
-        }
-
-        // Update batch info if this belongs to a batch
+        // Count every outcome — including reused QUEUED/RUNNING/COMPLETED jobs —
+        // so batch progress never stalls on a video that is already converted or
+        // already running.
         updateBatchForVideo(videoId, job.status);
-
         return job;
     }
 
@@ -226,32 +233,82 @@ public class VideoConversionService {
 
     @PreDestroy
     void shutdown() {
+        // killRunningProcessesForShutdown() must come first: shutdownNow() only
+        // interrupts the Java thread, but runConversion blocks in
+        // process.waitFor(), which ignores interrupts — the ffmpeg child would
+        // keep transcoding (and keep writing the same .tmp.mp4) after the app
+        // is stopped. destroyForcibly() terminates the native process itself.
+        for (ConversionJob job : jobs.values()) {
+            Process p = job.process;
+            if (p != null && p.isAlive()) {
+                p.destroyForcibly();
+            }
+        }
         conversionExecutor.shutdownNow();
         cleanupExecutor.shutdownNow();
     }
 
     // ── Public API ────────────────────────────────────────────────────────
 
-    public ConversionJob startConversion(Long videoId) {
-        // Check if already converting
+    /** A conversion job and whether this call created it (vs. reusing an existing one). */
+    private record ConversionStart(ConversionJob job, boolean created) {}
+
+    /**
+     * Atomically resolve the job for a video. Synchronized so two concurrent
+     * callers can never both create a job for the same video — the old
+     * check-then-act (videoToJob.get followed by put) allowed duplicates when
+     * e.g. two playback-fragment renders for the same video landed at once.
+     *
+     * <p>Also reuses a COMPLETED job while the MP4 it produced is still the
+     * current file, so re-rendering the fragment for an already-converted video
+     * (including when the post-conversion metadata re-probe fails) can't start
+     * an endless re-conversion loop.
+     */
+    private synchronized ConversionStart createOrGetConversionJob(Long videoId) {
         String existingJobId = videoToJob.get(videoId);
         if (existingJobId != null) {
             ConversionJob existing = jobs.get(existingJobId);
-            if (existing != null && (existing.status == ConversionJob.Status.QUEUED || existing.status == ConversionJob.Status.RUNNING)) {
-                return existing;
+            if (existing != null && (existing.status == ConversionJob.Status.QUEUED
+                    || existing.status == ConversionJob.Status.RUNNING)) {
+                return new ConversionStart(existing, false);
             }
         }
 
         Video video = videoService.findById(videoId);
-        if (video == null) return null;
+        if (video == null) return new ConversionStart(null, false);
+
+        if (existingJobId != null) {
+            ConversionJob existing = jobs.get(existingJobId);
+            if (existing != null && existing.status == ConversionJob.Status.COMPLETED && isMp4File(video)) {
+                return new ConversionStart(existing, false);
+            }
+        }
 
         String jobId = "conv-" + videoId + "-" + System.currentTimeMillis();
         ConversionJob job = new ConversionJob(jobId, videoId);
         jobs.put(jobId, job);
         videoToJob.put(videoId, jobId);
+        return new ConversionStart(job, true);
+    }
+
+    /** True when the video's current file is already an MP4 (e.g. produced by a completed conversion). */
+    private boolean isMp4File(Video video) {
+        if (video.container != null && video.container.toLowerCase(Locale.ROOT).contains("mp4")) return true;
+        return video.path != null && video.path.toLowerCase(Locale.ROOT).endsWith(".mp4");
+    }
+
+    public ConversionJob startConversion(Long videoId) {
+        ConversionStart start = createOrGetConversionJob(videoId);
+        ConversionJob job = start.job();
+        // Reused an existing QUEUED/RUNNING/COMPLETED job — nothing new to run.
+        if (job == null || !start.created()) {
+            return job;
+        }
 
         conversionExecutor.submit(() -> {
             try {
+                Video video = videoService.findById(videoId);
+                if (video == null) throw new IllegalStateException("Video " + videoId + " no longer exists");
                 runConversion(job, video);
             } catch (Exception e) {
                 LOG.error("Conversion failed for video {}: {}", videoId, e.getMessage(), e);
@@ -259,6 +316,9 @@ public class VideoConversionService {
                 job.errorMessage = e.getMessage();
                 job.endTime = System.currentTimeMillis();
             }
+            // Report the outcome to any batch that contains this video so batch
+            // progress can't stall on a fragment-triggered job.
+            updateBatchForVideo(videoId, job.status);
         });
 
         return job;
