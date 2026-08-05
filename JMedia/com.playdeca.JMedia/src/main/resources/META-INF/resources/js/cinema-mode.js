@@ -3053,6 +3053,9 @@ function openSearch() {
   if (dock) dock.classList.add('searching');
   const input = document.getElementById('searchInput');
   if (input) { input.value = ''; input.focus(); }
+  // Stamp open time so the outside-click handler can absorb the iOS
+  // ghost click that fires right after the keyboard opens.
+  window._searchOpenedAt = Date.now();
 }
 
 function closeSearch() {
@@ -3149,6 +3152,11 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
   const dock = document.querySelector('.cinema-dock');
   if (dock && dock.classList.contains('searching')) {
+    // Skip the iOS ghost click (detail === 0) fired when the keyboard opens,
+    // and any close attempt within 400ms of opening — both are artifacts of
+    // the keyboard-open layout shift, not real outside taps.
+    if (e.detail === 0) return;
+    if (Date.now() - (window._searchOpenedAt || 0) < 400) return;
     if (!dock.contains(e.target)) {
       closeSearch();
     }
