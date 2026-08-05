@@ -615,9 +615,12 @@ public class SmartNamingService {
 
         Matcher mSxxN = CONTENT_TYPE_SXXXN.matcher(filename);
         if (mSxxN.find()) {
+            // SxxXyy (e.g., "S10X01") denotes a season special, not a regular episode.
+            // Keep the season, but map the episode to 0 so it doesn't collide with
+            // the real SxxE01 of that season and never shows as a regular episode.
             detection.season = Integer.parseInt(mSxxN.group(1));
-            detection.episode = Integer.parseInt(mSxxN.group(2));
-            detection.contentType = "extra";
+            detection.episode = 0;
+            detection.contentType = "special";
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SxxN";
             detection.confidence = 0.8;
@@ -627,8 +630,8 @@ public class SmartNamingService {
         Matcher mSxxXep = CONTENT_TYPE_SXXXEP.matcher(filename);
         if (mSxxXep.find()) {
             detection.season = Integer.parseInt(mSxxXep.group(1));
-            detection.episode = Integer.parseInt(mSxxXep.group(2));
-            detection.contentType = "extra";
+            detection.episode = 0;
+            detection.contentType = "special";
             detection.hasEpisodePattern = true;
             detection.detectionMethod = "SxxXep";
             detection.confidence = 0.85;

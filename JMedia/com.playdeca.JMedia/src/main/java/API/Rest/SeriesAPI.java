@@ -95,7 +95,7 @@ public class SeriesAPI {
                     .build();
         }
 
-        List<Video> episodes = Video.find("series = ?1 ORDER BY seasonNumber ASC, episodeNumber ASC", series)
+        List<Video> episodes = Video.find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series)
                 .list();
 
         Map<Integer, List<Video>> grouped = episodes.stream()

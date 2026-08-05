@@ -449,11 +449,11 @@ public class VideoService {
     @Transactional
     public List<Video> findEpisodesForSeason(String seriesTitle, Integer seasonNumber) {
         if (seasonNumber == null) {
-            return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and (folder is null or folder = '') and isActive = ?3",
+            return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and (folder is null or folder = '') and isActive = ?3 and (contentType is null or contentType = 'episode')",
                              Sort.by("episodeNumber", Sort.Direction.Ascending),
                              "episode", seriesTitle, true);
         }
-        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and (folder is null or folder = '') and isActive = ?4",
+        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and (folder is null or folder = '') and isActive = ?4 and (contentType is null or contentType = 'episode')",
                          Sort.by("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, seasonNumber, true);
     }
@@ -474,11 +474,11 @@ public class VideoService {
             return findEpisodesForSeason(seriesTitle, seasonNumber);
         }
         if (seasonNumber == null) {
-            return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and folder = ?3 and isActive = ?4",
+            return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and folder = ?3 and isActive = ?4 and (contentType is null or contentType = 'episode')",
                              Sort.by("episodeNumber", Sort.Direction.Ascending),
                              "episode", seriesTitle, folder, true);
         }
-        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5",
+        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3 and folder = ?4 and isActive = ?5 and (contentType is null or contentType = 'episode')",
                          Sort.by("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, seasonNumber, folder, true);
     }
@@ -496,8 +496,13 @@ public class VideoService {
 
     @Transactional
     public List<Video> findEpisodesForContentType(String seriesTitle, String contentType) {
-        return Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber is null and contentType = ?3 and isActive = ?4",
-                         Sort.by("episodeNumber", Sort.Direction.Ascending),
+        // Content type episodes may be null-season (e.g. SP01) OR season-anchored
+        // (e.g. S10X01 specials that keep their season but have contentType = "special").
+        // Guard: regular episodes carry contentType = "episode" — only match null-season
+        // ones for that value, otherwise this would return every episode of the series.
+        return Video.list("type = ?1 and seriesTitle = ?2 and contentType = ?3 and isActive = ?4 and (seasonNumber is null or contentType <> 'episode')",
+                         Sort.by("seasonNumber", Sort.Direction.Ascending)
+                         .and("episodeNumber", Sort.Direction.Ascending),
                          "episode", seriesTitle, contentType, true);
     }
 
