@@ -112,7 +112,7 @@ public class Settings extends PanacheEntity {
     private String defaultPlayer = "simple";
 
     // Streaming / transcoding configuration
-    private Integer maxConcurrentTranscodes = 2; // Max concurrent transcode sessions (0 = use default)
+    private Integer maxConcurrentTranscodes = 0; // Max concurrent transcode sessions (0 = auto: CPU-based, capped)
     private Boolean hardwareAccelerationEnabled = true; // Enable hardware-accelerated transcoding
 
     // YouTube (yt-dlp) advanced options

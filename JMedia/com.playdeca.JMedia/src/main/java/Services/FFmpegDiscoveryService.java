@@ -29,7 +29,6 @@ public class FFmpegDiscoveryService {
 
     private String ffmpegPath;
     private String ffprobePath;
-    private String mkvmergePath;
     private String hardwareEncoder;
     private List<String> availableHardwareEncoders;
 
@@ -212,63 +211,6 @@ public class FFmpegDiscoveryService {
         }
 
         LOG.warn("FFprobe not found after all detection attempts");
-        return null;
-    }
-
-    public synchronized String findMkvmerge() {
-        if (mkvmergePath != null) {
-            return mkvmergePath;
-        }
-
-        // 1. bare name PATH lookups
-        if (probeExecutable("mkvmerge", "--version")) {
-            mkvmergePath = "mkvmerge";
-            return mkvmergePath;
-        }
-        if (probeExecutable("mkvmerge.exe", "--version")) {
-            mkvmergePath = "mkvmerge.exe";
-            return mkvmergePath;
-        }
-
-        // 2. Windows: use where.exe to resolve from system PATH
-        String wherePath = resolveViaWhere("mkvmerge");
-        if (wherePath != null && probeExecutable(wherePath, "--version")) {
-            mkvmergePath = wherePath;
-            return mkvmergePath;
-        }
-
-        // 3. hardcoded common install paths
-        String[] hardcoded = {
-            "C:\\ProgramData\\chocolatey\\lib\\mkvtoolnix\\tools\\mkvmerge.exe",
-            "C:\\ProgramData\\chocolatey\\bin\\mkvmerge.exe",
-            "C:\\mkvtoolnix\\mkvmerge.exe",
-            "C:\\Program Files\\MKVToolNix\\mkvmerge.exe",
-            "/usr/bin/mkvmerge",
-            "/usr/local/bin/mkvmerge",
-            "/opt/homebrew/bin/mkvmerge"
-        };
-        for (String p : hardcoded) {
-            if (new File(p).exists() && probeExecutable(p, "--version")) {
-                mkvmergePath = p;
-                return mkvmergePath;
-            }
-        }
-
-        // 4. Windows: scan chocolatey lib directory for actual mkvmerge binary
-        if (isWindows()) {
-            File chocoLib = new File("C:\\ProgramData\\chocolatey\\lib\\mkvtoolnix");
-            if (chocoLib.isDirectory()) {
-                List<String> found = findInDirectory(chocoLib, "mkvmerge.exe");
-                for (String candidate : found) {
-                    if (probeExecutable(candidate, "--version")) {
-                        mkvmergePath = candidate;
-                        return mkvmergePath;
-                    }
-                }
-            }
-        }
-
-        LOG.warn("mkvmerge not found after all detection attempts");
         return null;
     }
 

@@ -986,6 +986,37 @@ public class SettingsApi {
         }
     }
 
+    @POST
+    @Path("/{profileId}/max-concurrent-transcodes")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response setMaxConcurrentTranscodes(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            Object value = data.get("maxConcurrentTranscodes");
+            if (!(value instanceof Number)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("'maxConcurrentTranscodes' must be an integer (0 = auto)"))
+                    .build();
+            }
+            int max = ((Number) value).intValue();
+            if (max < 0) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("'maxConcurrentTranscodes' must be >= 0 (0 = auto)"))
+                    .build();
+            }
+            Settings settings = settingsController.getOrCreateSettings();
+            settings.setMaxConcurrentTranscodes(max);
+            settingsService.save(settings);
+            settingsController.addLog("Max concurrent transcodes set to " + (max == 0 ? "auto" : String.valueOf(max)) + " (restart to apply)");
+            return Response.ok(ApiResponse.success("Max concurrent transcodes updated. Restart required to apply.")).build();
+        } catch (Exception e) {
+            LOGGER.error("Failed to update max concurrent transcodes setting", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(ApiResponse.error("Failed to update max concurrent transcodes setting: " + e.getMessage()))
+                .build();
+        }
+    }
+
     @GET
     @Path("/{profileId}/default-player")
     public Response getDefaultPlayer(@PathParam("profileId") Long profileId) {

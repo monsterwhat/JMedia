@@ -56,6 +56,11 @@ public class VideoAPI {
     private static final Logger LOG = LoggerFactory.getLogger(VideoAPI.class);
     private static final int DEFAULT_QUALITY_HEIGHT = 720;
 
+    // Suppress per-range-request spam: log hot-path stream events once per session.
+    private static final long STREAM_SESSION_GAP_MS = 120_000;
+    private static final int STREAM_LOG_MAX_ENTRIES = 4096;
+    private static final java.util.Map<String, Long> STREAM_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
@@ -599,6 +604,21 @@ public class VideoAPI {
         return "application/octet-stream";
     }
 
+    private String streamSessionKey(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
+        return videoId + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight;
+    }
+
+    private boolean shouldLogStreamStart(String sessionKey) {
+        long now = System.currentTimeMillis();
+        Long last = STREAM_LAST_REQUEST.put(sessionKey, now);
+        boolean firstOrNewSession = last == null || now - last > STREAM_SESSION_GAP_MS;
+        if (STREAM_LAST_REQUEST.size() > STREAM_LOG_MAX_ENTRIES) {
+            long cutoff = now - 30 * 60_000L;
+            STREAM_LAST_REQUEST.entrySet().removeIf(e -> e.getValue() < cutoff);
+        }
+        return firstOrNewSession;
+    }
+
     @GET
     @Path("/stream/{videoId:[0-9]+}.mp4")
     public Response streamVideo(@PathParam("videoId") Long videoId, 
@@ -653,7 +673,7 @@ public class VideoAPI {
         // Client-side native HEVC support override: when the browser can play HEVC
         // natively (e.g. Chrome with HEVC Video Extensions on Windows), skip the
         // server-side FFmpeg transcode and serve the HEVC stream directly via
-        // the lightweight mkvmerge/FFmpeg-copy path.
+        // the lightweight FFmpeg-copy path.
         if (nativeHevc && video.videoCodec != null &&
             (video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc") ||
              video.videoCodec.toLowerCase(Locale.ROOT).contains("h265"))) {
@@ -666,8 +686,10 @@ public class VideoAPI {
                 // No quality cap is applied because re-encoding just to downscale
                 // is CPU-intensive and counterproductive: transcoded H.264 at 720p
                 // often uses more bandwidth than source HEVC at 1080p.
-                LOG.info("[STREAM] videoId={} file={} codec={}/{} path=direct-faststart res={}",
-                    videoId, videoFile.getName(), video.videoCodec, video.audioCodec, video.resolution);
+                if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight))) {
+                    LOG.info("[STREAM] videoId={} file={} codec={}/{} path=direct-faststart res={}",
+                        videoId, videoFile.getName(), video.videoCodec, video.audioCodec, video.resolution);
+                }
                 return streamDirectFile(videoFile, rangeHeader, traceId);
             }
             // File lacks faststart but codec is natively supported and
@@ -683,13 +705,15 @@ public class VideoAPI {
             }
         }
 
-        LOG.info("[STREAM] videoId={} file={} codec={}/{} path=fragmented-mp4 isMKV={} transcodeNeeded={} quality={}",
-            videoId, videoFile.getName(), video.videoCodec, video.audioCodec, isMKV,
-            transcodeNeeded, qualityHeight);
-        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId);
+        if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight))) {
+            LOG.info("[STREAM] videoId={} file={} codec={}/{} path=fragmented-mp4 isMKV={} transcodeNeeded={} quality={}",
+                videoId, videoFile.getName(), video.videoCodec, video.audioCodec, isMKV,
+                transcodeNeeded, qualityHeight);
+        }
+        return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, transcodeNeeded);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId) {
+    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, boolean transcodeNeeded) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKV: videoId={} start={}s", traceId, videoId, startSeconds);
 
@@ -721,29 +745,37 @@ public class VideoAPI {
                     .build();
         }
 
-        // Check for an existing cache file (from a prior pipe stream). If present with
-        // enough data, serve from it instead of starting a new transcode.
+        // Check for an existing cache file (from a prior pipe stream). Serve from it only
+        // when it is provably complete (.done marker) or still being written by a live
+        // transcode. A leftover partial from an aborted/abandoned transcode is deleted so
+        // the request falls through to a fresh transcode instead of serving truncated data.
         try {
             java.nio.file.Path cacheFile = transcodingService.getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight);
             if (java.nio.file.Files.exists(cacheFile) && java.nio.file.Files.size(cacheFile) > 65536) {
-                LOG.info("Serving from cache file for video {} (start={}s, audio={})", videoId, startSeconds, audioTrackIndex);
-                try {
-                    java.nio.file.Files.setLastModifiedTime(cacheFile, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
-                } catch (IOException ignored) {}
-                return streamFromTempFile(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
+                if (transcodingService.isCacheFileComplete(cacheFile) || transcodingService.isCacheBeingWritten(cacheFile)) {
+                    if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight) + "|cache")) {
+                        LOG.info("Serving from cache file for video {} (start={}s, audio={})", videoId, startSeconds, audioTrackIndex);
+                    }
+                    try {
+                        java.nio.file.Files.setLastModifiedTime(cacheFile, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+                    } catch (IOException ignored) {}
+                    return streamFromTempFile(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
+                }
+                LOG.info("Deleting stale partial cache for video {} (start={}s, audio={}, quality={}): {}",
+                         videoId, startSeconds, audioTrackIndex, qualityHeight, cacheFile.getFileName());
+                transcodingService.deleteCacheFile(cacheFile);
             }
         } catch (IOException ignored) {
             LOG.debug("Cache file check failed for video {}, proceeding with transcode", videoId);
         }
 
-        // Primary: stream from a temp file (supports HTTP Range seeking on all clients).
-        // If the transcode infrastructure fails (no resources, FFmpeg unavailable, etc.),
-        // fall back to a direct ffmpeg pipe.
-        try {
-            java.nio.file.Path tempFile = transcodingService.getOrCreateTranscode(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight);
-            return streamFromTempFile(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
-        } catch (IOException e) {
-            LOG.warn("Temp file transcode failed for video {}, falling back to direct pipe: {}", videoId, e.getMessage());
+        // Temporary path: instead of blocking with 409 CONVERTING and forcing an
+        // in-place conversion of the source file, serve the stream on-the-fly.
+        // TranscodingService performs the codec conversion (video → H.264,
+        // audio → AAC) live and caches the result in the temp dir; the original
+        // MKV/MP4 source file is never modified.
+        if (transcodeNeeded) {
+            LOG.info("[STREAM] videoId={} codec not playable by this client — serving on-the-fly transcode (source file untouched)", videoId);
         }
 
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] Falling back to direct remux for video {}", traceId, videoId);
@@ -846,7 +878,7 @@ public class VideoAPI {
         // Add a 1MB write-ahead margin for growing fMP4 files so Firefox never
         // reads a moof atom whose referenced mdat data hasn't been written yet.
         try {
-            boolean xcodeFinished = transcodingService.isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+            boolean xcodeFinished = transcodingService.isCacheFileComplete(tempFile);
             long waitTarget;
             if (start >= fileLength) {
                 // File hasn't grown to the requested start offset yet.
@@ -894,7 +926,7 @@ public class VideoAPI {
             contentLength = 0;
         }
 
-        boolean transcodeFinished = transcodingService.isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+        boolean transcodeFinished = transcodingService.isCacheFileComplete(tempFile);
 
         // Check for discontinuity
         boolean hasDiscontinuity = transcodingService.hasTranscodeDiscontinuity(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
@@ -915,8 +947,8 @@ public class VideoAPI {
                         int read = raf.read(buffer, 0, readSize);
                         if (read == -1) {
                             // Check if transcode is done — no more data will come
-                            if (transcodingService.isTranscodeFinished(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
-                                LOG.debug("Transcode finished, stopping stream for video {}", videoId);
+                            if (transcodingService.isCacheFileComplete(tempFile) || !transcodingService.isCacheBeingWritten(tempFile)) {
+                                LOG.debug("Transcode finished or abandoned, stopping stream for video {}", videoId);
                                 break;
                             }
                             try {
@@ -1526,7 +1558,7 @@ public class VideoAPI {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("Series not found")).build();
             }
-            videos = Models.Video.<Models.Video>find("series = ?1 ORDER BY seasonNumber ASC, episodeNumber ASC", series).list();
+            videos = Models.Video.<Models.Video>find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series).list();
         } else {
             videos = Models.Video.listAll();
         }
@@ -1545,7 +1577,7 @@ public class VideoAPI {
                     .entity(ApiResponse.error("Series not found")).build();
         }
         List<Models.Video> episodes = Models.Video.<Models.Video>find(
-                "series = ?1 ORDER BY seasonNumber ASC, episodeNumber ASC", series)
+                "series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series)
                 .page(io.quarkus.panache.common.Page.of(page, size))
                 .list();
         Map<String, Object> result = new java.util.LinkedHashMap<>();

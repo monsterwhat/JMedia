@@ -50,7 +50,6 @@
 | **HW decoder per codec (H.264/HEVC/VP9/AV1)** | ✅ - FFmpegDiscoveryService.java:424-483 (per-codec fallback chain: cuvid→videotoolbox→qsv→amf→d3d11va→dxva2→mf→vaapi→v4l2m2m) | 🔒 (Plex Pass) | ✅ |
 | **Runtime HW acceleration probing** | ✅ - FFmpegDiscoveryService.java:380-413 (tests if HW device is actually usable) | ✅ | ✅ |
 | **Encoder failure tracking + auto-invalidation** | ✅ - FFmpegDiscoveryService.java:541-553 (5 failures in 5 minutes → removed from pool) | ❌ | ❌ |
-| **mkvmerge detection** | ✅ - FFmpegDiscoveryService.java:218-273 (auto-detects MKVToolNix) | ❌ | ❌ |
 | HDR tone mapping | ✅ - via ffmpeg tonemap filters | 🔒 (Plex Pass) | ✅ |
 | Quality selection (multi-bitrate) | ✅ - API/Rest/VideoPlaybackAPI.java, UIBuilder.js:137-141 (720p/1080p/4K/480p/Source at runtime) | ✅ | ✅ |
 | Trick play / seeking | ✅ - API/Rest/VideoPlaybackAPI.java | ✅ | ✅ |
