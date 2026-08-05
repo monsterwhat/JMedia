@@ -23,6 +23,9 @@
       data-next-id="{nextEpisodeId}"
       data-prev-id="{prevEpisodeId}"
       data-needs-transcode="{needsTranscoding}"
+      data-needs-conversion="{needsConversion}"
+      data-conversion-job-id="{conversionJobId ?: ''}"
+      data-conversion-status="{conversionStatus ?: ''}"
       data-video-codec="{item.videoCodec ?: ''}"
       data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
       data-intro-start="{item.introStart ?: 0}"
@@ -42,6 +45,7 @@
     </div>
 </div>
 
+<script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/StateManager.js"></script>
 <script src="/js/player/StreamManager.js"></script>
@@ -60,8 +64,12 @@
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {
+        if (window.ConversionGate) window.ConversionGate.init();
+        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
         console.log("[Playback] Initializing SimplePlayer...");
         const tryInit = () => {
+            if (window.ConversionGate) window.ConversionGate.init();
+            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
             if (window.SimplePlayer) {
                 new window.SimplePlayer({
                     containerId: 'customPlayer',
@@ -93,6 +101,9 @@
       data-next-id="{nextEpisodeId}"
       data-prev-id="{prevEpisodeId}"
       data-needs-transcode="{needsTranscoding}"
+      data-needs-conversion="{needsConversion}"
+      data-conversion-job-id="{conversionJobId ?: ''}"
+      data-conversion-status="{conversionStatus ?: ''}"
       data-video-codec="{item.videoCodec ?: ''}"
       data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
       data-intro-start="{item.introStart ?: 0}"
@@ -129,6 +140,19 @@
     <button class="settings-toggle-btn" id="settingsToggleBtn" title="Settings" style="position:absolute;top:15px;right:15px;z-index:1000;background:rgba(0,0,0,0.6);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);font-size:1.2rem;">
         <i class="pi pi-cog"></i>
     </button>
+
+    <!-- Audio language selector (movies & non-episode content; episodes use the sidebar pill) -->
+    <div class="player-audio-selector" id="playerAudioSelector" style="display:none;">
+      <button class="episode-sidebar-audio-btn" id="playerAudioBtn" data-click="togglePlayerAudioMenu" title="Audio Language">
+        <i class="fa-solid fa-language"></i>
+        <span id="playerAudioLabel">Audio</span>
+        <i class="fa-solid fa-chevron-down" style="font-size:0.6rem;"></i>
+      </button>
+      <div class="episode-sidebar-audio-menu" id="playerAudioMenu" style="display:none;">
+        <div class="episode-sidebar-audio-header">Audio Tracks</div>
+        <div class="episode-sidebar-audio-list" id="playerAudioList"></div>
+      </div>
+    </div>
 
     <!-- Settings/Subtitle menu -->
     <div class="subtitle-menu settings-menu" id="subtitleMenu">
@@ -210,6 +234,7 @@
 
 {#if defaultPlayer == 'videojs'}
 <link href="/lib/videojs/video-js.css" rel="stylesheet">
+<script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/playerFallback.js"></script>
 <script src="/js/video/VideoWebSocketManager.js"></script>
 <script src="/lib/videojs/video.min.js"></script>
@@ -218,9 +243,13 @@
 <script src="/js/test-player-common.js?v=2"></script>
 <script>
     (function() {
+        if (window.ConversionGate) window.ConversionGate.init();
+        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
         console.log("[Playback] Initializing Video.js...");
         var videoId = {item.id};
         var tryInit = function() {
+            if (window.ConversionGate) window.ConversionGate.init();
+            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
             if (window.videojs && window.initVideoJsAdapter) {
                 initVideoJsAdapter(videoId);
             } else {
@@ -231,6 +260,7 @@
     })();
 </script>
 {#else}
+<script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/playerFallback.js"></script>
 <script src="/lib/oplayer/core.min.js"></script>
 <script src="/lib/oplayer/ui.min.js"></script>
@@ -241,9 +271,13 @@
 <script src="/js/test-player-common.js?v=2"></script>
 <script>
     (function() {
+        if (window.ConversionGate) window.ConversionGate.init();
+        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
         console.log("[Playback] Initializing OPlayer...");
         var videoId = {item.id};
         var tryInit = function() {
+            if (window.ConversionGate) window.ConversionGate.init();
+            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
             if (window.OPlayer && window.initOPlayerAdapter) {
                 initOPlayerAdapter(videoId);
             } else {

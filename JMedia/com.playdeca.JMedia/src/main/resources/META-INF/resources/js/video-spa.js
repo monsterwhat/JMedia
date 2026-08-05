@@ -370,6 +370,7 @@ class VideoSPA {
     }
 
     async destroyCurrentPlayer() {
+        if (window.ConversionGate) window.ConversionGate.destroy();
         // Clean up OPlayer adapter (WebSocket + OPlayer instance) if active
         if (typeof window.destroyOPlayerAdapter === 'function') {
             window.destroyOPlayerAdapter();
@@ -533,8 +534,12 @@ class VideoSPA {
         const scripts = container.querySelectorAll('script');
         scripts.forEach(script => {
             const newScript = document.createElement('script');
-            if (script.src) newScript.src = script.src;
-            else newScript.textContent = script.textContent;
+            if (script.src) {
+                newScript.src = script.src;
+                newScript.async = false; // preserve document order: ConversionGate must run before player libs
+            } else {
+                newScript.textContent = script.textContent;
+            }
             document.head.appendChild(newScript).parentNode.removeChild(newScript);
         });
     }

@@ -19,6 +19,9 @@
       data-next-id="{nextEpisodeId}"
       data-prev-id="{prevEpisodeId}"
       data-needs-transcode="{needsTranscoding}"
+      data-needs-conversion="{needsConversion}"
+      data-conversion-job-id="{conversionJobId ?: ''}"
+      data-conversion-status="{conversionStatus ?: ''}"
       data-video-codec="{item.videoCodec ?: ''}"
       data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
       data-intro-start="{item.introStart ?: 0}"
@@ -38,6 +41,7 @@
     </div>
 </div>
 
+<script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
 <script src="/js/player/StateManager.js"></script>
 <script src="/js/player/StreamManager.js"></script>
@@ -56,8 +60,12 @@
 <script src="/js/simple-player.js"></script>
 <script>
     (function() {
+        if (window.ConversionGate) window.ConversionGate.init();
+        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
         console.log("[Playback] Initializing SimplePlayer...");
         const tryInit = () => {
+            if (window.ConversionGate) window.ConversionGate.init();
+            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
             if (window.SimplePlayer) {
                 new window.SimplePlayer({
                     containerId: 'customPlayer',
@@ -89,6 +97,9 @@
       data-next-id="{nextEpisodeId}"
       data-prev-id="{prevEpisodeId}"
       data-needs-transcode="{needsTranscoding}"
+      data-needs-conversion="{needsConversion}"
+      data-conversion-job-id="{conversionJobId ?: ''}"
+      data-conversion-status="{conversionStatus ?: ''}"
       data-video-codec="{item.videoCodec ?: ''}"
       data-has-multiple-audio="{item.hasMultipleAudioTrack ?: false}"
       data-intro-start="{item.introStart ?: 0}"
@@ -208,17 +219,22 @@
 
 {#if defaultPlayer == 'videojs'}
 <link href="/lib/videojs/video-js.css" rel="stylesheet">
+<script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/playerFallback.js"></script>
 <script src="/js/video/VideoWebSocketManager.js"></script>
 <script src="/lib/videojs/video.min.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
-<script src="/js/player/videojs-adapter.js?v=4"></script>
+<script src="/js/player/videojs-adapter.js?v=5"></script>
 <script src="/js/test-player-common.js?v=2"></script>
 <script>
     (function() {
+        if (window.ConversionGate) window.ConversionGate.init();
+        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
         console.log("[Playback] Initializing Video.js...");
         var videoId = {item.id};
         var tryInit = function() {
+            if (window.ConversionGate) window.ConversionGate.init();
+            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
             if (window.videojs && window.initVideoJsAdapter) {
                 initVideoJsAdapter(videoId);
             } else {
@@ -229,19 +245,24 @@
     })();
 </script>
 {#else}
+<script src="/js/player/ConversionGate.js"></script>
 <script src="/js/player/playerFallback.js"></script>
 <script src="/lib/oplayer/core.min.js"></script>
 <script src="/lib/oplayer/ui.min.js"></script>
 <script src="/lib/hls.min.js"></script>
 <script src="/lib/oplayer/hls.min.js"></script>
 <script src="/js/player/Utils.js?v=3"></script>
-<script src="/js/player/oplayer-adapter.js?v=4"></script>
+<script src="/js/player/oplayer-adapter.js?v=5"></script>
 <script src="/js/test-player-common.js?v=2"></script>
 <script>
     (function() {
+        if (window.ConversionGate) window.ConversionGate.init();
+        if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
         console.log("[Playback] Initializing OPlayer...");
         var videoId = {item.id};
         var tryInit = function() {
+            if (window.ConversionGate) window.ConversionGate.init();
+            if (window.ConversionGate && window.ConversionGate.isBlocking()) return;
             if (window.OPlayer && window.initOPlayerAdapter) {
                 initOPlayerAdapter(videoId);
             } else {
