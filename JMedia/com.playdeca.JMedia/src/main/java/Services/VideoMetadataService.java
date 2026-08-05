@@ -1143,12 +1143,23 @@ public class VideoMetadataService {
     }
 
     private JsonNode fetchJson(String url, Map<String, String> headers) throws IOException, InterruptedException {
-        var builder = HttpRequest.newBuilder().uri(URI.create(url)).GET();
+        var builder = HttpRequest.newBuilder().uri(URI.create(url)).GET().timeout(Duration.ofSeconds(30));
         if (headers != null) {
             headers.forEach(builder::header);
         }
         HttpRequest request = builder.build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException e) {
+            // Transient provider outage (DNS/connect/reset/timeout) is expected for
+            // best-effort enrichment providers — return null like a non-200 response.
+            LOG.warn("Network error fetching {} ({})", url, e.getClass().getSimpleName());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
         if (response.statusCode() == 200) return objectMapper.readTree(response.body());
         if (response.statusCode() == 404) {
             LOG.debug("Resource not found (404): {}", url);

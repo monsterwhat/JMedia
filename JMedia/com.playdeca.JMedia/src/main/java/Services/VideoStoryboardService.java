@@ -41,6 +41,10 @@ public class VideoStoryboardService {
 
     private static final java.util.Set<Long> GENERATING_IDS = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    // Remember videos with missing source files so we stop re-attempting/re-logging until the backoff expires.
+    private static final long MISSING_FILE_RETRY_MS = TimeUnit.HOURS.toMillis(1);
+    private static final java.util.Map<Long, Long> MISSING_FILE_RETRY_AT = new java.util.concurrent.ConcurrentHashMap<>();
+
     public static class StoryboardMetadata {
         public double interval;
         public int width;
@@ -85,7 +89,7 @@ public class VideoStoryboardService {
         boolean exists = actualPath != null;
 
         // Always trigger generation if it doesn't exist
-        if (!exists && !GENERATING_IDS.contains(videoId) && canonicalPath != null) {
+        if (!exists && !GENERATING_IDS.contains(videoId) && canonicalPath != null && isSourceFileAvailable(video, videoId)) {
             executor.submit(() -> generateStoryboard(videoId, canonicalPath));
         }
 
@@ -142,13 +146,36 @@ public class VideoStoryboardService {
         }
 
         // Generate in background
-        executor.submit(() -> generateStoryboard(videoId, canonicalPath));
+        if (isSourceFileAvailable(video, videoId)) {
+            executor.submit(() -> generateStoryboard(videoId, canonicalPath));
+        }
 
         return null;
     }
 
     @Inject
     FFmpegDiscoveryService discoveryService;
+
+    /**
+     * @return true if the video's source file exists on disk and a storyboard
+     *         generation attempt is worthwhile right now
+     */
+    private boolean isSourceFileAvailable(Video video, Long videoId) {
+        if (video.path == null || video.path.isBlank()) {
+            return false;
+        }
+        Long retryAt = MISSING_FILE_RETRY_AT.get(videoId);
+        if (retryAt != null && System.currentTimeMillis() < retryAt) {
+            return false;
+        }
+        if (Files.exists(Paths.get(video.path))) {
+            MISSING_FILE_RETRY_AT.remove(videoId);
+            return true;
+        }
+        MISSING_FILE_RETRY_AT.put(videoId, System.currentTimeMillis() + MISSING_FILE_RETRY_MS);
+        LOGGER.debug("Source file missing for video {}: {}", videoId, video.path);
+        return false;
+    }
 
     private boolean generateStoryboard(Long videoId, Path outputPath) {
         if (!GENERATING_IDS.add(videoId)) {
@@ -158,6 +185,10 @@ public class VideoStoryboardService {
         try {
             Video video = videoService.find(videoId);
             if (video == null || video.path == null) return false;
+
+            if (!isSourceFileAvailable(video, videoId)) {
+                return false;
+            }
 
             String ffmpegPath = discoveryService.findFFmpegExecutable();
             if (ffmpegPath == null) {
@@ -222,14 +253,25 @@ public class VideoStoryboardService {
                     process.destroyForcibly();
                 }
                 Files.deleteIfExists(tempPath);
+                String ffmpegOutput = output.toString();
+                if (ffmpegOutput.toLowerCase().contains("no such file or directory")) {
+                    // Source file vanished between our availability check and the FFmpeg run.
+                    MISSING_FILE_RETRY_AT.put(videoId, System.currentTimeMillis() + MISSING_FILE_RETRY_MS);
+                    LOGGER.debug("Source file for video {} is no longer available - skipping storyboard", videoId);
+                    return false;
+                }
                 LOGGER.warn("FFmpeg storyboard generation failed or timed out for video {}. Exit code: {}. Output summary: {}", 
                     videoId, 
                     finished ? process.exitValue() : "TIMEOUT", 
-                    output.length() > 500 ? output.substring(output.length() - 500) : output.toString());
+                    ffmpegOutput.length() > 500 ? ffmpegOutput.substring(ffmpegOutput.length() - 500) : ffmpegOutput);
                 return false;
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.debug("Storyboard generation interrupted for video {}", videoId);
+            return false;
         } catch (Exception e) {
-            LOGGER.error("Error running FFmpeg for storyboard: " + e.getMessage());
+            LOGGER.error("Error running FFmpeg for storyboard for video " + videoId, e);
             return false;
         } finally {
             GENERATING_IDS.remove(videoId);
