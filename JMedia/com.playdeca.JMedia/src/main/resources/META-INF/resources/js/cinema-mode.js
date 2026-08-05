@@ -160,6 +160,23 @@ function renderStars(rating) {
   return html;
 }
 
+function nativePlaybackBadge(video) {
+  if (!video) return '';
+  let ext = (video.container || '').toLowerCase();
+  if (!ext && video.path) {
+    const dot = video.path.lastIndexOf('.');
+    ext = dot >= 0 ? video.path.slice(dot + 1).toLowerCase() : '';
+  }
+  const isMp4 = ext === 'mp4' || ext === 'm4v';
+  const isMkv = ext === 'mkv';
+  if (!isMp4 && !isMkv) return '';
+  const title = isMp4
+    ? 'MP4 - plays natively on Apple, Chrome and Firefox - no re-encoding needed'
+    : 'MKV - plays natively in Firefox - no re-encoding needed';
+  const icons = (isMp4 ? '<i class="fa-brands fa-apple"></i><i class="fa-brands fa-chrome"></i>' : '') + '<i class="fa-brands fa-firefox"></i>';
+  return `<span class="cinema-native-badge" style="margin-left:0.5rem;display:inline-flex;align-items:center;gap:0.4rem;flex-shrink:0;font-size:0.8rem;line-height:1;opacity:0.85;" title="${title}">${icons}</span>`;
+}
+
 function createCardHTML(video) {
   const id = video.id;
   const isTvCard = video.type === 'episode' && video.seriesTitle;
@@ -180,7 +197,10 @@ function createCardHTML(video) {
         </div>
       </div>
       <div class="cinema-card-title">${title}</div>
-      <div class="cinema-card-meta"><i class="fa-solid fa-star" style="font-size: 0.7rem;"></i> ${rating} ${year}</div>
+      <div class="cinema-card-meta">
+        <span class="cinema-card-meta-text"><i class="fa-solid fa-star" style="font-size: 0.7rem;"></i> ${rating} ${year}</span>
+        ${nativePlaybackBadge(video)}
+      </div>
     </div>
   `;
 }
@@ -696,6 +716,8 @@ function ensureNowPlayingController() {
 async function showSection(section) {
   const allSections = document.querySelectorAll('.cinema-section');
   const hero = document.getElementById('cinema-hero');
+  const dynEl = document.getElementById('section-dynamic');
+  if (dynEl) dynEl.classList.toggle('np-view-active', section === 'nowPlaying');
   const _showAllModeSection = _showAllMode === 'tvshows' ? 'shows' : _showAllMode;
   if (_showAllMode && section !== _showAllModeSection) { showLess(); }
 
@@ -705,7 +727,10 @@ async function showSection(section) {
     allSections.forEach(s => { s.style.display = 'none'; });
     document.querySelectorAll('.cinema-section-header[id]').forEach(h => h.style.display = 'none');
 
-    // Show dynamic container with hero still visible
+    // Hide the cinema hero on the Now Playing view (player-focused, no hero needed)
+    if (hero) hero.style.display = section === 'nowPlaying' ? 'none' : '';
+
+    // Show dynamic container (hero stays visible for liveTv/collections)
     const dynamicSection = document.getElementById('section-dynamic');
     if (dynamicSection) dynamicSection.style.display = '';
 
@@ -1052,35 +1077,11 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   if (!epResp || !epResp.ok) return;
   const episodes = await epResp.json();
   if (!Array.isArray(episodes) || !episodes.length) return;
-  // Sort episodes by season then episode number
-  episodes.sort((a, b) => {
-    const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
-    const ea = a.episodeNumber || 1, eb = b.episodeNumber || 1;
-    return sa - sb || ea - eb;
-  });
+  // Sort episodes by season then episode number, then group by
+  // (seasonNumber, contentType) pair - each distinct pair becomes a dropdown tab.
+  const { groups, seasonKeys } = sortAndGroupEpisodes(episodes);
   // Cache episodes for the season tab handler
   _episodesCache.set(seriesTitle, episodes);
-
-  // Group episodes by (seasonNumber, contentType) pair.
-  // Each distinct pair becomes a separate dropdown tab.
-  const groups = {};
-  episodes.forEach(ep => {
-    const sn = ep.seasonNumber != null ? ep.seasonNumber : 1;
-    const ct = ep.contentType || 'episode';
-    const key = sn + ':' + ct;
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(ep);
-  });
-
-  // Sort keys: by seasonNumber (numeric), then by contentType priority
-  const contentTypePriority = { 'episode': 0, 'featurette': 1, 'extra': 2, 'special': 3 };
-  const seasonKeys = Object.keys(groups).sort((a, b) => {
-    const [sa, ca] = a.split(':');
-    const [sb, cb] = b.split(':');
-    const na = parseInt(sa), nb = parseInt(sb);
-    if (na !== nb) return na - nb;
-    return (contentTypePriority[ca] ?? 99) - (contentTypePriority[cb] ?? 99);
-  });
   const firstEp = episodes[0];
   const resumeEp = resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) || firstEp;
 
@@ -1268,30 +1269,7 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
   }
 
   // Build episodes HTML
-  let episodesHtml = '<div class="cinema-episodes-section" style="margin-top: 1.5rem;">';
-  
-  // Season tabs if multiple seasons
-  if (seasonKeys.length > 1) {
-    const firstKey = seasonKeys[0];
-    const firstLabel = getGroupLabel(firstKey);
-    episodesHtml += `<div class="cinema-season-row"><span style="font-size:0.875rem;font-weight:600;color:white;">Episodes</span><div class="cinema-season-dropdown">
-      <button class="cinema-season-dropdown-btn" onclick="toggleSeasonDropdown()">
-        <span id="cinema-season-label">${firstLabel}</span>
-        <i class="fa-solid fa-chevron-down"></i>
-      </button>
-      <div class="cinema-season-dropdown-list" id="cinema-season-list">`;
-    seasonKeys.forEach((key) => {
-        const isActive = key === firstKey;
-        const label = getGroupLabel(key);
-        episodesHtml += `<button class="cinema-season-dropdown-item${isActive ? ' active' : ''}" data-sk="${key}" onclick="switchSeasonFromSk(this)">${label}</button>`;
-    });
-    episodesHtml += '</div></div></div>';
-  }
-
-  // Episode cards for first season
-  const firstSeasonEps = groups[seasonKeys[0]];
-  episodesHtml += buildEpisodesList(firstSeasonEps);
-  episodesHtml += '</div>';
+  const episodesHtml = buildCinemaEpisodesHtml(groups, seasonKeys, '');
 
   // Inject into modal content
   const content = document.querySelector('#cinema-modal .cinema-modal-content');
@@ -1388,6 +1366,9 @@ function buildEpisodesList(episodeArray) {
     const dur = formatDuration(ep.duration);
     const desc = ep.description || ep.overview || '';
     const img = getThumbnailUrl(ep.id);
+    const durHtml = dur ? `<span class="cinema-episode-duration">${dur}</span>` : '';
+    const metaRight = (durHtml || nativePlaybackBadge(ep))
+      ? `<span class="cinema-episode-meta">${durHtml}${nativePlaybackBadge(ep)}</span>` : '';
     return `<div class="cinema-episode-card" data-video-id="${ep.id}" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
       <div class="cinema-episode-thumb-wrap">
         <img src="${img}" alt="${epTitle}" loading="lazy">
@@ -1401,12 +1382,123 @@ function buildEpisodesList(episodeArray) {
         <div class="cinema-episode-header">
           ${renderContentTypeBadge(ep.contentType)}
           <h3 class="cinema-episode-title">${epNum}. ${epTitle}</h3>
-          ${dur ? `<span class="cinema-episode-duration">${dur}</span>` : ''}
+          ${metaRight}
         </div>
         ${desc ? `<p class="cinema-episode-desc">${desc}</p>` : '<div class="cinema-episode-desc is-skeleton"></div>'}
       </div>
     </div>`;
   }).join('');
+}
+
+/**
+ * Sorts episodes by season then episode number and groups them by
+ * (seasonNumber, contentType) pair. Each distinct pair becomes a separate
+ * dropdown tab. Returns { groups, seasonKeys } where seasonKeys is sorted by
+ * seasonNumber, then contentType priority.
+ */
+function sortAndGroupEpisodes(episodes) {
+  // Sort episodes by season then episode number
+  episodes.sort((a, b) => {
+    const sa = a.seasonNumber ?? 1, sb = b.seasonNumber ?? 1;
+    const ea = a.episodeNumber || 1, eb = b.episodeNumber || 1;
+    return sa - sb || ea - eb;
+  });
+
+  // Group episodes by (seasonNumber, contentType) pair.
+  const groups = {};
+  episodes.forEach(ep => {
+    const sn = ep.seasonNumber != null ? ep.seasonNumber : 1;
+    const ct = ep.contentType || 'episode';
+    const key = sn + ':' + ct;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(ep);
+  });
+
+  // Sort keys: by seasonNumber (numeric), then by contentType priority
+  const contentTypePriority = { 'episode': 0, 'featurette': 1, 'extra': 2, 'special': 3 };
+  const seasonKeys = Object.keys(groups).sort((a, b) => {
+    const [sa, ca] = a.split(':');
+    const [sb, cb] = b.split(':');
+    const na = parseInt(sa), nb = parseInt(sb);
+    if (na !== nb) return na - nb;
+    return (contentTypePriority[ca] ?? 99) - (contentTypePriority[cb] ?? 99);
+  });
+
+  return { groups, seasonKeys };
+}
+
+/**
+ * Builds the native cinema episodes section HTML: optional title header,
+ * a season dropdown when more than one (season, contentType) group exists,
+ * and the episode cards for the first group.
+ */
+function buildCinemaEpisodesHtml(groups, seasonKeys, sectionTitle) {
+  let episodesHtml = '<div class="cinema-episodes-section" style="margin-top: 1.5rem;">';
+  if (sectionTitle) {
+    episodesHtml += `<div class="cinema-section-header"><h2 class="cinema-section-title">${sectionTitle}</h2></div>`;
+  }
+
+  // Season tabs if multiple seasons
+  if (seasonKeys.length > 1) {
+    const firstKey = seasonKeys[0];
+    const firstLabel = getGroupLabel(firstKey);
+    episodesHtml += `<div class="cinema-season-row"><span style="font-size:0.875rem;font-weight:600;color:white;">Episodes</span><div class="cinema-season-dropdown">
+      <button class="cinema-season-dropdown-btn" onclick="toggleSeasonDropdown()">
+        <span id="cinema-season-label">${firstLabel}</span>
+        <i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <div class="cinema-season-dropdown-list" id="cinema-season-list">`;
+    seasonKeys.forEach((key) => {
+        const isActive = key === firstKey;
+        const label = getGroupLabel(key);
+        episodesHtml += `<button class="cinema-season-dropdown-item${isActive ? ' active' : ''}" data-sk="${key}" onclick="switchSeasonFromSk(this)">${label}</button>`;
+    });
+    episodesHtml += '</div></div></div>';
+  }
+
+  // Episode cards for first season
+  const firstSeasonEps = groups[seasonKeys[0]];
+  episodesHtml += buildEpisodesList(firstSeasonEps);
+  episodesHtml += '</div>';
+
+  return episodesHtml;
+}
+
+/**
+ * Fetches a series' episodes from the backend, renders the native
+ * season-grouped episodes section into the cinema modal, and kicks off
+ * per-episode description enrichment. Used by the "Featurettes, Extras & TV Shows"
+ * section of movie modals; the series detail modal renders the same markup
+ * via buildCinemaEpisodesHtml().
+ */
+async function renderCinemaEpisodesSection(seriesTitle, sectionTitle, seriesSynopsis) {
+  if (!seriesTitle) return false;
+  const gen = _modalGeneration;
+  const epResp = await fetch(`/api/video/ui/series/${encodeURIComponent(seriesTitle)}/episodes`).catch(() => null);
+  if (!epResp || !epResp.ok) return false;
+  const episodes = await epResp.json();
+  if (!Array.isArray(episodes) || !episodes.length) return false;
+  if (gen !== _modalGeneration) return false;
+
+  // Cache episodes + expose the series title so switchSeason() can resolve
+  // season-tab lookups for this section.
+  _episodesCache.set(seriesTitle, episodes);
+  const modal = document.getElementById('cinema-modal');
+  if (modal) modal.dataset.seriesTitle = seriesTitle;
+
+  const { groups, seasonKeys } = sortAndGroupEpisodes(episodes);
+  const episodesHtml = buildCinemaEpisodesHtml(groups, seasonKeys, sectionTitle);
+
+  // Inject into modal content (replacing any previous episodes section)
+  const content = document.querySelector('#cinema-modal .cinema-modal-content');
+  if (content) {
+    const old = content.querySelector('.cinema-episodes-section, .cinema-series-content');
+    if (old) old.remove();
+    content.insertAdjacentHTML('beforeend', episodesHtml);
+  }
+
+  fetchMissingModalEpisodeData(seriesTitle, seasonKeys[0], (seriesSynopsis || ''));
+  return true;
 }
 
 /**
@@ -1591,6 +1683,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
             <div class="cinema-card-meta-row">
               ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
               ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
+              ${nativePlaybackBadge(v)}
             </div>
           </div>`;
         }).join('')}
@@ -1693,6 +1786,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
       <div class="cinema-card-meta-row">
         ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
         ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
+        ${nativePlaybackBadge(v)}
       </div>
     </div>`);
   });
@@ -1995,29 +2089,11 @@ function openDetails(videoId) {
       content?.insertAdjacentHTML('beforeend', moreLikeHtml);
     }
 
-    // Featurettes & Extras section (for movies with bonus content)
+    // Featurettes, Extras & TV Shows section (for movies with bonus content) - renders
+    // the same native season-grouped episodes section as TV series: fetched
+    // from the episodes endpoint, sorted, and auto-enriched.
     if (data.type === 'movie' && data.seriesTitle) {
-      const extras = allVideos.filter(v =>
-        v.seriesTitle === data.seriesTitle &&
-        v.type === 'episode' &&
-        v.id !== data.id
-      );
-      if (extras.length) {
-        const groups = {};
-        extras.forEach(v => {
-          const ct = v.contentType || 'extra';
-          if (!groups[ct]) groups[ct] = [];
-          groups[ct].push(v);
-        });
-        let extrasHtml = '<div class="cinema-episodes-section" style="margin-top:1.5rem;"><div class="cinema-section-header"><h2 class="cinema-section-title">Featurettes & Extras</h2></div>';
-        Object.entries(groups).forEach(([ct, eps]) => {
-          extrasHtml += '<div style="margin-bottom:1rem;"><div style="color:rgba(255,255,255,0.5);font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">' + ct.charAt(0).toUpperCase() + ct.slice(1) + 's</div>';
-          extrasHtml += buildEpisodesList(eps);
-          extrasHtml += '</div>';
-        });
-        extrasHtml += '</div>';
-        content?.insertAdjacentHTML('beforeend', extrasHtml);
-      }
+      renderCinemaEpisodesSection(data.seriesTitle, 'Featurettes, Extras & TV Shows');
     }
 
     // Auto-refresh: if key fields are empty, poll for updated video data
@@ -2429,6 +2505,7 @@ async function openPlayerModal(videoId) {
     currentPlayerInstance.destroy();
     currentPlayerInstance = null;
   }
+  if (window.ConversionGate) window.ConversionGate.destroy();
 
   const backdrop = document.getElementById('player-modal-backdrop');
   const modal = document.getElementById('player-modal');
@@ -2491,6 +2568,7 @@ function closePlayerModal() {
   const content = document.getElementById('player-modal-content');
 
   try {
+    if (window.ConversionGate) window.ConversionGate.destroy();
     if (typeof window.destroyOPlayerAdapter === 'function') window.destroyOPlayerAdapter();
     if (typeof window.destroyVideoJsAdapter === 'function') window.destroyVideoJsAdapter();
     if (window.currentPlayerInstance) {
@@ -2677,7 +2755,7 @@ function closeEpisodeSidebar() {
 
 // Audio language pill in sidebar header
 function toggleSidebarAudioMenu(e) {
-  e.stopPropagation();
+  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
   var menu = document.getElementById('sidebarAudioMenu');
   if (!menu) return;
   menu.style.display = menu.style.display === 'none' ? 'block' : 'none';

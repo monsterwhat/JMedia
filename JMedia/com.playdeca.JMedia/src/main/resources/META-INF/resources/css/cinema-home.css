@@ -19,6 +19,8 @@
   --cinema-glass-border: rgba(255, 255, 255, 0.05);
   --cinema-glass-blur: blur(12px);
   --cinema-hero-color: #000000;
+  /* Ultra-wide hero backdrop: 80% of a 16:9 frame */
+  --cinema-hero-stage: calc(100svh * 16 / 9 * 0.8);
 }
 
 /* Base Reset */
@@ -673,10 +675,31 @@ html, body {
 }
 
 .cinema-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.8rem;
   margin-top: 0.25rem;
   padding: 0 2px;
+}
+
+.cinema-card-meta-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cinema-native-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  opacity: 0.85;
 }
 
 /* ============================================================
@@ -2678,6 +2701,13 @@ body.cinema-mode .persistent-music-player {
   color: var(--cinema-primary, #3b82f6);
 }
 
+.cinema-episode-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .cinema-episode-duration {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.4);
@@ -2862,4 +2892,28 @@ body.cinema-mode .persistent-music-player {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ============================================================
+   Responsive - Ultra-Wide (21:9+)
+   ============================================================ */
+
+@media (min-width: 2000px) and (min-aspect-ratio: 21 / 9) {
+  .cinema-hero-backdrop {
+    left: 50%;
+    right: auto;
+    width: min(100%, var(--cinema-hero-stage));
+    transform: translateX(-50%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
+  }
+
+  .cinema-hero-content {
+    left: max(2rem, calc((100% - min(100%, var(--cinema-hero-stage))) / 2 + 3rem));
+    right: auto;
+  }
+
+  .cinema-hero-left-gradient {
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.45) 15%, transparent 45%);
+  }
 }

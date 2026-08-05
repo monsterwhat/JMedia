@@ -687,9 +687,30 @@ public class VideoUiApi {
             + "</div></div>"
             + "<div class=\"cinema-card-title\">" + escapeHtml(title) + "</div>"
             + "<div class=\"cinema-card-meta\">"
-            + "<i class=\"fa-solid fa-star\" style=\"font-size: 0.7rem;\"></i> " 
-            + escapeHtml(rating) + " " + escapeHtml(year)
+            + "<span class=\"cinema-card-meta-text\"><i class=\"fa-solid fa-star\" style=\"font-size: 0.7rem;\"></i> "
+            + escapeHtml(rating) + " " + escapeHtml(year) + "</span>"
+            + (nativePlaybackBadge(item))
             + "</div></div>";
+    }
+
+    /**
+     * Badge of players that can play the file natively without re-encoding:
+     * MP4/M4V plays on Apple devices, Chrome and Firefox; MKV plays in Firefox.
+     * Returns an empty string when nothing plays the file natively.
+     */
+    private String nativePlaybackBadge(Models.Video v) {
+        if (v == null || v.path == null) return "";
+        String lower = v.path.toLowerCase();
+        boolean mp4 = lower.endsWith(".mp4") || lower.endsWith(".m4v");
+        boolean mkv = lower.endsWith(".mkv");
+        if (!mp4 && !mkv) return "";
+        String title = mp4
+            ? "MP4 - plays natively on Apple, Chrome and Firefox - no re-encoding needed"
+            : "MKV - plays natively in Firefox - no re-encoding needed";
+        StringBuilder sb = new StringBuilder("<span class=\"cinema-native-badge\" style=\"margin-left:0.5rem;display:inline-flex;align-items:center;gap:0.4rem;flex-shrink:0;font-size:0.8rem;line-height:1;opacity:0.85;\" title=\"").append(title).append("\">");
+        if (mp4) sb.append("<i class=\"fa-brands fa-apple\"></i><i class=\"fa-brands fa-chrome\"></i>");
+        sb.append("<i class=\"fa-brands fa-firefox\"></i>");
+        return sb.append("</span>").toString();
     }
 
     /**
@@ -1132,12 +1153,18 @@ public class VideoUiApi {
                 }
             }
 
-            // Split episodes into normal (with seasonNumber) and extras (null seasonNumber)
+            // Split into regular episodes (season-anchored, plain "episode" content type)
+            // and extras/specials (null season OR non-episode content type).
+            // Season-anchored specials (e.g. S10X01 -> season=10, episode=0, contentType="special")
+            // are grouped into the extras section so they don't inflate the season card
+            // count or appear in the regular episode list.
             List<Models.Video> normalEpisodes = seriesEpisodes.stream()
-                    .filter(v -> v.seasonNumber != null)
+                    .filter(v -> v.seasonNumber != null
+                            && (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
             List<Models.Video> noSeasonEpisodes = seriesEpisodes.stream()
-                    .filter(v -> v.seasonNumber == null)
+                    .filter(v -> v.seasonNumber == null
+                            || (v.contentType != null && !"episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
 
             // Group by (seasonNumber, seasonSuffix) — Season 2 and Season 2 OVA are separate cards
@@ -1268,7 +1295,8 @@ public class VideoUiApi {
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
                             decodedTitle.equalsIgnoreCase(v.seriesTitle) && 
                             (seasonNumber.equals(v.seasonNumber)) &&
-                            (v.folder == null || v.folder.isEmpty()))
+                            (v.folder == null || v.folder.isEmpty()) &&
+                            (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
                     .collect(Collectors.toList());
             }
@@ -1719,6 +1747,16 @@ public class VideoUiApi {
 
         boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
         boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, userAgent);
+        // TEMPORARY PATH: the automatic in-place conversion gate is disabled.
+        // Files whose codec the browser cannot play are now streamed via the
+        // on-the-fly remux/transcode path (VideoAPI.streamVideo →
+        // TranscodingService), which converts the codec live (video → H.264,
+        // audio → AAC) and caches the result in the temp dir. The source file
+        // is never overwritten. To restore the old behavior, set needsConversion
+        // to isTranscodeNeededForWeb(...) and re-add the startConversion block.
+        boolean needsConversion = false;
+        String conversionJobId = null;
+        String conversionStatus = null;
 
         // Load settings (auto-skip + default player)
         Models.Settings settings = settingsService.getOrCreateSettings();
@@ -1827,6 +1865,9 @@ public class VideoUiApi {
                 .data("item", item)
                 .data("resumeTime", resumeTime)
                 .data("needsTranscoding", needsTranscoding)
+                .data("needsConversion", needsConversion)
+                .data("conversionJobId", conversionJobId)
+                .data("conversionStatus", conversionStatus)
                 .data("nextEpisodeId", nextEpisode != null ? nextEpisode.id : null)
                 .data("prevEpisodeId", prevEpisode != null ? prevEpisode.id : null)
                 .data("autoSkipIntro", autoSkipIntro)
@@ -2294,6 +2335,17 @@ public class VideoUiApi {
                 item.put("seasonName", v.seasonName);
                 item.put("seasonSuffix", v.seasonSuffix);
                 item.put("contentType", v.contentType);
+                // Container extension only (not the full path) so the client can
+                // render the native-playback badge without exposing file paths
+                // in this lightweight episode list.
+                String container = null;
+                if (v.path != null) {
+                    int dot = v.path.lastIndexOf('.');
+                    if (dot >= 0 && dot < v.path.length() - 1) {
+                        container = v.path.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+                    }
+                }
+                item.put("container", container);
                 item.put("releaseYear", v.releaseYear);
                 // Episode cards prefer the episode's own description; fall back to
                 // the series synopsis when the episode has none.

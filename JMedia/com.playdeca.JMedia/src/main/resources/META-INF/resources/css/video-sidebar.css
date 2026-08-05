@@ -359,3 +359,144 @@
     .np-controls-row .button { width: 46px; height: 46px; }
     .np-controls-row .button.is-primary { width: 54px; height: 54px; }
 }
+
+/* =============================================
+   Now Playing - Cinema Hero (mobile-first)
+   Mirrors the home cinema hero visuals. The
+   backdrop is populated by VideoSidebarController;
+   the gradients remain as graceful fallback.
+   ============================================= */
+
+.np-hero {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    height: 66svh;
+    min-height: 420px;
+    background: var(--cinema-bg, #0a0a12);
+}
+
+.np-hero-backdrop {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    z-index: 0;
+}
+
+.np-hero-gradient-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 220px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.12) 35%, transparent 100%);
+    z-index: 1;
+    pointer-events: none;
+}
+
+.np-hero-gradient-left {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.5), transparent, transparent);
+    z-index: 1;
+    pointer-events: none;
+}
+
+.np-hero-gradient-color {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 280px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.35) 55%, transparent 100%);
+    z-index: 2;
+    pointer-events: none;
+}
+
+.np-hero-content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0 1rem 2.5rem;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    pointer-events: none;
+}
+
+.np-hero-content > * {
+    pointer-events: auto;
+}
+
+.np-hero-content .now-playing-header {
+    margin-bottom: 1.25rem;
+}
+
+.np-hero-content .title {
+    color: #fff;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8), 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.np-hero-content .subtitle {
+    color: rgba(255, 255, 255, 0.9);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+}
+
+.np-hero-content #np-time {
+    color: rgba(255, 255, 255, 0.85) !important;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+
+@media (min-width: 768px) {
+    .np-hero {
+        height: 60svh;
+        min-height: 480px;
+    }
+    .np-hero-content {
+        padding: 0 1.5rem 3rem;
+    }
+}
+
+/* =============================================
+   Now Playing - Full-bleed in Cinema view
+   The home cinema hero is hidden while Now Playing
+   is active (showSection toggles .np-view-active),
+   so the home carousel overlap pull-up must be
+   neutralized or the hero's top gets cropped off.
+   ============================================= */
+main.cinema-content:has(#section-dynamic.np-view-active) {
+    margin-top: 0;
+    padding-top: 0;
+}
+
+#section-dynamic.np-view-active {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+@media (max-width: 768px) {
+    #section-dynamic.np-view-active .now-playing-page {
+        padding: 0;
+        max-width: 100%;
+        margin: 0;
+    }
+    #section-dynamic.np-view-active .np-hero {
+        height: 100svh;
+        min-height: 100svh;
+    }
+    #section-dynamic.np-view-active .now-playing-carousel,
+    #section-dynamic.np-view-active .now-playing-tracks {
+        padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+        padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+    }
+}
+
+#section-dynamic.np-view-active .now-playing-page {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+}

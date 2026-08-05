@@ -37,16 +37,3 @@
   </div>
 </div>
 {/if}
-
-{#if hasCarousel}
-<script>
-(function() {
-    var carousel = document.getElementById('npCarousel');
-    var current = carousel && carousel.querySelector('.carousel-card-current');
-    if (carousel && current) {
-        var scrollTarget = current.offsetLeft - (carousel.clientWidth / 2) + (current.offsetWidth / 2);
-        carousel.scrollLeft = Math.max(0, scrollTarget);
-    }
-})();
-</script>
-{/if}

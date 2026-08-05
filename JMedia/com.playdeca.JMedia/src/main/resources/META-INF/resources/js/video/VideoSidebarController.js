@@ -99,14 +99,40 @@
                 var el = document.getElementById('np-carousel');
                 LOG('carousel bytes=' + html.length + ' #np-carousel exists=' + (!!el));
                 if (el) el.innerHTML = html;
+                this.centerNpCarousel();
             } catch (e) {
                 LOG('Carousel fetch error:', e);
             }
         }
 
+        centerNpCarousel() {
+            var carousel = document.getElementById('npCarousel');
+            var current = carousel && carousel.querySelector('.carousel-card-current');
+            if (!carousel || !current) return;
+            var prevSnap = carousel.style.scrollSnapType;
+            carousel.style.scrollSnapType = 'none';
+            var scrollTarget = current.offsetLeft - (carousel.clientWidth / 2) + (current.offsetWidth / 2);
+            carousel.scrollLeft = Math.max(0, scrollTarget);
+            carousel.style.scrollSnapType = prevSnap;
+        }
+
         render() {
             if (this.state && this._carouselVideoId && this.state.id !== this._carouselVideoId) {
                 this._carouselVideoId = null;
+            }
+            // Hero backdrop: (re)populate when the video id changes or a fresh fragment was injected
+            var backdropEl = document.getElementById('np-hero-backdrop');
+            if (!this.state || !this.state.id) {
+                this._lastBackdropVideoId = null;
+                if (backdropEl) backdropEl.style.display = 'none';
+            } else if (this.state.id !== this._lastBackdropVideoId || !backdropEl || !backdropEl.src) {
+                this._lastBackdropVideoId = this.state.id;
+                if (backdropEl) {
+                    var heroUrl = window.getHeroUrl ? window.getHeroUrl(this.state.id) : '/api/video/hero/' + this.state.id;
+                    backdropEl.onload = function() { backdropEl.style.display = 'block'; };
+                    backdropEl.onerror = function() { backdropEl.style.display = 'none'; };
+                    backdropEl.src = heroUrl;
+                }
             }
             var titleEl = document.getElementById('np-title');
             var subtitleEl = document.getElementById('np-subtitle');
@@ -390,7 +416,7 @@
                 clearInterval(this.pollInterval);
                 this.pollInterval = null;
             }
-            var ids = ['np-title', 'np-subtitle', 'np-controls', 'np-play-pause', 'np-time', 'np-carousel', 'np-subtitle-section', 'np-subtitle-list', 'np-audio-section', 'np-audio-list'];
+            var ids = ['np-title', 'np-subtitle', 'np-controls', 'np-play-pause', 'np-time', 'np-carousel', 'np-subtitle-section', 'np-subtitle-list', 'np-audio-section', 'np-audio-list', 'np-hero-backdrop'];
             ids.forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) {

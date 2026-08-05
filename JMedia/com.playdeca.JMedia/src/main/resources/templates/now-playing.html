@@ -1,28 +1,36 @@
 <div class="now-playing-page">
-    <div class="now-playing-header">
-        <h2 class="title is-4" id="np-title">Now Playing</h2>
-        <p class="subtitle is-6" id="np-subtitle">No video playing</p>
-    </div>
-    
-    <div class="now-playing-controls" id="np-controls" style="display: none;">
-        <div class="np-controls-row">
-            <button class="button is-rounded" id="np-rewind-30" title="Rewind 30s">
-                <span class="icon"><i class="pi pi-replay"></i></span>
-            </button>
-            <button class="button is-rounded" id="np-rewind-15" title="Rewind 15s">
-                <span class="icon"><i class="pi pi-step-backward"></i></span>
-            </button>
-            <button class="button is-rounded is-primary" id="np-play-pause" title="Play/Pause">
-                <span class="icon"><i class="pi pi-play"></i></span>
-            </button>
-            <button class="button is-rounded" id="np-forward-15" title="Forward 15s">
-                <span class="icon"><i class="pi pi-step-forward"></i></span>
-            </button>
-            <button class="button is-rounded" id="np-forward-30" title="Forward 30s">
-                <span class="icon"><i class="pi pi-forward"></i></span>
-            </button>
+    <div class="np-hero" id="np-hero">
+        <img id="np-hero-backdrop" class="np-hero-backdrop" alt="" style="display: none;"/>
+        <div class="np-hero-gradient-top"></div>
+        <div class="np-hero-gradient-left"></div>
+        <div class="np-hero-gradient-color"></div>
+        <div class="np-hero-content">
+            <div class="now-playing-header">
+                <h2 class="title is-4" id="np-title">Now Playing</h2>
+                <p class="subtitle is-6" id="np-subtitle">No video playing</p>
+            </div>
+            
+            <div class="now-playing-controls" id="np-controls" style="display: none;">
+                <div class="np-controls-row">
+                    <button class="button is-rounded" id="np-rewind-30" title="Rewind 30s">
+                        <span class="icon"><i class="pi pi-replay"></i></span>
+                    </button>
+                    <button class="button is-rounded" id="np-rewind-15" title="Rewind 15s">
+                        <span class="icon"><i class="pi pi-step-backward"></i></span>
+                    </button>
+                    <button class="button is-rounded is-primary" id="np-play-pause" title="Play/Pause">
+                        <span class="icon"><i class="pi pi-play"></i></span>
+                    </button>
+                    <button class="button is-rounded" id="np-forward-15" title="Forward 15s">
+                        <span class="icon"><i class="pi pi-step-forward"></i></span>
+                    </button>
+                    <button class="button is-rounded" id="np-forward-30" title="Forward 30s">
+                        <span class="icon"><i class="pi pi-forward"></i></span>
+                    </button>
+                </div>
+                <p class="has-text-centered has-text-grey mt-2" id="np-time">0:00 / 0:00</p>
+            </div>
         </div>
-        <p class="has-text-centered has-text-grey mt-2" id="np-time">0:00 / 0:00</p>
     </div>
     
     <div class="now-playing-carousel" id="np-carousel"></div>
