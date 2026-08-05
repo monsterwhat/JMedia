@@ -16,14 +16,16 @@ if (typeof window.SimplePlayer === 'undefined') {
             this.video.preload = 'auto';
 
             this.needsTranscode = this.container.dataset.needsTranscode === 'true';
+            this.needsConversion = this.container.dataset.needsConversion === 'true';
             this._canNativeHevc = false;
             // Browser-native HEVC override: if the server flagged transcode but the
             // browser can play HEVC natively (e.g. Chrome with HEVC Video Extensions),
             // skip the server-side FFmpeg transcode and request the lightweight remux.
             const codec = (this.container.dataset.videoCodec || '').toLowerCase();
-            if (this.needsTranscode && (codec.includes('hevc') || codec.includes('h265'))) {
+            if ((this.needsTranscode || this.needsConversion) && (codec.includes('hevc') || codec.includes('h265'))) {
                 if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport()) {
                     this.needsTranscode = false;
+                    this.needsConversion = false;
                     this._canNativeHevc = true;
                     console.log('[SimplePlayer] Browser supports HEVC natively — skipping server transcode');
                 }
@@ -354,7 +356,8 @@ if (typeof window.SimplePlayer === 'undefined') {
                             // player fires timeupdate ~4x/sec, keeping the gate open.
                             const progressAge = Date.now() - this._lastProgressAt;
                             if (!this.video.paused && progressAge < 8000) {
-                                const target = state.currentTime;
+                                // Server time is absolute; this element is relative (0-based) for ?start= streams.
+                                const target = state.currentTime - (this.streamStartOffset || 0);
                                 const dur = this.video.duration;
                                 const drift = Math.abs(this.video.currentTime - target);
                                 const lockAge = Date.now() - this._localSeekAt;
@@ -425,7 +428,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                         if (this._destroyed) return;
                         const t = cmd.payload && cmd.payload.value;
                         if (typeof t === 'number' && isFinite(t)) {
-                            try { this.video.currentTime = t; } catch (e) {}
+                            // Commands carry the absolute timeline; convert to the element's
+                            // relative (0-based) timebase for a ?start= stream (B11).
+                            try { this.video.currentTime = Math.max(0, t - (this.streamStartOffset || 0)); } catch (e) {}
                         }
                     }
                 }
@@ -459,7 +464,9 @@ if (typeof window.SimplePlayer === 'undefined') {
                     thumbnailPath: this.videoId ? `/api/video/thumbnail/${this.videoId}` : ''
                 },
                 playing: playing,
-                currentTime: this.video.currentTime,
+                // Absolute timeline: the element is relative (0-based) for a ?start= stream,
+                // so the server clock must receive the offset-added position (B11).
+                currentTime: this.video.currentTime + (this.streamStartOffset || 0),
                 profileId: (profileId ? Number(profileId) : null),
                 availableSubtitleTracks: subtitleTracks,
                 activeSubtitleTrackIndex: activeSubIdx >= 0 ? activeSubIdx : -1,
@@ -487,7 +494,8 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this._wsManager.send('state', {
                     currentVideo: { id: this.videoId },
                     playing: false,
-                    currentTime: this.video.currentTime || 0
+                    // Same absolute timeline as _broadcastState (B11).
+                    currentTime: (this.video.currentTime || 0) + (this.streamStartOffset || 0)
                 });
             }
             if (this._wsManager) this._wsManager.disconnect();

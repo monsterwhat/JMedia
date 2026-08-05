@@ -448,6 +448,17 @@
 
             if (p.buffering) p.buffering.style.display = 'block';
 
+            // The new element sits at 0 (relative) while the server timer may still
+            // broadcast the OLD absolute position — drift-sync would seek-yank it into
+            // a snap-back loop (B11). Suppress broadcasts/drift-sync during the reload
+            // window, exactly like the remote-swap path; cleared on playing/loadeddata/error.
+            p._swapInProgress = true;
+            if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
+            p._swapSafetyTimer = setTimeout(() => {
+                p._swapInProgress = false;
+                p._swapSafetyTimer = null;
+            }, 10000);
+
             p.video.pause();
             p.video.src = "";
             p.video.load();
@@ -457,6 +468,17 @@
             const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
             p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, time)}${audioParam}${qualityParam}`;
             p.video.load();
+
+            // On playing, clear the swap guard and send ONE confirmation broadcast so
+            // the server's phantom clock snaps to the new absolute position (element + offset).
+            const onSeekPlaying = () => {
+                p._clearSwapInProgress();
+                if (!p._destroyed) p._broadcastState();
+            };
+            const onSeekReady = () => p._clearSwapInProgress();
+            p.video.addEventListener('playing', onSeekPlaying, { once: true });
+            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
+            p.video.addEventListener('error', onSeekReady, { once: true });
         }
 
         async _preloadSubtitleTracks() {

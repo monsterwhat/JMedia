@@ -40,11 +40,40 @@
 
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
-        var streamUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4'));
+
+        /* DB duration in seconds (data-duration is milliseconds, native-player
+         * convention — same >5000 guard as StateManager) or NaN when unknown
+         * (live/never-scanned); callers then fall back to the element value. */
+        function _knownDuration() {
+            var rawDur = parseFloat(container.dataset.duration || 0);
+            var d = rawDur > 5000 ? rawDur / 1000 : rawDur;
+            return isFinite(d) && d > 0 ? d : NaN;
+        }
 
         var profileId = localStorage.getItem('activeProfileId') || '1';
         var volumeKey = 'jmedia_video_volume_' + profileId;
         var muteKey = 'jmedia_video_mute_' + profileId;
+
+        /* Native-HEVC remux override: when the backend flags a server-side transcode
+         * (data-needs-transcode, e.g. HEVC on a platform the server would re-encode
+         * for) but the browser can play HEVC natively, request the lightweight remux
+         * instead of the transcode. */
+        function _nativeHevcParam() {
+            var needsTranscode = container.dataset.needsTranscode === 'true';
+            var needsConversion = container.dataset.needsConversion === 'true';
+            if (!(needsTranscode || needsConversion)) return '';
+            var codec = (container.dataset.videoCodec || '').toLowerCase();
+            if (codec.indexOf('hevc') === -1 && codec.indexOf('h265') === -1) return '';
+            if (!(window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport())) return '';
+            return 'nativeHevc=1';
+        }
+
+        function _withNativeHevc(url) {
+            var param = _nativeHevcParam();
+            if (!param || url.indexOf('/api/video/stream/') !== 0) return url;
+            return url.indexOf('?') !== -1 ? url + '&' + param : url + '?' + param;
+        }
 
         var player = null;
         var video = null;
@@ -187,7 +216,7 @@
                 if (window.Toast) window.Toast.info('Quality: ' + label);
 
                 var currentTime = video.currentTime || 0;
-                var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + quality;
+                var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + quality);
                 video.src = url;
                 video.load();
                 video.play().catch(function() {});
@@ -362,7 +391,7 @@
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             switch (e.key) {
                 case ' ':
-                case 'k': e.preventDefault(); if (video) { if (video.paused) video.play(); else video.pause(); } break;
+                case 'k': e.preventDefault(); if (video) { if (video.paused) video.play().catch(function() {}); else video.pause(); } break;
                 case 'f': e.preventDefault(); toggleFullscreen(); break;
                 case 'm': e.preventDefault(); if (video) { video.muted = !video.muted; } break;
                 case 'ArrowLeft': e.preventDefault(); if (video) { video.currentTime = Math.max(0, (video.currentTime || 0) - 15); } break;
@@ -479,7 +508,7 @@
 
                     } else if (ctype === 'toggle-play') {
                         if (_destroyed || !video) return;
-                        if (video.paused) { if (video.play) video.play(); } else { if (video.pause) video.pause(); }
+                        if (video.paused) { if (video.play) video.play().catch(function() {}); } else { if (video.pause) video.pause(); }
                     } else if (ctype === 'seek') {
                         if (_destroyed || !video) return;
                         var t = cmd.payload && cmd.payload.value;
@@ -513,7 +542,7 @@
                         var startParam = (typeof state.currentTime === 'number' && state.currentTime > 0)
                             ? 'start=' + Math.floor(state.currentTime) + '&'
                             : '';
-                        var url = '/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now();
+                        var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now());
 
                         function loadSwapSource() {
                             vEl.src = url;
@@ -523,7 +552,7 @@
                                 vEl.volume = Math.pow(parseFloat(localStorage.getItem(volumeKey) || '0.7'), 2);
                                 vEl.muted = localStorage.getItem(muteKey) === 'true';
                             } catch (e) {}
-                            if (state.playing) { try { vEl.play(); } catch (e) {} }
+                            if (state.playing) { try { vEl.play().catch(function() {}); } catch (e) {} }
                         }
                         loadSwapSource();
 
@@ -594,7 +623,7 @@
                         return;
                     }
                         if (typeof state.playing === 'boolean') {
-                            if (state.playing && video.paused) { try { video.play(); } catch (e) {} }
+                            if (state.playing && video.paused) { try { video.play().catch(function() {}); } catch (e) {} }
                             else if (!state.playing && !video.paused) { try { video.pause(); } catch (e) {} }
                         }
                         if (typeof state.currentTime === 'number' && !_swapInProgress) {
@@ -744,7 +773,7 @@
                                         var vid = player && player.$video;
                                         if (!vid) return;
                                         var currentTime = vid.currentTime || 0;
-                                        var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + value;
+                                        var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + value);
                                         vid.src = url;
                                         vid.load();
                                         vid.play().catch(function () {});
@@ -869,6 +898,24 @@
                     console.warn('[OPlayerAdapter] @oplayer/ui not loaded, falling back to headless OPlayer');
                     player = OPlayer.make('#' + oplayerContainer.id, oplayerOptions).create();
                 }
+
+                /* OPlayer's player.duration getter reads $video.duration, which stays
+                 * Infinity for empty_moov streams until fully buffered — the built-in
+                 * timeline then shows "--:--" and a 0% progress bar. Shadow the getter
+                 * with the DB total (data-duration) so the time label, progress/buffer
+                 * fill and drag-seek all use the true duration; falls back to the
+                 * element value for live/unknown. Element-based checks (drift-seek
+                 * clamp, ended legitimacy) keep reading $video.duration directly. */
+                try {
+                    Object.defineProperty(player, 'duration', {
+                        configurable: true,
+                        get: function() {
+                            var d = _knownDuration();
+                            if (isFinite(d)) return d;
+                            return (player.$video && player.$video.duration) || 0;
+                        }
+                    });
+                } catch (e) { /* accessor non-configurable — keep lib default */ }
 
                 var waitForVideo = setInterval(function() {
                     if (player && player.$video) {
@@ -1219,9 +1266,13 @@
                 getVideoElement: function() { return video; },
                 getCurrentTime: function() { return video.currentTime; },
                 setCurrentTime: function(t) { video.currentTime = t; },
-                getDuration: function() { return video.duration; },
+                getDuration: function() {
+                    var d = _knownDuration();
+                    if (isFinite(d)) return d;
+                    return video.duration;
+                },
                 isPaused: function() { return video.paused; },
-                play: function() { video.play(); },
+                play: function() { return video.play().catch(function() {}); },
                 pause: function() { video.pause(); },
                 getVolume: function() { return video.volume; },
                 setVolume: function(v) { video.volume = v; },

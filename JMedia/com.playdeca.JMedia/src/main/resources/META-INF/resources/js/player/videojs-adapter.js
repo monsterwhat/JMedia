@@ -34,9 +34,38 @@
         // pid was previously scoped inside _initWebSocket only; _broadcastState referencing it threw a strict-mode ReferenceError
         var pid = profileId;
 
+        /* Native-HEVC remux override: when the backend flags a server-side transcode
+         * (data-needs-transcode, e.g. HEVC on a platform the server would re-encode
+         * for) but the browser can play HEVC natively, request the lightweight remux
+         * instead of the transcode. */
+        function _nativeHevcParam() {
+            var needsTranscode = container.dataset.needsTranscode === 'true';
+            var needsConversion = container.dataset.needsConversion === 'true';
+            if (!(needsTranscode || needsConversion)) return '';
+            var codec = (container.dataset.videoCodec || '').toLowerCase();
+            if (codec.indexOf('hevc') === -1 && codec.indexOf('h265') === -1) return '';
+            if (!(window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport())) return '';
+            return 'nativeHevc=1';
+        }
+
+        function _withNativeHevc(url) {
+            var param = _nativeHevcParam();
+            if (!param || url.indexOf('/api/video/stream/') !== 0) return url;
+            return url.indexOf('?') !== -1 ? url + '&' + param : url + '?' + param;
+        }
+
         /* ---------- Build stream URL ---------- */
-        var streamUrl = document.getElementById('customPlayer').dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4');
+        var streamUrl = _withNativeHevc(document.getElementById('customPlayer').dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4'));
         var streamType = streamUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
+
+        /* DB duration in seconds (data-duration is milliseconds, native-player
+         * convention — same >5000 guard as StateManager) or NaN when unknown
+         * (live/never-scanned); callers then fall back to the element value. */
+        function _knownDuration() {
+            var rawDur = parseFloat(container.dataset.duration || 0);
+            var d = rawDur > 5000 ? rawDur / 1000 : rawDur;
+            return isFinite(d) && d > 0 ? d : NaN;
+        }
 
         /* ---------- Initialize Video.js with native controls ---------- */
         var vjsPlayer = videojs(videoEl, {
@@ -64,6 +93,16 @@
                 vjsPlayer.currentTime(savedTime);
             });
         }
+
+        /* video.js derives duration from the media element, which stays Infinity
+         * for empty_moov streams until fully buffered — that puts the player in
+         * live mode (timeline hidden). Push the DB total (data-duration) after
+         * every source load; re-applied after ?start=/swap reloads because the
+         * tech overwrites cache_.duration at each loadedmetadata. */
+        vjsPlayer.on('loadedmetadata', function() {
+            var d = _knownDuration();
+            if (isFinite(d)) vjsPlayer.duration(d);
+        });
 
         /* ---------- WebSocket state sync ---------- */
         _initWebSocket();
@@ -131,7 +170,7 @@
                 if (window.Toast) window.Toast.info('Quality: ' + label);
 
                 var currentTime = vjsPlayer.currentTime() || 0;
-                var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + quality;
+                var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + quality);
                 vjsPlayer.ready(function() {
                     vjsPlayer.src({ src: url, type: 'video/mp4' });
                     vjsPlayer.currentTime(currentTime);
@@ -312,7 +351,7 @@
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             switch (e.key) {
                 case ' ':
-                case 'k': e.preventDefault(); if (vjsPlayer.paused()) vjsPlayer.play(); else vjsPlayer.pause(); break;
+                case 'k': e.preventDefault(); if (vjsPlayer.paused()) vjsPlayer.play().catch(function() {}); else vjsPlayer.pause(); break;
                 case 'f': e.preventDefault(); toggleFullscreen(); break;
                 case 'm': e.preventDefault(); vjsPlayer.muted(!vjsPlayer.muted()); break;
                 case 'ArrowLeft': e.preventDefault(); vjsPlayer.currentTime(Math.max(0, (vjsPlayer.currentTime() || 0) - 15)); break;
@@ -360,8 +399,23 @@
                             _swapRetries = 0;
                             clearTimeout(_swapTimeout);
                             // Cache-bust the new source URL so the browser cannot serve the old episode from cache
-                            var newUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?trace=' + Date.now());
+                            var newUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?trace=' + Date.now()));
                             videoId = newId;  // update the closure variable
+                            container.dataset.videoId = newId;
+                            /* Refresh data-duration for the new episode so the loadedmetadata
+                             * duration push uses the new total (the WS payload does not
+                             * carry duration). */
+                            try {
+                                fetch('/api/video/' + encodeURIComponent(newId))
+                                    .then(function(r) { return r.ok ? r.json() : null; })
+                                    .then(function(meta) {
+                                        if (!meta || _destroyed || videoId !== newId) return;
+                                        if (typeof meta.duration === 'number' && meta.duration > 0) container.dataset.duration = String(meta.duration);
+                                        if (meta.title) container.dataset.title = meta.title;
+                                        if (meta.type) container.dataset.type = meta.type;
+                                    })
+                                    .catch(function() { /* best-effort metadata refresh */ });
+                            } catch (e) {}
                             var newType = newUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
                             // Resume from the NEW video's server state (B10): advanceVideo -> 0 -> no seek; selectVideo -> resume time -> seek
                             var resumeTime = (typeof state.currentTime === 'number' && state.currentTime > 0) ? state.currentTime : 0;
@@ -442,7 +496,7 @@
                         trySelect();
                     } else if (ctype === 'toggle-play') {
                         if (_destroyed || !vjsPlayer) return;
-                        if (vjsPlayer.paused()) vjsPlayer.play(); else vjsPlayer.pause();
+                        if (vjsPlayer.paused()) vjsPlayer.play().catch(function() {}); else vjsPlayer.pause();
                     } else if (ctype === 'seek') {
                         if (_destroyed || !vjsPlayer) return;
                         var t = cmd.payload && cmd.payload.value;
@@ -479,7 +533,7 @@
                     setTimeout(function() {
                         if (_destroyed) return;
                         _swapInProgress = true;
-                        var retryUrl = container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?trace=' + Date.now());
+                        var retryUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?trace=' + Date.now()));
                         _performSwapLoad(retryUrl, retryUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4', resumeTime, shouldPlay);
                     }, 1000);
                 } else {
@@ -576,9 +630,14 @@
             getVideoElement: function() { return nativeVideo; },
             getCurrentTime: function() { return vjsPlayer.currentTime(); },
             setCurrentTime: function(t) { vjsPlayer.currentTime(t); },
-            getDuration: function() { return vjsPlayer.duration(); },
+            getDuration: function() {
+                var d = vjsPlayer.duration();
+                if (isFinite(d) && d > 0) return d;
+                var k = _knownDuration();
+                return isFinite(k) ? k : d;
+            },
             isPaused: function() { return vjsPlayer.paused(); },
-            play: function() { vjsPlayer.play(); },
+            play: function() { return vjsPlayer.play().catch(function() {}); },
             pause: function() { vjsPlayer.pause(); },
             getVolume: function() { return vjsPlayer.volume(); },
             setVolume: function(v) { vjsPlayer.volume(v); },
