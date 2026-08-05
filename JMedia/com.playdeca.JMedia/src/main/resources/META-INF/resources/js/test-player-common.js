@@ -662,7 +662,7 @@
         }
 
         // ====================================================================
-        // 6. Audio Track Selector (sidebar pill + dropdown)
+        // 6. Audio Track Selector (episode sidebar pill + player pill)
         // ====================================================================
         async loadAudioTracks() {
             try {
@@ -671,56 +671,68 @@
                 var json = await res.json();
                 var tracks = json.data || [];
 
-                var sidebarEl = document.getElementById('episodeSidebarAudio');
-                var listEl = document.getElementById('sidebarAudioList');
-                var labelEl = document.getElementById('sidebarAudioLabel');
-                if (!sidebarEl || !listEl || !labelEl) return;
-
-                if (tracks.length <= 1) {
-                    sidebarEl.style.display = 'none';
-                    return;
-                }
-                sidebarEl.style.display = 'inline-flex';
-
-                // Check for a session-persisted preference
-                var savedTrackId = sessionStorage.getItem('jmedia_sidebar_audio_track');
-                var defaultIdx = 0;
-                if (savedTrackId) {
-                    var found = tracks.findIndex(function(t) { return t.id == savedTrackId || t.trackIndex == savedTrackId; });
-                    if (found >= 0) defaultIdx = found;
-                }
-
-                listEl.innerHTML = '';
-                var self = this;
-                tracks.forEach(function(track, idx) {
-                    var item = document.createElement('div');
-                    item.className = 'audio-track-item' + (idx === defaultIdx ? ' selected' : '');
-                    var label = track.displayName || track.languageName || track.languageCode || 'Audio ' + (idx + 1);
-                    if (track.channels === 6) label += ' 5.1';
-                    else if (track.channels === 8) label += ' 7.1';
-                    else if (track.channels === 2) label += ' Stereo';
-                    item.textContent = label;
-                    item.dataset.trackIndex = track.trackIndex != null ? track.trackIndex : idx;
-                    item.dataset.trackId = track.id;
-                    item.onclick = function() {
-                        var ti = parseInt(this.dataset.trackIndex);
-                        self._switchAudioTrack(ti);
-                        listEl.querySelectorAll('.audio-track-item').forEach(function(el) { el.classList.remove('selected'); });
-                        this.classList.add('selected');
-                        labelEl.textContent = label;
-                        sessionStorage.setItem('jmedia_sidebar_audio_track', this.dataset.trackId || ti);
-                        var menu = document.getElementById('sidebarAudioMenu');
-                        if (menu) menu.style.display = 'none';
-                    };
-                    listEl.appendChild(item);
-                });
-
-                // Show current label
-                var currentLabel = tracks[defaultIdx].displayName || tracks[defaultIdx].languageName || tracks[defaultIdx].languageCode || 'Audio ' + (defaultIdx + 1);
-                labelEl.textContent = currentLabel;
+                var container = this.container;
+                var isEpisode = !!(container && (container.dataset.type === 'episode' || container.dataset.type === 'Episode'));
+                this._renderAudioMenu(isEpisode ? 'episode' : 'player', tracks);
             } catch (err) {
                 console.warn('[TestPlayerFeatures] Audio tracks failed:', err);
             }
+        }
+
+        _renderAudioMenu(target, tracks) {
+            var isSidebar = target === 'episode';
+            var sel = document.getElementById(isSidebar ? 'episodeSidebarAudio' : 'playerAudioSelector');
+            var listEl = document.getElementById(isSidebar ? 'sidebarAudioList' : 'playerAudioList');
+            var labelEl = document.getElementById(isSidebar ? 'sidebarAudioLabel' : 'playerAudioLabel');
+            if (!sel || !listEl || !labelEl) return;
+
+            if (tracks.length <= 1) {
+                sel.style.display = 'none';
+                return;
+            }
+            sel.style.display = isSidebar ? 'inline-flex' : 'block';
+
+            // Restore the session/per-video persisted preference
+            var savedTrackId = isSidebar
+                ? sessionStorage.getItem('jmedia_sidebar_audio_track')
+                : localStorage.getItem('jmedia_audio_track_' + this.videoId);
+            var defaultIdx = 0;
+            if (savedTrackId) {
+                var found = tracks.findIndex(function(t) { return t.id == savedTrackId || t.trackIndex == savedTrackId; });
+                if (found >= 0) defaultIdx = found;
+            }
+
+            listEl.innerHTML = '';
+            var self = this;
+            tracks.forEach(function(track, idx) {
+                var item = document.createElement('div');
+                item.className = 'audio-track-item' + (idx === defaultIdx ? ' selected' : '');
+                var label = track.displayName || track.languageName || track.languageCode || 'Audio ' + (idx + 1);
+                if (track.channels === 6) label += ' 5.1';
+                else if (track.channels === 8) label += ' 7.1';
+                else if (track.channels === 2) label += ' Stereo';
+                item.textContent = label;
+                item.dataset.trackIndex = track.trackIndex != null ? track.trackIndex : idx;
+                item.dataset.trackId = track.id;
+                item.onclick = function() {
+                    var ti = parseInt(this.dataset.trackIndex);
+                    self._switchAudioTrack(ti);
+                    listEl.querySelectorAll('.audio-track-item').forEach(function(el) { el.classList.remove('selected'); });
+                    this.classList.add('selected');
+                    labelEl.textContent = label;
+                    if (isSidebar) {
+                        sessionStorage.setItem('jmedia_sidebar_audio_track', this.dataset.trackId || ti);
+                    } else {
+                        localStorage.setItem('jmedia_audio_track_' + self.videoId, this.dataset.trackId || ti);
+                    }
+                    var menu = document.getElementById(isSidebar ? 'sidebarAudioMenu' : 'playerAudioMenu');
+                    if (menu) menu.style.display = 'none';
+                };
+                listEl.appendChild(item);
+            });
+
+            var currentLabel = tracks[defaultIdx].displayName || tracks[defaultIdx].languageName || tracks[defaultIdx].languageCode || 'Audio ' + (defaultIdx + 1);
+            labelEl.textContent = currentLabel;
         }
 
         _switchAudioTrack(trackIndex) {
@@ -1187,4 +1199,22 @@
             }
         }
     };
+})();
+
+function togglePlayerAudioMenu() {
+    var menu = document.getElementById('playerAudioMenu');
+    if (!menu) return;
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+(function() {
+    if (window.__playerAudioOutsideClickBound) return;
+    window.__playerAudioOutsideClickBound = true;
+    document.addEventListener('click', function(e) {
+        var menu = document.getElementById('playerAudioMenu');
+        var sel = document.getElementById('playerAudioSelector');
+        if (menu && sel && menu.style.display !== 'none' && !sel.contains(e.target)) {
+            menu.style.display = 'none';
+        }
+    });
 })();

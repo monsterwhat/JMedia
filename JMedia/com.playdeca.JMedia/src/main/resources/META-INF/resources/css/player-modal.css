@@ -122,6 +122,18 @@
   display: none !important;
 }
 
+/* Player-level audio language pill (movies & non-episode content), sits left of the settings toggle */
+.player-audio-selector {
+  position: absolute;
+  top: 15px;
+  right: 65px;
+  z-index: 1000;
+}
+.player-audio-selector .episode-sidebar-audio-menu {
+  right: 0;
+  left: auto;
+}
+
 /* Mobile: fullscreen by default */
 @media (max-width: 767px) {
   .player-modal {
