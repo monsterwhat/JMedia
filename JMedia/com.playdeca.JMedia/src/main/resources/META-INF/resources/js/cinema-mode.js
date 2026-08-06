@@ -160,23 +160,6 @@ function renderStars(rating) {
   return html;
 }
 
-function nativePlaybackBadge(video) {
-  if (!video) return '';
-  let ext = (video.container || '').toLowerCase();
-  if (!ext && video.path) {
-    const dot = video.path.lastIndexOf('.');
-    ext = dot >= 0 ? video.path.slice(dot + 1).toLowerCase() : '';
-  }
-  const isMp4 = ext === 'mp4' || ext === 'm4v';
-  const isMkv = ext === 'mkv';
-  if (!isMp4 && !isMkv) return '';
-  const title = isMp4
-    ? 'MP4 - plays natively on Apple, Chrome and Firefox - no re-encoding needed'
-    : 'MKV - plays natively in Firefox - no re-encoding needed';
-  const icons = (isMp4 ? '<i class="fa-brands fa-apple"></i><i class="fa-brands fa-chrome"></i>' : '') + '<i class="fa-brands fa-firefox"></i>';
-  return `<span class="cinema-native-badge" style="margin-left:0.5rem;display:inline-flex;align-items:center;gap:0.4rem;flex-shrink:0;font-size:0.8rem;line-height:1;opacity:0.85;" title="${title}">${icons}</span>`;
-}
-
 function createCardHTML(video) {
   const id = video.id;
   const isTvCard = video.type === 'episode' && video.seriesTitle;
@@ -199,7 +182,6 @@ function createCardHTML(video) {
       <div class="cinema-card-title">${title}</div>
       <div class="cinema-card-meta">
         <span class="cinema-card-meta-text"><i class="fa-solid fa-star" style="font-size: 0.7rem;"></i> ${rating} ${year}</span>
-        ${nativePlaybackBadge(video)}
       </div>
     </div>
   `;
@@ -1367,8 +1349,7 @@ function buildEpisodesList(episodeArray) {
     const desc = ep.description || ep.overview || '';
     const img = getThumbnailUrl(ep.id);
     const durHtml = dur ? `<span class="cinema-episode-duration">${dur}</span>` : '';
-    const metaRight = (durHtml || nativePlaybackBadge(ep))
-      ? `<span class="cinema-episode-meta">${durHtml}${nativePlaybackBadge(ep)}</span>` : '';
+    const metaRight = durHtml ? `<span class="cinema-episode-meta">${durHtml}</span>` : '';
     return `<div class="cinema-episode-card" data-video-id="${ep.id}" onclick="playVideo(${JSON.stringify(ep).replace(/"/g, '&quot;')})">
       <div class="cinema-episode-thumb-wrap">
         <img src="${img}" alt="${epTitle}" loading="lazy">
@@ -1683,7 +1664,6 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
             <div class="cinema-card-meta-row">
               ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
               ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
-              ${nativePlaybackBadge(v)}
             </div>
           </div>`;
         }).join('')}
@@ -1786,7 +1766,6 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
       <div class="cinema-card-meta-row">
         ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
         ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
-        ${nativePlaybackBadge(v)}
       </div>
     </div>`);
   });
@@ -2585,7 +2564,18 @@ function closePlayerModal() {
   window.currentPlayerInstance = null;
   window.player = null;
 
-  if (content) content.innerHTML = '';
+  if (content) {
+    // B12 belt-and-suspenders: force-abort any media fetch still alive inside
+    // the modal regardless of engine (simple/oplayer/videojs/fallback). Blanking
+    // src + load() guarantees the browser drops the connection, so the server's
+    // output.write throws and the ffmpeg remux/transcode is killed.
+    content.querySelectorAll('video').forEach(function(v) {
+      try { v.pause(); } catch (_) {}
+      try { v.removeAttribute('src'); } catch (_) {}
+      try { v.load(); } catch (_) {}
+    });
+    content.innerHTML = '';
+  }
   if (modal) {
     modal.classList.remove('active');
     modal.classList.remove('is-expanded');
