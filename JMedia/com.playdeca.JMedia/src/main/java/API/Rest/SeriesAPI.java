@@ -3,12 +3,11 @@ package API.Rest;
 import API.ApiResponse;
 import Models.Series;
 import Models.Video;
+import Services.SeriesService;
 import Services.ThumbnailService;
-import Services.VideoMetadataService;
 import io.quarkus.panache.common.Page;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -31,7 +30,7 @@ public class SeriesAPI {
     ThumbnailService thumbnailService;
 
     @Inject
-    VideoMetadataService videoMetadataService;
+    SeriesService seriesService;
 
     private boolean checkAdmin(HttpHeaders headers) {
         String sessionId = null;
@@ -70,12 +69,7 @@ public class SeriesAPI {
     @Path("/{id}")
     @Blocking
     public Response getSeries(@PathParam("id") Long id) {
-        try {
-            videoMetadataService.ensureSeriesTextMetadata(id);
-        } catch (Exception e) {
-            LOG.debug("Could not enrich series text metadata for {}: {}", id, e.getMessage());
-        }
-        Series series = Series.findById(id);
+        Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Series not found"))
@@ -88,15 +82,14 @@ public class SeriesAPI {
     @Path("/{id}/episodes")
     @Blocking
     public Response getEpisodesBySeason(@PathParam("id") Long id) {
-        Series series = Series.findById(id);
-        if (series == null) {
+        SeriesService.SeriesWithEpisodes result = seriesService.findEpisodes(id);
+        if (result.series == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Series not found"))
                     .build();
         }
 
-        List<Video> episodes = Video.find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series)
-                .list();
+        List<Video> episodes = result.episodes;
 
         Map<Integer, List<Video>> grouped = episodes.stream()
                 .filter(v -> v.seasonNumber != null)
@@ -105,17 +98,16 @@ public class SeriesAPI {
                         LinkedHashMap::new,
                         Collectors.toList()));
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("seriesId", series.id);
-        result.put("seriesTitle", series.title);
-        result.put("seasons", grouped);
+        Map<String, Object> resultMap = new LinkedHashMap<>();
+        resultMap.put("seriesId", result.series.id);
+        resultMap.put("seriesTitle", result.series.title);
+        resultMap.put("seasons", grouped);
 
-        return Response.ok(ApiResponse.success(result)).build();
+        return Response.ok(ApiResponse.success(resultMap)).build();
     }
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response createSeries(
             @Context HttpHeaders headers,
             Series input) {
@@ -132,56 +124,13 @@ public class SeriesAPI {
                     .build();
         }
 
-        Series series = new Series();
-        series.title = input.title.trim();
-        series.description = input.description;
-        series.tagline = input.tagline;
-        series.overview = input.overview;
-        series.genres = input.genres;
-        series.directors = input.directors;
-        series.writers = input.writers;
-        series.cast = input.cast;
-        series.productionCompanies = input.productionCompanies;
-        series.networks = input.networks;
-        series.imdbRating = input.imdbRating;
-        series.tmdbRating = input.tmdbRating;
-        series.metacriticRating = input.metacriticRating;
-        series.voteCount = input.voteCount;
-        series.popularityScore = input.popularityScore;
-        series.releaseYear = input.releaseYear;
-        series.runtimeMins = input.runtimeMins;
-        series.mpaaRating = input.mpaaRating;
-        series.status = input.status;
-        series.originalLanguage = input.originalLanguage;
-        series.productionCountries = input.productionCountries;
-        series.releaseDate = input.releaseDate;
-        series.trailerUrl = input.trailerUrl;
-        series.parentsGuide = input.parentsGuide;
-        series.imdbId = input.imdbId;
-        series.tmdbId = input.tmdbId;
-        series.tvdbId = input.tvdbId;
-        series.budget = input.budget;
-        series.revenue = input.revenue;
-        series.collectionName = input.collectionName;
-        series.franchiseName = input.franchiseName;
-        series.logoPath = input.logoPath;
-        series.posterPath = input.posterPath;
-        series.backdropPath = input.backdropPath;
-        series.heroPath = input.heroPath;
-        series.fanartPath = input.fanartPath;
-        series.stillPath = input.stillPath;
-        series.akas = input.akas;
-        series.keywords = input.keywords;
-
-        series.persist();
-        LOG.info("Created series: {} (id={})", series.title, series.id);
+        Series series = seriesService.create(input);
         return Response.ok(ApiResponse.success(series)).build();
     }
 
     @PUT
     @Path("/{id}")
     @Consumes(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response updateSeries(
             @Context HttpHeaders headers,
             @PathParam("id") Long id,
@@ -193,62 +142,17 @@ public class SeriesAPI {
                     .build();
         }
 
-        Series series = Series.findById(id);
+        Series series = seriesService.update(id, input);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Series not found"))
                     .build();
         }
-
-        if (input.title != null && !input.title.trim().isEmpty()) {
-            series.title = input.title.trim();
-        }
-        if (input.description != null) series.description = input.description;
-        if (input.tagline != null) series.tagline = input.tagline;
-        if (input.overview != null) series.overview = input.overview;
-        if (input.genres != null) series.genres = input.genres;
-        if (input.directors != null) series.directors = input.directors;
-        if (input.writers != null) series.writers = input.writers;
-        if (input.cast != null) series.cast = input.cast;
-        if (input.productionCompanies != null) series.productionCompanies = input.productionCompanies;
-        if (input.networks != null) series.networks = input.networks;
-        if (input.imdbRating != null) series.imdbRating = input.imdbRating;
-        if (input.tmdbRating != null) series.tmdbRating = input.tmdbRating;
-        if (input.metacriticRating != null) series.metacriticRating = input.metacriticRating;
-        if (input.voteCount != null) series.voteCount = input.voteCount;
-        if (input.popularityScore != null) series.popularityScore = input.popularityScore;
-        if (input.releaseYear != null) series.releaseYear = input.releaseYear;
-        if (input.runtimeMins != null) series.runtimeMins = input.runtimeMins;
-        if (input.mpaaRating != null) series.mpaaRating = input.mpaaRating;
-        if (input.status != null) series.status = input.status;
-        if (input.originalLanguage != null) series.originalLanguage = input.originalLanguage;
-        if (input.productionCountries != null) series.productionCountries = input.productionCountries;
-        if (input.releaseDate != null) series.releaseDate = input.releaseDate;
-        if (input.trailerUrl != null) series.trailerUrl = input.trailerUrl;
-        if (input.parentsGuide != null) series.parentsGuide = input.parentsGuide;
-        if (input.imdbId != null) series.imdbId = input.imdbId;
-        if (input.tmdbId != null) series.tmdbId = input.tmdbId;
-        if (input.tvdbId != null) series.tvdbId = input.tvdbId;
-        if (input.budget != null) series.budget = input.budget;
-        if (input.revenue != null) series.revenue = input.revenue;
-        if (input.collectionName != null) series.collectionName = input.collectionName;
-        if (input.franchiseName != null) series.franchiseName = input.franchiseName;
-        if (input.logoPath != null) series.logoPath = input.logoPath;
-        if (input.posterPath != null) series.posterPath = input.posterPath;
-        if (input.backdropPath != null) series.backdropPath = input.backdropPath;
-        if (input.heroPath != null) series.heroPath = input.heroPath;
-        if (input.fanartPath != null) series.fanartPath = input.fanartPath;
-        if (input.stillPath != null) series.stillPath = input.stillPath;
-        if (input.akas != null) series.akas = input.akas;
-        if (input.keywords != null) series.keywords = input.keywords;
-
-        LOG.info("Updated series: {} (id={})", series.title, series.id);
         return Response.ok(ApiResponse.success(series)).build();
     }
 
     @DELETE
     @Path("/{id}")
-    @Transactional
     public Response deleteSeries(
             @Context HttpHeaders headers,
             @PathParam("id") Long id) {
@@ -259,24 +163,17 @@ public class SeriesAPI {
                     .build();
         }
 
-        Series series = Series.findById(id);
-        if (series == null) {
+        if (!seriesService.delete(id)) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Series not found"))
                     .build();
         }
-
-        // Unlink episodes — set series_id=null, don't delete episodes
-        Video.update("series = null WHERE series = ?1", series);
-
-        series.delete();
-        LOG.info("Deleted series: {} (id={}) — episodes unlinked", series.title, id);
         return Response.ok(ApiResponse.success("Series deleted")).build();
     }
 
     private Response serveSeriesImage(Long seriesId, String imageType) {
         try {
-            Series series = Series.findById(seriesId);
+            Series series = seriesService.find(seriesId);
             if (series == null) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
@@ -285,7 +182,7 @@ public class SeriesAPI {
             thumbnailService.ensureSeriesMediaImages(seriesId);
 
             // Re-read to get updated paths
-            series = Series.findById(seriesId);
+            series = seriesService.find(seriesId);
             if (series == null) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
@@ -328,7 +225,7 @@ public class SeriesAPI {
     @GET
     @Path("/{id}/poster")
     public Response getSeriesPoster(@PathParam("id") Long id) {
-        Series series = Series.findById(id);
+        Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -338,7 +235,7 @@ public class SeriesAPI {
     @GET
     @Path("/{id}/backdrop")
     public Response getSeriesBackdrop(@PathParam("id") Long id) {
-        Series series = Series.findById(id);
+        Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -348,7 +245,7 @@ public class SeriesAPI {
     @GET
     @Path("/{id}/logo")
     public Response getSeriesLogo(@PathParam("id") Long id) {
-        Series series = Series.findById(id);
+        Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -358,7 +255,7 @@ public class SeriesAPI {
     @GET
     @Path("/{id}/hero")
     public Response getSeriesHero(@PathParam("id") Long id) {
-        Series series = Series.findById(id);
+        Series series = seriesService.find(id);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
