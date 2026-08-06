@@ -4,7 +4,6 @@ import Models.*;
 import Models.DTOs.SubtitleSearchResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -13,13 +12,11 @@ import Services.SubtitlePreferenceEngine;
 import Services.UserInteractionService;
 import Services.ParakeetService;
 import Services.SubtitleDownloadService;
+import Services.SubtitleTrackService;
 import Services.FFprobeSubtitleService; 
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.nio.file.Files;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,7 +50,10 @@ public class SubtitleAPI {
      
     @Inject
     private FFprobeSubtitleService ffprobeSubtitleService;
-    
+
+    @Inject
+    private SubtitleTrackService subtitleTrackService;
+
     @Inject
     private Services.EnhancedSubtitleMatcher subtitleMatcher;
 
@@ -199,99 +199,39 @@ public class SubtitleAPI {
     @POST
     @Path("/{videoId}/upload")
     @Consumes(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response uploadSubtitle(@PathParam("videoId") Long videoId,
                                    Map<String, String> request,
                                    @HeaderParam("X-User-ID") Long userId) {
-        Video video = Video.findById(videoId);
-        if (video == null) {
-            return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
-        }
-        
-        String content = request.get("content");
-        String filename = request.get("filename");
-        String language = request.get("language");
-        String languageName = request.getOrDefault("languageName", "");
-        
-        if (content == null || content.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST).entity("File content is required").build();
-        }
-        if (filename == null || filename.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST).entity("Filename is required").build();
-        }
-        
-        String ext = filename.contains(".") ? filename.substring(filename.lastIndexOf('.') + 1).toLowerCase() : "";
-        if (!List.of("srt", "vtt", "ass", "ssa", "sub", "idx").contains(ext)) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("Unsupported subtitle format: " + ext + ". Supported: srt, vtt, ass, ssa, sub, idx")
-                    .build();
-        }
-        
         try {
-            byte[] fileBytes;
-            if (content.contains(",")) {
-                fileBytes = Base64.getDecoder().decode(content.split(",")[1]);
-            } else {
-                fileBytes = Base64.getDecoder().decode(content);
+            SubtitleTrackService.UploadResult result = subtitleTrackService.uploadForVideo(videoId, request);
+
+            if (result.isNotFound()) {
+                return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
             }
-            
-            String videoPathStr = video.path;
-            int lastSlash = Math.max(videoPathStr.lastIndexOf('/'), videoPathStr.lastIndexOf('\\'));
-            int lastDot = videoPathStr.lastIndexOf('.');
-            String videoBasename = videoPathStr.substring(lastSlash + 1, lastDot > lastSlash ? lastDot : videoPathStr.length());
-            String langCode = (language != null && !language.isBlank()) ? downloadService.mapToThreeLetterLanguage(language) : "und";
-            
-            String saveFilename = videoBasename + ".upload." + langCode + "." + ext;
-            java.nio.file.Path videoDir = java.nio.file.Paths.get(video.path).getParent();
-            if (videoDir == null) {
+            if (result.getBadRequestMessage() != null) {
+                return Response.status(Response.Status.BAD_REQUEST).entity(result.getBadRequestMessage()).build();
+            }
+            if (result.isVideoDirError()) {
                 return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                         .entity("Cannot determine video directory").build();
             }
-            java.nio.file.Path targetPath = videoDir.resolve(saveFilename);
-            
-            int counter = 1;
-            while (Files.exists(targetPath)) {
-                saveFilename = videoBasename + ".upload." + langCode + "_" + counter + "." + ext;
-                targetPath = videoDir.resolve(saveFilename);
-                counter++;
-            }
-            
-            Files.createDirectories(videoDir);
-            Files.write(targetPath, fileBytes);
-            
-            SubtitleTrack track = new SubtitleTrack();
-            track.filename = saveFilename;
-            track.fullPath = targetPath.toString();
-            track.format = ext;
-            track.video = video;
-            track.isManual = true;
-            track.fileSize = (long) fileBytes.length;
-            track.languageCode = langCode;
-            track.languageName = languageName;
-            track.displayName = !languageName.isBlank() ? languageName : saveFilename;
-            track.persist();
-            
-            if (video.subtitleTracks == null) {
-                video.subtitleTracks = new ArrayList<>();
-            }
-            video.subtitleTracks.add(track);
-            video.persist();
-            
+
+            // Return updated tracks immediately to avoid race conditions
             List<SubtitleTrack> tracks = userInteractionService.getSubtitleTracks(videoId);
             tracks = preferenceEngine.sortTracksByPreference(tracks, userId);
             SubtitleTrack preferredTrack = preferenceEngine.selectBestSubtitleTrack(videoId, userId);
-            
+
             List<Models.DTOs.SubtitleTrackDTO> dtoTracks = tracks.stream()
                 .map(Models.DTOs.SubtitleTrackDTO::new)
                 .collect(java.util.stream.Collectors.toList());
-            
+
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Subtitle uploaded successfully");
             response.put("tracks", dtoTracks);
             response.put("preferredTrackId", preferredTrack != null ? preferredTrack.id : null);
-            
+
             return Response.ok(response).build();
-            
+
         } catch (Exception e) {
             LOGGER.error("Error uploading subtitle", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

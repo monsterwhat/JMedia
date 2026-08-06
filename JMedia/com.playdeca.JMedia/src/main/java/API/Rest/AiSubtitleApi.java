@@ -6,14 +6,12 @@ import Services.AiSubtitleJobService;
 import Services.AiSubtitleJobService.AiSubtitleJob;
 import Services.VideoService;
 import Services.ParakeetService;
+import Services.SubtitleTrackService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -39,9 +37,11 @@ public class AiSubtitleApi {
     @Inject
     AiSubtitleJobService jobService;
 
+    @Inject
+    SubtitleTrackService subtitleTrackService;
+
     @GET
     @Path("/videos")
-    @Transactional
     public Response listVideos(@QueryParam("page") @DefaultValue("0") int page,
                                @QueryParam("limit") @DefaultValue("50") int limit,
                                @QueryParam("search") String search,
@@ -79,7 +79,6 @@ public class AiSubtitleApi {
 
     @GET
     @Path("/shows")
-    @Transactional
     public Response listShows(@QueryParam("search") String search,
                               @QueryParam("filter") @DefaultValue("all") String filter) {
         try {
@@ -115,7 +114,6 @@ public class AiSubtitleApi {
 
     @GET
     @Path("/shows/{seriesTitle}/episodes")
-    @Transactional
     public Response listShowEpisodes(@PathParam("seriesTitle") String seriesTitle,
                                      @QueryParam("page") @DefaultValue("0") int page,
                                      @QueryParam("limit") @DefaultValue("100") int limit,
@@ -215,7 +213,6 @@ public class AiSubtitleApi {
 
     @GET
     @Path("/completed")
-    @Transactional
     public Response getCompleted(@QueryParam("page") @DefaultValue("0") int page,
                                  @QueryParam("limit") @DefaultValue("50") int limit) {
         try {
@@ -231,7 +228,7 @@ public class AiSubtitleApi {
                 item.put("thumbnailPath", v.thumbnailPath);
 
                 // Query AI subtitle tracks separately to avoid lazy init
-                List<SubtitleTrack> aiTracks = SubtitleTrack.list("video.id = ?1 and isAiGenerated = ?2", v.id, true);
+                List<SubtitleTrack> aiTracks = subtitleTrackService.findAiTracksForVideo(v.id);
                 List<Map<String, Object>> tracks = new ArrayList<>();
                 for (SubtitleTrack st : aiTracks) {
                     Map<String, Object> trackInfo = new HashMap<>();
@@ -261,31 +258,13 @@ public class AiSubtitleApi {
 
     @DELETE
     @Path("/track/{trackId}")
-    @Transactional
     public Response deleteAiTrack(@PathParam("trackId") Long trackId) {
         try {
-            SubtitleTrack track = SubtitleTrack.findById(trackId);
-            if (track == null) {
+            boolean deleted = subtitleTrackService.deleteAiTrack(trackId);
+            if (!deleted) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(Map.of("error", "Subtitle track not found")).build();
             }
-
-            // Delete the physical file if it exists
-            if (track.fullPath != null) {
-                try {
-                    Files.deleteIfExists(Paths.get(track.fullPath));
-                } catch (Exception e) {
-                    LOG.warn("Could not delete subtitle file: " + track.fullPath, e);
-                }
-            }
-
-            // Remove from video's track list
-            if (track.video != null && track.video.subtitleTracks != null) {
-                track.video.subtitleTracks.remove(track);
-                track.video.persist();
-            }
-
-            track.delete();
 
             return Response.ok(Map.of("success", true, "message", "Subtitle track deleted")).build();
         } catch (Exception e) {
@@ -317,6 +296,6 @@ public class AiSubtitleApi {
 
     private boolean hasAiSubtitles(Video video) {
         if (video == null || video.id == null) return false;
-        return SubtitleTrack.count("video.id = ?1 and isAiGenerated = ?2", video.id, true) > 0;
+        return subtitleTrackService.hasAiSubtitles(video.id);
     }
 }
