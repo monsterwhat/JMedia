@@ -47,6 +47,9 @@ public class TranscodingService {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    VideoConversionService videoConversionService;
+
     private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
     private final Map<String, Long> processLastOutput = new ConcurrentHashMap<>();
 
@@ -55,6 +58,7 @@ public class TranscodingService {
     private static final long TRANSCODE_START_TIMEOUT_MS = 90_000L;
     private static final long TRANSCODE_STALL_TTL_MS = 10 * 60 * 1000L; // no output for 10min => abandoned
     private static final long PARTIAL_CACHE_GRACE_MS = 60 * 60 * 1000L; // delete partial (no .done) after 1h idle
+    private static final long TRANSCODE_FILE_REMOVED_GRACE_MS = 5_000L; // waiters allow this long for a writer to re-create the temp file
 
     private static final int AUTO_MAX_CONCURRENT_TRANSCODES = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() / 4, 4));
     private java.util.concurrent.Semaphore transcodePermits; // sized in init() from Settings (0 = auto)
@@ -434,6 +438,17 @@ public class TranscodingService {
         }
 
         boolean canCopyAudio = canCopyAudio(video);
+
+        // Permanent audio fix: when the video stream is served as a pure remux but the
+        // audio must be re-encoded on EVERY request, schedule a background job that
+        // remuxes the file once so future streams can -c:a copy (non-blocking here).
+        if (!needsVideoTranscode && !canCopyAudio) {
+            try {
+                videoConversionService.startAudioRemuxIfNeeded(video.id);
+            } catch (Exception e) {
+                LOG.warn("Failed to schedule audio remux for {}: {}", videoFile.getName(), e.getMessage());
+            }
+        }
 
         LOG.info("[STREAM] videoId={} remux path direct={} startSeconds={}", video.id, !needsVideoTranscode && startSeconds == 0, startSeconds);
 
@@ -815,6 +830,7 @@ public class TranscodingService {
         errorLogger.setUncaughtExceptionHandler((t, e) -> LOG.error("Uncaught exception in errorLogger thread for {}: {}", videoFile.getName(), e.getMessage()));
         errorLogger.start();
 
+        boolean clientDisconnected = false;
         try (InputStream is = process.getInputStream()) {
             OutputStream fileOut = cacheFile != null ? Files.newOutputStream(cacheFile) : null;
             byte[] buffer = new byte[1024 * 1024];
@@ -828,6 +844,7 @@ public class TranscodingService {
                     processLastOutput.put(processKey, System.currentTimeMillis());
                 } catch (IOException e) {
                     LOG.debug("Client disconnected for {}, killing ffmpeg", videoFile.getName());
+                    clientDisconnected = true;
                     if (fileOut != null) {
                         try { fileOut.close(); } catch (IOException ignored) {}
                     }
@@ -848,7 +865,9 @@ public class TranscodingService {
             }
             try {
                 int code = process.waitFor();
-                if (code == EPIPE) {
+                if (clientDisconnected) {
+                    LOG.debug("Client disconnected, killed ffmpeg for {}", videoFile.getName());
+                } else if (code == EPIPE) {
                     LOG.debug("FFmpeg pipe closed (client disconnected) for {}", videoFile.getName());
                 } else {
                     String errors = errorOutput.toString();
@@ -866,7 +885,7 @@ public class TranscodingService {
                         deleteCacheFile(cacheFile);
                     }
                 }
-                return code;
+                return clientDisconnected ? EPIPE : code;
             } catch (InterruptedException e) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
@@ -956,6 +975,8 @@ public class TranscodingService {
     public void waitForFile(Path file, long neededBytes, Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) throws IOException {
         String key = videoId != null ? buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight) : null;
         long deadline = System.currentTimeMillis() + TRANSCODE_START_TIMEOUT_MS;
+        boolean everExisted = false;
+        long vanishedSince = 0;
 
         while (System.currentTimeMillis() < deadline) {
             if (key != null) {
@@ -966,6 +987,8 @@ public class TranscodingService {
             }
 
             if (Files.exists(file)) {
+                everExisted = true;
+                vanishedSince = 0;
                 long size = Files.size(file);
                 if (size >= neededBytes) {
                     return;
@@ -975,6 +998,14 @@ public class TranscodingService {
                     if (at != null && at.completed) {
                         throw new IOException("Transcode completed but file has only " + size + " bytes (needed " + neededBytes + ")");
                     }
+                }
+            } else if (everExisted) {
+                // Writer deleted the temp file (client abort or error). Allow a short grace for a
+                // software-fallback retry to re-create it, then fail fast instead of a full timeout.
+                if (vanishedSince == 0) {
+                    vanishedSince = System.currentTimeMillis();
+                } else if (System.currentTimeMillis() - vanishedSince > TRANSCODE_FILE_REMOVED_GRACE_MS) {
+                    throw new IOException("Transcode temp file was removed while waiting for data");
                 }
             }
 

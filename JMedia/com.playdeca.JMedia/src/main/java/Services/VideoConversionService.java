@@ -1,5 +1,6 @@
 package Services;
 
+import Models.AudioTrack;
 import Models.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -58,6 +59,25 @@ public class VideoConversionService {
 
     @Inject
     MediaAnalysisService mediaAnalysisService;
+
+    @Inject
+    FFprobeAudioService ffprobeAudioService;
+
+    // ── Audio remux (permanent audio fix) ─────────────────────────────────
+
+    /* Codecs safe to bit-copy into MP4 and play natively in every browser
+     * (matches TranscodingService's streaming copy list). Anything else —
+     * AC3/EAC3/DTS/TrueHD/Opus — is re-encoded to AAC 192k so the fixed file
+     * streams with -c:a copy forever after. */
+    private static final List<String> AUDIO_REMUX_COPY_CODECS = List.of(
+        "aac", "mp3", "flac"
+    );
+
+    /* Cooldown after a FAILED audio remux so repeated stream requests can't
+     * trigger a retry storm against a file that can't be fixed. */
+    private static final long AUDIO_REMUX_FAILED_COOLDOWN_MS = 30 * 60 * 1000L;
+
+    private final ConcurrentHashMap<Long, Long> audioRemuxLastFailure = new ConcurrentHashMap<>();
 
     // ── Job tracking ──────────────────────────────────────────────────────
 
@@ -328,6 +348,67 @@ public class VideoConversionService {
         return jobs.get(jobId);
     }
 
+    // ── Auto audio remux (permanent audio fix) ────────────────────────────
+
+    /**
+     * Non-blocking entry fired by the streaming path when a video is served as
+     * a pure video remux but its audio had to be transcoded on the fly.
+     * Schedules a background job that permanently fixes the file in place
+     * (video bit-copied, incompatible audio tracks re-encoded to AAC) so future
+     * streams of the same file become -c:a copy. Idempotent: reuses any
+     * existing QUEUED/RUNNING/COMPLETED job, with a cooldown after FAILED.
+     */
+    public ConversionJob startAudioRemuxIfNeeded(Long videoId) {        Video video = videoService.findById(videoId);
+        if (video == null || !isAudioRemuxCandidate(video)) {
+            return null;
+        }
+
+        ConversionStart start = createOrGetConversionJob(videoId);
+        ConversionJob job = start.job();
+        if (job == null || !start.created()) {
+            return job; // already queued/running/completed — nothing new to run
+        }
+
+        Long lastFailure = audioRemuxLastFailure.get(videoId);
+        if (lastFailure != null && System.currentTimeMillis() - lastFailure < AUDIO_REMUX_FAILED_COOLDOWN_MS) {
+            LOG.debug("Skipping audio remux for video {} (failed {}ms ago, cooldown active)",
+                    videoId, System.currentTimeMillis() - lastFailure);
+            return job;
+        }
+
+        conversionExecutor.submit(() -> {
+            try {
+                runAudioRemux(job, video);
+            } catch (Exception e) {
+                LOG.error("Audio remux failed for video {}: {}", videoId, e.getMessage(), e);
+                job.status = ConversionJob.Status.FAILED;
+                job.errorMessage = e.getMessage();
+                job.endTime = System.currentTimeMillis();
+                audioRemuxLastFailure.put(videoId, System.currentTimeMillis());
+                updateBatchForVideo(videoId, job.status);
+            }
+        });
+        return job;
+    }
+
+    /**
+     * True when the file is worth permanently fixing: its video stream is
+     * already web-compatible (can be bit-copied into MP4) but the default
+     * audio track is not in the copy list. The actual per-track decisions are
+     * made by runAudioRemux after a fresh ffprobe.
+     */
+    private boolean isAudioRemuxCandidate(Video video) {
+        if (video.videoCodec == null) return false;
+        String vc = video.videoCodec.toLowerCase(Locale.ROOT);
+        boolean copyableVideo = vc.contains("h264") || vc.contains("avc")
+                || vc.contains("hevc") || vc.contains("h265");
+        if (!copyableVideo) return false;
+
+        if (video.audioCodec == null) return false; // unknown — leave it alone
+        String ac = video.audioCodec.toLowerCase(Locale.ROOT);
+        return !AUDIO_REMUX_COPY_CODECS.contains(ac);
+    }
+
     // ── Core conversion logic ─────────────────────────────────────────────
 
     private void runConversion(ConversionJob job, Video video) throws Exception {
@@ -341,25 +422,8 @@ public class VideoConversionService {
         }
 
         // Resolve input file path
-        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path inputPath;
-        if (video.path != null) {
-            Path raw = Paths.get(video.path);
-            if (raw.isAbsolute()) {
-                inputPath = raw;
-            } else if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
-                inputPath = Paths.get(videoLibraryPath, video.path);
-            } else {
-                inputPath = raw;
-            }
-        } else {
-            throw new IOException("Video has no file path");
-        }
-
+        Path inputPath = resolveInputPath(video);
         File inputFile = inputPath.toFile();
-        if (!inputFile.exists()) {
-            throw new IOException("Input file not found: " + inputPath);
-        }
 
         // Check disk space (conservative: need at least 1GB free)
         File parentDir = inputFile.getParentFile();
@@ -446,6 +510,36 @@ public class VideoConversionService {
         }
 
         // ── Post-conversion: verify, swap, update DB ────────────────────────
+        finalizeConversion(job, video, inputPath, tempOutput, outputPath, ffmpegPath, imageSubtitleStreams);
+    }
+
+    // ── Shared conversion helpers ─────────────────────────────────────────
+
+    private Path resolveInputPath(Video video) throws IOException {
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        Path inputPath;
+        if (video.path != null) {
+            Path raw = Paths.get(video.path);
+            if (raw.isAbsolute()) {
+                inputPath = raw;
+            } else if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
+                inputPath = Paths.get(videoLibraryPath, video.path);
+            } else {
+                inputPath = raw;
+            }
+        } else {
+            throw new IOException("Video has no file path");
+        }
+
+        File inputFile = inputPath.toFile();
+        if (!inputFile.exists()) {
+            throw new IOException("Input file not found: " + inputPath);
+        }
+        return inputPath;
+    }
+
+    private void finalizeConversion(ConversionJob job, Video video, Path inputPath, Path tempOutput,
+                                    Path outputPath, String ffmpegPath, List<Integer> imageSubtitleStreams) throws Exception {
         job.message = "Verifying output...";
         job.progressPercent = 95;
 
@@ -453,13 +547,13 @@ public class VideoConversionService {
             throw new IOException("Conversion produced an empty or missing output file");
         }
 
-        // Atomically rename temp to final
-        Files.move(tempOutput, outputPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        // Windows file locks can make the atomic replace fail transiently
+        moveTempToFinal(tempOutput, outputPath);
 
         // Extract image-based subtitle streams as .sup files alongside the output
         if (!imageSubtitleStreams.isEmpty()) {
             job.message = "Extracting subtitles...";
-            extractImageSubtitleStreams(ffmpegPath, inputFile, outputPath, imageSubtitleStreams);
+            extractImageSubtitleStreams(ffmpegPath, inputPath.toFile(), outputPath, imageSubtitleStreams);
         }
 
         job.message = "Updating database...";
@@ -485,6 +579,130 @@ public class VideoConversionService {
         job.progressPercent = 100;
         job.message = "Conversion completed successfully!";
         job.endTime = System.currentTimeMillis();
+    }
+
+    private void moveTempToFinal(Path tempOutput, Path outputPath) throws IOException {
+        int maxAttempts = 3;
+        for (int i = 0; i < maxAttempts; i++) {
+            try {
+                Files.move(tempOutput, outputPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (IOException e) {
+                LOG.warn("Failed to move temp output to final (attempt {}/{}): {}", i + 1, maxAttempts, e.getMessage());
+                if (i < maxAttempts - 1) {
+                    try { Thread.sleep(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+                } else {
+                    throw e;
+                }
+            }
+        }
+    }
+
+    // ── Audio remux (permanent audio fix) ─────────────────────────────────
+
+    private void runAudioRemux(ConversionJob job, Video video) throws Exception {
+        job.status = ConversionJob.Status.RUNNING;
+        job.message = "Starting audio remux...";
+        job.progressPercent = 0;
+
+        String ffmpegPath = discoveryService.findFFmpegExecutable();
+        if (ffmpegPath == null) {
+            throw new IOException("FFmpeg not found. Please install FFmpeg and restart.");
+        }
+
+        Path inputPath = resolveInputPath(video);
+        File inputFile = inputPath.toFile();
+
+        // Build output path — same .tmp.mp4 → .mp4 swap as the full conversion
+        String baseName = video.filename != null
+                ? video.filename.replaceFirst("\\.[^.]+$", "")
+                : inputFile.getName().replaceFirst("\\.[^.]+$", "");
+        Path outputPath = inputPath.getParent().resolve(baseName + ".mp4");
+        Path tempOutput = inputPath.getParent().resolve("." + baseName + ".tmp.mp4");
+
+        // Fresh per-track probe: copy-vs-transcode decided per track, not from the
+        // default track's codec alone (a mixed English-AAC + Spanish-AC3 file must
+        // fix only the AC3 track, not transcode everything).
+        List<AudioTrack> audioTracks = ffprobeAudioService.extractAudioTracks(video, inputFile.getAbsolutePath());
+
+        // Probe subtitle streams — text go into MP4, image get extracted as .sup
+        String ffprobePath = discoveryService.findFFprobeExecutable();
+        SubtitleProbeResult subtitleProbe = (ffprobePath != null)
+                ? probeSubtitleStreams(ffprobePath, inputFile.getAbsolutePath())
+                : new SubtitleProbeResult(new ArrayList<>(), new ArrayList<>());
+        List<Integer> textSubtitleStreams = subtitleProbe.textStreams();
+        List<Integer> imageSubtitleStreams = subtitleProbe.imageStreams();
+
+        List<String> command = buildAudioRemuxCommand(ffmpegPath, inputFile, tempOutput, video, audioTracks, textSubtitleStreams);
+        runFfmpegProcess(job, command, video, inputFile, outputPath, tempOutput);
+
+        finalizeConversion(job, video, inputPath, tempOutput, outputPath, ffmpegPath, imageSubtitleStreams);
+    }
+
+    private List<String> buildAudioRemuxCommand(String ffmpegPath, File inputFile, Path tempOutput,
+                                                Video video, List<AudioTrack> audioTracks,
+                                                List<Integer> textSubtitleStreams) {
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+        command.add("-v"); command.add("error");
+        command.add("-hide_banner");
+        command.add("-stats");
+        command.add("-i"); command.add(inputFile.getAbsolutePath());
+
+        // Video: bit-copy (web-compatibility is guaranteed by isAudioRemuxCandidate)
+        command.add("-map"); command.add("0:v:0");
+        command.add("-c:v"); command.add("copy");
+        String videoCodec = video.videoCodec.toLowerCase(Locale.ROOT);
+        if (videoCodec.contains("hevc") || videoCodec.contains("h265")) {
+            command.add("-tag:v"); command.add("hvc1"); // Apple-compatible HEVC tag
+        }
+
+        command.add("-map"); command.add("0:a");
+        if (audioTracks.isEmpty()) {
+            // No probe data — default track is known incompatible, transcode everything
+            command.add("-c:a"); command.add("aac");
+            command.add("-b:a"); command.add("192k");
+        } else {
+            for (int i = 0; i < audioTracks.size(); i++) {
+                String codec = audioTracks.get(i).codec != null
+                        ? audioTracks.get(i).codec.toLowerCase(Locale.ROOT) : "";
+                if (AUDIO_REMUX_COPY_CODECS.contains(codec)) {
+                    command.add("-c:a:" + i); command.add("copy");
+                    if (codec.equals("aac")) {
+                        command.add("-bsf:a:" + i); command.add("aac_adtstoasc");
+                    }
+                } else {
+                    command.add("-c:a:" + i); command.add("aac");
+                    command.add("-b:a:" + i); command.add("192k");
+                }
+            }
+            for (int i = 0; i < audioTracks.size(); i++) {
+                if (audioTracks.get(i).isDefault) {
+                    command.add("-disposition:a:" + i); command.add("default");
+                    break;
+                }
+            }
+        }
+
+        // Subtitles: map only text-based streams (skip PGS/VOBSUB which crash mov_text)
+        if (textSubtitleStreams != null && !textSubtitleStreams.isEmpty()) {
+            for (int subIdx : textSubtitleStreams) {
+                command.add("-map"); command.add("0:s:" + subIdx);
+            }
+            command.add("-c:s"); command.add("mov_text");
+        } else {
+            command.add("-sn");
+        }
+
+        command.add("-map_chapters"); command.add("0");
+        command.add("-map_metadata"); command.add("0");
+        command.add("-movflags"); command.add("+faststart");
+        command.add("-avoid_negative_ts"); command.add("make_zero");
+        command.add("-y");
+        command.add(tempOutput.toAbsolutePath().toString());
+
+        LOG.info("Audio remux FFmpeg command: {}", String.join(" ", command));
+        return command;
     }
 
     // ── FFmpeg command building ───────────────────────────────────────────
@@ -966,5 +1184,6 @@ public class VideoConversionService {
             }
             return false;
         });
+        audioRemuxLastFailure.entrySet().removeIf(entry -> now - entry.getValue() > AUDIO_REMUX_FAILED_COOLDOWN_MS);
     }
 }
