@@ -4,6 +4,7 @@ import API.ApiResponse;
 import Controllers.SettingsController;
 import Models.Settings;
 import Models.DTOs.ImportInstallationStatus;
+import Services.AuthService;
 import Services.PlaybackHistoryService;
 import Services.SongService;
 import jakarta.inject.Inject;
@@ -57,6 +58,9 @@ public class SettingsApi {
     private InstallationService installationService;
 
     @Inject
+    private AuthService authService;
+
+    @Inject
     private Services.ProfileService profileService;
 
     @Inject
@@ -71,7 +75,7 @@ public class SettingsApi {
     @GET
     @Path("/https/status")
     public Response getHttpsStatus(@Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         return Response.ok(ApiResponse.success(certificateService.isHttpsConfigured())).build();
@@ -80,7 +84,7 @@ public class SettingsApi {
     @POST
     @Path("/https/generate")
     public Response generateHttpsCert(@Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         boolean success = certificateService.generateSelfSignedCertificate();
@@ -91,24 +95,8 @@ public class SettingsApi {
         }
     }
 
-    private boolean checkAdmin(HttpHeaders headers) {
-        Models.User user = getCurrentUser(headers);
-        return user != null && "admin".equals(user.getGroupName());
-    }
-
-    private Models.User getCurrentUser(HttpHeaders headers) {
-        String sessionId = null;
-        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
-            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
-        }
-        if (sessionId == null) return null;
-        Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) return null;
-        return Models.User.find("username", session.username).firstResult();
-    }
-
     private boolean checkProfileOwnerOrAdmin(HttpHeaders headers, Long profileId) {
-        Models.User user = getCurrentUser(headers);
+        Models.User user = authService.getCurrentUser(headers);
         if (user == null) return false;
         if ("admin".equals(user.getGroupName())) return true;
         Models.Profile profile = profileService.findById(profileId);
@@ -122,7 +110,7 @@ public class SettingsApi {
     @Path("/browse/list-folders")
     public Response listFolders(@QueryParam("path") String path, @Context HttpHeaders headers) {
         // Allow access if it's first-time setup OR if the user is an admin
-        if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
+        if (!setupController.isFirstTimeSetup() && !authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
 
@@ -190,7 +178,7 @@ public class SettingsApi {
     @GET
     @Path("/{profileId}/browse-folder")
     public Response browseFolder(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         LOGGER.info("[SettingsApi] browseFolder called for profile {}", profileId);
         if (java.awt.GraphicsEnvironment.isHeadless()) {
             LOGGER.error("Cannot open folder browser: Environment is headless");
@@ -250,7 +238,7 @@ public class SettingsApi {
     @GET
     @Path("/{profileId}/browse-video-folder")
     public Response browseVideoFolder(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         LOGGER.info("[SettingsApi] browseVideoFolder called for profile {}", profileId);
         if (java.awt.GraphicsEnvironment.isHeadless()) {
             LOGGER.error("Cannot open folder browser: Environment is headless");
@@ -314,7 +302,7 @@ public class SettingsApi {
                                        @FormParam("videoLibraryPathInput") String path,
                                        @FormParam("tmdbApiKey") String tmdbApiKey,
                                        @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         if (path == null || path.isBlank()) {
@@ -360,7 +348,7 @@ public class SettingsApi {
     @Path("/metadata-toggles")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response saveMetadataToggles(Map<String, Boolean> toggles, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         Settings settings = settingsController.getOrCreateSettings();
@@ -381,7 +369,7 @@ public class SettingsApi {
     @Path("/tmdb-api-key")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response saveTmdbApiKey(@FormParam("tmdbApiKey") String tmdbApiKey, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         Settings settings = settingsController.getOrCreateSettings();
@@ -404,7 +392,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/validate-paths")
     public Response validatePaths(@PathParam("profileId") Long profileId, Map<String, String> paths, @Context HttpHeaders headers) {
-        if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
+        if (!setupController.isFirstTimeSetup() && !authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         Map<String, Boolean> validation = new HashMap<>();
@@ -467,7 +455,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/bpm-tolerance")
     public Response setBpmTolerance(@PathParam("profileId") Long profileId, Map<String, Object> bpmSettings, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Settings settings = settingsController.getOrCreateSettings();
         
         if (bpmSettings.containsKey("default")) {
@@ -492,7 +480,7 @@ public class SettingsApi {
     @Path("/{profileId}/import-sources")
     public Response updateImportSources(@PathParam("profileId") Long profileId, 
                                  ImportSettingsDTO sourcesDTO, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings settings = settingsController.getOrCreateSettings();
             
@@ -571,7 +559,7 @@ public class SettingsApi {
     @Path("/{profileId}/update-yt-dlp")
     public Response updateYtDlp(@PathParam("profileId") Long profileId, 
                                  @QueryParam("channel") String channel, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings.YtDlpUpdateChannel updateChannel;
             if (channel == null || channel.isBlank()) {
@@ -607,7 +595,7 @@ public class SettingsApi {
     @Path("/{profileId}/toggle-run-as-service")
     @Consumes(MediaType.WILDCARD)
     public Response toggleRunAsService(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.toggleAsService();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -616,7 +604,7 @@ public class SettingsApi {
     @Path("/{profileId}/music-library-path") 
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response setMusicLibraryPath(@PathParam("profileId") Long profileId, @FormParam("musicLibraryPathInput") String path, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         if (path == null || path.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Music library path cannot be empty")).build();
         }
@@ -636,7 +624,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/resetLibrary")
     public Response resetLibrary(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.resetMusicLibrary();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -644,7 +632,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/scanLibrary")
     public Response scanLibrary(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         
         String dirPath = null;
         if (directoryId != null) {
@@ -666,7 +654,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/scanVideo")
     public Response scanVideo(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         
         String dirPath = null;
         if (directoryId != null) {
@@ -701,7 +689,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/clearLogs")
     public Response clearLogs(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         settingsController.clearLogs();
         return Response.ok(ApiResponse.success(settingsController.getOrCreateSettings())).build();
     }
@@ -710,7 +698,7 @@ public class SettingsApi {
     @Consumes(MediaType.WILDCARD)
     @Path("/clearPlaybackHistory/{profileId}")
     public Response clearPlaybackHistory(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         playbackHistoryService.clearHistory(profileId);
         return Response.ok(ApiResponse.success("Playback history cleared")).build();
     }
@@ -718,7 +706,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/clearSongs")
     public Response clearSongs(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             String dirPath = null;
             if (directoryId != null) {
@@ -738,7 +726,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/reloadMetadata")
     public Response reloadMetadata(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         
         String dirPath = null;
         if (directoryId != null) {
@@ -758,7 +746,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/deleteDuplicates")
     public Response deleteDuplicates(@PathParam("profileId") Long profileId, @QueryParam("directoryId") Long directoryId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         
         String dirPath = null;
         if (directoryId != null) {
@@ -779,7 +767,7 @@ public class SettingsApi {
     @Path("/{profileId}/install-requirements")
     @Consumes(MediaType.WILDCARD)
     public Response installRequirements(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             settingsController.addLog("Installation process started for profile: " + profileId);
             executor.submit(() -> {
@@ -801,7 +789,7 @@ public class SettingsApi {
     @Path("/{profileId}/upload-cookies")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response uploadCookies(@PathParam("profileId") Long profileId, Map<String, String> request, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             String cookiesContent = request.get("cookiesContent");
             if (cookiesContent == null || cookiesContent.trim().isEmpty()) {
@@ -831,7 +819,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/rescan-song/{id}")
     public Response rescanSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             songService.rescanSong(id);
             settingsController.addLog("Rescan started for song ID: " + id);
@@ -844,7 +832,7 @@ public class SettingsApi {
     @DELETE
     @Path("/{profileId}/songs/{id}")
     public Response deleteSong(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             songService.deleteSong(id);
             settingsController.addLog("Song deleted with ID: " + id);
@@ -857,7 +845,7 @@ public class SettingsApi {
     @DELETE
     @Path("/{profileId}/cookies")
     public Response deleteCookies(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings settings = settingsController.getOrCreateSettings();
             String cookiesFilePath = settings.getCookiesFilePath();
@@ -882,7 +870,7 @@ public class SettingsApi {
     @GET
     @Path("/{profileId}/directories")
     public Response listDirectories(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         List<Models.MediaDirectory> dirs = mediaDirectoryService.listAll();
         return Response.ok(ApiResponse.success(dirs)).build();
     }
@@ -891,7 +879,7 @@ public class SettingsApi {
     @Path("/{profileId}/directories")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response addDirectory(@PathParam("profileId") Long profileId, Map<String, String> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             String path = data.get("path");
             String typeStr = data.get("type"); // "MUSIC" or "VIDEO"
@@ -916,7 +904,7 @@ public class SettingsApi {
     @DELETE
     @Path("/{profileId}/directories/{id}")
     public Response deleteDirectory(@PathParam("profileId") Long profileId, @PathParam("id") Long id, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             mediaDirectoryService.removeDirectory(id);
             return Response.ok(ApiResponse.success("Directory removed")).build();
@@ -928,7 +916,7 @@ public class SettingsApi {
     @PUT
     @Path("/{profileId}/directories/{id}/enable")
     public Response toggleDirectory(@PathParam("profileId") Long profileId, @PathParam("id") Long id, Map<String, Boolean> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Boolean enabled = data.get("enabled");
         if (enabled == null) enabled = true;
         Models.MediaDirectory dir = mediaDirectoryService.updateEnabled(id, enabled);
@@ -942,7 +930,7 @@ public class SettingsApi {
     @Path("/{profileId}/auto-skip")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response updateAutoSkip(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Settings settings = settingsController.getOrCreateSettings();
 
         if (data.containsKey("autoSkipIntro")) {
@@ -964,7 +952,7 @@ public class SettingsApi {
     @Path("/{profileId}/hardware-acceleration")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response setHardwareAcceleration(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Settings settings = settingsController.getOrCreateSettings();
             Object enabledVal = data.get("enabled");
@@ -990,7 +978,7 @@ public class SettingsApi {
     @Path("/{profileId}/max-concurrent-transcodes")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response setMaxConcurrentTranscodes(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Object value = data.get("maxConcurrentTranscodes");
             if (!(value instanceof Number)) {
@@ -1028,7 +1016,7 @@ public class SettingsApi {
     @Path("/{profileId}/default-player")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response setDefaultPlayer(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         try {
             Object playerVal = data.get("defaultPlayer");
             if (playerVal == null || !(playerVal instanceof String)) {
@@ -1058,7 +1046,7 @@ public class SettingsApi {
     @POST
     @Path("/{profileId}/fixAlbums")
     public Response fixAlbums(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
-        if (!checkAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         executor.submit(() -> settingsController.fixAlbums(), "FixAlbumsThread");
         return Response.ok(ApiResponse.success("Album fix started")).build();
     }

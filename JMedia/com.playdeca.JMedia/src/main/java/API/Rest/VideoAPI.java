@@ -3,6 +3,7 @@ package API.Rest;
 import API.ApiResponse;
 import Models.DTOs.ContinueWatchingDTO;
 import Models.DTOs.PaginatedMovieResponse;
+import Services.AuthService;
 import Services.SettingsService;
 import Services.ThumbnailService;
 import Services.TranscodingService;
@@ -101,23 +102,8 @@ public class VideoAPI {
     @Inject
     ExternalVideoService externalVideoService;
 
-    private boolean checkAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
-        String sessionId = null;
-        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
-            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
-        }
-
-        if (sessionId == null) {
-            return false;
-        }
-        Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) {
-            return false;
-        }
-
-        Models.User user = Models.User.find("username", session.username).firstResult();
-        return user != null && "admin".equals(user.getGroupName());
-    }
+    @Inject
+    AuthService authService;
 
     @GET
     @Path("/{videoId}")
@@ -1163,7 +1149,7 @@ public class VideoAPI {
     @Path("/scan")
     public Response scanVideoLibrary(@Context jakarta.ws.rs.core.HttpHeaders headers,
             @jakarta.ws.rs.QueryParam("mode") String mode) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         
@@ -1210,7 +1196,7 @@ public class VideoAPI {
     @POST
     @Path("/reload-metadata")
     public Response reloadVideoMetadata(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         executor.submit(() -> {
@@ -1243,7 +1229,7 @@ public class VideoAPI {
     @POST
     @Path("/reset-database")
     public Response resetVideoDatabase(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         videoImportService.resetVideoDatabase();
@@ -1253,7 +1239,7 @@ public class VideoAPI {
     @POST
     @Path("/clear-history")
     public Response clearVideoHistory(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         videoHistoryService.clearHistory();
@@ -1263,7 +1249,7 @@ public class VideoAPI {
     @POST
     @Path("/clear-all")
     public Response clearAllVideos(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         videoImportService.resetVideoDatabase();
@@ -1273,7 +1259,7 @@ public class VideoAPI {
     @POST
     @Path("/thumbnail/{videoId}/fetch")
     public Response fetchThumbnail(@PathParam("videoId") Long videoId, @Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         if (videoId == null || videoId <= 0) {
@@ -1310,7 +1296,7 @@ public class VideoAPI {
     @POST
     @Path("/regenerate-thumbnails")
     public Response regenerateThumbnails(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         executor.submit(() -> {
@@ -1330,7 +1316,7 @@ public class VideoAPI {
     @POST
     @Path("/backfill-images")
     public Response backfillMediaImages(@Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         executor.submit(() -> {
@@ -1371,7 +1357,7 @@ public class VideoAPI {
     @Path("/metadata/{videoId}/reload")
     public Response reloadVideoMetadata(@PathParam("videoId") Long videoId,
             @Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
@@ -1408,7 +1394,7 @@ public class VideoAPI {
     @Path("/metadata/series/{seriesTitle}/reload")
     public Response reloadSeriesMetadata(@PathParam("seriesTitle") String seriesTitle,
             @Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
@@ -1465,7 +1451,7 @@ public class VideoAPI {
     public Response reloadSeasonMetadata(@PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber,
             @Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
@@ -1521,7 +1507,7 @@ public class VideoAPI {
     @Path("/thumbnail/{videoId}/extract")
     public Response extractThumbnail(@PathParam("videoId") Long videoId,
             @Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         executor.submit(() -> {

@@ -2,6 +2,7 @@ package API.Rest;
 
 import API.ApiResponse;
 import Models.Profile;
+import Services.AuthService;
 import Services.CollectionService;
 import Services.SettingsService;
 import jakarta.inject.Inject;
@@ -22,21 +23,12 @@ public class CollectionApi {
     @Inject
     SettingsService settingsService;
 
-    private boolean checkAdmin(HttpHeaders headers) {
-        String sessionId = null;
-        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
-            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
-        }
-        if (sessionId == null) return false;
-        Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) return false;
-        Models.User user = Models.User.find("username", session.username).firstResult();
-        return user != null && "admin".equals(user.getGroupName());
-    }
+    @Inject
+    AuthService authService;
 
     @GET
     public Response listCollections(@Context HttpHeaders headers) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         Profile activeProfile = settingsService.getActiveProfile();
         return Response.ok(ApiResponse.success(collectionService.listCollections(activeProfile, isAdmin))).build();
     }
@@ -55,7 +47,7 @@ public class CollectionApi {
     public Response getCollection(@Context HttpHeaders headers, @PathParam("id") Long id) {
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         Profile activeProfile = settingsService.getActiveProfile();
         if (c.profile != null && !c.isPublic && !isAdmin
                 && (activeProfile == null || !activeProfile.equals(c.profile))) {
@@ -70,7 +62,7 @@ public class CollectionApi {
                                      @FormParam("name") String name,
                                      @FormParam("description") String description,
                                      @FormParam("isPublic") @DefaultValue("false") boolean isPublic) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         if (name == null || name.trim().isEmpty())
             return Response.status(400).entity(ApiResponse.error("Name is required")).build();
 
@@ -94,7 +86,7 @@ public class CollectionApi {
                                       @FormParam("name") String name,
                                       @FormParam("description") String description,
                                       @FormParam("coverVideoId") Long coverVideoId) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 
@@ -114,7 +106,7 @@ public class CollectionApi {
     @Path("/{id}")
     public Response deleteCollection(@Context HttpHeaders headers,
                                      @PathParam("id") Long id) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 
@@ -144,7 +136,7 @@ public class CollectionApi {
                              @FormParam("seriesId") Long seriesId,
                              @FormParam("orderIndex") @DefaultValue("0") int orderIndex,
                              @FormParam("notes") String notes) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         var c = collectionService.getCollection(id);
         if (c == null)
             return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
@@ -182,7 +174,7 @@ public class CollectionApi {
                                 @PathParam("entryId") Long entryId,
                                 @FormParam("orderIndex") Integer orderIndex,
                                 @FormParam("notes") String notes) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         Models.CollectionEntry foundEntry = Models.CollectionEntry.findById(entryId);
         if (foundEntry == null)
             return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
@@ -201,7 +193,7 @@ public class CollectionApi {
     @Path("/entries/{entryId}")
     public Response removeEntry(@Context HttpHeaders headers,
                                 @PathParam("entryId") Long entryId) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         Models.CollectionEntry foundEntry = Models.CollectionEntry.findById(entryId);
         if (foundEntry == null)
             return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
@@ -223,7 +215,7 @@ public class CollectionApi {
     @Consumes(MediaType.APPLICATION_JSON)
     public Response reorderEntries(@Context HttpHeaders headers,
                                    @PathParam("id") Long id, Map<String, Object> rawMap) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 

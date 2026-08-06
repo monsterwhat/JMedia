@@ -3,6 +3,7 @@ package API.Rest;
 import API.ApiResponse;
 import Models.Series;
 import Models.Video;
+import Services.AuthService;
 import Services.SeriesService;
 import Services.ThumbnailService;
 import io.quarkus.panache.common.Page;
@@ -32,17 +33,8 @@ public class SeriesAPI {
     @Inject
     SeriesService seriesService;
 
-    private boolean checkAdmin(HttpHeaders headers) {
-        String sessionId = null;
-        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
-            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
-        }
-        if (sessionId == null) return false;
-        Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) return false;
-        Models.User user = Models.User.find("username", session.username).firstResult();
-        return user != null && "admin".equals(user.getGroupName());
-    }
+    @Inject
+    AuthService authService;
 
     @GET
     @Blocking
@@ -112,7 +104,7 @@ public class SeriesAPI {
             @Context HttpHeaders headers,
             Series input) {
 
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(ApiResponse.error("Admin access required"))
                     .build();
@@ -136,7 +128,7 @@ public class SeriesAPI {
             @PathParam("id") Long id,
             Series input) {
 
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(ApiResponse.error("Admin access required"))
                     .build();
@@ -157,7 +149,7 @@ public class SeriesAPI {
             @Context HttpHeaders headers,
             @PathParam("id") Long id) {
 
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(ApiResponse.error("Admin access required"))
                     .build();

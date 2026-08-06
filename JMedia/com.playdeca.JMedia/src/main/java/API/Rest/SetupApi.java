@@ -3,6 +3,7 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.SetupController;
 import Models.DTOs.ImportInstallationStatus;
+import Services.AuthService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -22,19 +23,8 @@ public class SetupApi {
     @Inject
     private Controllers.SetupController setupController;
 
-    private boolean checkAdmin(jakarta.ws.rs.core.HttpHeaders headers) {
-        String sessionId = null;
-        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
-            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
-        }
-        
-        if (sessionId == null) return false;
-        Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) return false;
-        
-        Models.User user = Models.User.find("username", session.username).firstResult();
-        return user != null && "admin".equals(user.getGroupName());
-    }
+    @Inject
+    private AuthService authService;
 
     // -----------------------------
     // CHECK SETUP STATUS
@@ -54,7 +44,7 @@ public class SetupApi {
     @POST
     @Path("/validate-paths")
     public Response validatePaths(Map<String, String> paths, @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!setupController.isFirstTimeSetup() && !checkAdmin(headers)) {
+        if (!setupController.isFirstTimeSetup() && !authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).build();
         }
         Map<String, Boolean> validation = new HashMap<>();
@@ -89,7 +79,7 @@ public class SetupApi {
             @FormParam("runAsService") Boolean runAsService,
             @jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
         
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         
@@ -117,7 +107,7 @@ public class SetupApi {
     @Path("/install-requirements")
     @Consumes(MediaType.WILDCARD)
     public Response installRequirements(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).build();
         }
         try {
@@ -146,7 +136,7 @@ public class SetupApi {
     @POST
     @Path("/reset")
     public Response resetSetup(@jakarta.ws.rs.core.Context jakarta.ws.rs.core.HttpHeaders headers) {
-        if (!checkAdmin(headers)) {
+        if (!authService.isAdmin(headers)) {
             return Response.status(Response.Status.FORBIDDEN).build();
         }
         try {

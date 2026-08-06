@@ -1,6 +1,7 @@
 package API.Rest;
 
 import Models.Profile;
+import Services.AuthService;
 import Services.CollectionService;
 import Services.SettingsService;
 import Services.VideoService;
@@ -39,17 +40,8 @@ public class CollectionUiApi {
     @Inject @Location("collectionItemsFragment.html")
     Template collectionItemsFragment;
 
-    private boolean checkAdmin(HttpHeaders headers) {
-        String sessionId = null;
-        if (headers.getCookies() != null && headers.getCookies().containsKey("JMEDIA_SESSION")) {
-            sessionId = headers.getCookies().get("JMEDIA_SESSION").getValue();
-        }
-        if (sessionId == null) return false;
-        Models.Session session = Models.Session.findBySessionId(sessionId);
-        if (session == null || !session.active) return false;
-        Models.User user = Models.User.find("username", session.username).firstResult();
-        return user != null && "admin".equals(user.getGroupName());
-    }
+    @Inject
+    AuthService authService;
 
     @GET
     @Path("/collections-fragment")
@@ -58,7 +50,7 @@ public class CollectionUiApi {
             @Context HttpHeaders headers,
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         Profile activeProfile = settingsService.getActiveProfile();
         long totalItems = collectionService.countCollections(activeProfile, isAdmin);
         int totalPages = (int) Math.ceil((double) totalItems / limit);
@@ -82,7 +74,7 @@ public class CollectionUiApi {
             @Context HttpHeaders headers,
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit) {
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
         Profile activeProfile = settingsService.getActiveProfile();
         long totalItems = collectionService.countCollections(activeProfile, isAdmin);
         int totalPages = (int) Math.ceil((double) totalItems / limit);
@@ -114,7 +106,7 @@ public class CollectionUiApi {
         }
         var organized = collectionService.organizeActiveVideos(fragment.videoEntryMap(), fragment.externalVideoEntryMap());
 
-        boolean isAdmin = checkAdmin(headers);
+        boolean isAdmin = authService.isAdmin(headers);
 
         return collectionEntriesContent
                 .data("collection", collection)
