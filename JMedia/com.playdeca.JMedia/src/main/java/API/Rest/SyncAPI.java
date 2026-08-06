@@ -8,7 +8,6 @@ import Services.SettingsService;
 import Services.SyncServerService;
 import Services.SyncService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -162,7 +161,6 @@ public class SyncAPI {
 
     @PUT
     @Path("/settings")
-    @Transactional
     public Response updateSyncSettings(Map<String, Object> data) {
         Models.Settings settings = settingsService.getOrCreateSettings();
 
@@ -211,7 +209,6 @@ public class SyncAPI {
 
     @POST
     @Path("/settings/generate-api-key")
-    @Transactional
     public Response generateApiKey() {
         SecureRandom random = new SecureRandom();
         byte[] bytes = new byte[32];
