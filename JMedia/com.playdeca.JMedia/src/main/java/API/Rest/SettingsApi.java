@@ -29,6 +29,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import Services.MediaDirectoryService;
+import Services.TranscodingService;
 import Services.VideoImportService;
 import java.nio.file.Paths;
 
@@ -68,6 +69,9 @@ public class SettingsApi {
 
     @Inject
     Services.CertificateService certificateService;
+
+    @Inject
+    TranscodingService transcodingService;
 
     @Inject
     VideoImportService videoImportService;
@@ -995,8 +999,11 @@ public class SettingsApi {
             Settings settings = settingsController.getOrCreateSettings();
             settings.setMaxConcurrentTranscodes(max);
             settingsService.save(settings);
-            settingsController.addLog("Max concurrent transcodes set to " + (max == 0 ? "auto" : String.valueOf(max)) + " (restart to apply)");
-            return Response.ok(ApiResponse.success("Max concurrent transcodes updated. Restart required to apply.")).build();
+            transcodingService.updateMaxConcurrentTranscodes(max);
+            int effective = transcodingService.getCurrentMaxConcurrentTranscodes();
+            settingsController.addLog("Max concurrent transcodes set to " + (max == 0 ? "auto" : String.valueOf(max)) + " (applied live: pool of " + effective + ")");
+            return Response.ok(ApiResponse.success("Max concurrent transcodes set to " + (max == 0 ? "auto" : String.valueOf(max))
+                + ". Applied immediately (pool size " + effective + ").")).build();
         } catch (Exception e) {
             LOGGER.error("Failed to update max concurrent transcodes setting", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

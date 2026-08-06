@@ -324,6 +324,7 @@ class VideoSPA {
             <script src="/js/player/SkipController.js"><\/script>
             <script src="/js/player/ProgressReporter.js"><\/script>
             <script src="/js/player/NavigationManager.js"><\/script>
+            <script src="/lib/hls.min.js"><\/script>
             <script src="/js/simple-player.js"><\/script>
             <script>
                 (function() {

@@ -15,6 +15,7 @@ function createSubtitleSearchSidebarHTML() {
     <div class="episode-sidebar-seasons" id="subtitle-search-tabs">\
       <button class="episode-sidebar-season-btn active" data-click="switchSubtitleSearchTab:search">Search</button>\
       <button class="episode-sidebar-season-btn" data-click="switchSubtitleSearchTab:local">Local Files</button>\
+      <button class="episode-sidebar-season-btn" data-click="switchSubtitleSearchTab:upload">Upload</button>\
     </div>\
     <div class="subtitle-search-body" id="subtitle-search-search-tab">\
       <form class="subtitle-search-form" onsubmit="return false;">\
@@ -50,6 +51,34 @@ function createSubtitleSearchSidebarHTML() {
       <div class="episode-sidebar-list" id="subtitleLocalResultsBody">\
         <div class="subtitle-search-empty">Scan the video folder for subtitle files</div>\
       </div>\
+    </div>\
+    <div class="subtitle-search-body" id="subtitle-search-upload-tab" style="display:none;">\
+      <form class="subtitle-search-form" onsubmit="return false;">\
+        <label class="subtitle-upload-drop" for="subtitleFileInput">\
+          <i class="fa-solid fa-cloud-arrow-up"></i>\
+          <span class="subtitle-upload-name" id="subtitleUploadFileName">No file selected</span>\
+        </label>\
+        <input class="subtitle-upload-input" type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa,.sub,.idx" onchange="subtitleUploadFileSelected(event)">\
+        <select class="subtitle-search-lang" id="subtitleUploadLanguage">\
+          <option value="en">English</option>\
+          <option value="es">Español</option>\
+          <option value="spl">Español (Latinoamérica)</option>\
+          <option value="fr">Français</option>\
+          <option value="de">Deutsch</option>\
+          <option value="it">Italiano</option>\
+          <option value="pt">Português</option>\
+          <option value="ru">Русский</option>\
+          <option value="ja">日本語</option>\
+          <option value="ko">한국어</option>\
+          <option value="zh">中文</option>\
+        </select>\
+        <input class="subtitle-search-input" id="subtitleUploadName" placeholder="Display name (optional)">\
+        <button class="subtitle-search-go" id="uploadSubtitleBtn" data-click="uploadSubtitleFile" disabled>\
+          <i class="fa-solid fa-upload"></i>\
+          <span>Upload</span>\
+        </button>\
+      </form>\
+      <div class="subtitle-upload-hint">Pick a subtitle file (.srt, .vtt, .ass, .ssa, .sub, .idx) to upload for this video.</div>\
     </div>\
   </div>';
 }

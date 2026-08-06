@@ -64,6 +64,10 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             this._cleanupOnUnload = () => {
                 this.progressReporter.saveNow();
+                if (this._hlsInstance) {
+                    this._hlsInstance.destroy();
+                    this._hlsInstance = null;
+                }
                 this.video.pause();
                 this.video.src = "";
                 this.progressReporter.setMusicSuspended(false);
@@ -500,6 +504,10 @@ if (typeof window.SimplePlayer === 'undefined') {
             }
             if (this._wsManager) this._wsManager.disconnect();
             this.subtitleController.destroyAssSubtitle();
+            if (this._hlsInstance) {
+                this._hlsInstance.destroy();
+                this._hlsInstance = null;
+            }
             clearInterval(this._prog);
             this.progressReporter.setMusicSuspended(false);
             this.video.pause();

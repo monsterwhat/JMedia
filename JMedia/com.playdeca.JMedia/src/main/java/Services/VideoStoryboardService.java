@@ -251,11 +251,10 @@ public class VideoStoryboardService {
         if (hwDecoder != null) {
             String hwaccelType = discoveryService.decoderToHwaccelType(hwDecoder);
             if (hwaccelType != null) {
+                // Deliberately no -hwaccel_output_format: hardware decode only, frames
+                // stay in system memory. The cuda-frame + hwdownload path yields zero
+                // frames on 10-bit HEVC -> libwebp error -22 and 300s software fallback.
                 command.add("-hwaccel"); command.add(hwaccelType);
-                if ("cuda".equals(hwaccelType)) {
-                    command.add("-hwaccel_output_format"); command.add("cuda");
-                    filter = "hwdownload,format=nv12," + filter;
-                }
             }
         }
 

@@ -183,6 +183,14 @@
 
             console.log('[SimplePlayer] External stream:', url);
 
+            // HLS (m3u8) requires hls.js (MSE) in Chromium/Firefox — only Safari/iOS
+            // plays it natively in a <video> element. Fall back to native for those.
+            const isHls = /\.m3u8(\?|#|$)/i.test(url) || /\.m3u8(\?|#|$)/i.test(p.externalOriginalUrl || '');
+            if (isHls && typeof Hls !== 'undefined' && Hls.isSupported() && !isIOS) {
+                this._initHlsExternalStream(url, savedTime);
+                return;
+            }
+
             p.video.src = url;
 
             p.video.addEventListener('loadedmetadata', () => {
@@ -199,6 +207,54 @@
             p.video.play().catch(e => {
                 console.log('[SimplePlayer] Play requires user gesture:', e);
             });
+
+            p.setMusicSuspended(true);
+            p.startProgressReporting();
+        }
+
+        // Instance is stored on the player so destroy()/cleanupHls() can tear it down.
+        _initHlsExternalStream(url, savedTime) {
+            const p = this.player;
+
+            if (p._hlsInstance) {
+                p._hlsInstance.destroy();
+                p._hlsInstance = null;
+            }
+
+            const hls = new Hls({
+                // Start near the live edge for live channels; harmless for VOD.
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 6,
+                maxLiveSyncPlaybackRate: 1.5
+            });
+            p._hlsInstance = hls;
+
+            p._showLoading('Loading live stream...');
+            hls.loadSource(url);
+            hls.attachMedia(p.video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                if (p._destroyed || p._hlsInstance !== hls) return;
+                console.log('[SimplePlayer] HLS manifest parsed, starting playback');
+                if (savedTime > 0) p.video.currentTime = savedTime;
+                p.applyInitialState();
+                p.video.play().catch(e => {
+                    console.log('[SimplePlayer] Play requires user gesture:', e);
+                });
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (!data || p._destroyed || p._hlsInstance !== hls) return;
+                if (!data.fatal) return;
+                console.error('[SimplePlayer] Fatal HLS error:', data.type, data.details);
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    hls.startLoad();
+                } else {
+                    p._showLoading('Playback error');
+                }
+            });
+
+            p.video.addEventListener('playing', () => p._hideLoading(), { once: true });
 
             p.setMusicSuspended(true);
             p.startProgressReporting();
@@ -380,6 +436,10 @@
 
         cleanupHls() {
             const p = this.player;
+            if (p._hlsInstance) {
+                p._hlsInstance.destroy();
+                p._hlsInstance = null;
+            }
             p.video.src = "";
             p.video.load();
         }

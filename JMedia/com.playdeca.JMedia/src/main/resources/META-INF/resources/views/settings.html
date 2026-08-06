@@ -646,6 +646,28 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- System Tab -->
+                <div id="system" class="tab-pane">
+                    <div class="glass-box p-6 admin-only">
+                        <div class="field">
+                            <label class="label">Max Concurrent Transcodes</label>
+                            <div class="field has-addons">
+                                <div class="control is-expanded"><input type="number" id="maxConcurrentTranscodesInput" class="input is-small" min="0"></div>
+                                <div class="control"><button id="saveMaxConcurrentTranscodesBtn" class="button is-small is-success" onclick="window.saveMaxConcurrentTranscodes()">Save</button></div>
+                            </div>
+                            <p class="help is-size-7">0 = automatic (CPU-based). Changes apply immediately without restart.</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="checkbox">
+                                <input type="checkbox" id="hardwareAccelerationToggle"> Hardware Acceleration
+                            </label>
+                            <div class="control"><button id="saveHardwareAccelerationBtn" class="button is-small is-success" onclick="window.saveHardwareAcceleration()">Save</button></div>
+                            <p class="help is-size-7">Use GPU (NVENC/AMF/QSV) for transcoding when available.</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

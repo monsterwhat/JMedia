@@ -594,6 +594,39 @@
             }
         },
 
+        saveMaxConcurrentTranscodes: async function () {
+            const profileId = getProfileId();
+            const value = parseInt(document.getElementById('maxConcurrentTranscodesInput').value) || 0;
+            try {
+                const res = await fetch(`/api/settings/${profileId}/max-concurrent-transcodes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ maxConcurrentTranscodes: value })
+                });
+                if (res.ok && window.showToast) {
+                    window.showToast('Max concurrent transcodes updated (applied immediately)', 'success');
+                } else if (window.showToast) {
+                    window.showToast('Failed to save max concurrent transcodes', 'error');
+                }
+            } catch (e) {}
+        },
+
+        saveHardwareAcceleration: async function () {
+            const profileId = getProfileId();
+            try {
+                const res = await fetch(`/api/settings/${profileId}/hardware-acceleration`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: document.getElementById('hardwareAccelerationToggle').checked })
+                });
+                if (res.ok && window.showToast) {
+                    window.showToast('Hardware acceleration updated', 'success');
+                } else if (window.showToast) {
+                    window.showToast('Failed to save hardware acceleration', 'error');
+                }
+            } catch (e) {}
+        },
+
         loadProfiles: async function () {
             const list = document.getElementById('profileList');
             if (!list) return;
@@ -655,6 +688,9 @@
                 setVal("outputFormat", d.outputFormat);
                 setVal("downloadThreads", d.downloadThreads);
                 setVal("searchThreads", d.searchThreads);
+                setVal("maxConcurrentTranscodesInput", d.maxConcurrentTranscodes);
+                const hwEl = document.getElementById('hardwareAccelerationToggle');
+                if (hwEl) hwEl.checked = d.hardwareAccelerationEnabled === true;
             }
         },
 
@@ -878,6 +914,8 @@
     window.savePlaybackSettings = JMedia.Settings.savePlaybackSettings;
     window.loadAutoSkipSettings = JMedia.Settings.loadAutoSkipSettings;
     window.saveAutoSkipSettings = JMedia.Settings.saveAutoSkipSettings;
+    window.saveMaxConcurrentTranscodes = JMedia.Settings.saveMaxConcurrentTranscodes;
+    window.saveHardwareAcceleration = JMedia.Settings.saveHardwareAcceleration;
     window.loadProfiles = JMedia.Settings.loadProfiles;
     window.loadInstallationStatus = JMedia.Settings.loadInstallationStatus;
     window.refreshSettingsUI = JMedia.Settings.refreshSettingsUI;

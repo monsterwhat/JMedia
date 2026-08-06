@@ -3067,7 +3067,7 @@ function toggleSubtitleSearchSidebar() {
 }
 
 function switchSubtitleSearchTab(tab) {
-  var tabs = ['search', 'local'];
+  var tabs = ['search', 'local', 'upload'];
   tabs.forEach(function(t) {
     var content = document.getElementById('subtitle-search-' + t + '-tab');
     var btn = document.querySelector('[data-click="switchSubtitleSearchTab:' + t + '"]');
@@ -3257,7 +3257,87 @@ async function addLocalSubtitle(el) {
   }
 }
 
+function subtitleUploadFileSelected(event) {
+  var file = event.target.files[0];
+  var nameEl = document.getElementById('subtitleUploadFileName');
+  var btn = document.getElementById('uploadSubtitleBtn');
+  if (!nameEl || !btn) return;
+  if (file) {
+    nameEl.textContent = file.name;
+    btn.disabled = false;
+  } else {
+    nameEl.textContent = 'No file selected';
+    btn.disabled = true;
+  }
+}
+
+async function uploadSubtitleFile(el) {
+  var videoId = getSubtitleSearchVideoId();
+  var fileInput = document.getElementById('subtitleFileInput');
+  var file = fileInput && fileInput.files[0];
+  if (!videoId || !file) return;
+
+  var btn = document.getElementById('uploadSubtitleBtn');
+  if (btn) {
+    btn.classList.add('loading');
+    btn.disabled = true;
+  }
+  try {
+    var content = await readFileAsBase64(file);
+    var langSelect = document.getElementById('subtitleUploadLanguage');
+    var nameInput = document.getElementById('subtitleUploadName');
+    var language = langSelect ? langSelect.value : 'en';
+    var displayName = nameInput ? nameInput.value.trim() : '';
+
+    var resp = await fetch('/api/video/subtitles/' + videoId + '/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: content,
+        filename: file.name,
+        language: language,
+        languageName: displayName || file.name
+      })
+    });
+    var data = await resp.json().catch(function() { return {}; });
+    if (resp.ok) {
+      if (window.showToast) window.showToast('Subtitle uploaded!', 'success');
+      refreshPlayerSubtitleTracks();
+      fileInput.value = '';
+      var nameEl = document.getElementById('subtitleUploadFileName');
+      if (nameEl) nameEl.textContent = 'No file selected';
+      if (nameInput) nameInput.value = '';
+    } else {
+      if (window.showToast) window.showToast(data.error || 'Upload failed', 'error');
+    }
+  } catch (e) {
+    console.error('Upload error:', e);
+    if (window.showToast) window.showToast('Upload error: ' + e.message, 'error');
+  } finally {
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.disabled = true;
+    }
+  }
+}
+
+function readFileAsBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() { resolve(reader.result); };
+    reader.onerror = function() { reject(new Error('Failed to read file')); };
+    reader.readAsDataURL(file);
+  });
+}
+
 function refreshPlayerSubtitleTracks() {
+  // OPlayer/Video.js: TestPlayerFeatures re-fetches tracks, rebuilds #subtitleList
+  // AND pushes them into OPlayer's native subtitle API. currentPlayerInstance is
+  // SimplePlayer-only, so it is a no-op for OPlayer.
+  if (window.testPlayerFeatures && typeof window.testPlayerFeatures.loadSubtitles === 'function') {
+    window.testPlayerFeatures.loadSubtitles(true);
+    return;
+  }
   if (window.currentPlayerInstance && typeof window.currentPlayerInstance.loadSubtitles === 'function') {
     window.currentPlayerInstance.loadSubtitles(true);
   }

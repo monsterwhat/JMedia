@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -76,6 +77,13 @@ public class VideoConversionService {
     /* Cooldown after a FAILED audio remux so repeated stream requests can't
      * trigger a retry storm against a file that can't be fixed. */
     private static final long AUDIO_REMUX_FAILED_COOLDOWN_MS = 30 * 60 * 1000L;
+
+    /* If an ffmpeg process produces no stderr output (progress lines) for this
+     * long, it is wedged — deadlocked codec init, hung I/O, frozen pipe — so we
+     * kill it instead of waiting forever. ffmpeg emits progress roughly every
+     * second with -stats, so a healthy process never trips this. */
+    private static final long FFMPEG_STALL_TIMEOUT_MS = 15 * 60 * 1000L;
+    private static final long FFMPEG_STALL_POLL_MS = 30_000L;
 
     private final ConcurrentHashMap<Long, Long> audioRemuxLastFailure = new ConcurrentHashMap<>();
 
@@ -997,6 +1005,27 @@ public class VideoConversionService {
 
     // ── FFmpeg process execution with progress parsing ────────────────────
 
+    /** Waits for an ffmpeg process to exit while monitoring its stderr output.
+     *  If no output arrives for FFMPEG_STALL_TIMEOUT_MS the process is wedged:
+     *  it is force-killed and an IOException is thrown. Returns the exit code
+     *  when the process completes on its own. */
+    private int waitForFfmpegExit(Process process, AtomicLong lastProgressNs) throws IOException, InterruptedException {
+        while (!process.waitFor(FFMPEG_STALL_POLL_MS, TimeUnit.MILLISECONDS)) {
+            long idleMs = (System.nanoTime() - lastProgressNs.get()) / 1_000_000L;
+            if (idleMs > FFMPEG_STALL_TIMEOUT_MS) {
+                process.destroyForcibly();
+                try {
+                    process.waitFor(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                throw new IOException("FFmpeg stalled (no progress output for "
+                        + (FFMPEG_STALL_TIMEOUT_MS / 60_000L) + " minutes) and was terminated");
+            }
+        }
+        return process.exitValue();
+    }
+
     private void runFfmpegProcess(ConversionJob job, List<String> command, Video video,
                                    File inputFile, Path outputPath, Path tempOutput) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -1008,12 +1037,19 @@ public class VideoConversionService {
         long durationMs = video.duration != null && video.duration > 0 ? video.duration : 0;
         final StringBuilder stderrCapture = new StringBuilder();
 
+        // Stall detection: with -stats ffmpeg emits a progress line roughly every
+        // second, so any stderr output proves the process is alive and working.
+        // If nothing arrives for FFMPEG_STALL_TIMEOUT_MS the process is wedged
+        // (deadlocked codec init, hung I/O, frozen pipe) and gets killed.
+        final AtomicLong lastProgressNs = new AtomicLong(System.nanoTime());
+
         Thread progressReader = new Thread(() -> {
             Pattern timePattern = Pattern.compile("time=(\\d+):(\\d+):(\\d+)\\.(\\d+)");
             try (java.util.Scanner sc = new java.util.Scanner(process.getErrorStream())) {
                 while (sc.hasNextLine()) {
                     String line = sc.nextLine();
                     stderrCapture.append(line).append("\n");
+                    lastProgressNs.set(System.nanoTime());
                     if (line.contains("time=")) {
                         Matcher m = timePattern.matcher(line);
                         if (m.find()) {
@@ -1034,7 +1070,7 @@ public class VideoConversionService {
         progressReader.setDaemon(true);
         progressReader.start();
 
-        int exitCode = process.waitFor();
+        int exitCode = waitForFfmpegExit(process, lastProgressNs);
         progressReader.join(2000);
 
         if (exitCode != 0) {
@@ -1062,7 +1098,21 @@ public class VideoConversionService {
                 pb2.redirectErrorStream(false);
                 Process p2 = pb2.start();
                 job.process = p2;
-                int exit2 = p2.waitFor();
+                // Drain stderr on the retry pass too: it both feeds the stall
+                // guard and prevents a full stderr pipe from deadlocking the process.
+                final AtomicLong p2ProgressNs = new AtomicLong(System.nanoTime());
+                Thread p2Drain = new Thread(() -> {
+                    try (java.util.Scanner sc = new java.util.Scanner(p2.getErrorStream())) {
+                        while (sc.hasNextLine()) {
+                            sc.nextLine();
+                            p2ProgressNs.set(System.nanoTime());
+                        }
+                    } catch (Exception ignored) {}
+                });
+                p2Drain.setDaemon(true);
+                p2Drain.start();
+                int exit2 = waitForFfmpegExit(p2, p2ProgressNs);
+                p2Drain.join(2000);
                 if (exit2 != 0) {
                     throw new IOException("FFmpeg conversion failed (exit code " + exit2 + ") after subtitle retry. Check logs.");
                 }

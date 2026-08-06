@@ -79,7 +79,8 @@ public class EnhancedSubtitleMatcher {
             return tracks;
         }
         
-        try (java.util.stream.Stream<Path> stream = Files.walk(videoDir, 3)) {
+        // Only the movie's own folder: no recursive descent into subfolders.
+        try (java.util.stream.Stream<Path> stream = Files.list(videoDir)) {
             List<Path> subtitleFiles = stream
                 .filter(Files::isRegularFile)
                 .filter(this::isSubtitleFile)
@@ -103,7 +104,7 @@ public class EnhancedSubtitleMatcher {
                 ));
             }
         } catch (Exception e) {
-            System.err.println("Error scanning all subtitle files recursively: " + e.getMessage());
+            System.err.println("Error scanning subtitle files in video folder: " + e.getMessage());
         }
         
         return tracks;

@@ -62,7 +62,8 @@ public class TranscodingService {
     private static final long TRANSCODE_FILE_REMOVED_GRACE_MS = 5_000L; // waiters allow this long for a writer to re-create the temp file
 
     private static final int AUTO_MAX_CONCURRENT_TRANSCODES = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() / 4, 4));
-    private java.util.concurrent.Semaphore transcodePermits; // sized in init() from Settings (0 = auto)
+    private volatile java.util.concurrent.Semaphore transcodePermits; // swapped live by updateMaxConcurrentTranscodes(); each acquire/release pair uses the instance captured at acquire time
+    private volatile int transcodePoolSize; // current pool size (mirrors transcodePermits.availablePermits() at creation time)
 
     private final AtomicLong transcodeAttemptCount = new AtomicLong(0);
     private final AtomicLong transcodeFailureCount = new AtomicLong(0);
@@ -111,6 +112,7 @@ public class TranscodingService {
         cacheCleanupExecutor.scheduleAtFixedRate(this::cleanupOldCacheFiles, 1, 1, TimeUnit.HOURS);
         cleanupExecutor.scheduleAtFixedRate(this::sweepStalledProcesses, 1, 1, TimeUnit.MINUTES);
         int poolSize = resolveMaxConcurrentTranscodes();
+        transcodePoolSize = poolSize;
         transcodePermits = new java.util.concurrent.Semaphore(poolSize, true);
         LOG.info("Max concurrent transcodes: {} ({} available processors)", poolSize, Runtime.getRuntime().availableProcessors());
     }
@@ -126,6 +128,27 @@ public class TranscodingService {
             LOG.warn("Failed to read maxConcurrentTranscodes setting, falling back to auto: {}", e.getMessage());
         }
         return AUTO_MAX_CONCURRENT_TRANSCODES;
+    }
+
+    /**
+     * Resizes the transcode permit pool immediately, without a restart. Invoked when the
+     * maxConcurrentTranscodes setting is updated via the API.
+     *
+     * A fresh Semaphore is swapped in so the new size applies to every subsequent request.
+     * In-flight transcodes release into the pool instance they acquired from (see runFFmpeg),
+     * so the new pool's permit count can never drift and the swap cannot over-commit.
+     */
+    public void updateMaxConcurrentTranscodes(int configured) {
+        int newSize = configured > 0 ? Math.max(1, configured) : AUTO_MAX_CONCURRENT_TRANSCODES;
+        int oldSize = transcodePoolSize;
+        transcodePoolSize = newSize;
+        transcodePermits = new java.util.concurrent.Semaphore(newSize, true);
+        LOG.info("Max concurrent transcodes updated live: {} -> {} ({} available processors)",
+                 oldSize, newSize, Runtime.getRuntime().availableProcessors());
+    }
+
+    public int getCurrentMaxConcurrentTranscodes() {
+        return transcodePoolSize;
     }
 
     private void cleanupOldCacheFiles() {
@@ -572,30 +595,33 @@ public class TranscodingService {
                           boolean useHardware, OutputStream output, StringBuilder errorOutput, int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) throws IOException {
         // Permit is held until the process fully exits: the finally below wraps the
         // entire launch + stream (including pb.start()), so a failed launch can never
-        // leak one of the pool permits and black out all streaming.
-        if (!transcodePermits.tryAcquire()) {
+        // leak one of the pool permits and black out all streaming. The pool instance
+        // is captured once here: runFFmpegWithPermit may outlive a live resize, and the
+        // release must return to the same pool the permit came from, never the new one.
+        java.util.concurrent.Semaphore permit = transcodePermits;
+        if (!permit.tryAcquire()) {
             LOG.warn("Transcode permit pool exhausted (available: {}), request for {} queued",
-                     transcodePermits.availablePermits(), videoFile.getName());
+                     permit.availablePermits(), videoFile.getName());
             try {
-                transcodePermits.acquire();
+                permit.acquire();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("Interrupted while waiting for transcode permit", e);
             }
             LOG.info("Acquired transcode permit for {} after waiting (available: {})",
-                     videoFile.getName(), transcodePermits.availablePermits());
+                     videoFile.getName(), permit.availablePermits());
         } else {
             LOG.debug("Acquired transcode permit for {} (available: {})",
-                      videoFile.getName(), transcodePermits.availablePermits());
+                      videoFile.getName(), permit.availablePermits());
         }
         try {
             return runFFmpegWithPermit(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode,
                                        canCopyAudio, needsAppleHvc1Tag, useHardware, output, errorOutput,
                                        audioTrackIndex, qualityHeight, cacheFile);
         } finally {
-            transcodePermits.release();
+            permit.release();
             LOG.debug("Released transcode permit for {} (available: {})",
-                      videoFile.getName(), transcodePermits.availablePermits());
+                      videoFile.getName(), permit.availablePermits());
         }
     }
 
@@ -813,6 +839,25 @@ public class TranscodingService {
         processLastOutput.put(processKey, System.currentTimeMillis());
         videoProcessKeys.computeIfAbsent(video.id, k -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(processKey);
 
+        // Track this transcode in activeTranscodes under the transcode key (not the
+        // per-process key) so releaseTranscode/waitForFile/isTranscodeFinished find it.
+        // Live streams have no temp file and are skipped — cleanupTranscode requires a
+        // non-null tempFile.
+        String transcodeKey = cacheFile != null
+                ? buildTranscodeKey(video.id, startSeconds, audioTrackIndex, qualityHeight)
+                : null;
+        if (transcodeKey != null) {
+            activeTranscodes.compute(transcodeKey, (k, existing) -> {
+                if (existing == null) return new ActiveTranscode(transcodeKey, process, cacheFile);
+                // Retry/restart for the same key: point at the live process and clear
+                // terminal flags so waiters don't see stale completed/failed state.
+                existing.process = process;
+                existing.completed = false;
+                existing.failed = false;
+                return existing;
+            });
+        }
+
         Thread errorLogger = new Thread(() -> {
             try (java.util.Scanner sc = new java.util.Scanner(process.getErrorStream())) {
                 while (sc.hasNextLine()) {
@@ -892,6 +937,17 @@ public class TranscodingService {
                         deleteCacheFile(cacheFile);
                     }
                 }
+                if (transcodeKey != null) {
+                    ActiveTranscode at = activeTranscodes.get(transcodeKey);
+                    if (at != null) {
+                        at.lastAccessed = System.currentTimeMillis();
+                        if (code == 0) {
+                            at.completed = true;
+                        } else if (!clientDisconnected && code != EPIPE) {
+                            at.failed = true;
+                        }
+                    }
+                }
                 return clientDisconnected ? EPIPE : code;
             } catch (InterruptedException e) {
                 if (process.isAlive()) {
@@ -899,6 +955,12 @@ public class TranscodingService {
                 }
                 if (cacheFile != null) {
                     deleteCacheFile(cacheFile);
+                }
+                if (transcodeKey != null) {
+                    ActiveTranscode at = activeTranscodes.get(transcodeKey);
+                    if (at != null) {
+                        at.failed = true;
+                    }
                 }
                 return -1;
             }

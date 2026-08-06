@@ -228,6 +228,14 @@
             _clearSwapListeners();
 
             _streamStartOffset = Math.max(0, absTarget);
+            /* Arm the echo-lock with the seek target. After a ?start= reload the
+             * element clock restarts at 0 while the server may keep broadcasting the
+             * OLD absolute position — above the new offset on a backward seek, so the
+             * one-directional stale guard passes and drift-sync would yank the fresh
+             * element back as soon as `playing` ends the swap (the seek bounce). The
+             * lock suppresses that until the server echoes the new offset. */
+            _localSeekAt = Date.now();
+            _localSeekPos = absTarget;
             var url = _buildStreamUrl(absTarget, _currentQuality);
 
             try { video.pause(); } catch (e) {}
@@ -246,6 +254,11 @@
             var handlers = {
                 playing: function() {
                     if (swapToken === _swapToken) {
+                        /* The load may have outlasted the 3s lock armed above — re-arm
+                         * it now so suppression covers the echo round-trip (stale
+                         * broadcasts arrive between `playing` and the server echoing
+                         * the seek target). */
+                        _localSeekAt = Date.now();
                         _endSwap(true);
                         /* Native subtitles are aligned to the element clock, which
                          * restarts at 0 relative to the new ?start= — re-apply the

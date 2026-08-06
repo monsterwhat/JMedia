@@ -139,6 +139,14 @@
             if (_swapErrorHandler) { vjsPlayer.off('error', _swapErrorHandler); _swapErrorHandler = null; }
 
             _streamStartOffset = Math.max(0, absTarget);
+            /* Arm the echo-lock with the seek target. After a ?start= reload the
+             * element clock restarts at 0 while the server may keep broadcasting the
+             * OLD absolute position — above the new offset on a backward seek, so the
+             * one-directional stale guard passes and drift-sync would yank the fresh
+             * element back as soon as `playing` ends the swap (the seek bounce). The
+             * lock suppresses that until the server echoes the new offset. */
+            _localSeekAt = Date.now();
+            _localSeekPos = absTarget;
             var url = _buildStreamUrl(absTarget, _currentQuality);
             var newType = url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
 
@@ -162,7 +170,13 @@
                 if (err && err.code === 4) return;
                 _endServerSeek();
             };
-            vjsPlayer.one('playing', function() { _endServerSeek(true); });
+            vjsPlayer.one('playing', function() {
+                /* The load may have outlasted the 3s lock armed above — re-arm it now
+                 * so suppression covers the echo round-trip (stale broadcasts arrive
+                 * between `playing` and the server echoing the seek target). */
+                _localSeekAt = Date.now();
+                _endServerSeek(true);
+            });
             vjsPlayer.on('error', _swapErrorHandler);
             _swapTimeout = setTimeout(function() { _endServerSeek(false); }, 10000);
 
