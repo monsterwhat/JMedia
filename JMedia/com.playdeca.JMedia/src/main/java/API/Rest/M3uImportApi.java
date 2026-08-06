@@ -6,6 +6,7 @@ import Models.Profile;
 import Models.DTOs.M3uImportRequest;
 import Models.DTOs.M3uImportResponse;
 import Services.M3uParserService;
+import Services.M3uService;
 import Services.StreamCheckerService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,12 +15,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ManagedContext;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.concurrent.ExecutorService;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,13 +34,15 @@ public class M3uImportApi {
     StreamCheckerService streamCheckerService;
 
     @Inject
+    M3uService m3uService;
+
+    @Inject
     ExecutorService executor;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
     @POST
     @Path("/import")
-    @Transactional
     public Response importPlaylist(JsonNode body) {
         String playlistUrl = body.has("url") ? body.get("url").asText(null) : null;
         String rawText = body.has("rawText") ? body.get("rawText").asText(null) : null;
@@ -53,7 +54,7 @@ public class M3uImportApi {
             return badRequest("Either playlistUrl or rawText is required");
         }
 
-        Profile profile = Profile.findById(profileId);
+        Profile profile = m3uService.findProfile(profileId);
         if (profile == null) {
             return badRequest("Profile not found: " + profileId);
         }
@@ -76,20 +77,11 @@ public class M3uImportApi {
         // Parse entries
         List<M3uParserService.M3uEntry> entries = m3uParserService.parse(m3uContent);
 
-        // Create playlist entity
-        M3uPlaylist playlist = new M3uPlaylist();
-        playlist.profile = profile;
-        playlist.url = playlistUrl;
-        playlist.name = playlistName != null ? playlistName : "Imported Playlist";
-        playlist.type = importType;
-        playlist.channelCount = 0;
-        playlist.lastRefreshed = LocalDateTime.now();
-        playlist.isActive = true;
-        playlist.createdAt = LocalDateTime.now();
-        playlist.persist();
-
-        // Import channels
-        M3uImportResponse response = importEntries(playlist, profile, entries);
+        M3uImportResponse response = m3uService.createPlaylistAndImportChannels(
+                profileId, playlistUrl, playlistName, importType, entries);
+        if (response == null) {
+            return badRequest("Profile not found: " + profileId);
+        }
 
         ObjectNode root = mapper.createObjectNode();
         root.put("success", true);
@@ -125,17 +117,12 @@ public class M3uImportApi {
 
     @DELETE
     @Path("/{id}")
-    @Transactional
     public Response deletePlaylist(@PathParam("id") Long id) {
-        M3uPlaylist playlist = M3uPlaylist.findById(id);
-        if (playlist == null) {
+        if (!m3uService.deletePlaylist(id)) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(mapper.createObjectNode().put("success", false).put("error", "Playlist not found"))
                     .build();
         }
-
-        deleteChannelsForPlaylist(id);
-        playlist.delete();
 
         ObjectNode root = mapper.createObjectNode();
         root.put("success", true);
@@ -144,25 +131,17 @@ public class M3uImportApi {
 
     @PUT
     @Path("/{id}")
-    @Transactional
     public Response updatePlaylist(@PathParam("id") Long id, JsonNode body) {
-        M3uPlaylist playlist = M3uPlaylist.findById(id);
+        String name = body.has("name") && !body.get("name").isNull() ? body.get("name").asText(null) : null;
+        String url = body.has("url") && !body.get("url").isNull() ? body.get("url").asText(null) : null;
+        String type = body.has("type") && !body.get("type").isNull() ? body.get("type").asText(null) : null;
+
+        M3uPlaylist playlist = m3uService.updatePlaylist(id, name, url, type);
         if (playlist == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(mapper.createObjectNode().put("success", false).put("error", "Playlist not found"))
                     .build();
         }
-
-        if (body.has("name") && !body.get("name").isNull()) {
-            playlist.name = body.get("name").asText(null);
-        }
-        if (body.has("url") && !body.get("url").isNull()) {
-            playlist.url = body.get("url").asText(null);
-        }
-        if (body.has("type") && !body.get("type").isNull()) {
-            playlist.type = body.get("type").asText(null);
-        }
-        playlist.persist();
 
         ObjectNode root = mapper.createObjectNode();
         root.put("success", true);
@@ -242,24 +221,11 @@ public class M3uImportApi {
 
     @DELETE
     @Path("/channels/{id}")
-    @Transactional
     public Response deleteChannel(@PathParam("id") Long id) {
-        LiveChannel channel = LiveChannel.findById(id);
-        if (channel == null) {
+        if (!m3uService.deleteChannel(id)) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(mapper.createObjectNode().put("success", false).put("error", "Channel not found"))
                     .build();
-        }
-
-        Long playlistId = channel.playlist != null ? channel.playlist.id : null;
-        channel.delete();
-
-        if (playlistId != null) {
-            M3uPlaylist playlist = M3uPlaylist.findById(playlistId);
-            if (playlist != null) {
-                playlist.channelCount = (int) LiveChannel.count("playlist.id = ?1", playlistId);
-                playlist.persist();
-            }
         }
 
         ObjectNode root = mapper.createObjectNode();
@@ -269,23 +235,18 @@ public class M3uImportApi {
 
     @POST
     @Path("/channels/{id}/status")
-    @Transactional
     public Response updateChannelStatus(@PathParam("id") Long id, JsonNode body) {
-        LiveChannel channel = LiveChannel.findById(id);
-        if (channel == null) {
+        String status = body.has("status") ? body.get("status").asText(null) : null;
+
+        M3uService.ChannelStatusUpdate result = m3uService.updateChannelStatus(id, status);
+        if (result == M3uService.ChannelStatusUpdate.CHANNEL_NOT_FOUND) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(mapper.createObjectNode().put("success", false).put("error", "Channel not found"))
                     .build();
         }
-
-        String status = body.has("status") ? body.get("status").asText(null) : null;
-        if (status == null || (!status.equals("working") && !status.equals("dead"))) {
+        if (result == M3uService.ChannelStatusUpdate.INVALID_STATUS) {
             return badRequest("Status must be 'working' or 'dead'");
         }
-
-        channel.streamStatus = status;
-        channel.lastChecked = LocalDateTime.now();
-        channel.persist();
 
         ObjectNode root = mapper.createObjectNode();
         root.put("success", true);
@@ -294,21 +255,17 @@ public class M3uImportApi {
 
     @POST
     @Path("/channels/{id}/favorite")
-    @Transactional
     public Response toggleFavorite(@PathParam("id") Long id) {
-        LiveChannel channel = LiveChannel.findById(id);
-        if (channel == null) {
+        Boolean isFavorite = m3uService.toggleFavorite(id);
+        if (isFavorite == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(mapper.createObjectNode().put("success", false).put("error", "Channel not found"))
                     .build();
         }
 
-        channel.isFavorite = channel.isFavorite == null || !channel.isFavorite;
-        channel.persist();
-
         ObjectNode root = mapper.createObjectNode();
         root.put("success", true);
-        root.put("isFavorite", channel.isFavorite);
+        root.put("isFavorite", isFavorite);
         return Response.ok(root).build();
     }
 
@@ -373,7 +330,6 @@ public class M3uImportApi {
 
     @POST
     @Path("/refresh/{id}")
-    @Transactional
     public Response refreshPlaylist(@PathParam("id") Long id) {
         M3uPlaylist playlist = M3uPlaylist.findById(id);
         if (playlist == null) {
@@ -395,12 +351,13 @@ public class M3uImportApi {
         }
 
         // Delete existing channels and re-import
-        deleteChannelsForPlaylist(id);
         List<M3uParserService.M3uEntry> entries = m3uParserService.parse(m3uContent);
-        playlist.lastRefreshed = LocalDateTime.now();
-        playlist.persist();
-
-        M3uImportResponse response = importEntries(playlist, playlist.profile, entries);
+        M3uImportResponse response = m3uService.refreshPlaylist(id, entries);
+        if (response == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(mapper.createObjectNode().put("success", false).put("error", "Playlist not found"))
+                    .build();
+        }
 
         ObjectNode root = mapper.createObjectNode();
         root.put("success", true);
@@ -409,59 +366,6 @@ public class M3uImportApi {
     }
 
     // --- Private helpers ---
-
-    @Transactional
-    M3uImportResponse importEntries(M3uPlaylist playlist, Profile profile, List<M3uParserService.M3uEntry> entries) {
-        M3uImportResponse response = new M3uImportResponse();
-        response.playlistId = playlist.id;
-        response.playlistName = playlist.name;
-        response.totalEntries = entries.size();
-        response.channelsCreated = 0;
-        response.failedEntries = 0;
-
-        int channelNumber = 1;
-        for (M3uParserService.M3uEntry entry : entries) {
-            try {
-                if (entry.streamUrl == null || entry.streamUrl.isBlank()) {
-                    response.failedEntries++;
-                    response.errors.add("Skipping entry with no URL: " + (entry.name != null ? entry.name : "unknown"));
-                    continue;
-                }
-
-                LiveChannel channel = new LiveChannel();
-                channel.profile = profile;
-                channel.playlist = playlist;
-                channel.name = entry.name;
-                channel.streamUrl = entry.streamUrl;
-                channel.logoUrl = entry.logoUrl;
-                channel.groupTitle = entry.groupTitle;
-                channel.tvgId = entry.tvgId;
-                channel.tvgName = entry.tvgName;
-                channel.country = entry.country;
-                channel.channelNumber = channelNumber++;
-                channel.isFavorite = false;
-                channel.createdAt = LocalDateTime.now();
-                channel.persist();
-
-                response.channelsCreated++;
-            } catch (Exception e) {
-                response.failedEntries++;
-                response.errors.add("Error importing '" + entry.name + "': " + e.getMessage());
-            }
-        }
-
-        playlist.channelCount = response.channelsCreated;
-        playlist.persist();
-
-        response.message = "Import complete: " + response.channelsCreated + " channels created"
-                + (response.failedEntries > 0 ? ", " + response.failedEntries + " failed" : "");
-        return response;
-    }
-
-    @Transactional
-    void deleteChannelsForPlaylist(Long playlistId) {
-        LiveChannel.delete("playlist.id = ?1", playlistId);
-    }
 
     private Response badRequest(String message) {
         return Response.status(Response.Status.BAD_REQUEST)
