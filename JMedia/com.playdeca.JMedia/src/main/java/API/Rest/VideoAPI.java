@@ -751,8 +751,12 @@ public class VideoAPI {
         // the request falls through to a fresh transcode instead of serving truncated data.
         try {
             java.nio.file.Path cacheFile = transcodingService.getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight);
-            if (java.nio.file.Files.exists(cacheFile) && java.nio.file.Files.size(cacheFile) > 65536) {
-                if (transcodingService.isCacheFileComplete(cacheFile) || transcodingService.isCacheBeingWritten(cacheFile)) {
+            // A cache that is still being written is served even before it crosses 64KB, so a
+            // concurrent request never starts a second transcode that truncates the first one's
+            // output (which corrupted both the stream and the cache).
+            boolean cacheBeingWritten = transcodingService.isCacheBeingWritten(cacheFile);
+            if (cacheBeingWritten || (java.nio.file.Files.exists(cacheFile) && java.nio.file.Files.size(cacheFile) > 65536)) {
+                if (transcodingService.isCacheFileComplete(cacheFile) || cacheBeingWritten) {
                     if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight) + "|cache")) {
                         LOG.info("Serving from cache file for video {} (start={}s, audio={})", videoId, startSeconds, audioTrackIndex);
                     }
