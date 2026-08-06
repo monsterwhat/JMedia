@@ -3,18 +3,15 @@ package API.Rest;
 import API.ApiResponse;
 import Controllers.VideoController;
 import Controllers.VideoQueueController;
-import Models.CollectionEntry;
 import Models.CollectionWatchProgress;
 import Models.ProfileSessionState;
 import Services.CollectionService;
 import Services.CollectionWatchProgressService;
 import Services.ProfileSessionStateService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -40,7 +37,6 @@ public class CollectionPlaybackAPI {
     @POST
     @Path("/{id}/play")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    @Transactional
     public Response playCollection(
             @PathParam("id") Long collectionId,
             @FormParam("startIndex") @DefaultValue("0") int startIndex) {
@@ -49,10 +45,7 @@ public class CollectionPlaybackAPI {
             return Response.ok(ApiResponse.error("Collection is empty")).build();
         }
 
-        List<Long> videoIds = new ArrayList<>();
-        for (var entry : entries) {
-            if (entry.video != null) videoIds.add(entry.video.id);
-        }
+        List<Long> videoIds = collectionService.getEntryVideoIds(collectionId);
         if (videoIds.isEmpty()) {
             return Response.ok(ApiResponse.error("No videos in collection")).build();
         }
@@ -88,7 +81,6 @@ public class CollectionPlaybackAPI {
     @POST
     @Path("/{id}/progress")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    @Transactional
     public Response updateProgress(
             @PathParam("id") Long collectionId,
             @FormParam("videoId") Long videoId,
@@ -103,7 +95,6 @@ public class CollectionPlaybackAPI {
     @POST
     @Path("/{id}/entries/{entryId}/play-next")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    @Transactional
     public Response playNextEntry(
             @PathParam("id") Long collectionId,
             @PathParam("entryId") Long entryId) {
@@ -112,8 +103,8 @@ public class CollectionPlaybackAPI {
             return Response.ok(ApiResponse.error("Collection is empty")).build();
         }
 
-        CollectionEntry entry = CollectionEntry.findById(entryId);
-        if (entry == null || entry.video == null) {
+        Long videoId = collectionService.getEntryVideoId(entryId);
+        if (videoId == null) {
             return Response.ok(ApiResponse.error("Entry not found or not a local video")).build();
         }
 
@@ -122,14 +113,13 @@ public class CollectionPlaybackAPI {
             return Response.ok(ApiResponse.error("No active profile")).build();
         }
 
-        videoQueueController.addToQueue(session, List.of(entry.video.id), true);
+        videoQueueController.addToQueue(session, List.of(videoId), true);
         return Response.ok(ApiResponse.success("Added to play next")).build();
     }
 
     @POST
     @Path("/{id}/entries/{entryId}/add-to-queue")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    @Transactional
     public Response addEntryToQueue(
             @PathParam("id") Long collectionId,
             @PathParam("entryId") Long entryId) {
@@ -138,8 +128,8 @@ public class CollectionPlaybackAPI {
             return Response.ok(ApiResponse.error("Collection is empty")).build();
         }
 
-        CollectionEntry entry = CollectionEntry.findById(entryId);
-        if (entry == null || entry.video == null) {
+        Long videoId = collectionService.getEntryVideoId(entryId);
+        if (videoId == null) {
             return Response.ok(ApiResponse.error("Entry not found or not a local video")).build();
         }
 
@@ -148,7 +138,7 @@ public class CollectionPlaybackAPI {
             return Response.ok(ApiResponse.error("No active profile")).build();
         }
 
-        videoQueueController.addToQueue(session, List.of(entry.video.id), false);
+        videoQueueController.addToQueue(session, List.of(videoId), false);
         return Response.ok(ApiResponse.success("Added to queue")).build();
     }
 

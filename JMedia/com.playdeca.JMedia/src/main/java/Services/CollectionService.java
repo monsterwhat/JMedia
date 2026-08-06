@@ -116,6 +116,83 @@ public class CollectionService {
         return CollectionEntry.list("collection = ?1 order by orderIndex asc", c);
     }
 
+    /**
+     * Returns the collection's entries with all lazy associations (video, externalVideo, series)
+     * pre-fetched via LEFT JOIN FETCH so they can be safely read outside the persistence context.
+     */
+    @Transactional
+    public List<CollectionEntry> getEntriesWithDetails(Long collectionId) {
+        MediaCollection c = MediaCollection.findById(collectionId);
+        if (c == null) return List.of();
+        return em.createQuery(
+                "select e from CollectionEntry e "
+                + "left join fetch e.video "
+                + "left join fetch e.externalVideo "
+                + "left join fetch e.series "
+                + "where e.collection = :collection order by e.orderIndex asc",
+                CollectionEntry.class)
+                .setParameter("collection", c)
+                .getResultList();
+    }
+
+    /**
+     * Builds the payload for the entries-fragment endpoint. All lazy reads (entry.video /
+     * entry.externalVideo / entry.series and the hero thumbnail) happen inside this transaction.
+     */
+    @Transactional
+    public CollectionEntriesFragment getEntriesFragment(Long collectionId) {
+        MediaCollection c = MediaCollection.findById(collectionId);
+        if (c == null) return null;
+        List<CollectionEntry> entries = getEntriesWithDetails(collectionId);
+        Map<Long, Long> videoEntryMap = new HashMap<>();
+        Map<Long, Long> externalVideoEntryMap = new HashMap<>();
+        Map<Long, Long> seriesEntryMap = new HashMap<>();
+        for (CollectionEntry entry : entries) {
+            if (entry.video != null) {
+                videoEntryMap.put(entry.video.id, entry.id);
+            } else if (entry.externalVideo != null) {
+                externalVideoEntryMap.put(entry.externalVideo.id, entry.id);
+            } else if (entry.series != null) {
+                seriesEntryMap.put(entry.series.id, entry.id);
+            }
+        }
+        Long heroImageId = c.coverVideoId;
+        if (heroImageId == null) {
+            for (CollectionEntry entry : entries) {
+                if (entry.video != null) {
+                    heroImageId = entry.video.id;
+                    break;
+                }
+            }
+        }
+        return new CollectionEntriesFragment(entries, videoEntryMap, externalVideoEntryMap, seriesEntryMap, heroImageId);
+    }
+
+    @Transactional
+    public List<Long> getEntryVideoIds(Long collectionId) {
+        List<Long> videoIds = new ArrayList<>();
+        for (CollectionEntry entry : getEntriesWithDetails(collectionId)) {
+            if (entry.video != null) videoIds.add(entry.video.id);
+        }
+        return videoIds;
+    }
+
+    @Transactional
+    public Long getEntryVideoId(Long entryId) {
+        if (entryId == null) return null;
+        CollectionEntry entry = CollectionEntry.findById(entryId);
+        if (entry == null || entry.video == null) return null;
+        return entry.video.id;
+    }
+
+    public record CollectionEntriesFragment(
+            List<CollectionEntry> entries,
+            Map<Long, Long> videoEntryMap,
+            Map<Long, Long> externalVideoEntryMap,
+            Map<Long, Long> seriesEntryMap,
+            Long heroImageId) {
+    }
+
     @Transactional
     public CollectionEntry addEntry(Long collectionId, Long videoId, int orderIndex, String notes) {
         MediaCollection c = MediaCollection.findById(collectionId);

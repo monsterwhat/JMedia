@@ -8,16 +8,13 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.Location;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Function;
 
 @Path("/api/video/ui")
@@ -105,48 +102,27 @@ public class CollectionUiApi {
     @GET
     @Path("/collections/{collectionId}/entries-fragment")
     @Blocking
-    @Transactional
     public String getCollectionEntriesFragment(@Context HttpHeaders headers,
                                                 @PathParam("collectionId") Long collectionId) {
         var collection = collectionService.getCollection(collectionId);
         if (collection == null) {
             return "<div class='notification is-danger'>Collection not found</div>";
         }
-        var entries = collectionService.getEntries(collectionId);
-        Map<Long, Long> videoEntryMap = new HashMap<>();
-        Map<Long, Long> externalVideoEntryMap = new HashMap<>();
-        Map<Long, Long> seriesEntryMap = new HashMap<>();
-        for (var entry : entries) {
-            if (entry.video != null) {
-                videoEntryMap.put(entry.video.id, entry.id);
-            } else if (entry.externalVideo != null) {
-                externalVideoEntryMap.put(entry.externalVideo.id, entry.id);
-            } else if (entry.series != null) {
-                seriesEntryMap.put(entry.series.id, entry.id);
-            }
+        var fragment = collectionService.getEntriesFragment(collectionId);
+        if (fragment == null) {
+            return "<div class='notification is-danger'>Collection not found</div>";
         }
-        var organized = collectionService.organizeActiveVideos(videoEntryMap, externalVideoEntryMap);
-
-        // Hero thumbnail: use manual coverVideoId, or first video entry, or null
-        Long heroImageId = collection.coverVideoId;
-        if (heroImageId == null) {
-            for (var entry : entries) {
-                if (entry.video != null) {
-                    heroImageId = entry.video.id;
-                    break;
-                }
-            }
-        }
+        var organized = collectionService.organizeActiveVideos(fragment.videoEntryMap(), fragment.externalVideoEntryMap());
 
         boolean isAdmin = checkAdmin(headers);
 
         return collectionEntriesContent
                 .data("collection", collection)
-                .data("entries", entries)
+                .data("entries", fragment.entries())
                 .data("movies", organized.get("movies"))
                 .data("seriesList", organized.get("seriesList"))
-                .data("seriesEntryMap", seriesEntryMap)
-                .data("heroImageId", heroImageId)
+                .data("seriesEntryMap", fragment.seriesEntryMap())
+                .data("heroImageId", fragment.heroImageId())
                 .data("isAdmin", isAdmin)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .render();
