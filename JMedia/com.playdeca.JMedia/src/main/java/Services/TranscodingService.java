@@ -52,6 +52,7 @@ public class TranscodingService {
 
     private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
     private final Map<String, Long> processLastOutput = new ConcurrentHashMap<>();
+    private final Map<Long, java.util.Set<String>> videoProcessKeys = new ConcurrentHashMap<>();
 
     private static final long TRANSCODE_IDLE_TTL_MS = 48 * 60 * 60 * 1000L;
     private static final long CACHE_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000L;
@@ -810,6 +811,7 @@ public class TranscodingService {
         String processKey = (cacheFile != null ? cacheFile.getFileName().toString() : "live-" + video.id) + "-" + System.nanoTime();
         activeProcesses.put(processKey, process);
         processLastOutput.put(processKey, System.currentTimeMillis());
+        videoProcessKeys.computeIfAbsent(video.id, k -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(processKey);
 
         Thread errorLogger = new Thread(() -> {
             try (java.util.Scanner sc = new java.util.Scanner(process.getErrorStream())) {
@@ -858,6 +860,11 @@ public class TranscodingService {
         } finally {
             activeProcesses.remove(processKey);
             processLastOutput.remove(processKey);
+            java.util.Set<String> keys = videoProcessKeys.get(video.id);
+            if (keys != null) {
+                keys.remove(processKey);
+                if (keys.isEmpty()) videoProcessKeys.remove(video.id);
+            }
             try {
                 errorLogger.join(5000);
             } catch (InterruptedException e) {
@@ -1083,6 +1090,30 @@ public class TranscodingService {
     public void releaseTranscode(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, boolean isAppleClient) {
         String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
         releaseTranscode(key);
+    }
+
+    /**
+     * Kills any in-flight FFmpeg process for the same video other than the one
+     * serving the requested session. During drag-seeks the client abandons the
+     * previous ?start= stream, but its FFmpeg process can keep running until it
+     * exits, holding a pool permit and exhausting the pool for the new request.
+     * Latest-seek-wins: destroy the stale process so its permit is released and
+     * the new transcode never queues.
+     */
+    public void releaseStaleTranscodesForVideo(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
+        java.util.Set<String> keys = videoProcessKeys.get(videoId);
+        if (keys == null || keys.isEmpty()) return;
+        String keepProcessPrefix = getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight).getFileName().toString();
+        for (String processKey : keys) {
+            if (processKey.startsWith(keepProcessPrefix)) {
+                continue;
+            }
+            Process proc = activeProcesses.get(processKey);
+            if (proc != null && proc.isAlive()) {
+                LOG.info("Killing superseded transcode {} for video {} (new request start={}s)", processKey, videoId, startSeconds);
+                proc.destroyForcibly();
+            }
+        }
     }
 
     private void releaseTranscode(String key) {

@@ -695,6 +695,11 @@ public class VideoAPI {
                 videoId, videoFile.getName(), video.videoCodec, video.audioCodec, isMKV,
                 transcodeNeeded, qualityHeight);
         }
+        // Latest-seek-wins: a drag-seek abandons the previous ?start= stream, but its
+        // FFmpeg process can keep running until it exits, holding a transcode permit.
+        // Kill superseded transcodes for this video so the new request never queues
+        // behind a stale process (permits exhausted during rapid seeks).
+        transcodingService.releaseStaleTranscodesForVideo(videoId, startSeconds, audioTrackIndex, qualityHeight);
         return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, transcodeNeeded);
     }
 
