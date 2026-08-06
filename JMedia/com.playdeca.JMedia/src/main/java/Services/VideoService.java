@@ -515,6 +515,25 @@ public class VideoService {
     }
 
     @Transactional
+    public String getSeriesSynopsis(String seriesTitle) {
+        if (seriesTitle == null || seriesTitle.isBlank()) {
+            return "";
+        }
+        try {
+            Models.Series series = Models.Series.find("title", seriesTitle).firstResult();
+            if (series != null) {
+                String synopsis = series.description != null ? series.description : series.overview;
+                if (synopsis != null && !synopsis.isBlank()) {
+                    return synopsis;
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Could not load synopsis for series '{}': {}", seriesTitle, e.getMessage());
+        }
+        return "";
+    }
+
+    @Transactional
     public Path getSeriesFolderPath(String seriesTitle) {
         Video episode = Video.find("seriesTitle = ?1 and isActive = true", seriesTitle)
             .firstResult();

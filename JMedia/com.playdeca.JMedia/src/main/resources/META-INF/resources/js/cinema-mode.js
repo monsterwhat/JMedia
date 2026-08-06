@@ -141,14 +141,25 @@ function formatDuration(ms) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function renderStars(rating) {
-  const stars = Math.round((rating || 0) / 2);
+function ratingColor(rating) {
+  const r = parseFloat(rating) || 0;
+  if (r < 5) return '#ff4d4f';
+  if (r < 7) return '#ff8c00';
+  if (r < 8) return '#46d369';
+  if (r < 9) return '#4fc3f7';
+  return '#ffd700';
+}
+
+function renderStars(rating, color) {
+  const r = parseFloat(rating) || 0;
+  if (r <= 0) return '';
+  const stars = Math.round(r / 2);
   const svgNS = 'http://www.w3.org/2000/svg';
   let html = '';
   for (let i = 0; i < 5; i++) {
     const filled = i < stars;
     const halfFilled = !filled && i < stars + 0.5;
-    const fillColor = 'var(--cinema-text, #ffffff)';
+    const fillColor = color || 'var(--cinema-text, #ffffff)';
     const emptyColor = 'var(--cinema-text-dim, #888888)';
     if (halfFilled) {
       html += `<svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align: middle;"><defs><linearGradient id="halfStar${i}"><stop offset="50%" stop-color="${fillColor}"/><stop offset="50%" stop-color="${emptyColor}"/></linearGradient></defs><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="url(#halfStar${i})" stroke="none"/></svg>`;
@@ -164,8 +175,11 @@ function createCardHTML(video) {
   const id = video.id;
   const isTvCard = video.type === 'episode' && video.seriesTitle;
   const title = isTvCard ? video.seriesTitle : (video.title || video.seriesTitle || 'Untitled');
-  const year = video.releaseYear || '';
-  const rating = video.imdbRating || video.tmdbRating || '';
+  // Episode videos carry no rating/year (fields default to 0.0) — fall back to the series values
+  let year = video.releaseYear || (isTvCard ? video.series?.releaseYear : '') || '';
+  const ratingValue = parseFloat(video.imdbRating || video.tmdbRating || (isTvCard ? (video.series?.imdbRating || video.series?.tmdbRating) : '') || '') || 0;
+  const ratingText = ratingValue > 0 ? ratingValue.toFixed(1) : '';
+  const starColor = ratingText ? ratingColor(ratingValue) : '';
   const imgSrc = isTvCard && video.series?.id
     ? getSeriesImageUrl(video.series.id, 'poster')
     : getThumbnailUrl(id);
@@ -181,7 +195,7 @@ function createCardHTML(video) {
       </div>
       <div class="cinema-card-title">${title}</div>
       <div class="cinema-card-meta">
-        <span class="cinema-card-meta-text"><i class="fa-solid fa-star" style="font-size: 0.7rem;"></i> ${rating} ${year}</span>
+        <span class="cinema-card-meta-text"><i class="fa-solid fa-star" style="font-size: 0.7rem;${starColor ? ` color: ${starColor};` : ''}"></i> <span style="color:${starColor || 'inherit'}">${ratingText}</span> ${year}</span>
       </div>
     </div>
   `;
@@ -276,20 +290,35 @@ function updateHero(index) {
       logoImg.style.maxHeight = '80px';
       logoImg.style.display = 'block';
       logoImg.classList.remove('is-skeleton');
+
+      // Hide the text title left over from the previous hero item so it cannot linger
+      var wrap = document.getElementById('hero-title-wrap');
+      var textEl = wrap ? wrap.querySelector('.cinema-hero-title') : null;
+      if (textEl) textEl.style.display = 'none';
+
+      var showTextTitle = function() {
+        if (!wrap) return;
+        if (!textEl) {
+          textEl = document.createElement('h1');
+          textEl.className = 'cinema-hero-title';
+          wrap.appendChild(textEl);
+        }
+        textEl.textContent = item.title || item.seriesTitle || '';
+        textEl.style.display = 'block';
+      };
+
+      logoImg.onload = function() {
+        // A generic /logo.png response means no real logo exists — fall back to text
+        if (logoImg.src.includes('/logo.png')) {
+          logoImg.style.display = 'none';
+          showTextTitle();
+        } else if (textEl) {
+          textEl.style.display = 'none';
+        }
+      };
       logoImg.onerror = function() {
         logoImg.style.display = 'none';
-        logoImg.onerror = null;
-        var wrap = document.getElementById('hero-title-wrap');
-        if (wrap) {
-          var textEl = wrap.querySelector('.cinema-hero-title');
-          if (!textEl) {
-            textEl = document.createElement('h1');
-            textEl.className = 'cinema-hero-title';
-            wrap.appendChild(textEl);
-          }
-          textEl.textContent = item.title || item.seriesTitle || '';
-          textEl.style.display = 'block';
-        }
+        showTextTitle();
       };
     }
     const descText = item.description || item.overview || '';
@@ -300,8 +329,10 @@ function updateHero(index) {
       desc.textContent = '';
       desc.classList.add('is-skeleton');
     }
-    rating.textContent = item.imdbRating || item.tmdbRating ? (Math.round(parseFloat(item.imdbRating || item.tmdbRating || 0) * 10) + '%') : '';
-    stars.innerHTML = renderStars(parseFloat(item.imdbRating || item.tmdbRating || 0));
+    const heroRating = parseFloat(item.imdbRating || item.tmdbRating || 0);
+    rating.textContent = heroRating > 0 ? heroRating.toFixed(1) : '';
+    rating.style.color = heroRating > 0 ? ratingColor(heroRating) : '';
+    stars.innerHTML = heroRating > 0 ? renderStars(heroRating, ratingColor(heroRating)) : '';
 
     const yearEl = document.getElementById('hero-year');
     const year = item.releaseYear || '';
@@ -463,20 +494,45 @@ function resolveResumeEpisode(episodes, seriesTitle, resumeEpisodeId) {
     .sort((a, b) => (b.watchProgress || 0) - (a.watchProgress || 0))[0] || null;
 }
 
+function getCurrentCinemaSection() {
+  return new URLSearchParams(window.location.search).get('section') || 'home';
+}
+
+function updateContinueWatchingBadge() {
+  const heroBadge = document.getElementById('hero-badge');
+  if (!heroBadge) return;
+  if (allContinueWatching.length > 0) {
+    heroBadge.innerHTML = '<i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching';
+    heroBadge.style.display = '';
+  } else {
+    heroBadge.style.display = 'none';
+  }
+}
+
 async function removeContinueWatching(id) {
+  const idNum = Number(id);
   try {
-    await fetch(`/api/video/progress/${id}/toggle-watched`, { method: 'POST' });
-    // Remove card from DOM
-    const card = document.querySelector(`.cw-card[data-id="${id}"]`);
-    if (card) card.remove();
-    // Filter out from array for immediate effect
-    allContinueWatching = allContinueWatching.filter(item => item.id !== id);
-    // Hide section if empty
-    const container = document.getElementById('continue-watching-carousel');
-    const section = document.getElementById('section-continue-watching');
-    if (container && container.children.length === 0 && section) {
-      section.style.display = 'none';
+    const resp = await fetch(`/api/video/progress/${id}/remove-from-continue-watching`, { method: 'POST' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    // Removing an episode takes the whole series off Continue Watching,
+    // otherwise the previous in-progress episode would take its place.
+    const target = allContinueWatching.find(item => Number(item.id) === idNum);
+    if (target && target.type === 'episode' && target.seriesTitle) {
+      const seriesKey = target.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      allContinueWatching = allContinueWatching.filter(item =>
+        !(item.type === 'episode' && item.seriesTitle &&
+          item.seriesTitle.toLowerCase().replace(/[^a-z0-9]/g, '') === seriesKey)
+      );
+    } else {
+      allContinueWatching = allContinueWatching.filter(item => Number(item.id) !== idNum);
     }
+
+    const section = getCurrentCinemaSection();
+    if (section === 'home' || section === 'movies' || section === 'shows') {
+      renderFilteredContinueWatching(section);
+    }
+    updateContinueWatchingBadge();
   } catch (e) {
     console.error('Failed to remove from continue watching:', e);
   }
@@ -947,13 +1003,7 @@ async function loadCinemaData() {
       }
     }
     // Update hero badge
-    const heroBadge = document.getElementById('hero-badge');
-    if (heroBadge) {
-      if (allContinueWatching.length > 0) {
-        heroBadge.innerHTML = '<i class="fa-solid fa-clock-rotate-left" style="color: #60a5fa;"></i> Continue Watching';
-        heroBadge.style.display = '';
-      }
-    }
+    updateContinueWatchingBadge();
     // Render continue-watching carousel if server didn't (server does include it)
     // Initialize carousel arrow visibility
     updateCarouselArrows();
@@ -1215,13 +1265,13 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
 
   // Meta badges � from Series entity
   const rating = imgSource.imdbRating || imgSource.tmdbRating || '';
-    const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
+    const ratingVal = rating ? parseFloat(rating) : 0;
   const year = imgSource.releaseYear || '';
   const seasonCount = seasonKeys.length;
   const metaRow = document.getElementById('modal-meta-row');
   if (metaRow) {
     metaRow.innerHTML = '';
-    if (matchPct !== null) metaRow.innerHTML += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
+    if (ratingVal > 0) metaRow.innerHTML += `<span style="color:${ratingColor(ratingVal)};font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingVal.toFixed(1)}</span>`;
     if (year) metaRow.innerHTML += `<span class="meta-badge">${year}</span>`;
     metaRow.innerHTML += `<span class="meta-badge">${seasonCount} Season${seasonCount > 1 ? 's' : ''}</span>`;
     metaRow.innerHTML += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;
@@ -1310,12 +1360,12 @@ async function openSeriesDetail(seriesTitle, resumeEpisodeId) {
         // Update meta badges if now available
         if (updated.imdbRating || updated.tmdbRating) {
           const rating = updated.imdbRating || updated.tmdbRating;
-          const matchPct = Math.round(parseFloat(rating) * 10);
+          const ratingVal = parseFloat(rating);
           const metaRow = document.getElementById('modal-meta-row');
           if (metaRow) {
             const existingHtml = metaRow.innerHTML;
-            if (!existingHtml.includes('% Match')) {
-              metaRow.innerHTML = `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>` + existingHtml;
+            if (!existingHtml.includes('fa-star')) {
+              metaRow.innerHTML = `<span style="color:${ratingColor(ratingVal)};font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingVal.toFixed(1)}</span>` + existingHtml;
             }
           }
         }
@@ -1649,7 +1699,9 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
           const year = v.releaseYear || '';
           const img = getThumbnailUrl(v.id);
           const rating = v.imdbRating || v.tmdbRating || '';
-          const matchPct = rating ? Math.round(parseFloat(rating) * 10) : '';
+          const ratingVal = rating ? parseFloat(rating) : 0;
+  const ratingText = ratingVal > 0 ? ratingVal.toFixed(1) : '';
+  const starColor = ratingText ? ratingColor(ratingVal) : '';
           const clickAction = `closeModal(); openDetails(${v.id})`;
           return `<div class="cinema-more-like-card" onclick="${clickAction}">
             <div class="cinema-more-like-img-wrap">
@@ -1662,7 +1714,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
             </div>
             <div class="cinema-card-title">${title}</div>
             <div class="cinema-card-meta-row">
-              ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
+              ${ratingText ? `<span style="color:${starColor};font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingText}</span>` : ''}
               ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
             </div>
           </div>`;
@@ -1752,7 +1804,9 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
     const year = v.releaseYear || '';
     const img = getThumbnailUrl(v.id);
     const rating = v.imdbRating || v.tmdbRating || '';
-    const matchPct = rating ? Math.round(parseFloat(rating) * 10) : '';
+    const ratingVal = rating ? parseFloat(rating) : 0;
+  const ratingText = ratingVal > 0 ? ratingVal.toFixed(1) : '';
+  const starColor = ratingText ? ratingColor(ratingVal) : '';
     allCards.push(`<div class="cinema-more-like-card" onclick="closeModal(); openDetails(${v.id})">
       <div class="cinema-more-like-img-wrap">
         <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
@@ -1764,7 +1818,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
       </div>
       <div class="cinema-card-title">${title}</div>
       <div class="cinema-card-meta-row">
-        ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
+        ${ratingText ? `<span style="color:${starColor};font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingText}</span>` : ''}
         ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
       </div>
     </div>`);
@@ -1776,7 +1830,9 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
     const year = series.releaseYear || '';
     const img = series.id ? getSeriesImageUrl(series.id, 'poster') : '/logo.png';
     const rating = series.imdbRating || series.tmdbRating || '';
-    const matchPct = rating ? Math.round(parseFloat(rating) * 10) : '';
+    const ratingVal = rating ? parseFloat(rating) : 0;
+  const ratingText = ratingVal > 0 ? ratingVal.toFixed(1) : '';
+  const starColor = ratingText ? ratingColor(ratingVal) : '';
     allCards.push(`<div class="cinema-more-like-card" data-click="openSeriesDetailFromCard" data-series-title="${encodeURIComponent(series.title || '')}">
       <div class="cinema-more-like-img-wrap">
         <img src="${img}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
@@ -1788,7 +1844,7 @@ function buildMoreLikeThis(currentVideo, overrideGenres) {
       </div>
       <div class="cinema-card-title">${title}</div>
       <div class="cinema-card-meta-row">
-        ${matchPct ? `<span style="color:#46d369;font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${matchPct}%</span>` : ''}
+        ${ratingText ? `<span style="color:${starColor};font-size:0.7rem;font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingText}</span>` : ''}
         ${year ? `<span class="cinema-card-year">${year}</span>` : ''}
       </div>
     </div>`);
@@ -2005,9 +2061,9 @@ function openDetails(videoId) {
     const type = data.type === 'movie' ? 'Movie' : 'TV Show';
 
     let metaHtml = '';
-  const matchPct = rating ? Math.round(parseFloat(rating) * 10) : null;
+  const ratingVal = rating ? parseFloat(rating) : 0;
 
-    if (matchPct !== null) metaHtml += `<span style="color:#46d369;font-weight:600;">${matchPct}% Match</span>`;
+    if (ratingVal > 0) metaHtml += `<span style="color:${ratingColor(ratingVal)};font-weight:600;"><i class="fa-solid fa-star" style="font-size:0.6rem;"></i> ${ratingVal.toFixed(1)}</span>`;
     if (year) metaHtml += `<span class="meta-badge">${year}</span>`;
     if (duration) metaHtml += `<span class="meta-badge">${duration}</span>`;
     metaHtml += `<span class="meta-badge" style="border:1px solid rgba(255,255,255,0.4);padding:0.15rem 0.5rem;border-radius:0.25rem;">HD</span>`;

@@ -325,6 +325,14 @@ public class VideoUiApi {
                 }
             }
 
+            // Bulk-load every Series once so per-card rendering never queries the DB (N+1)
+            Map<String, Models.Series> allSeriesByTitle = new HashMap<>();
+            for (Models.Series s : Models.Series.<Models.Series>listAll()) {
+                if (s.title == null || s.title.isBlank()) continue;
+                String sKey = s.title.toLowerCase().replaceAll("[^a-z0-9]", "");
+                if (!sKey.isEmpty()) allSeriesByTitle.putIfAbsent(sKey, s);
+            }
+
             // --- Trending: dedup by seriesTitle, sorted by rating ---
             Map<String, Models.Video> trendingMap = new LinkedHashMap<>();
             List<Models.Video> allCombined = new ArrayList<>();
@@ -337,11 +345,7 @@ public class VideoUiApi {
                 else if ("episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
                     try {
                         String trendingKey = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
-                        Models.Series series = seriesCache.get(trendingKey);
-                        if (series == null) {
-                            series = Models.Series.find("title", v.seriesTitle).firstResult();
-                            if (series != null) seriesCache.put(trendingKey, series);
-                        }
+                        Models.Series series = allSeriesByTitle.get(trendingKey);
                         if (series != null) {
                             rating = series.tmdbRating != null ? series.tmdbRating : (series.imdbRating != null ? series.imdbRating : 0.0);
                         }
@@ -356,7 +360,7 @@ public class VideoUiApi {
                 if (existingRating <= 0 && existing != null && "episode".equalsIgnoreCase(existing.type) && existing.seriesTitle != null) {
                     try {
                         String exKey = existing.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
-                        Models.Series exSeries = seriesCache.get(exKey);
+                        Models.Series exSeries = allSeriesByTitle.get(exKey);
                         if (exSeries != null) {
                             existingRating = exSeries.tmdbRating != null ? exSeries.tmdbRating : (exSeries.imdbRating != null ? exSeries.imdbRating : 0.0);
                         }
@@ -535,28 +539,28 @@ public class VideoUiApi {
 
             // Recently Updated
             if (!dedupedUpdates.isEmpty()) {
-                html.append(createCinemaCarouselSection("Recently Updated", "recently-updated-carousel", "home", dedupedUpdates, false));
+                html.append(createCinemaCarouselSection("Recently Updated", "recently-updated-carousel", "home", dedupedUpdates, false, allSeriesByTitle));
             }
 
             // Trending Now
             if (!trending.isEmpty()) {
-                html.append(createCinemaCarouselSection("Trending Now", "trending-carousel", "home", trending, false));
+                html.append(createCinemaCarouselSection("Trending Now", "trending-carousel", "home", trending, false, allSeriesByTitle));
             }
 
             // Movies
             List<Models.Video> moviesSlice = movies.size() > 20 ? movies.subList(0, 20) : movies;
             if (!moviesSlice.isEmpty()) {
-                html.append(createCinemaCarouselSection("Movies", "movies-carousel", "movies", moviesSlice, true));
+                html.append(createCinemaCarouselSection("Movies", "movies-carousel", "movies", moviesSlice, true, allSeriesByTitle));
             }
 
             // TV Shows
             if (!tvShows.isEmpty()) {
-                html.append(createCinemaCarouselSection("TV Shows", "tvshows-carousel", "shows", tvShows, true));
+                html.append(createCinemaCarouselSection("TV Shows", "tvshows-carousel", "shows", tvShows, true, allSeriesByTitle));
             }
 
             // Recently Added Movies
             if (!recentlyAddedMovies.isEmpty()) {
-                html.append(createCinemaCarouselSection("Recently Added Movies", "movies-recently-added-carousel", "movies", recentlyAddedMovies, false));
+                html.append(createCinemaCarouselSection("Recently Added Movies", "movies-recently-added-carousel", "movies", recentlyAddedMovies, false, allSeriesByTitle));
             }
 
             // Movie Genre Rows
@@ -565,12 +569,12 @@ public class VideoUiApi {
                 String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
                 String cid = "movies-genre-" + slug + "-carousel";
                 List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
-                html.append(createCinemaCarouselSection(genre, cid, "movies", genreVids, false));
+                html.append(createCinemaCarouselSection(genre, cid, "movies", genreVids, false, allSeriesByTitle));
             }
 
             // Recently Added TV Shows
             if (!recentlyAddedShows.isEmpty()) {
-                html.append(createCinemaCarouselSection("Recently Added TV Shows", "tvshows-recently-added-carousel", "shows", recentlyAddedShows, false));
+                html.append(createCinemaCarouselSection("Recently Added TV Shows", "tvshows-recently-added-carousel", "shows", recentlyAddedShows, false, allSeriesByTitle));
             }
 
             // TV Show Genre Rows
@@ -579,7 +583,7 @@ public class VideoUiApi {
                 String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
                 String cid = "tvshows-genre-" + slug + "-carousel";
                 List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
-                html.append(createCinemaCarouselSection(genre, cid, "shows", genreVids, false));
+                html.append(createCinemaCarouselSection(genre, cid, "shows", genreVids, false, allSeriesByTitle));
             }
 
             long elapsed = System.currentTimeMillis() - start;
@@ -612,10 +616,29 @@ public class VideoUiApi {
         }
         item.put("description", description);
         item.put("overview", v.overview);
-        item.put("imdbRating", v.imdbRating);
-        item.put("tmdbRating", v.tmdbRating);
-        item.put("releaseYear", v.releaseYear);
-        item.put("duration", v.getDurationSeconds());
+        // Episodes carry no rating/year of their own (fields default to 0.0) —
+        // fall back to the series values so TV shows still show rating and year.
+        Double imdbRating = v.imdbRating != null && v.imdbRating > 0 ? v.imdbRating : null;
+        Double tmdbRating = v.tmdbRating != null && v.tmdbRating > 0 ? v.tmdbRating : null;
+        Integer releaseYear = v.releaseYear;
+        if ("episode".equalsIgnoreCase(v.type)) {
+            Models.Series series = resolveSeries(v);
+            if (series != null) {
+                if (imdbRating == null && series.imdbRating != null && series.imdbRating > 0) {
+                    imdbRating = series.imdbRating;
+                }
+                if (tmdbRating == null && series.tmdbRating != null && series.tmdbRating > 0) {
+                    tmdbRating = series.tmdbRating;
+                }
+                if (releaseYear == null && series.releaseYear != null) {
+                    releaseYear = series.releaseYear;
+                }
+            }
+        }
+        item.put("imdbRating", imdbRating);
+        item.put("tmdbRating", tmdbRating);
+        item.put("releaseYear", releaseYear);
+        item.put("duration", v.duration != null ? v.duration : 0L);
         item.put("favorite", v.favorite);
         item.put("watchProgressPercent", v.watchProgressPercent != null ? v.watchProgressPercent : 0);
         return item;
@@ -626,48 +649,83 @@ public class VideoUiApi {
      * Looks up the Series via the video's relationship first, then by title.
      */
     private String resolveSeriesSynopsis(Models.Video v) {
-        if (!"episode".equalsIgnoreCase(v.type) || v.seriesTitle == null) {
-            return "";
+        Models.Series series = resolveSeries(v);
+        if (series != null) {
+            String synopsis = series.description != null ? series.description : series.overview;
+            if (synopsis != null && !synopsis.isBlank()) {
+                return synopsis;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * Resolves the Series entity for an episode, or null when unavailable.
+     * Looks up the Series via the video's relationship first, then by title.
+     */
+    private Models.Series resolveSeries(Models.Video v) {
+        if (v == null || !"episode".equalsIgnoreCase(v.type) || v.seriesTitle == null || v.seriesTitle.isBlank()) {
+            return null;
         }
         try {
             Models.Series series = v.series;
             if (series == null) {
                 series = Models.Series.find("title", v.seriesTitle).firstResult();
             }
-            if (series != null) {
-                String synopsis = series.description != null ? series.description : series.overview;
-                if (synopsis != null && !synopsis.isBlank()) {
-                    return synopsis;
-                }
-            }
+            return series;
         } catch (Exception e) {
-            LOG.debug("Could not load series synopsis for '{}': {}", v.seriesTitle, e.getMessage());
+            LOG.debug("Could not load series for '{}': {}", v.seriesTitle, e.getMessage());
+            return null;
         }
-        return "";
     }
 
     /**
      * Creates a cinema-styled card (matching createCardHTML in cinema-mode.js).
      */
-    private String createCinemaCardHTML(Models.Video item) {
+    private String createCinemaCardHTML(Models.Video item, Map<String, Models.Series> seriesByTitle) {
         boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type) && item.seriesTitle != null;
         String title = isEpisode ? item.seriesTitle
             : (item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled"));
         String clickAction = isEpisode ? "openSeriesDetailFromCard" : "openDetailsFromCard";
-        String rating = item.imdbRating != null ? String.format("%.1f", item.imdbRating) 
-            : (item.tmdbRating != null ? String.format("%.1f", item.tmdbRating) : "");
+
+        // Episode videos carry no rating/year of their own (fields default to 0.0) — resolve the series for fallbacks
+        Models.Series series = null;
+        if (isEpisode && item.seriesTitle != null && seriesByTitle != null) {
+            String seriesKey = item.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+            series = seriesByTitle.get(seriesKey);
+        }
+
+        double ratingValue = 0;
+        String rating = "";
+        if (item.imdbRating != null && item.imdbRating > 0) {
+            ratingValue = item.imdbRating;
+            rating = String.format("%.1f", ratingValue);
+        } else if (item.tmdbRating != null && item.tmdbRating > 0) {
+            ratingValue = item.tmdbRating;
+            rating = String.format("%.1f", ratingValue);
+        }
         String year = item.releaseYear != null ? String.valueOf(item.releaseYear) : "";
+        if (series != null) {
+            if (rating.isEmpty() && series.imdbRating != null && series.imdbRating > 0) {
+                ratingValue = series.imdbRating;
+                rating = String.format("%.1f", ratingValue);
+            }
+            if (rating.isEmpty() && series.tmdbRating != null && series.tmdbRating > 0) {
+                ratingValue = series.tmdbRating;
+                rating = String.format("%.1f", ratingValue);
+            }
+            if (year.isEmpty() && series.releaseYear != null) {
+                year = String.valueOf(series.releaseYear);
+            }
+        }
+        String starColor = rating.isEmpty() ? "" : ratingColor(ratingValue);
         String seriesTitleAttr = isEpisode 
             ? " data-series-title=\"" + urlEncode(item.seriesTitle != null ? item.seriesTitle : "") + "\""
             : "";
 
         String imgSrc;
         if (isEpisode) {
-            Long seriesId = item.series != null ? item.series.id : null;
-            if (seriesId == null && item.seriesTitle != null) {
-                Models.Series seriesByTitle = Models.Series.find("title", item.seriesTitle).firstResult();
-                if (seriesByTitle != null) seriesId = seriesByTitle.id;
-            }
+            Long seriesId = series != null ? series.id : null;
             imgSrc = seriesId != null
                 ? "/api/series/" + seriesId + "/poster"
                 : "/api/video/thumbnail/" + item.id;
@@ -687,30 +745,19 @@ public class VideoUiApi {
             + "</div></div>"
             + "<div class=\"cinema-card-title\">" + escapeHtml(title) + "</div>"
             + "<div class=\"cinema-card-meta\">"
-            + "<span class=\"cinema-card-meta-text\"><i class=\"fa-solid fa-star\" style=\"font-size: 0.7rem;\"></i> "
-            + escapeHtml(rating) + " " + escapeHtml(year) + "</span>"
-            + (nativePlaybackBadge(item))
+            + "<span class=\"cinema-card-meta-text\"><i class=\"fa-solid fa-star\" style=\"font-size: 0.7rem;"
+            + (starColor.isEmpty() ? "" : " color: " + starColor + ";") + "\"></i> "
+            + "<span style=\"color:" + (starColor.isEmpty() ? "inherit" : starColor) + "\">" + escapeHtml(rating) + "</span>"
+            + " " + escapeHtml(year) + "</span>"
             + "</div></div>";
     }
 
-    /**
-     * Badge of players that can play the file natively without re-encoding:
-     * MP4/M4V plays on Apple devices, Chrome and Firefox; MKV plays in Firefox.
-     * Returns an empty string when nothing plays the file natively.
-     */
-    private String nativePlaybackBadge(Models.Video v) {
-        if (v == null || v.path == null) return "";
-        String lower = v.path.toLowerCase();
-        boolean mp4 = lower.endsWith(".mp4") || lower.endsWith(".m4v");
-        boolean mkv = lower.endsWith(".mkv");
-        if (!mp4 && !mkv) return "";
-        String title = mp4
-            ? "MP4 - plays natively on Apple, Chrome and Firefox - no re-encoding needed"
-            : "MKV - plays natively in Firefox - no re-encoding needed";
-        StringBuilder sb = new StringBuilder("<span class=\"cinema-native-badge\" style=\"margin-left:0.5rem;display:inline-flex;align-items:center;gap:0.4rem;flex-shrink:0;font-size:0.8rem;line-height:1;opacity:0.85;\" title=\"").append(title).append("\">");
-        if (mp4) sb.append("<i class=\"fa-brands fa-apple\"></i><i class=\"fa-brands fa-chrome\"></i>");
-        sb.append("<i class=\"fa-brands fa-firefox\"></i>");
-        return sb.append("</span>").toString();
+    private String ratingColor(double rating) {
+        if (rating < 5.0) return "#ff4d4f";
+        if (rating < 7.0) return "#ff8c00";
+        if (rating < 8.0) return "#46d369";
+        if (rating < 9.0) return "#4fc3f7";
+        return "#ffd700";
     }
 
     /**
@@ -762,7 +809,7 @@ public class VideoUiApi {
     /**
      * Creates a cinema-styled carousel section with header and arrows.
      */
-    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video> items, boolean isMainSection) {
+    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video> items, boolean isMainSection, Map<String, Models.Series> seriesByTitle) {
         if (items == null || items.isEmpty()) return "";
         StringBuilder html = new StringBuilder();
         html.append("<section class=\"cinema-section\" data-category=\"").append(escapeHtml(category)).append("\">");
@@ -784,7 +831,7 @@ public class VideoUiApi {
         html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-left\" data-carousel=\"").append(carouselId).append("\"><i class=\"fa-solid fa-chevron-left\"></i></button>");
         html.append("<div class=\"cinema-carousel scrollbar-hide\" id=\"").append(carouselId).append("\">");
         for (Models.Video item : items) {
-            html.append(createCinemaCardHTML(item));
+            html.append(createCinemaCardHTML(item, seriesByTitle));
         }
         html.append("</div>");
         html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-right\" data-carousel=\"").append(carouselId).append("\"><i class=\"fa-solid fa-chevron-right\"></i></button>");
@@ -2317,6 +2364,11 @@ public class VideoUiApi {
                 }
             }
 
+            // Resolve the shared series synopsis once through the service layer
+            // (transactional) so episode cards can fall back to it without
+            // per-episode lazy loads outside a session.
+            String seriesSynopsis = videoService.getSeriesSynopsis(decodedTitle);
+
             // Build lightweight list — include series.id so JS can fetch full Series entity
             List<Map<String, Object>> result = new ArrayList<>();
             for (Models.Video v : episodes) {
@@ -2351,7 +2403,7 @@ public class VideoUiApi {
                 // the series synopsis when the episode has none.
                 String description = v.description != null ? v.description : (v.overview != null ? v.overview : "");
                 if (description.isBlank()) {
-                    description = resolveSeriesSynopsis(v);
+                    description = seriesSynopsis;
                 }
                 item.put("description", description);
                 item.put("overview", v.overview);
