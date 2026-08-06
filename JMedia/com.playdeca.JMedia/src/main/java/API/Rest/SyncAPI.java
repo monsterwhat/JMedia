@@ -5,10 +5,9 @@ import Models.SyncLog;
 import Models.SyncServer;
 import Services.RemoteJMediaClient;
 import Services.SettingsService;
+import Services.SyncServerService;
 import Services.SyncService;
 import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -36,11 +35,11 @@ public class SyncAPI {
     @Inject
     LoggingService log;
 
-    @PersistenceContext
-    EntityManager em;
-
     @Inject
     SyncService syncService;
+
+    @Inject
+    SyncServerService syncServerService;
 
     @Inject
     SettingsService settingsService;
@@ -248,7 +247,6 @@ public class SyncAPI {
 
     @POST
     @Path("/servers")
-    @Transactional
     public Response addServer(SyncServer server) {
         if (server.name == null || server.name.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
@@ -258,7 +256,7 @@ public class SyncAPI {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("Server URL is required")).build();
         }
-        server.url = normalizeUrl(server.url);
+        server.url = SyncServerService.normalizeUrl(server.url);
         if (server.url.length() > 500) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("Server URL must not exceed 500 characters")).build();
@@ -282,21 +280,13 @@ public class SyncAPI {
                     .entity(ApiResponse.error("Server name must not exceed 255 characters")).build();
         }
 
-        server.enabled = true;
-        em.persist(server);
+        server = syncServerService.addServer(server);
         return Response.ok(ApiResponse.success(server)).build();
     }
 
     @PUT
     @Path("/servers/{id}")
-    @Transactional
     public Response updateServer(@PathParam("id") Long id, SyncServer updated) {
-        SyncServer server = SyncServer.findById(id);
-        if (server == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(ApiResponse.error("Server not found")).build();
-        }
-
         if (updated.apiKey != null && updated.apiKey.length() > 255) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("API key must not exceed 255 characters")).build();
@@ -306,19 +296,18 @@ public class SyncAPI {
                     .entity(ApiResponse.error("Server name must not exceed 255 characters")).build();
         }
         if (updated.url != null) {
-            updated.url = normalizeUrl(updated.url);
+            updated.url = SyncServerService.normalizeUrl(updated.url);
             if (updated.url.length() > 500) {
                 return Response.status(Response.Status.BAD_REQUEST)
                         .entity(ApiResponse.error("Server URL must not exceed 500 characters")).build();
             }
         }
 
-        if (updated.name != null) server.name = updated.name;
-        if (updated.url != null) server.url = updated.url;
-        if (updated.apiKey != null) server.apiKey = updated.apiKey;
-        server.enabled = updated.enabled;
-
-        em.merge(server);
+        SyncServer server = syncServerService.updateServer(id, updated);
+        if (server == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(ApiResponse.error("Server not found")).build();
+        }
         return Response.ok(ApiResponse.success(server)).build();
     }
 
@@ -332,7 +321,7 @@ public class SyncAPI {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("Server URL is required")).build();
         }
-        url = normalizeUrl(url);
+        url = SyncServerService.normalizeUrl(url);
         if (apiKey == null || apiKey.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(ApiResponse.error("API key is required")).build();
@@ -357,26 +346,12 @@ public class SyncAPI {
 
     @DELETE
     @Path("/servers/{id}")
-    @Transactional
     public Response deleteServer(@PathParam("id") Long id) {
-        SyncServer server = SyncServer.findById(id);
-        if (server == null) {
+        if (!syncServerService.deleteServer(id)) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Server not found")).build();
         }
-
-        SyncLog.delete("server.id", id);
-        server.delete();
         return Response.ok(ApiResponse.success("Server deleted")).build();
-    }
-
-    private static String normalizeUrl(String url) {
-        if (url == null) return null;
-        url = url.trim();
-        if (!url.contains("://")) {
-            url = "https://" + url;
-        }
-        return url.replaceAll("/+$", "");
     }
 
 }
