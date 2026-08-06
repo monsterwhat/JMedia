@@ -18,6 +18,7 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
@@ -45,6 +46,12 @@ public class VideoService {
 
     @Inject
     SettingsService settingsService;
+
+    @Inject
+    VideoMetadataService videoMetadataService;
+
+    @Inject
+    ThumbnailService thumbnailService;
 
     // ========== CORE VIDEO OPERATIONS ==========
     
@@ -1123,6 +1130,184 @@ public class VideoService {
             v.persist();
         }
         LOGGER.info("Cleared override flags for series '{}' ({} videos)", seriesTitle, videos.size());
+    }
+
+    // ========== API TRANSACTION-BOUNDARY HELPERS ==========
+
+    /**
+     * API transaction-boundary helper: persists the "update video" form in one
+     * transaction — the metadata fields plus the optional TMDb ID and intro/outro
+     * timestamps. Mirrors the old inline API flow exactly (metadata write first,
+     * then the TMDb/intro/outro field writes with {@code video.persist()}).
+     */
+    @Transactional
+    public void updateVideoFields(Long id, String title, String seriesTitle, String episodeTitle, Integer seasonNumber, Integer episodeNumber, String type, String showImdbId, String imdbId, String tmdbId, Double introStart, Double introEnd, Double outroStart, Double outroEnd) {
+        updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId, imdbId);
+
+        // Also update TMDb ID and intro/outro timestamps if provided
+        if (tmdbId != null || introStart != null || introEnd != null || outroStart != null || outroEnd != null) {
+            Video video = find(id);
+            if (video != null) {
+                if (tmdbId != null && !tmdbId.isBlank()) video.tmdbId = tmdbId;
+                if (introStart != null) video.introStart = introStart;
+                if (introEnd != null) video.introEnd = introEnd;
+                if (outroStart != null) video.outroStart = outroStart;
+                if (outroEnd != null) video.outroEnd = outroEnd;
+                video.dateModified = LocalDateTime.now();
+                video.persist();
+            }
+        }
+    }
+
+    /**
+     * API transaction-boundary helper: applies user search overrides then runs
+     * metadata enrichment inside the same transaction. The field mutation MUST
+     * happen before {@link VideoMetadataService#fetchAndEnrichMetadata} — the
+     * metadata fetch re-reads the same managed entity and would otherwise miss
+     * the user's corrections. Returns the enriched video (or null when the id
+     * is unknown), safely materialized for use after the transaction ends.
+     */
+    @Transactional
+    public Video applySearchEnrichOverrides(Long id, String title, String seriesTitle, Integer seasonNumber, Integer episodeNumber, String imdbId, String showImdbId) {
+        Video video = find(id);
+        if (video == null) {
+            return null;
+        }
+
+        // Apply overrides — only update non-null, non-blank values the user explicitly set
+        if (title != null && !title.isBlank()) video.title = title;
+        if (seriesTitle != null && !seriesTitle.isBlank()) video.seriesTitle = seriesTitle;
+        if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
+        if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
+        if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
+        if (showImdbId != null && !showImdbId.isBlank()) video.showImdbId = showImdbId;
+        video.dateModified = LocalDateTime.now();
+
+        videoMetadataService.fetchAndEnrichMetadata(video);
+        return video;
+    }
+
+    /**
+     * API transaction-boundary helper: applies verification panel selections to
+     * a video inside a transaction. Returns the updated video (or null when the
+     * id is unknown).
+     */
+    @Transactional
+    public Video applyVerificationSelections(Long id, Map<String, Object> selections) {
+        Video video = find(id);
+        if (video == null) {
+            return null;
+        }
+        if (selections.containsKey("title")) {
+            video.title = (String) selections.get("title");
+            if (selections.containsKey("_titleManual"))
+                video.titleManuallyEdited = Boolean.TRUE.equals(selections.get("_titleManual"));
+        }
+        if (selections.containsKey("seriesTitle")) {
+            video.seriesTitle = (String) selections.get("seriesTitle");
+            if (selections.containsKey("_seriesTitleManual"))
+                video.seriesTitleManuallyEdited = Boolean.TRUE.equals(selections.get("_seriesTitleManual"));
+        }
+        if (selections.containsKey("episodeTitle")) {
+            video.episodeTitle = (String) selections.get("episodeTitle");
+        }
+        if (selections.containsKey("seasonNumber")) {
+            Object val = selections.get("seasonNumber");
+            video.seasonNumber = val instanceof Number ? ((Number) val).intValue() : null;
+        }
+        if (selections.containsKey("episodeNumber")) {
+            Object val = selections.get("episodeNumber");
+            video.episodeNumber = val instanceof Number ? ((Number) val).intValue() : null;
+        }
+        if (selections.containsKey("imdbId")) {
+            video.imdbId = (String) selections.get("imdbId");
+        }
+        if (selections.containsKey("showImdbId")) {
+            video.showImdbId = (String) selections.get("showImdbId");
+        }
+        if (selections.containsKey("tmdbId")) {
+            video.tmdbId = (String) selections.get("tmdbId");
+        }
+        video.dateModified = LocalDateTime.now();
+        video.persist();
+        return video;
+    }
+
+    /**
+     * Outcome of {@link #refetchSeriesImages}, mapped by the API back to its
+     * original HTTP responses (404/400/200/500) after the migration.
+     */
+    public record RefetchImagesResult(RefetchStatus status, String message) {
+        public enum RefetchStatus { NOT_FOUND, BAD_REQUEST, OK, ERROR }
+    }
+
+    /**
+     * API transaction-boundary helper: force-refetch TMDB images for a series and
+     * apply the fresh artwork to every episode. Runs in a transaction so the
+     * episode mutations (including {@code video.persist()}) are committed before
+     * the entities are handed back to the API layer.
+     */
+    @Transactional
+    public RefetchImagesResult refetchSeriesImages(String seriesTitle) {
+        List<Video> episodes = findEpisodesForSeries(seriesTitle);
+        if (episodes.isEmpty()) {
+            return new RefetchImagesResult(RefetchImagesResult.RefetchStatus.NOT_FOUND, "Series not found");
+        }
+
+        Video representative = episodes.get(0);
+        String type = representative.type != null ? representative.type : "episode";
+        String title = "episode".equalsIgnoreCase(type) && representative.seriesTitle != null
+                ? representative.seriesTitle
+                : (representative.title != null ? representative.title : representative.seriesTitle);
+
+        if (title == null || title.isBlank()) {
+            return new RefetchImagesResult(RefetchImagesResult.RefetchStatus.BAD_REQUEST, "No title available for image fetch");
+        }
+
+        try {
+            VideoMetadataService.MediaImages tmdbImages = videoMetadataService.fetchMediaImages(type, title, representative.releaseYear,
+                    representative.seriesTitle, representative.seasonNumber, representative.episodeNumber);
+            LOGGER.info("[RefetchImages] TMDB result for '{}': poster={}, backdrop={}, logo={}, hero={}, still={}", title, tmdbImages.posterPath().isPresent(), tmdbImages.backdropPath().isPresent(), tmdbImages.logoPath().isPresent(), tmdbImages.heroPath().isPresent(), tmdbImages.stillPath().isPresent());
+            ThumbnailService.MediaImages localImages = new ThumbnailService.MediaImages(
+                    tmdbImages.posterPath(), tmdbImages.logoPath(),
+                    tmdbImages.backdropPath(), tmdbImages.heroPath(),
+                    tmdbImages.stillPath());
+
+            // Force refetch: delete existing image files so they get re-downloaded
+            Path thumbnailsDir = thumbnailService.getThumbnailDirectory();
+            for (String suffix : new String[]{"poster", "logo", "backdrop", "hero", "still"}) {
+                for (String ext : new String[]{".webp", ".jpg", ".png", ".gif"}) {
+                    Path existing = thumbnailsDir.resolve(representative.id + "_" + suffix + ext);
+                    try { Files.deleteIfExists(existing); } catch (Exception ignored) {}
+                }
+            }
+
+            ThumbnailService.MediaImagePaths paths = thumbnailService.downloadMediaImages(representative.id, localImages);
+            LOGGER.info("[RefetchImages] Downloaded paths for video {}: poster={}, backdrop={}, logo={}, hero={}, still={}", representative.id, paths.posterPath(), paths.backdropPath(), paths.logoPath(), paths.heroPath(), paths.stillPath());
+
+            LOGGER.info("[RefetchImages] Updating {} episodes for series '{}'", episodes.size(), seriesTitle);
+            int updated = 0;
+            for (Video v : episodes) {
+                boolean changed = false;
+                if (paths.posterPath() != null) { v.posterPath = paths.posterPath(); changed = true; }
+                if (paths.backdropPath() != null) { v.backdropPath = paths.backdropPath(); changed = true; }
+                if (paths.logoPath() != null) { v.logoPath = paths.logoPath(); changed = true; }
+                if (paths.heroPath() != null) { v.heroPath = paths.heroPath(); changed = true; }
+                if (paths.stillPath() != null) { v.stillPath = paths.stillPath(); changed = true; }
+                if (changed) {
+                    v.dateModified = LocalDateTime.now();
+                    v.persist();
+                    updated++;
+                }
+            }
+
+            String safeTitle = seriesTitle.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+            LOGGER.info("Refetched images for series '{}': updated {} episodes", seriesTitle, updated);
+            return new RefetchImagesResult(RefetchImagesResult.RefetchStatus.OK, "Refetched images for '" + safeTitle + "'. Updated " + updated + " episodes.");
+        } catch (Exception e) {
+            LOGGER.error("Failed to refetch images for series '{}': {}", seriesTitle, e.getMessage(), e);
+            return new RefetchImagesResult(RefetchImagesResult.RefetchStatus.ERROR, "Failed to refetch images: " + e.getMessage());
+        }
     }
 
     // ========== UTILITY METHODS ==========

@@ -12,7 +12,6 @@ import Models.DTOs.VerificationPreview;
 import io.quarkus.qute.Template;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -118,7 +117,6 @@ public class VideoManagementApi {
     @GET
     @Path("/series/{seriesTitle}")
     @Blocking
-    @Transactional
     public String getSeriesEpisodes(@PathParam("seriesTitle") String seriesTitle) {
         try {
             List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
@@ -259,66 +257,17 @@ public class VideoManagementApi {
     @Path("/series/refetch-images")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Blocking
-    @Transactional
     public Response refetchSeriesImages(@FormParam("seriesTitle") String seriesTitle) {
-        List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
-        if (episodes.isEmpty()) {
-            return Response.status(Response.Status.NOT_FOUND).entity("Series not found").build();
-        }
-
-        Video representative = episodes.get(0);
-        String type = representative.type != null ? representative.type : "episode";
-        String title = "episode".equalsIgnoreCase(type) && representative.seriesTitle != null
-                ? representative.seriesTitle
-                : (representative.title != null ? representative.title : representative.seriesTitle);
-
-        if (title == null || title.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST).entity("No title available for image fetch").build();
-        }
-
-        try {
-            VideoMetadataService.MediaImages tmdbImages = videoMetadataService.fetchMediaImages(type, title, representative.releaseYear,
-                    representative.seriesTitle, representative.seasonNumber, representative.episodeNumber);
-            LOG.info("[RefetchImages] TMDB result for '{}': poster={}, backdrop={}, logo={}, hero={}, still={}", title, tmdbImages.posterPath().isPresent(), tmdbImages.backdropPath().isPresent(), tmdbImages.logoPath().isPresent(), tmdbImages.heroPath().isPresent(), tmdbImages.stillPath().isPresent());
-            Services.ThumbnailService.MediaImages localImages = new Services.ThumbnailService.MediaImages(
-                    tmdbImages.posterPath(), tmdbImages.logoPath(),
-                    tmdbImages.backdropPath(), tmdbImages.heroPath(),
-                    tmdbImages.stillPath());
-
-            // Force refetch: delete existing image files so they get re-downloaded
-            java.nio.file.Path thumbnailsDir = thumbnailService.getThumbnailDirectory();
-            for (String suffix : new String[]{"poster", "logo", "backdrop", "hero", "still"}) {
-                for (String ext : new String[]{".webp", ".jpg", ".png", ".gif"}) {
-                    java.nio.file.Path existing = thumbnailsDir.resolve(representative.id + "_" + suffix + ext);
-                    try { java.nio.file.Files.deleteIfExists(existing); } catch (Exception ignored) {}
-                }
-            }
-
-            Services.ThumbnailService.MediaImagePaths paths = thumbnailService.downloadMediaImages(representative.id, localImages);
-            LOG.info("[RefetchImages] Downloaded paths for video {}: poster={}, backdrop={}, logo={}, hero={}, still={}", representative.id, paths.posterPath(), paths.backdropPath(), paths.logoPath(), paths.heroPath(), paths.stillPath());
-
-            LOG.info("[RefetchImages] Updating {} episodes for series '{}'", episodes.size(), seriesTitle);
-            int updated = 0;
-            for (Video v : episodes) {
-                boolean changed = false;
-                if (paths.posterPath() != null) { v.posterPath = paths.posterPath(); changed = true; }
-                if (paths.backdropPath() != null) { v.backdropPath = paths.backdropPath(); changed = true; }
-                if (paths.logoPath() != null) { v.logoPath = paths.logoPath(); changed = true; }
-                if (paths.heroPath() != null) { v.heroPath = paths.heroPath(); changed = true; }
-                if (paths.stillPath() != null) { v.stillPath = paths.stillPath(); changed = true; }
-                if (changed) {
-                    v.dateModified = java.time.LocalDateTime.now();
-                    v.persist();
-                    updated++;
-                }
-            }
-
-            String safeTitle = seriesTitle.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-            LOG.info("Refetched images for series '{}': updated {} episodes", seriesTitle, updated);
-            return Response.ok("Refetched images for '" + safeTitle + "'. Updated " + updated + " episodes.").build();
-        } catch (Exception e) {
-            LOG.error("Failed to refetch images for series '{}': {}", seriesTitle, e.getMessage(), e);
-            return Response.serverError().entity("Failed to refetch images: " + e.getMessage()).build();
+        VideoService.RefetchImagesResult result = videoService.refetchSeriesImages(seriesTitle);
+        switch (result.status()) {
+            case NOT_FOUND:
+                return Response.status(Response.Status.NOT_FOUND).entity(result.message()).build();
+            case BAD_REQUEST:
+                return Response.status(Response.Status.BAD_REQUEST).entity(result.message()).build();
+            case ERROR:
+                return Response.serverError().entity(result.message()).build();
+            default:
+                return Response.ok(result.message()).build();
         }
     }
 
@@ -340,7 +289,6 @@ public class VideoManagementApi {
     @GET
     @Path("/edit-series/{seriesTitle}")
     @Blocking
-    @Transactional
     public String getEditSeriesFragment(@PathParam("seriesTitle") String seriesTitle) {
         List<Video> episodes = videoService.findEpisodesForSeries(seriesTitle);
         if (episodes.isEmpty()) return "<div class='notification is-danger'>Series not found</div>";
@@ -371,7 +319,6 @@ public class VideoManagementApi {
     @POST
     @Path("/update/{id}")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    @Transactional
     @Blocking
     public Response updateVideo(
             @PathParam("id") Long id,
@@ -388,23 +335,9 @@ public class VideoManagementApi {
             @FormParam("introEnd") Double introEnd,
             @FormParam("outroStart") Double outroStart,
             @FormParam("outroEnd") Double outroEnd) {
-        
-        videoService.updateMetadata(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId, imdbId);
-        
-        // Also update TMDb ID and intro/outro timestamps if provided
-        if (tmdbId != null || introStart != null || introEnd != null || outroStart != null || outroEnd != null) {
-            Video video = videoService.find(id);
-            if (video != null) {
-                if (tmdbId != null && !tmdbId.isBlank()) video.tmdbId = tmdbId;
-                if (introStart != null) video.introStart = introStart;
-                if (introEnd != null) video.introEnd = introEnd;
-                if (outroStart != null) video.outroStart = outroStart;
-                if (outroEnd != null) video.outroEnd = outroEnd;
-                video.dateModified = java.time.LocalDateTime.now();
-                video.persist();
-            }
-        }
-        
+
+        videoService.updateVideoFields(id, title, seriesTitle, episodeTitle, seasonNumber, episodeNumber, type, showImdbId, imdbId, tmdbId, introStart, introEnd, outroStart, outroEnd);
+
         return Response.ok("Metadata updated successfully").build();
     }
 
@@ -458,7 +391,6 @@ public class VideoManagementApi {
     @Path("/search-enrich/{id}")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Blocking
-    @Transactional
     public Response searchAndEnrich(
             @PathParam("id") Long id,
             @FormParam("title") String title,
@@ -467,34 +399,24 @@ public class VideoManagementApi {
             @FormParam("episodeNumber") Integer episodeNumber,
             @FormParam("imdbId") String imdbId,
             @FormParam("showImdbId") String showImdbId) {
-        
-        Video video = videoService.find(id);
-        if (video == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("Video not found")
-                    .build();
-        }
 
-        // Apply overrides — only update non-null, non-blank values the user explicitly set
-        if (title != null && !title.isBlank()) video.title = title;
-        if (seriesTitle != null && !seriesTitle.isBlank()) video.seriesTitle = seriesTitle;
-        if (seasonNumber != null && seasonNumber > 0) video.seasonNumber = seasonNumber;
-        if (episodeNumber != null && episodeNumber > 0) video.episodeNumber = episodeNumber;
-        if (imdbId != null && !imdbId.isBlank()) video.imdbId = imdbId;
-        if (showImdbId != null && !showImdbId.isBlank()) video.showImdbId = showImdbId;
-        video.dateModified = java.time.LocalDateTime.now();
-
+        Video video;
         try {
-            videoMetadataService.fetchAndEnrichMetadata(video);
-            LOG.info("Search-and-enrich completed for video {} ('{}')", id, video.title);
-            return Response.ok("Search and enrichment completed for '" + video.title + "'")
-                    .build();
+            video = videoService.applySearchEnrichOverrides(id, title, seriesTitle, seasonNumber, episodeNumber, imdbId, showImdbId);
         } catch (Exception e) {
             LOG.error("Search-and-enrich failed for video {}: {}", id, e.getMessage());
             return Response.serverError()
                     .entity("Search failed: " + e.getMessage())
                     .build();
         }
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("Video not found")
+                    .build();
+        }
+        LOG.info("Search-and-enrich completed for video {} ('{}')", id, video.title);
+        return Response.ok("Search and enrichment completed for '" + video.title + "'")
+                .build();
     }
 
     // ── Verification (side-by-side metadata comparison) ──────────────────────
@@ -539,55 +461,23 @@ public class VideoManagementApi {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
-    @Transactional
     public Response applyVerification(@PathParam("id") Long id, Map<String, Object> selections) {
-        Video video = videoService.find(id);
-        if (video == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"error\":\"Video not found\"}")
-                    .build();
-        }
+        Video video;
         try {
-            if (selections.containsKey("title")) {
-                video.title = (String) selections.get("title");
-                if (selections.containsKey("_titleManual"))
-                    video.titleManuallyEdited = Boolean.TRUE.equals(selections.get("_titleManual"));
-            }
-            if (selections.containsKey("seriesTitle")) {
-                video.seriesTitle = (String) selections.get("seriesTitle");
-                if (selections.containsKey("_seriesTitleManual"))
-                    video.seriesTitleManuallyEdited = Boolean.TRUE.equals(selections.get("_seriesTitleManual"));
-            }
-            if (selections.containsKey("episodeTitle")) {
-                video.episodeTitle = (String) selections.get("episodeTitle");
-            }
-            if (selections.containsKey("seasonNumber")) {
-                Object val = selections.get("seasonNumber");
-                video.seasonNumber = val instanceof Number ? ((Number) val).intValue() : null;
-            }
-            if (selections.containsKey("episodeNumber")) {
-                Object val = selections.get("episodeNumber");
-                video.episodeNumber = val instanceof Number ? ((Number) val).intValue() : null;
-            }
-            if (selections.containsKey("imdbId")) {
-                video.imdbId = (String) selections.get("imdbId");
-            }
-            if (selections.containsKey("showImdbId")) {
-                video.showImdbId = (String) selections.get("showImdbId");
-            }
-            if (selections.containsKey("tmdbId")) {
-                video.tmdbId = (String) selections.get("tmdbId");
-            }
-            video.dateModified = java.time.LocalDateTime.now();
-            video.persist();
-            LOG.info("Applied verification selections for video {} ({})", id, video.title);
-            return Response.ok("{\"status\":\"ok\"}").build();
+            video = videoService.applyVerificationSelections(id, selections);
         } catch (Exception e) {
             LOG.error("Failed to apply verification for {}: {}", id, e.getMessage());
             return Response.serverError()
                     .entity("{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}")
                     .build();
         }
+        if (video == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"error\":\"Video not found\"}")
+                    .build();
+        }
+        LOG.info("Applied verification selections for video {} ({})", id, video.title);
+        return Response.ok("{\"status\":\"ok\"}").build();
     }
 
     @POST
