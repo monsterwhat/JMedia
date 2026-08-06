@@ -254,7 +254,6 @@ public class ThumbnailService {
                 
                 video.setThumbnailPath(path);
                 entityManager.persist(video);
-                LOGGER.info("Updated thumbnail path for video ID {}: {}", videoId, path);
             } else {
                 LOGGER.info("Skipping thumbnail path update for video ID {} because a custom path is already set: {}", videoId, video.thumbnailPath);
             }
@@ -276,7 +275,6 @@ public class ThumbnailService {
         }
         try {
             writeWebP(rawBytes, outputPath);
-            LOGGER.info("Saved image as WebP: {} ({} bytes)", outputPath.getFileName(), Files.size(outputPath));
         } catch (Exception e) {
             LOGGER.warn("WebP conversion failed for {}, falling back to original format: {}",
                     outputPath.getFileName(), e.getMessage());
@@ -1226,7 +1224,6 @@ public class ThumbnailService {
             Path legacyPath = thumbnailDir.resolve(legacyName);
             if (Files.exists(legacyPath)) {
                 Files.move(legacyPath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                LOGGER.info("Renamed thumbnail {} -> {} after enrichment", legacyName, canonicalName);
                 thumbnailCache.put(videoId, canonicalPath.toString());
                 video.setThumbnailPath(canonicalPath.toString());
                 return;
@@ -1237,7 +1234,6 @@ public class ThumbnailService {
                 Path currentFilePath = Paths.get(currentPath);
                 if (Files.exists(currentFilePath) && !currentFilePath.equals(canonicalPath)) {
                     Files.move(currentFilePath, canonicalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    LOGGER.info("Renamed thumbnail {} -> {} after enrichment", currentFilePath.getFileName(), canonicalName);
                     thumbnailCache.put(videoId, canonicalPath.toString());
                     video.setThumbnailPath(canonicalPath.toString());
                 }
@@ -1345,7 +1341,7 @@ public class ThumbnailService {
 
         byte[] rawBytes = downloadBytes(url);
         if (rawBytes == null || rawBytes.length == 0) {
-            LOGGER.warn("Failed to download {} image for video {}: {}", type, videoId, url);
+            LOGGER.debug("Failed to download {} image for video {}: {}", type, videoId, url);
             return null;
         }
 
@@ -1354,7 +1350,6 @@ public class ThumbnailService {
             try {
                 Path pngPath = thumbnailsDir.resolve(videoId + "_logo.png");
                 Files.write(pngPath, rawBytes);
-                LOGGER.info("Saved logo image as PNG for video {} ({} bytes)", videoId, rawBytes.length);
                 return pngPath.toAbsolutePath().toString();
             } catch (IOException e) {
                 LOGGER.error("Failed to save logo PNG for video {}: {}", videoId, e.getMessage());
@@ -1364,7 +1359,6 @@ public class ThumbnailService {
 
         try {
             writeWebP(rawBytes, webpPath, false);
-            LOGGER.info("Saved {} image as WebP for video {} ({} bytes)", type, videoId, Files.size(webpPath));
             return webpPath.toAbsolutePath().toString();
         } catch (Exception e) {
             LOGGER.warn("WebP conversion failed for {} image video {}, falling back to original format: {}",
@@ -1404,7 +1398,7 @@ public class ThumbnailService {
                     return downloadBytes(location);
                 }
             }
-            LOGGER.warn("HTTP {} downloading image: {}", response.statusCode(), imageUrl);
+            LOGGER.debug("HTTP {} downloading image: {}", response.statusCode(), imageUrl);
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

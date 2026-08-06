@@ -207,7 +207,6 @@ public class VideoMetadataService {
 
         // 1. Ensure we have Show IMDb ID (Required for IntroDB TV lookups)
         if (managedVideo.showImdbId == null || managedVideo.showImdbId.isBlank()) {
-            LOG.info("Show IMDb ID missing for {}, attempting to resolve...", managedVideo.seriesTitle);
             managedVideo.showImdbId = findSeriesImdbId(managedVideo);
         }
         
@@ -238,7 +237,7 @@ public class VideoMetadataService {
             
             managedVideo.persistAndFlush();
         } else {
-            LOG.warn("Cannot fetch IntroDB data: Missing ShowImdbId ({}), Season ({}), or Episode ({})", 
+            LOG.debug("Cannot fetch IntroDB data: Missing ShowImdbId ({}), Season ({}), or Episode ({})", 
                 managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber);
         }
     }
@@ -257,7 +256,6 @@ public class VideoMetadataService {
         Settings settings = settingsService.getOrCreateSettings();
         if (Boolean.TRUE.equals(settings.getImdbDevEnabled())) {
             try {
-                LOG.info("Searching for Show IMDb ID for: {}", searchTitle);
                 String searchUrl = String.format(IMDB_DEV_SEARCH_URL, URLEncoder.encode(searchTitle, StandardCharsets.UTF_8));
                 JsonNode searchRoot = fetchJson(searchUrl);
                 
@@ -346,9 +344,6 @@ public class VideoMetadataService {
         video = Models.Video.findById(video.id);
         if (video == null) return;
 
-        LOG.info("DEBUG: fetchAndEnrichMetadata for '{}' (Type: {}, S{}E{})", 
-                video.title, video.type, video.seasonNumber, video.episodeNumber);
-        
         String tmdbKey = getApiKey();
         String omdbKey = getOmdbApiKey();
 
@@ -391,7 +386,6 @@ public class VideoMetadataService {
                     List<Models.AudioTrack> audioTracks = audioService.extractAudioTracks(video, fullPath);
                     if (audioTracks != null && !audioTracks.isEmpty()) {
                         videoService.updateAudioTracks(video.id, audioTracks);
-                        LOG.info("Extracted and saved {} audio tracks for: {}", audioTracks.size(), video.title);
                     }
                 } catch (Exception e) {
                     LOG.error("Failed to extract audio tracks for {}: {}", video.title, e.getMessage());
@@ -402,7 +396,6 @@ public class VideoMetadataService {
             if ("episode".equalsIgnoreCase(video.type)) {
                 // If we found an official episode title, use it as the primary title
                 if (video.episodeTitle != null && !video.episodeTitle.isBlank()) {
-                    LOG.info("Updating title to official episode name: {}", video.episodeTitle);
                     video.title = video.episodeTitle;
                 } 
                 // Otherwise, if the title is still technical noise, fall back to a clean S#E# format
@@ -439,7 +432,6 @@ public class VideoMetadataService {
                     if (paths.heroPath() != null) video.heroPath = paths.heroPath();
                     if (paths.stillPath() != null) video.stillPath = paths.stillPath();
                     video.getEntityManager().merge(video);
-                    LOG.info("[Enrich] Downloaded local image files for video {}", video.id);
                 }
             } catch (Exception imgEx) {
                 LOG.warn("[Enrich] Failed to download local image files for {}: {}", video.id, imgEx.getMessage());
@@ -455,7 +447,6 @@ public class VideoMetadataService {
                 }
             }
 
-            LOG.info("DEBUG: Metadata enrichment successful for: {}", video.title);
         } catch (Exception e) {
             if (e instanceof jakarta.persistence.OptimisticLockException
                     || (e.getCause() != null && e.getCause() instanceof jakarta.persistence.OptimisticLockException)
@@ -696,8 +687,6 @@ public class VideoMetadataService {
                 fetchTrailers(video, targetId);
                 fetchReleaseDates(video, targetId);
                 fetchCompanyCredits(video, targetId);
-
-                LOG.info("DEBUG: Full IMDb Dev enrichment completed for: {}", video.title);
             }
         } catch (Exception e) {
             LOG.error("DEBUG: IMDb Dev enrichment failed: {}", e.getMessage(), e);
@@ -942,9 +931,7 @@ public class VideoMetadataService {
             if (root != null && root.path("results").size() > 0) {
                 video.tmdbId = root.path("results").get(0).path("id").asText();
                 LOG.info("[EnrichMovie] TMDb search found match for '{}': tmdbId={}", video.title, video.tmdbId);
-            } else if (root != null) {
-                LOG.info("[EnrichMovie] TMDb search returned no results for: {}", video.title);
-            } else {
+            } else if (root == null) {
                 LOG.warn("[EnrichMovie] TMDb search request failed for: {}", video.title);
             }
         }
@@ -966,7 +953,6 @@ public class VideoMetadataService {
                 if (root.has("vote_average")) video.tmdbRating = root.get("vote_average").asDouble();
                 if (root.has("imdb_id")) {
                     video.imdbId = root.get("imdb_id").asText();
-                    LOG.info("[EnrichMovie] Extracted imdbId={}", video.imdbId);
                 }
                 if (video.releaseYear == null && root.has("release_date")) {
                     String date = root.get("release_date").asText();
@@ -978,7 +964,6 @@ public class VideoMetadataService {
                 if (root.has("backdrop_path") && !root.get("backdrop_path").isNull()) {
                     video.backdropPath = TMDB_IMAGE_W1280 + root.get("backdrop_path").asText();
                     video.fanartPath = video.backdropPath;
-                    LOG.info("[EnrichMovie] Set backdrop + fanart path");
                 }
                 // Extract logo from images (already fetched via append_to_response=images)
                 if (root.has("images") && root.get("images").has("logos")) {
@@ -998,8 +983,6 @@ public class VideoMetadataService {
                         } else {
                             LOG.info("[EnrichMovie] No usable logo found in images");
                         }
-                    } else {
-                        LOG.info("[EnrichMovie] No logos available in images response");
                     }
                 }
                 if (root.has("budget")) video.budget = root.get("budget").asLong();
@@ -1033,10 +1016,7 @@ public class VideoMetadataService {
             JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
             if (searchRoot != null && searchRoot.path("results").size() > 0) {
                 showTmdbId = searchRoot.path("results").get(0).path("id").asText();
-                LOG.info("[EnrichEpisode] TMDb search found show for '{}': showTmdbId={}", video.seriesTitle, showTmdbId);
-            } else if (searchRoot != null) {
-                LOG.info("[EnrichEpisode] TMDb search returned no results for: {}", video.seriesTitle);
-            } else {
+            } else if (searchRoot == null) {
                 LOG.warn("[EnrichEpisode] TMDb search request failed for: {}", video.seriesTitle);
             }
         }
@@ -1052,7 +1032,7 @@ public class VideoMetadataService {
             }
             JsonNode root = fetchJson(url, authHeaders);
             if (root == null) {
-                LOG.warn("[EnrichEpisode] Failed to fetch episode details for showTmdbId={}, S{}E{}", showTmdbId, video.seasonNumber, video.episodeNumber);
+                LOG.debug("[EnrichEpisode] Failed to fetch episode details for showTmdbId={}, S{}E{}", showTmdbId, video.seasonNumber, video.episodeNumber);
             }
             if (root != null) {
                 if (root.has("name")) video.episodeTitle = root.get("name").asText();
@@ -1063,8 +1043,6 @@ public class VideoMetadataService {
                     video.posterPath = TMDB_IMAGE_W500 + root.get("still_path").asText();
                     video.stillPath = TMDB_IMAGE_W500 + root.get("still_path").asText();
                 }
-                LOG.info("[EnrichEpisode] Episode details: title='{}', rating={}, still={}",
-                    video.episodeTitle, video.tmdbRating, video.posterPath != null ? "set" : "none");
             }
             // Fetch show-level backdrop and logo
             String showUrl;
@@ -1082,9 +1060,6 @@ public class VideoMetadataService {
                     video.backdropPath = TMDB_IMAGE_W1280 + showRoot.get("backdrop_path").asText();
                     video.heroPath = TMDB_IMAGE_ORIGINAL + showRoot.get("backdrop_path").asText();
                     video.fanartPath = video.backdropPath;
-                    LOG.info("[EnrichEpisode] Set show backdrop + fanart + hero path");
-                } else {
-                    LOG.info("[EnrichEpisode] Show backdrop skipped (already set or unavailable)");
                 }
                 if (showRoot.has("networks") && showRoot.get("networks").isArray()) {
                     List<String> networkNames = new ArrayList<>();
@@ -1124,7 +1099,6 @@ public class VideoMetadataService {
                         if (logoFilePath == null) logoFilePath = logos.get(0).path("file_path").asText();
                         if (logoFilePath != null) {
                             video.logoPath = TMDB_IMAGE_W500 + logoFilePath;
-                            LOG.info("[EnrichEpisode] Set show logo path: {}", video.logoPath);
                         } else {
                             LOG.info("[EnrichEpisode] No usable logo found in show images");
                         }
@@ -1132,8 +1106,6 @@ public class VideoMetadataService {
                         LOG.info("[EnrichEpisode] No logos available in show images response");
                     }
                 }
-            } else {
-                LOG.info("[EnrichEpisode] Logo already set, skipping show logo fetch");
             }
         }
     }
@@ -1154,7 +1126,7 @@ public class VideoMetadataService {
         } catch (IOException e) {
             // Transient provider outage (DNS/connect/reset/timeout) is expected for
             // best-effort enrichment providers — return null like a non-200 response.
-            LOG.warn("Network error fetching {} ({})", url, e.getClass().getSimpleName());
+            LOG.debug("Network error fetching {} ({})", url, e.getClass().getSimpleName());
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -1270,7 +1242,6 @@ public class VideoMetadataService {
 
             JsonNode root = fetchJson(searchUrl, authHeaders);
             if (root == null || !root.path("results").isArray() || root.path("results").isEmpty()) {
-                LOG.info("[FetchMediaImages] No TMDB results for '{}' (type={})", title, type);
                 return new MediaImages(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
             }
 
@@ -1341,7 +1312,6 @@ public class VideoMetadataService {
                             }
                         }
                     }
-                    LOG.info("[FetchMediaImages] Logo fetch for '{}': {}", title, logo.isPresent() ? "ok" : "none");
                 }
             } catch (Exception ex) {
                 LOG.warn("[FetchMediaImages] Logo fetch failed for {}: {}", title, ex.getMessage());
@@ -1351,14 +1321,10 @@ public class VideoMetadataService {
             if ("episode".equalsIgnoreCase(type) && seriesTitle != null && seasonNumber != null && episodeNumber != null) {
                 try {
                     still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber);
-                    LOG.info("[FetchMediaImages] Episode still for '{}' S{}E{}: {}", title, seasonNumber, episodeNumber, still.isPresent() ? "ok" : "none");
                 } catch (Exception ex) {
                     LOG.warn("[FetchMediaImages] Episode still fetch failed for {} S{}E{}: {}", title, seasonNumber, episodeNumber, ex.getMessage());
                 }
             }
-
-            LOG.info("[FetchMediaImages] Fetched images for '{}': poster={}, backdrop={}, still={}",
-                title, poster.isPresent() ? "ok" : "none", backdrop.isPresent() ? "ok" : "none", still.isPresent() ? "ok" : "none");
 
             return new MediaImages(poster, logo, backdrop, hero, still);
         } catch (Exception e) {
@@ -1475,7 +1441,6 @@ public class VideoMetadataService {
                         }
                     }
                 }
-                LOG.info("[FetchMediaImages] Logo fetch for '{}': {}", title, logo.isPresent() ? "ok" : "none");
             } catch (Exception ex) {
                 LOG.warn("[FetchMediaImages] Logo fetch failed for {}: {}", title, ex.getMessage());
             }
@@ -1485,14 +1450,10 @@ public class VideoMetadataService {
             if ("episode".equalsIgnoreCase(type) && seriesTitle != null && seasonNumber != null && episodeNumber != null) {
                 try {
                     still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber, tmdbId);
-                    LOG.info("[FetchMediaImages] Episode still for '{}' S{}E{}: {}", title, seasonNumber, episodeNumber, still.isPresent() ? "ok" : "none");
                 } catch (Exception ex) {
                     LOG.warn("[FetchMediaImages] Episode still fetch failed for {} S{}E{}: {}", title, seasonNumber, episodeNumber, ex.getMessage());
                 }
             }
-
-            LOG.info("[FetchMediaImages] Fetched images for '{}': poster={}, backdrop={}, still={}",
-                title, poster.isPresent() ? "ok" : "none", backdrop.isPresent() ? "ok" : "none", still.isPresent() ? "ok" : "none");
 
             return new MediaImages(poster, logo, backdrop, hero, still);
         } catch (Exception e) {
@@ -1615,7 +1576,6 @@ public class VideoMetadataService {
             return;
         }
 
-        LOG.info("[EnsureTextMetadata] Running for video {}", videoId);
         Video video = Video.findById(videoId);
         if (video == null) {
             LOG.warn("[EnsureTextMetadata] Video {} not found", videoId);
@@ -1644,7 +1604,6 @@ public class VideoMetadataService {
                 && (video.episodeTitle == null || video.episodeTitle.isBlank());
 
         if (!needsOverview && !needsGenres && !needsDirectors && !needsNetworks && !needsEpisodeTitle) {
-            LOG.info("[EnsureTextMetadata] Video {} already has all text metadata populated, skipping", videoId);
             return;
         }
 
@@ -1756,8 +1715,6 @@ public class VideoMetadataService {
                         String epName = episodeRoot.get("name").asText();
                         if (epName != null && !epName.isBlank()) {
                             video.episodeTitle = epName;
-                            LOG.info("[EnsureTextMetadata] Episode '{}' S{}E{}: set episodeTitle='{}'",
-                                    video.seriesTitle, video.seasonNumber, video.episodeNumber, epName);
                         }
                     }
                 }
@@ -1785,19 +1742,12 @@ public class VideoMetadataService {
                     }
                 }
 
-                LOG.info("[EnsureTextMetadata] Episode '{}' S{}E{}: overview={}, genres={}, networks={}",
-                        video.seriesTitle, video.seasonNumber, video.episodeNumber,
-                        video.overview != null ? "set" : "none",
-                        video.genres != null ? video.genres.size() + " genres" : "none",
-                        video.networks != null ? video.networks.size() + " networks" : "none");
-
             } else {
                 LOG.debug("[EnsureTextMetadata] Unsupported type '{}' for video {}, skipping", type, videoId);
                 return;
             }
 
             video.persist();
-            LOG.info("[EnsureTextMetadata] Saved text metadata for video {}", videoId);
         } catch (Exception e) {
             LOG.warn("[EnsureTextMetadata] Failed for video {}: {}", videoId, e.getMessage());
         }
@@ -1817,7 +1767,6 @@ public class VideoMetadataService {
             return SeriesEnrichmentResult.SKIPPED;
         }
 
-        LOG.info("[EnsureSeriesTextMetadata] Running for series {}", seriesId);
         Series series = Series.findById(seriesId);
         if (series == null) {
             LOG.warn("[EnsureSeriesTextMetadata] Series {} not found", seriesId);
@@ -1879,7 +1828,6 @@ public class VideoMetadataService {
                     return SeriesEnrichmentResult.FAILED;
                 }
                 if (searchRoot.path("results").isEmpty()) {
-                    LOG.info("[EnsureSeriesTextMetadata] No TMDB results for '{}'", series.title);
                     return SeriesEnrichmentResult.NO_MATCH;
                 }
                 showId = searchRoot.path("results").get(0).path("id").asText();
@@ -2048,7 +1996,6 @@ public class VideoMetadataService {
                 if (result == SeriesEnrichmentResult.SUCCESS) {
                     cinemaHomeCache.invalidateAll().await().indefinitely(); // MAJOR-7: re-render with fresh ratings/genres
                 }
-                LOG.info("[EnrichSeriesTextMetadataAsync] Series {} enrichment result: {}", seriesId, result);
             } catch (Exception e) {
                 LOG.warn("[EnrichSeriesTextMetadataAsync] Failed for series {}: {}", seriesId, e.getMessage());
             } finally {

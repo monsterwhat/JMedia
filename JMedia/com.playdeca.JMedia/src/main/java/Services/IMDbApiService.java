@@ -36,7 +36,6 @@ public class IMDbApiService {
             String query = URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8);
             String url = IMDB_API_BASE + "/search/titles?query=" + query;
             
-            LOG.info("Searching IMDb for series: {}", seriesTitle);
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             
@@ -61,7 +60,7 @@ public class IMDbApiService {
                 LOG.warn("IMDb API search returned status {}: {}", response.statusCode(), response.body());
             }
         } catch (Exception e) {
-            LOG.error("Error searching IMDb for {}: {}", seriesTitle, e.getMessage());
+            LOG.debug("Error searching IMDb for {}: {}", seriesTitle, e.getMessage());
         }
         return Optional.empty();
     }

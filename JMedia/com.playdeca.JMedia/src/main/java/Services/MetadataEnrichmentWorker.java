@@ -87,7 +87,7 @@ public class MetadataEnrichmentWorker {
             total += phase4;
 
             if (total > 0) {
-                LOG.info("MetadataEnrichmentWorker tick complete: {} enriched ({} IDs, {} intro/outro, {} retries, {} images, {} pending failures)",
+                LOG.debug("MetadataEnrichmentWorker tick complete: {} enriched ({} IDs, {} intro/outro, {} retries, {} images, {} pending failures)",
                         total, phase1, phase2, phase3, phase4, failedEnrichments.size());
             }
         } catch (Exception e) {
@@ -112,7 +112,6 @@ public class MetadataEnrichmentWorker {
 
             for (Video video : candidates) {
                 try {
-                    LOG.info("Enriching missing IDs for '{}' (id={}, type={})", video.title, video.id, video.type);
                     videoMetadataService.fetchAndEnrichMetadata(video);
                     failedEnrichments.remove(video.id);
                     count++;
@@ -211,8 +210,6 @@ public class MetadataEnrichmentWorker {
             for (Video video : candidates) {
                 if (VideoMetadataService.isVideoEnriched(video)) continue;
                 try {
-                    LOG.info("Re-enriching images for '{}' (id={}, type={}) — missing: {}",
-                            video.title, video.id, video.type, describeMissing(video));
                     videoMetadataService.fetchAndEnrichMetadata(video);
                     count++;
                 } catch (Exception e) {
@@ -223,16 +220,6 @@ public class MetadataEnrichmentWorker {
             LOG.error("Error querying for videos missing images", e);
         }
         return count;
-    }
-
-    private String describeMissing(Video video) {
-        StringBuilder sb = new StringBuilder();
-        if (video.posterPath == null) sb.append("poster ");
-        if (video.backdropPath == null) sb.append("backdrop ");
-        if (video.logoPath == null) sb.append("logo ");
-        if (video.heroPath == null) sb.append("hero ");
-        if ("episode".equalsIgnoreCase(video.type) && video.stillPath == null) sb.append("still ");
-        return sb.toString().trim();
     }
 
     // ---- Monitoring / Admin hooks ----
