@@ -1,0 +1,191 @@
+/* Subtitle Search Sidebar - Search-specific styles.
+   The drawer shell (backdrop, glass, header, seasons row, list) reuses
+   episode-sidebar.css classes — nothing here redefines .episode-sidebar*. */
+
+.subtitle-search-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+/* The reused .episode-sidebar-seasons row has flex:1 for the season pills
+   wrap; as a direct column child here the tab row must keep its content
+   height so the list below fills the rest. */
+#subtitle-search-tabs {
+  flex: 0 0 auto;
+}
+
+.subtitle-search-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px 4px;
+  flex-shrink: 0;
+}
+
+.subtitle-search-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  padding: 8px 14px;
+  color: #fff;
+  font-size: 0.85rem;
+  outline: none;
+  font-family: inherit;
+}
+.subtitle-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+.subtitle-search-input:focus {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.subtitle-search-lang {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  padding: 8px 10px;
+  outline: none;
+  font-family: inherit;
+  max-width: 160px;
+}
+.subtitle-search-lang option {
+  background: #1a1a1e;
+  color: #fff;
+}
+.subtitle-search-lang:focus {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.subtitle-search-go {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.subtitle-search-go:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.subtitle-search-go.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Result cards: base layout comes from .episode-sidebar-item on the same
+   button; these extras give the subtitle-specific look. */
+.subtitle-result-badge {
+  width: 56px;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.25), rgba(96, 165, 250, 0.08));
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+
+.subtitle-result-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.subtitle-result-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+
+.subtitle-result-meta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtitle-result-download {
+  margin-left: auto;
+  align-self: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.subtitle-result-download:hover {
+  background: #48c774;
+  border-color: #48c774;
+  color: #fff;
+}
+
+.subtitle-result-item.added .subtitle-result-download {
+  background: rgba(72, 199, 116, 0.15);
+  border-color: #48c774;
+  color: #48c774;
+  pointer-events: none;
+}
+.subtitle-result-item.added .subtitle-result-badge {
+  border-color: rgba(72, 199, 116, 0.4);
+  background: linear-gradient(135deg, rgba(72, 199, 116, 0.2), rgba(72, 199, 116, 0.05));
+}
+
+.subtitle-search-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.8rem;
+}
+
+.subtitle-search-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.8rem;
+}

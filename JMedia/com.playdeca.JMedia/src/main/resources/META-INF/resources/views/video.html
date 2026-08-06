@@ -1,6 +1,7 @@
 <link rel="stylesheet" href="/css/cinema-home.css">
 <link rel="stylesheet" href="/css/player-modal.css">
 <link rel="stylesheet" href="/css/episode-sidebar.css">
+<link rel="stylesheet" href="/css/subtitle-search-sidebar.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Ambient Blur Background -->
@@ -299,13 +300,19 @@
     <button class="episode-sidebar-toggle-btn" id="episode-sidebar-toggle" data-click="toggleEpisodeSidebar" title="Episodes" style="display:none;">
       <i class="fa-solid fa-list"></i>
     </button>
+    <button class="episode-sidebar-toggle-btn" id="subtitle-search-toggle" data-click="toggleSubtitleSearchSidebar" title="Subtitles" style="display:none;">
+      <i class="fa-solid fa-closed-captioning"></i>
+    </button>
   </div>
   <div class="player-modal-content" id="player-modal-content"></div>
   <!-- Episode Sidebar (injected by createEpisodeSidebar.js) -->
   <div id="episode-sidebar-root"></div>
+  <!-- Subtitle Search Sidebar (injected by createSubtitleSearchSidebar.js) -->
+  <div id="subtitle-search-sidebar-root"></div>
 
 
 <script src="/js/createEpisodeSidebar.js"></script>
+<script src="/js/createSubtitleSearchSidebar.js"></script>
 <script src="/js/cinema-mode.js"></script>
 
 
