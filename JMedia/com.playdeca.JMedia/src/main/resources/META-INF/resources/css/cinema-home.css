@@ -691,17 +691,6 @@ html, body {
   white-space: nowrap;
 }
 
-.cinema-native-badge {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-left: 0.5rem;
-  font-size: 0.8rem;
-  line-height: 1;
-  opacity: 0.85;
-}
-
 /* ============================================================
    Desktop Card & Carousel Sizing
    ============================================================ */
