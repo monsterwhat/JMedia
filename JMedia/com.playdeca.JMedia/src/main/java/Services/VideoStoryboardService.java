@@ -15,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
@@ -218,22 +220,59 @@ public class VideoStoryboardService {
 
             LOGGER.info("Generating storyboard for video {}: {}", videoId, video.title);
             Path tempPath = outputPath.resolveSibling(outputPath.getFileName().toString() + ".tmp");
-            
-            ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath,
-                "-i", video.path,
-                "-vf", filter,
-                "-frames:v", "1",
-                "-c:v", "libwebp",
-                "-quality", "80",
-                "-f", "webp",
-                "-y",
-                tempPath.toString()
-            );
 
-            pb.redirectErrorStream(true);
+            String hwDecoder = null;
+            Models.Settings settings = settingsService.getOrCreateSettings();
+            if (settings.getHardwareAccelerationEnabled() != null ? settings.getHardwareAccelerationEnabled() : true) {
+                hwDecoder = discoveryService.getHardwareDecoder(video.videoCodec);
+            }
+
+            if (hwDecoder != null) {
+                LOGGER.info("Storyboard for video {} using hardware decoder: {}", videoId, hwDecoder);
+                if (runStoryboardFfmpeg(ffmpegPath, video, filter, tempPath, outputPath, videoId, hwDecoder)) {
+                    return true;
+                }
+                LOGGER.warn("Hardware decode failed for storyboard of video {}, falling back to software", videoId);
+                Files.deleteIfExists(tempPath);
+            }
+            return runStoryboardFfmpeg(ffmpegPath, video, filter, tempPath, outputPath, videoId, null);
+        } catch (Exception e) {
+            LOGGER.error("Error running FFmpeg for storyboard for video " + videoId, e);
+            return false;
+        } finally {
+            GENERATING_IDS.remove(videoId);
+        }
+    }
+
+    private boolean runStoryboardFfmpeg(String ffmpegPath, Video video, String filter, Path tempPath, Path outputPath, Long videoId, String hwDecoder) {
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+
+        if (hwDecoder != null) {
+            String hwaccelType = discoveryService.decoderToHwaccelType(hwDecoder);
+            if (hwaccelType != null) {
+                command.add("-hwaccel"); command.add(hwaccelType);
+                if ("cuda".equals(hwaccelType)) {
+                    command.add("-hwaccel_output_format"); command.add("cuda");
+                    filter = "hwdownload,format=nv12," + filter;
+                }
+            }
+        }
+
+        command.add("-i"); command.add(video.path);
+        command.add("-vf"); command.add(filter);
+        command.add("-frames:v"); command.add("1");
+        command.add("-c:v"); command.add("libwebp");
+        command.add("-quality"); command.add("80");
+        command.add("-f"); command.add("webp");
+        command.add("-y");
+        command.add(tempPath.toString());
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true);
+        try {
             Process process = pb.start();
-            
+
             StringBuilder output = new StringBuilder();
             try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
                 String line;
@@ -243,7 +282,7 @@ public class VideoStoryboardService {
             }
 
             boolean finished = process.waitFor(300, TimeUnit.SECONDS);
-            
+
             if (finished && process.exitValue() == 0) {
                 Files.move(tempPath, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 LOGGER.info("Storyboard generated successfully for video {}", videoId);
@@ -255,14 +294,13 @@ public class VideoStoryboardService {
                 Files.deleteIfExists(tempPath);
                 String ffmpegOutput = output.toString();
                 if (ffmpegOutput.toLowerCase().contains("no such file or directory")) {
-                    // Source file vanished between our availability check and the FFmpeg run.
                     MISSING_FILE_RETRY_AT.put(videoId, System.currentTimeMillis() + MISSING_FILE_RETRY_MS);
                     LOGGER.debug("Source file for video {} is no longer available - skipping storyboard", videoId);
                     return false;
                 }
-                LOGGER.warn("FFmpeg storyboard generation failed or timed out for video {}. Exit code: {}. Output summary: {}", 
-                    videoId, 
-                    finished ? process.exitValue() : "TIMEOUT", 
+                LOGGER.warn("FFmpeg storyboard generation failed or timed out for video {}. Exit code: {}. Output summary: {}",
+                    videoId,
+                    finished ? process.exitValue() : "TIMEOUT",
                     ffmpegOutput.length() > 500 ? ffmpegOutput.substring(ffmpegOutput.length() - 500) : ffmpegOutput);
                 return false;
             }
@@ -273,8 +311,6 @@ public class VideoStoryboardService {
         } catch (Exception e) {
             LOGGER.error("Error running FFmpeg for storyboard for video " + videoId, e);
             return false;
-        } finally {
-            GENERATING_IDS.remove(videoId);
         }
     }
 

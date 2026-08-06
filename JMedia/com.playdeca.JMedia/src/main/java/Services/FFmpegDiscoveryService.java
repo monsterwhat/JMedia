@@ -302,7 +302,7 @@ public class FFmpegDiscoveryService {
     private final java.util.Set<String> probedUsableHwaccels = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<String> probedFailedHwaccels = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    private String decoderToHwaccelType(String decoder) {
+    public String decoderToHwaccelType(String decoder) {
         if (decoder.contains("cuvid")) return "cuda";
         if (decoder.contains("vaapi")) return "vaapi";
         if (decoder.contains("qsv")) return "qsv";
