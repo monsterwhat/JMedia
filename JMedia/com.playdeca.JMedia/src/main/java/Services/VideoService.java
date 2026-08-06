@@ -62,6 +62,12 @@ public class VideoService {
     @Inject
     ProfileSessionStateService profileSessionStateService;
 
+    @Inject
+    CollectionService collectionService;
+
+    @Inject
+    TranscodingService transcodingService;
+
     // ========== CORE VIDEO OPERATIONS ==========
     
     @Transactional
@@ -1400,6 +1406,272 @@ public class VideoService {
         } catch (Exception e) {
             LOGGER.debug("Could not load series for '{}': {}", v.seriesTitle, e.getMessage());
             return null;
+        }
+    }
+
+    // ========== PLAYBACK FRAGMENT (migrated from VideoUiApi.getPlaybackFragment) ==========
+
+    /**
+     * Owns the ENTIRE playback-fragment data workflow inside ONE transaction: the
+     * Video find + lazy-collection init, per-profile playback-state resume
+     * computation, next/prev episode resolution, the web-transcode decision,
+     * settings (auto-skip + default player), the full info section (item.series
+     * lazy read + Series ElementCollections genres/cast/directors/writers/networks),
+     * and the collection / episodes / trending carousel items (entry.video /
+     * entry.externalVideo lazy reads). Returns fully-initialized detached data —
+     * scalar flags, plain maps of scalars, and a Video whose lazy collections were
+     * initialized by find() — so the API can do lazy-safe Qute rendering only.
+     */
+    @Transactional
+    public PlaybackData getPlaybackData(Long videoId, Long collectionId, String userAgent) {
+        Video item = find(videoId);
+        if (item == null) return null;
+
+        // Get per-profile progress
+        VideoState progress = videoStateService.getOrCreate(item);
+        double resumeTime = 0;
+        if (progress != null) {
+            if (progress.currentTime > 0) {
+                resumeTime = progress.currentTime;
+            } else if (progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
+                resumeTime = progress.watchProgress * (item.getDurationSeconds());
+            }
+        }
+
+        // If the video is nearly finished (over 95%), start from the beginning
+        double durationSeconds = item.getDurationSeconds();
+        if (durationSeconds > 0 && (resumeTime / durationSeconds) >= 0.95) {
+            resumeTime = 0;
+        }
+
+        Video nextEpisode = findNextEpisode(item);
+        Video prevEpisode = findPreviousEpisode(item);
+
+        boolean isMKV = item.path != null && item.path.toLowerCase().endsWith(".mkv");
+        boolean needsTranscoding = isMKV || transcodingService.isTranscodeNeededForWeb(item, userAgent);
+        // TEMPORARY PATH: the automatic in-place conversion gate is disabled.
+        // Files whose codec the browser cannot play are now streamed via the
+        // on-the-fly remux/transcode path (VideoAPI.streamVideo →
+        // TranscodingService), which converts the codec live (video → H.264,
+        // audio → AAC) and caches the result in the temp dir. The source file
+        // is never overwritten. To restore the old behavior, set needsConversion
+        // to isTranscodeNeededForWeb(...) and re-add the startConversion block.
+        boolean needsConversion = false;
+        String conversionJobId = null;
+        String conversionStatus = null;
+
+        // Load settings (auto-skip + default player)
+        Models.Settings settings = settingsService.getOrCreateSettings();
+        boolean autoSkipIntro = settings.getAutoSkipIntro();
+        boolean autoSkipRecap = settings.getAutoSkipRecap();
+        boolean autoSkipOutro = settings.getAutoSkipOutro();
+        String defaultPlayer = settings.getDefaultPlayer();
+
+        List<Map<String, Object>> carouselItems = new ArrayList<>();
+        int currentCarouselIndex = 0;
+        String carouselTitle = "";
+        Map<String, Object> infoSection = new LinkedHashMap<>();
+
+        buildInfoSection(infoSection, item);
+
+        if (collectionId != null) {
+            Models.MediaCollection coll = collectionService.getCollection(collectionId);
+            if (coll != null) {
+                carouselTitle = coll.name;
+                List<Models.CollectionEntry> entries = collectionService.getEntries(collectionId);
+                int idx = 0;
+                for (Models.CollectionEntry entry : entries) {
+                    Map<String, Object> ci = new LinkedHashMap<>();
+                    if (entry.video != null) {
+                        ci.put("id", entry.video.id);
+                        ci.put("title", entry.video.title != null ? entry.video.title : "");
+                        ci.put("seriesTitle", entry.video.seriesTitle != null ? entry.video.seriesTitle : "");
+                        ci.put("seasonNumber", entry.video.seasonNumber != null ? entry.video.seasonNumber : 0);
+                        ci.put("episodeNumber", entry.video.episodeNumber != null ? entry.video.episodeNumber : 0);
+                        ci.put("type", entry.video.type != null ? entry.video.type : "");
+                        ci.put("mediaType", "video");
+                        ci.put("thumbnailPath", entry.video.thumbnailPath);
+                        boolean isCurrent = entry.video.id.equals(videoId);
+                        ci.put("isCurrent", isCurrent);
+                        if (isCurrent) currentCarouselIndex = idx;
+                    } else if (entry.externalVideo != null) {
+                        ci.put("id", entry.externalVideo.id);
+                        ci.put("title", entry.externalVideo.title != null ? entry.externalVideo.title : "");
+                        ci.put("seriesTitle", entry.externalVideo.seriesTitle != null ? entry.externalVideo.seriesTitle : "");
+                        ci.put("seasonNumber", entry.externalVideo.seasonNumber != null ? entry.externalVideo.seasonNumber : 0);
+                        ci.put("episodeNumber", entry.externalVideo.episodeNumber != null ? entry.externalVideo.episodeNumber : 0);
+                        ci.put("type", entry.externalVideo.entryType == Models.ExistingVideo.EPISODE ? "Episode" : "");
+                        ci.put("mediaType", "external");
+                        ci.put("thumbnailPath", null);
+                        ci.put("isCurrent", false);
+                    }
+                    ci.put("entryId", entry.id);
+                    ci.put("collectionId", collectionId);
+                    carouselItems.add(ci);
+                    idx++;
+                }
+            }
+        } else {
+            String videoType = item.type != null ? item.type.toLowerCase() : "";
+            if (videoType.contains("episode") && item.seriesTitle != null && !item.seriesTitle.isBlank()) {
+                carouselTitle = "Episodes — " + item.seriesTitle;
+                List<Video> episodes = findEpisodesForSeries(item.seriesTitle);
+                int idx = 0;
+                for (Video ep : episodes) {
+                    Map<String, Object> ci = new LinkedHashMap<>();
+                    ci.put("id", ep.id);
+                    ci.put("title", ep.title != null ? ep.title : "");
+                    ci.put("seriesTitle", ep.seriesTitle != null ? ep.seriesTitle : "");
+                    ci.put("seasonNumber", ep.seasonNumber != null ? ep.seasonNumber : 0);
+                    ci.put("episodeNumber", ep.episodeNumber != null ? ep.episodeNumber : 0);
+                    ci.put("type", ep.type != null ? ep.type : "");
+                    ci.put("mediaType", "video");
+                    ci.put("thumbnailPath", ep.thumbnailPath);
+                    boolean isCurrent = ep.id.equals(videoId);
+                    ci.put("isCurrent", isCurrent);
+                    if (isCurrent) currentCarouselIndex = idx;
+                    ci.put("entryId", null);
+                    ci.put("collectionId", null);
+                    carouselItems.add(ci);
+                    idx++;
+                }
+            } else {
+                carouselTitle = "Recommended";
+                List<Video> trending = findTrending(20);
+                int idx = 0;
+                for (Video v : trending) {
+                    Map<String, Object> ci = new LinkedHashMap<>();
+                    ci.put("id", v.id);
+                    ci.put("title", v.title != null ? v.title : "");
+                    ci.put("seriesTitle", v.seriesTitle != null ? v.seriesTitle : "");
+                    ci.put("seasonNumber", v.seasonNumber != null ? v.seasonNumber : 0);
+                    ci.put("episodeNumber", v.episodeNumber != null ? v.episodeNumber : 0);
+                    ci.put("type", v.type != null ? v.type : "");
+                    ci.put("mediaType", "video");
+                    ci.put("thumbnailPath", v.thumbnailPath);
+                    boolean isCurrent = v.id.equals(videoId);
+                    ci.put("isCurrent", isCurrent);
+                    if (isCurrent) currentCarouselIndex = idx;
+                    ci.put("entryId", null);
+                    ci.put("collectionId", null);
+                    carouselItems.add(ci);
+                    idx++;
+                }
+            }
+        }
+
+        boolean hasCarousel = !carouselItems.isEmpty();
+
+        return new PlaybackData(item, resumeTime, needsTranscoding, needsConversion,
+            conversionJobId, conversionStatus,
+            nextEpisode != null ? nextEpisode.id : null,
+            prevEpisode != null ? prevEpisode.id : null,
+            autoSkipIntro, autoSkipRecap, autoSkipOutro, defaultPlayer,
+            carouselItems, currentCarouselIndex, carouselTitle, hasCarousel, collectionId, infoSection);
+    }
+
+    /**
+     * Builds the info-section payload for the playback fragment. Reads the lazy
+     * item.series relationship and the Series ElementCollections (genres/cast/
+     * directors/writers/networks) while the persistence context is still open and
+     * stores only scalars / lists of strings in the map so nothing lazy escapes.
+     * Must run inside getPlaybackData()'s transaction.
+     */
+    private void buildInfoSection(Map<String, Object> info, Video item) {
+        info.put("infoType", item.type != null && item.type.equalsIgnoreCase("episode") ? "episode" : "movie");
+        info.put("title", item.title != null ? item.title : "");
+        info.put("seriesTitle", item.seriesTitle != null ? item.seriesTitle : "");
+        info.put("seasonNumber", item.seasonNumber != null ? item.seasonNumber : 0);
+        info.put("episodeNumber", item.episodeNumber != null ? item.episodeNumber : 0);
+        info.put("episodeTitle", item.episodeTitle != null ? item.episodeTitle : "");
+        info.put("releaseYear", item.releaseYear);
+        info.put("runtimeMins", item.runtimeMins);
+
+        boolean isEpisode = item.series != null && "episode".equalsIgnoreCase(item.type);
+        Models.Series s = isEpisode ? item.series : null;
+
+        info.put("mpaaRating", (s != null && s.mpaaRating != null) ? s.mpaaRating : item.mpaaRating != null ? item.mpaaRating : "");
+        info.put("overview", (s != null && s.overview != null && !s.overview.isBlank()) ? s.overview
+            : (item.overview != null ? item.overview : (item.description != null ? item.description : "")));
+        info.put("tagline", (s != null && s.tagline != null && !s.tagline.isBlank()) ? s.tagline
+            : (item.tagline != null ? item.tagline : ""));
+        info.put("genres", (s != null && s.genres != null && !s.genres.isEmpty())
+            ? s.genres : item.genres);
+        info.put("imdbRating", (s != null && s.imdbRating != null) ? s.imdbRating : item.imdbRating);
+        info.put("tmdbRating", (s != null && s.tmdbRating != null) ? s.tmdbRating : item.tmdbRating);
+        info.put("metacriticRating", (s != null && s.metacriticRating != null) ? s.metacriticRating : (item.metacriticRating != null ? item.metacriticRating : null));
+        info.put("cast", (s != null && s.cast != null && !s.cast.isEmpty()) ? s.cast : item.cast);
+        info.put("directors", (s != null && s.directors != null && !s.directors.isEmpty()) ? s.directors : item.directors);
+        info.put("writers", (s != null && s.writers != null && !s.writers.isEmpty()) ? s.writers : item.writers);
+        info.put("productionCompanies", item.productionCompanies);
+        info.put("awards", item.awards != null ? item.awards : "");
+        info.put("budget", item.budget);
+        info.put("revenue", item.revenue);
+        info.put("originalLanguage", (s != null && s.originalLanguage != null) ? s.originalLanguage : (item.originalLanguage != null ? item.originalLanguage : ""));
+        info.put("productionCountries", item.productionCountries != null ? item.productionCountries : "");
+        info.put("releaseDate", item.releaseDate != null ? item.releaseDate : "");
+        info.put("trailerUrl", item.trailerUrl != null ? item.trailerUrl : "");
+        info.put("parentsGuide", item.parentsGuide != null ? item.parentsGuide : "");
+        info.put("collectionName", item.collectionName != null ? item.collectionName : "");
+        info.put("franchiseName", item.franchiseName != null ? item.franchiseName : "");
+        info.put("resolution", item.resolution != null ? item.resolution : "");
+        info.put("displayResolution", item.displayResolution != null ? item.displayResolution : "");
+        info.put("videoCodec", item.videoCodec != null ? item.videoCodec : "");
+        info.put("audioChannels", item.audioChannels);
+        info.put("status", (s != null && s.status != null) ? s.status : (item.status != null ? item.status : ""));
+        info.put("networks", (s != null && s.networks != null && !s.networks.isEmpty()) ? s.networks : item.networks);
+    }
+
+    /**
+     * Fully-initialized detached playback-fragment data. The Video was loaded by
+     * find() inside the transaction (all its lazy collections initialized) and only
+     * scalar columns are read afterwards; infoSection and carouselItems are plain
+     * maps of scalars. Never touch item.series / Series ElementCollections outside
+     * the transaction — those are fully consumed by buildInfoSection() already.
+     */
+    public static class PlaybackData {
+        public final Video item;
+        public final double resumeTime;
+        public final boolean needsTranscoding;
+        public final boolean needsConversion;
+        public final String conversionJobId;
+        public final String conversionStatus;
+        public final Long nextEpisodeId;
+        public final Long prevEpisodeId;
+        public final boolean autoSkipIntro;
+        public final boolean autoSkipRecap;
+        public final boolean autoSkipOutro;
+        public final String defaultPlayer;
+        public final List<Map<String, Object>> carouselItems;
+        public final int currentCarouselIndex;
+        public final String carouselTitle;
+        public final boolean hasCarousel;
+        public final Long collectionId;
+        public final Map<String, Object> infoSection;
+
+        public PlaybackData(Video item, double resumeTime, boolean needsTranscoding, boolean needsConversion,
+                            String conversionJobId, String conversionStatus, Long nextEpisodeId, Long prevEpisodeId,
+                            boolean autoSkipIntro, boolean autoSkipRecap, boolean autoSkipOutro, String defaultPlayer,
+                            List<Map<String, Object>> carouselItems, int currentCarouselIndex, String carouselTitle,
+                            boolean hasCarousel, Long collectionId, Map<String, Object> infoSection) {
+            this.item = item;
+            this.resumeTime = resumeTime;
+            this.needsTranscoding = needsTranscoding;
+            this.needsConversion = needsConversion;
+            this.conversionJobId = conversionJobId;
+            this.conversionStatus = conversionStatus;
+            this.nextEpisodeId = nextEpisodeId;
+            this.prevEpisodeId = prevEpisodeId;
+            this.autoSkipIntro = autoSkipIntro;
+            this.autoSkipRecap = autoSkipRecap;
+            this.autoSkipOutro = autoSkipOutro;
+            this.defaultPlayer = defaultPlayer;
+            this.carouselItems = carouselItems;
+            this.currentCarouselIndex = currentCarouselIndex;
+            this.carouselTitle = carouselTitle;
+            this.hasCarousel = hasCarousel;
+            this.collectionId = collectionId;
+            this.infoSection = infoSection;
         }
     }
 
