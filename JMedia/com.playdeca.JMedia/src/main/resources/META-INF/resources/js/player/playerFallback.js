@@ -145,7 +145,7 @@
                 { src: '/lib/hls.min.js', global: 'Hls', optional: true },
                 { src: '/lib/oplayer/hls.min.js', global: 'OHls', optional: true },
                 { src: '/js/player/Utils.js?v=3', global: 'PlayerUtils' },
-                { src: '/js/player/oplayer-adapter.js?v=4', global: 'initOPlayerAdapter' }
+                { src: '/js/player/oplayer-adapter.js?v=8', global: 'initOPlayerAdapter' }
             ],
             ready: function() {
                 return typeof window.OPlayer !== 'undefined' &&
@@ -178,7 +178,7 @@
                 { src: '/lib/videojs/video.min.js', global: 'videojs' },
                 { src: '/js/video/VideoWebSocketManager.js', global: 'VideoWebSocketManager', optional: true },
                 { src: '/js/player/Utils.js?v=3', global: 'PlayerUtils' },
-                { src: '/js/player/videojs-adapter.js?v=4', global: 'initVideoJsAdapter' },
+                { src: '/js/player/videojs-adapter.js?v=8', global: 'initVideoJsAdapter' },
                 { src: '/js/test-player-common.js?v=2', global: 'TestPlayerFeatures', optional: true }
             ],
             ready: function() {
