@@ -56,7 +56,13 @@
 
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 ? '?start=' + startTime : '')));
+        /* Direct-streamed files (no transcode AND no conversion) are served raw by the
+         * backend with full byte-range support — the server IGNORES ?start= on that
+         * path (streamDirectFile has no start param). Baking ?start= for them restarts
+         * the element from byte 0 while the offset claims otherwise, so resume must be
+         * a native post-load seek instead (mirror SimplePlayer's needsTranscode branch). */
+        var _isDirectFile = !container.dataset.externalUrl && container.dataset.needsTranscode !== 'true' && container.dataset.needsConversion !== 'true';
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 && !_isDirectFile ? '?start=' + startTime : '')));
         var streamType = streamUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
 
         /* Absolute stream time base: the server's ?start=N remux emits RELATIVE
@@ -67,7 +73,7 @@
          * natively; targets past the buffered (not-yet-transcoded) frontier
          * restart the stream with ?start=<abs> instead of issuing a byte-range
          * request into the still-growing transcode cache. */
-        var _streamStartOffset = (startTime > 0 && !container.dataset.externalUrl) ? startTime : 0;
+        var _streamStartOffset = (startTime > 0 && !_isDirectFile && !container.dataset.externalUrl) ? startTime : 0;
         var _currentQuality = 0;
 
         /* DB duration in seconds (data-duration is milliseconds, native-player
@@ -80,8 +86,10 @@
         }
 
         function _buildStreamUrl(startAbs, quality) {
-            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + Math.max(0, startAbs);
-            if (quality && quality > 0) url += '&quality=' + quality;
+            /* Direct-streamed files ignore ?start= (server has no start param on the
+             * direct path), so never bake it — a native seek after load handles resume. */
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs));
+            if (quality && quality > 0) url += (_isDirectFile ? '?' : '&') + 'quality=' + quality;
             return _withNativeHevc(url);
         }
 
@@ -97,6 +105,14 @@
         function _serverSeekTo(absTarget, forceReload) {
             if (_destroyed || !videoEl) return;
             var relTarget = Math.max(0, absTarget - _streamStartOffset);
+            /* Direct-streamed files are byte-range seekable at ANY position (the
+             * backend serves them raw and ignores ?start=), so a native element seek
+             * is always correct — past-buffer and forceReload included. */
+            if (_isDirectFile) {
+                try { vjsPlayer.currentTime(relTarget); } catch (e) {}
+                if (videoEl.paused) { try { videoEl.play().catch(function() {}); } catch (e) {} }
+                return;
+            }
             var isHls = (videoEl.currentSrc || '').indexOf('.m3u8') !== -1;
             var bufferedEnd = 0;
             try {
@@ -512,13 +528,15 @@
                             var resumeTime = (typeof state.currentTime === 'number' && state.currentTime > 0) ? state.currentTime : 0;
                             /* Server currentTime is ABSOLUTE: bake it as ?start= for transcoded
                              * streams so the new element clock restarts at 0 relative to it
-                             * (offset mirrors the baked param). External direct-file URLs cannot
-                             * bake a start param — the post-load native seek handles them. */
-                            _streamStartOffset = isExternalSwap ? 0 : resumeTime;
-                            var startParam = (!isExternalSwap && resumeTime > 0) ? 'start=' + Math.floor(resumeTime) + '&' : '';
+                             * (offset mirrors the baked param). External direct-file URLs and
+                             * internally direct-streamed files ignore ?start= — offset stays
+                             * 0 and the post-load native seek (resumeTime) handles them. */
+                            var noStartBake = isExternalSwap || _isDirectFile;
+                            _streamStartOffset = noStartBake ? 0 : resumeTime;
+                            var startParam = (!noStartBake && resumeTime > 0) ? 'start=' + Math.floor(resumeTime) + '&' : '';
                             newUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now()));
                             newType = newUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-                            _performSwapLoad(newUrl, newType, isExternalSwap ? resumeTime : 0, !!state.playing, _streamStartOffset);
+                            _performSwapLoad(newUrl, newType, noStartBake ? resumeTime : 0, !!state.playing, _streamStartOffset);
                             return;  // still hits the finally block
                         }
                         if (state.playing && videoEl.paused) {

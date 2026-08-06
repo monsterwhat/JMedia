@@ -40,7 +40,13 @@
 
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 ? '?start=' + startTime : '')));
+        /* Direct-streamed files (no transcode AND no conversion) are served raw by the
+         * backend with full byte-range support — the server IGNORES ?start= on that
+         * path (streamDirectFile has no start param). Baking ?start= for them restarts
+         * the element from byte 0 while the offset claims otherwise, so resume must be
+         * a native post-load seek instead (mirror SimplePlayer's needsTranscode branch). */
+        var _isDirectFile = !container.dataset.externalUrl && container.dataset.needsTranscode !== 'true' && container.dataset.needsConversion !== 'true';
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 && !_isDirectFile ? '?start=' + startTime : '')));
 
         /* DB duration in seconds (data-duration is milliseconds, native-player
          * convention — same >5000 guard as StateManager) or NaN when unknown
@@ -108,8 +114,14 @@
          * element natively; targets past the buffered (not-yet-transcoded) frontier
          * restart the stream with ?start=<abs> instead of issuing a byte-range
          * request into the still-growing transcode cache. */
-        var _streamStartOffset = (startTime > 0 && !container.dataset.externalUrl) ? startTime : 0;
+        var _streamStartOffset = (startTime > 0 && !_isDirectFile && !container.dataset.externalUrl) ? startTime : 0;
         var _currentQuality = 0;
+        /* Currently selected native subtitle index (-1 = off) and the track list it
+         * refers to. Used to re-apply the subtitle source after a ?start= server seek
+         * so native subtitles track the new stream offset (mirror SimplePlayer's
+         * subtitle reload in StreamManager.performServerSeek). */
+        var _subtitleIdx = -1;
+        var _subtitleTracks = [];
 
         function _clearSwapListeners() {
             if (_swapTimeout) { clearTimeout(_swapTimeout); _swapTimeout = null; }
@@ -132,9 +144,44 @@
         }
 
         function _buildStreamUrl(startAbs, quality) {
-            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + Math.max(0, startAbs);
-            if (quality && quality > 0) url += '&quality=' + quality;
+            /* Direct-streamed files ignore ?start= (server has no start param on the
+             * direct path), so never bake it — a native seek after load handles resume. */
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs));
+            if (quality && quality > 0) url += (_isDirectFile ? '?' : '&') + 'quality=' + quality;
             return _withNativeHevc(url);
+        }
+
+        /* Shared native-subtitle applier: rebuilds the OPlayer subtitle source list
+         * for the given index. The track URL carries ?start= so server-shifted cues
+         * align with the element clock (element 0 == absolute _streamStartOffset),
+         * mirroring SimplePlayer's SubtitleController. Re-invoked after every
+         * ?start= server seek with the new offset. */
+        function _applySubtitle(idx) {
+            if (idx === -1) {
+                _subtitleIdx = -1;
+                return;
+            }
+            var oplayer = window.__oplayerPlayer;
+            if (!oplayer || !oplayer.context || !oplayer.context.ui || !oplayer.context.ui.subtitle) {
+                return false;
+            }
+            try {
+                if (!_subtitleTracks || !_subtitleTracks[idx]) return false;
+                var offset = (_streamStartOffset > 0) ? '?start=' + Math.max(0, _streamStartOffset) : '';
+                var oplayerSubs = _subtitleTracks.map(function (t) {
+                    return {
+                        name: t.displayName || t.filename || ('Track ' + t.id),
+                        src: '/api/video/subtitles/track/' + t.id + offset,
+                        default: (t.id === _subtitleTracks[idx].id)
+                    };
+                });
+                oplayer.context.ui.subtitle.changeSource(oplayerSubs);
+                _subtitleIdx = idx;
+                return true;
+            } catch (e) {
+                console.error('[OplayerAdapter] OPlayer subtitle changeSource failed:', e);
+                return true;
+            }
         }
 
         /* Route every seek through here. In-buffer targets seek the element natively
@@ -147,6 +194,14 @@
         function _serverSeekTo(absTarget, forceReload) {
             if (_destroyed || !video) return;
             var relTarget = Math.max(0, absTarget - _streamStartOffset);
+            /* Direct-streamed files are byte-range seekable at ANY position (the
+             * backend serves them raw and ignores ?start=), so a native element seek
+             * is always correct — past-buffer and forceReload included. */
+            if (_isDirectFile) {
+                try { video.currentTime = relTarget; } catch (e) {}
+                if (video.paused) { try { video.play().catch(function() {}); } catch (e) {} }
+                return;
+            }
             var bufferedEnd = 0;
             try {
                 if (video.buffered.length > 0) bufferedEnd = video.buffered.end(video.buffered.length - 1);
@@ -189,7 +244,16 @@
              * the seek. The guard stays up until `playing` confirms the new position
              * (mirror _doServerSeek). */
             var handlers = {
-                playing: function() { if (swapToken === _swapToken) _endSwap(true); },
+                playing: function() {
+                    if (swapToken === _swapToken) {
+                        _endSwap(true);
+                        /* Native subtitles are aligned to the element clock, which
+                         * restarts at 0 relative to the new ?start= — re-apply the
+                         * selected track with the new offset so cues stay aligned
+                         * (mirror SimplePlayer's subtitle reload after server seek). */
+                        if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
+                    }
+                },
                 error: function() { if (swapToken === _swapToken) _swapInProgress = false; }
             };
             video.addEventListener('playing', handlers.playing);
@@ -510,40 +574,17 @@
                         var idx = cmd.payload && cmd.payload.index;
                         if (idx == null) return;
 
-                        function applyOplayerSubtitle() {
-                            if (_destroyed) return;
-                            var oplayer = window.__oplayerPlayer;
-                            if (!oplayer || !oplayer.context || !oplayer.context.ui || !oplayer.context.ui.subtitle) {
-                                return false; // OPlayer or subtitle API not ready yet
-                            }
-                            try {
-                                if (idx === -1) {
-                                    oplayer.context.ui.subtitle.changeSource([]);
-                                    console.log('[OplayerAdapter] Subtitles OFF (native)');
-                                    return true;
-                                }
-                                var tracks = (window.testPlayerFeatures && window.testPlayerFeatures._subtitleTracks) || [];
-                                if (!tracks || !tracks[idx]) return false; // track list not loaded yet
-                                var oplayerSubs = tracks.map(function (t) {
-                                    return {
-                                        name: t.displayName || t.filename || ('Track ' + t.id),
-                                        src: '/api/video/subtitles/track/' + t.id,
-                                        default: (t.id === tracks[idx].id)
-                                    };
-                                });
-                                oplayer.context.ui.subtitle.changeSource(oplayerSubs);
-                                console.log('[OplayerAdapter] Subtitle selected (native) idx=' + idx + ' id=' + tracks[idx].id);
-                                return true;
-                            } catch (e) {
-                                console.error('[OplayerAdapter] OPlayer subtitle changeSource failed:', e);
-                                return true; // don't retry on hard error
-                            }
+                        if (idx === -1) {
+                            _subtitleIdx = -1;
+                            _subtitleTracks = [];
                         }
+                        var tracks = (window.testPlayerFeatures && window.testPlayerFeatures._subtitleTracks) || [];
+                        if (idx !== -1 && tracks && tracks[idx]) _subtitleTracks = tracks;
 
                         var maxAttempts = 25, attempt = 0;
                         (function tryApply() {
                             if (_destroyed) return;
-                            if (applyOplayerSubtitle()) return;
+                            if (_applySubtitle(idx)) return;
                             if (attempt < maxAttempts) {
                                 attempt++;
                                 setTimeout(tryApply, 200);
@@ -622,11 +663,15 @@
                          * currentTime > 0 (VideoController.selectVideo); advanceVideo
                          * (auto-next) sets 0 -> omit the start param so it starts at 0. */
                         var startAbs = (typeof state.currentTime === 'number' && state.currentTime > 0) ? Math.floor(state.currentTime) : 0;
-                        var startParam = startAbs > 0 ? 'start=' + startAbs + '&' : '';
+                        /* Direct-streamed files ignore ?start=: load without the param and
+                         * restore the position with a native seek (loadeddata handler below). */
+                        var startParam = (!_isDirectFile && startAbs > 0) ? 'start=' + startAbs + '&' : '';
                         var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now());
                         /* The new stream's timestamps restart at 0 relative to the baked
-                         * ?start= param, so the element clock 0 == absolute startAbs. */
-                        _streamStartOffset = startAbs;
+                         * ?start= param, so the element clock 0 == absolute startAbs.
+                         * Direct-streamed files have no baked param: offset stays 0 and
+                         * the element clock is absolute from byte 0. */
+                        _streamStartOffset = _isDirectFile ? 0 : startAbs;
 
                         function loadSwapSource() {
                             vEl.src = url;
@@ -679,6 +724,9 @@
                             loadeddata: function() {
                                 if (swapToken !== _swapToken) return;
                                 _swapInProgress = false;
+                                /* Direct-streamed files have no baked ?start=, so restore
+                                 * the resume position with a native byte-range seek. */
+                                if (_isDirectFile && startAbs > 0) { try { vEl.currentTime = startAbs; } catch (e) {} }
                             },
                             error: function() {
                                 if (swapToken !== _swapToken) return;
