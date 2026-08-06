@@ -47,7 +47,6 @@ import java.util.concurrent.ThreadFactory;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ManagedContext;
 import jakarta.ws.rs.core.Context;
-import jakarta.transaction.Transactional;
 
 @Path("/api/video")
 
@@ -1148,16 +1147,12 @@ public class VideoAPI {
 
     @GET
     @Path("/{videoId}/audio-tracks")
-    @Transactional
     public Response getAudioTracks(@PathParam("videoId") Long videoId) {
-        Video video = videoService.findById(videoId);
-        if (video == null) {
+        List<Models.AudioTrack> tracks = videoService.getAudioTracks(videoId);
+        if (tracks == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
         }
 
-        List<Models.AudioTrack> tracks = Models.AudioTrack.list("video.id", videoId);
-        if (tracks == null) tracks = new ArrayList<>();
-        
         return Response.ok(ApiResponse.success(tracks)).build();
     }
 
@@ -1879,34 +1874,23 @@ public class VideoAPI {
     @Path("/progress/{videoId}/toggle-watched")
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
-    @Transactional
     public Response toggleWatched(@PathParam("videoId") Long videoId) {
         try {
-            Models.Video video = Models.Video.findById(videoId);
-            if (video == null) {
-                return Response.status(Response.Status.NOT_FOUND)
-                        .entity(ApiResponse.error("Video not found")).build();
-            }
-
             Models.Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                         .entity(ApiResponse.error("No active profile")).build();
             }
 
-            Models.VideoState state = videoStateService.getOrCreate(video);
-            state.watched = !Boolean.TRUE.equals(state.watched);
-            if (Boolean.TRUE.equals(state.watched)) {
-                state.watchProgress = 1.0;
-            } else {
-                state.watchProgress = 0.0;
-                state.currentTime = 0.0;
+            Boolean watched = videoService.toggleWatched(videoId);
+            if (watched == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Video not found")).build();
             }
-            state.persist();
 
             Map<String, Object> result = new java.util.HashMap<>();
-            result.put("watched", state.watched);
-            result.put("watchProgress", state.watchProgress);
+            result.put("watched", watched);
+            result.put("watchProgress", watched ? 1.0 : 0.0);
             return Response.ok(ApiResponse.success(result)).build();
         } catch (Exception e) {
             LOG.error("Error toggling watched for video {}: {}", videoId, e.getMessage());
@@ -1918,15 +1902,13 @@ public class VideoAPI {
     @Path("/progress/{videoId}/remove-from-continue-watching")
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
-    @Transactional
     public Response removeFromContinueWatching(@PathParam("videoId") Long videoId) {
         try {
-            Models.Video video = Models.Video.findById(videoId);
-            if (video == null) {
+            Boolean removed = videoService.removeFromContinueWatching(videoId);
+            if (removed == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("Video not found")).build();
             }
-            videoStateService.removeFromContinueWatching(video);
             return Response.ok(ApiResponse.success(true)).build();
         } catch (Exception e) {
             LOG.error("Error removing video {} from continue watching: {}", videoId, e.getMessage());
@@ -1938,27 +1920,9 @@ public class VideoAPI {
     @Path("/progress/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
-    @jakarta.transaction.Transactional
     public Response reportProgress(@PathParam("videoId") Long videoId, @QueryParam("time") double timeSeconds) {
         try {
-            // Update per-profile progress
-            Models.Video video = Models.Video.findById(videoId);
-            if (video != null) {
-                // Update per-profile VideoState progress
-                videoStateService.updateProgress(video, timeSeconds);
-            }
-
-            // Also update the ephemeral ProfileSessionState for real-time UI synchronization if needed
-            try {
-                Models.ProfileSessionState state = profileSessionStateService.getOrCreate();
-                if (state != null && videoId.equals(state.currentVideoId)) {
-                    state.currentTime = timeSeconds;
-                    state = profileSessionStateService.save(state);
-                }
-            } catch (Exception e) {
-                LOG.warn("Could not sync ProfileSessionState for video {}: {}", videoId, e.getMessage());
-            }
-            
+            videoService.reportProgress(videoId, timeSeconds);
             return Response.ok(ApiResponse.success(null)).build();
         } catch (Exception e) {
             LOG.error("Error reporting progress for video {}: {}", videoId, e.getMessage());

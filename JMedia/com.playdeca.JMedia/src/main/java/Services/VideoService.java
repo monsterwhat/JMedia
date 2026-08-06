@@ -9,6 +9,9 @@ import Models.VideoGenre;
 import Models.SubtitleTrack;
 import Models.Profile;
 import Models.UserSubtitlePreferences;
+import Models.AudioTrack;
+import Models.ProfileSessionState;
+import Models.VideoState;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -52,6 +55,12 @@ public class VideoService {
 
     @Inject
     ThumbnailService thumbnailService;
+
+    @Inject
+    VideoStateService videoStateService;
+
+    @Inject
+    ProfileSessionStateService profileSessionStateService;
 
     // ========== CORE VIDEO OPERATIONS ==========
     
@@ -931,6 +940,68 @@ public class VideoService {
         }
     }
     
+    // ========== AUDIO TRACKS & PLAYBACK PROGRESS (migrated from VideoAPI) ==========
+
+    @Transactional
+    public List<AudioTrack> getAudioTracks(Long videoId) {
+        if (Video.findById(videoId) == null) {
+            return null;
+        }
+        List<AudioTrack> tracks = AudioTrack.list("video.id", videoId);
+        return tracks == null ? new ArrayList<>() : tracks;
+    }
+
+    @Transactional
+    public Boolean toggleWatched(Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return null;
+        }
+        VideoState state = videoStateService.getOrCreate(video);
+        if (state == null) {
+            return null;
+        }
+        state.watched = !Boolean.TRUE.equals(state.watched);
+        if (Boolean.TRUE.equals(state.watched)) {
+            state.watchProgress = 1.0;
+        } else {
+            state.watchProgress = 0.0;
+            state.currentTime = 0.0;
+        }
+        state.persist();
+        return Boolean.TRUE.equals(state.watched);
+    }
+
+    @Transactional
+    public Boolean removeFromContinueWatching(Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
+            return null;
+        }
+        videoStateService.removeFromContinueWatching(video);
+        return true;
+    }
+
+    @Transactional
+    public boolean reportProgress(Long videoId, double progressSeconds) {
+        Video video = Video.findById(videoId);
+        if (video != null) {
+            videoStateService.updateProgress(video, progressSeconds);
+        }
+
+        // Also update the ephemeral ProfileSessionState for real-time UI synchronization if needed
+        try {
+            ProfileSessionState state = profileSessionStateService.getOrCreate();
+            if (state != null && videoId.equals(state.currentVideoId)) {
+                state.currentTime = progressSeconds;
+                state = profileSessionStateService.save(state);
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Could not sync ProfileSessionState for video {}: {}", videoId, e.getMessage());
+        }
+        return true;
+    }
+
     /**
      * Discover subtitle tracks for all videos that don't have any subtitle tracks.
      * Now delegates to SubtitleDiscoveryQueueProcessor for background processing.
