@@ -40,7 +40,7 @@
 
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4'));
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 ? '?start=' + startTime : '')));
 
         /* DB duration in seconds (data-duration is milliseconds, native-player
          * convention — same >5000 guard as StateManager) or NaN when unknown
@@ -99,6 +99,17 @@
            player until it echoes the position we reported back to us (echo-lock). */
         var _localSeekAt = 0;
         var _localSeekPos = -1;
+        /* Absolute stream time base: the server's ?start=N remux emits RELATIVE
+         * timestamps (ffmpeg -ss input seek, no -copyts), so element time = 0 at
+         * the seek position. All server-facing times (WS seek, broadcasts,
+         * drift-sync) and the shadowed player.currentTime are ABSOLUTE =
+         * element time + this offset, mirroring SimplePlayer's streamStartOffset.
+         * Every seek is routed through _serverSeekTo(): in-buffer targets seek the
+         * element natively; targets past the buffered (not-yet-transcoded) frontier
+         * restart the stream with ?start=<abs> instead of issuing a byte-range
+         * request into the still-growing transcode cache. */
+        var _streamStartOffset = (startTime > 0 && !container.dataset.externalUrl) ? startTime : 0;
+        var _currentQuality = 0;
 
         function _clearSwapListeners() {
             if (_swapTimeout) { clearTimeout(_swapTimeout); _swapTimeout = null; }
@@ -118,6 +129,79 @@
             /* B6: on `playing` the swap sends ONE confirmation broadcast, which restarts
              * the server playback timer with the new videoId. */
             if (confirmBroadcast) _broadcastState();
+        }
+
+        function _buildStreamUrl(startAbs, quality) {
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + Math.max(0, startAbs);
+            if (quality && quality > 0) url += '&quality=' + quality;
+            return _withNativeHevc(url);
+        }
+
+        /* Route every seek through here. In-buffer targets seek the element natively
+         * (relative = absolute - offset); targets past the buffered frontier restart
+         * the transcode with ?start=<abs> — the browser cannot byte-range into the
+         * still-growing cache, so a native seek there would hang (B13). Targets
+         * BEHIND the current window start (absTarget < _streamStartOffset) also
+         * reload: relTarget clamps to 0, which is the window start — a native seek
+         * there would land at the window start, not the requested position. */
+        function _serverSeekTo(absTarget, forceReload) {
+            if (_destroyed || !video) return;
+            var relTarget = Math.max(0, absTarget - _streamStartOffset);
+            var bufferedEnd = 0;
+            try {
+                if (video.buffered.length > 0) bufferedEnd = video.buffered.end(video.buffered.length - 1);
+            } catch (e) {}
+            if (!forceReload && (container.dataset.externalUrl || (absTarget >= _streamStartOffset && relTarget <= bufferedEnd + 1))) {
+                /* External direct-file URLs support byte-range seeks natively, so they
+                 * never need a ?start= transcode restart (their offset is always 0).
+                 * Backward targets behind the window start (absTarget < offset) fall
+                 * through to the ?start= reload below — relTarget would clamp to 0,
+                 * landing at the window start instead of the requested position. */
+                try { video.currentTime = relTarget; } catch (e) {}
+                if (video.paused) { try { video.play().catch(function() {}); } catch (e) {} }
+                return;
+            }
+
+            /* Past buffer: server-side seek. Mirror _doServerSeek: suppress broadcasts
+             * and drift-sync during the reload window so a stale server position cannot
+             * seek-yank the fresh element back (the element sits at 0 relative while
+             * the server still reports the OLD absolute position). */
+            _swapToken++;
+            var swapToken = _swapToken;
+            _swapInProgress = true;
+            _swapRetries = 0;
+            _clearSwapListeners();
+
+            _streamStartOffset = Math.max(0, absTarget);
+            var url = _buildStreamUrl(absTarget, _currentQuality);
+
+            try { video.pause(); } catch (e) {}
+            video.src = "";
+            try { video.load(); } catch (e) {}
+
+            /* Suppression exit: `playing` sends ONE confirmation broadcast (B6) that
+             * restarts the server playback timer at the new absolute position.
+             * `error` and the 10s timeout end the swap; `loadeddata` does NOT lower
+             * the swap guard. It fires before `playing`, and the server may still
+             * broadcast the OLD absolute position — for a BACKWARD seek that stale
+             * position is ABOVE the new offset, so the one-directional stale guard
+             * passes and drift-sync would yank the fresh element forward, undoing
+             * the seek. The guard stays up until `playing` confirms the new position
+             * (mirror _doServerSeek). */
+            var handlers = {
+                playing: function() { if (swapToken === _swapToken) _endSwap(true); },
+                error: function() { if (swapToken === _swapToken) _swapInProgress = false; }
+            };
+            video.addEventListener('playing', handlers.playing);
+            video.addEventListener('error', handlers.error);
+            _swapHandlers = handlers;
+            _swapTimeout = setTimeout(function() {
+                if (swapToken === _swapToken) _endSwap(false);
+            }, 10000);
+
+            video.src = url;
+            try { video.load(); } catch (e) {}
+            try { video.play().catch(function() {}); } catch (e) {}
         }
 
         /* ---------- Idle timer: auto-hide custom controls ---------- */
@@ -215,11 +299,9 @@
                 qualityBtn.classList.add('active');
                 if (window.Toast) window.Toast.info('Quality: ' + label);
 
-                var currentTime = video.currentTime || 0;
-                var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + quality);
-                video.src = url;
-                video.load();
-                video.play().catch(function() {});
+                var currentTime = (video.currentTime || 0) + _streamStartOffset;
+                _currentQuality = quality;
+                _serverSeekTo(currentTime, true);
                 return;
             }
         });
@@ -394,8 +476,8 @@
                 case 'k': e.preventDefault(); if (video) { if (video.paused) video.play().catch(function() {}); else video.pause(); } break;
                 case 'f': e.preventDefault(); toggleFullscreen(); break;
                 case 'm': e.preventDefault(); if (video) { video.muted = !video.muted; } break;
-                case 'ArrowLeft': e.preventDefault(); if (video) { video.currentTime = Math.max(0, (video.currentTime || 0) - 15); } break;
-                case 'ArrowRight': e.preventDefault(); if (video) { video.currentTime = Math.min(video.duration || 0, (video.currentTime || 0) + 15); } break;
+                case 'ArrowLeft': e.preventDefault(); if (video) { _serverSeekTo((video.currentTime || 0) + _streamStartOffset - 15); } break;
+                case 'ArrowRight': e.preventDefault(); if (video) { var absDur = _knownDuration(); if (!isFinite(absDur)) absDur = (video.duration || 0) + _streamStartOffset; _serverSeekTo(Math.min(absDur, (video.currentTime || 0) + _streamStartOffset + 15)); } break;
                 case 'ArrowUp':
                     e.preventDefault();
                     if (video) { video.volume = Math.min(1, (video.volume || 0) + 0.1); }
@@ -513,7 +595,7 @@
                         if (_destroyed || !video) return;
                         var t = cmd.payload && cmd.payload.value;
                         if (typeof t === 'number' && isFinite(t)) {
-                            try { video.currentTime = t; } catch (e) {}
+                            _serverSeekTo(t);
                         }
                     }
                 },
@@ -539,10 +621,12 @@
                          * old element's position. selectVideo (resume) broadcasts
                          * currentTime > 0 (VideoController.selectVideo); advanceVideo
                          * (auto-next) sets 0 -> omit the start param so it starts at 0. */
-                        var startParam = (typeof state.currentTime === 'number' && state.currentTime > 0)
-                            ? 'start=' + Math.floor(state.currentTime) + '&'
-                            : '';
+                        var startAbs = (typeof state.currentTime === 'number' && state.currentTime > 0) ? Math.floor(state.currentTime) : 0;
+                        var startParam = startAbs > 0 ? 'start=' + startAbs + '&' : '';
                         var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now());
+                        /* The new stream's timestamps restart at 0 relative to the baked
+                         * ?start= param, so the element clock 0 == absolute startAbs. */
+                        _streamStartOffset = startAbs;
 
                         function loadSwapSource() {
                             vEl.src = url;
@@ -581,8 +665,12 @@
 
                         /* Suppression exit: clear the swap window on the new source's
                          * `playing` (with ONE confirmation broadcast that restarts the
-                         * server timer), `loadeddata`, or `error`; a 10s safety timeout
-                         * always ends it. Only events from the current swap count. */
+                         * server timer). `loadeddata` fires BEFORE `playing`, so it must
+                         * only lower the swap guard — ending the swap there would remove
+                         * the playing listener and the confirmation broadcast would never
+                         * fire (server keeps the OLD position, drift-yanks the new
+                         * element back every 3s). A 10s safety timeout always ends it.
+                         * Only events from the current swap count. */
                         var handlers = {
                             playing: function() {
                                 if (swapToken !== _swapToken) return;
@@ -590,7 +678,7 @@
                             },
                             loadeddata: function() {
                                 if (swapToken !== _swapToken) return;
-                                _endSwap(false);
+                                _swapInProgress = false;
                             },
                             error: function() {
                                 if (swapToken !== _swapToken) return;
@@ -631,15 +719,27 @@
                              * 300ms timer inflates currentTime while a slow stream is
                              * still buffering; seeking a data-less element past its end
                              * fires a spurious 'ended', cascading to the next episode. */
+                            /* Server currentTime is ABSOLUTE; the element clock restarts
+                             * at 0 on each ?start= reload, so translate to element time
+                             * before clamping and drift-comparing (mirrors _streamStartOffset). */
                             var d = video.duration;
-                            var target = state.currentTime;
-                            if (isFinite(d) && d > 0 && target > d - 1) target = d - 1;
-                            var drift = Math.abs((video.currentTime || 0) - target);
+                            var relTarget = Math.max(0, state.currentTime - _streamStartOffset);
+                            if (isFinite(d) && d > 0 && relTarget > d - 1) relTarget = d - 1;
+                            var drift = Math.abs((video.currentTime || 0) - relTarget);
                             var lockAge = Date.now() - _localSeekAt;
                             var locked = _localSeekPos >= 0 && lockAge < 3000;
-                            var converged = locked && Math.abs(target - _localSeekPos) < 5;
+                            var converged = locked && Math.abs(state.currentTime - _localSeekPos) < 5;
                             if (converged) _localSeekPos = -1;
-                            if (drift > 3 && (!locked || converged)) { try { video.currentTime = target; } catch (e) {} }
+                            /* Stale-server guard: after a ?start= reload the element clock
+                             * restarts at 0 while the server may still broadcast the OLD
+                             * absolute position (state < offset) -> relTarget clamps to 0
+                             * and the fresh element would be seek-yanked back to the start
+                             * every 3s. The reloaded element is authoritative until the
+                             * server's phantom clock catches up (B6 confirmation or the
+                             * next server-side seek). */
+                            if (drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
+                                try { video.currentTime = relTarget; } catch (e) {}
+                            }
                         }
                     } catch (e) {
                         console.error('[OplayerAdapter] onStateUpdate error', e);
@@ -772,11 +872,9 @@
                                         var value = _ref.value;
                                         var vid = player && player.$video;
                                         if (!vid) return;
-                                        var currentTime = vid.currentTime || 0;
-                                        var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?start=' + currentTime + '&quality=' + value);
-                                        vid.src = url;
-                                        vid.load();
-                                        vid.play().catch(function () {});
+                                        var currentTime = (vid.currentTime || 0) + _streamStartOffset;
+                                        _currentQuality = parseInt(value, 10) || 0;
+                                        _serverSeekTo(currentTime, true);
                                     }
                                 },
                                 {
@@ -916,6 +1014,26 @@
                         }
                     });
                 } catch (e) { /* accessor non-configurable — keep lib default */ }
+
+                /* OUI reads player.currentTime / calls player.seek() for the timeline
+                 * and arrow keys; expose ABSOLUTE time and route seeks through
+                 * _serverSeekTo so out-of-buffer targets restart the transcode. */
+                try {
+                    Object.defineProperty(player, 'currentTime', {
+                        configurable: true,
+                        get: function() {
+                            return ((player.$video && player.$video.currentTime) || 0) + _streamStartOffset;
+                        },
+                        set: function(t) {
+                            if (typeof t === 'number' && isFinite(t)) _serverSeekTo(t);
+                        }
+                    });
+                } catch (e) { /* accessor non-configurable — keep lib default */ }
+                try {
+                    player.seek = function(t) {
+                        if (typeof t === 'number' && isFinite(t)) _serverSeekTo(t);
+                    };
+                } catch (e) {}
 
                 var waitForVideo = setInterval(function() {
                     if (player && player.$video) {
@@ -1077,7 +1195,7 @@
             _wsManager.send('state', {
                 currentVideoId: videoId,
                 playing: !video.paused,
-                currentTime: video.currentTime || 0,
+                currentTime: (video.currentTime || 0) + _streamStartOffset,
                 profileId: (localStorage.getItem('activeProfileId') ? Number(localStorage.getItem('activeProfileId')) : null)
             });
         }
@@ -1100,13 +1218,19 @@
                 showControls();
             });
 
+            /* Keep the server phantom clock locked to client truth: without periodic
+             * reports it lags after a seek and the drift-sync yanks back every 3s. */
+            video.addEventListener('timeupdate', function() {
+                _broadcastState();
+            });
+
             video.addEventListener('seeking', function() {
                 showControls();
             });
 
             video.addEventListener('seeked', function() {
                 _localSeekAt = Date.now();
-                _localSeekPos = video.currentTime || 0;
+                _localSeekPos = (video.currentTime || 0) + _streamStartOffset;
                 _broadcastState();
                 /* Retry once shortly after: the _applyingServerState guard drops the
                    immediate report when a broadcast was mid-apply, and the server must
@@ -1153,13 +1277,13 @@
                 video.addEventListener('loadedmetadata', function() {
                     if (!_seekDone) {
                         _seekDone = true;
-                        video.currentTime = startTime;
+                        video.currentTime = Math.max(0, startTime - _streamStartOffset);
                     }
                 });
                 video.addEventListener('canplay', function() {
                     if (!_seekDone) {
                         _seekDone = true;
-                        video.currentTime = startTime;
+                        video.currentTime = Math.max(0, startTime - _streamStartOffset);
                     }
                 });
             }
@@ -1242,7 +1366,9 @@
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
                         if (videoRef) {
-                            videoRef.currentTime = Math.max(0, Math.min(videoRef.duration || 0, (videoRef.currentTime || 0) + seconds));
+                            var absDur = _knownDuration();
+                            if (!isFinite(absDur)) absDur = (videoRef.duration || 0) + _streamStartOffset;
+                            _serverSeekTo(Math.max(0, Math.min(absDur, (videoRef.currentTime || 0) + _streamStartOffset + seconds)));
                         }
                     });
                     return btn;
@@ -1264,8 +1390,8 @@
                  * and aborts it (AbortError), leaving playback stuck on "loading". */
                 disableBlobSwap: true,
                 getVideoElement: function() { return video; },
-                getCurrentTime: function() { return video.currentTime; },
-                setCurrentTime: function(t) { video.currentTime = t; },
+                getCurrentTime: function() { return (video.currentTime || 0) + _streamStartOffset; },
+                setCurrentTime: function(t) { _serverSeekTo(t); },
                 getDuration: function() {
                     var d = _knownDuration();
                     if (isFinite(d)) return d;
@@ -1327,7 +1453,7 @@
                     _wsManager.send('state', {
                         currentVideoId: videoId,
                         playing: false,
-                        currentTime: video.currentTime || 0,
+                        currentTime: (video.currentTime || 0) + _streamStartOffset,
                         profileId: (localStorage.getItem('activeProfileId') ? Number(localStorage.getItem('activeProfileId')) : null)
                     });
                 } catch (e) {}
@@ -1335,6 +1461,18 @@
             if (_wsManager) { _wsManager.disconnect(); _wsManager = null; }
             if (player && typeof player.destroy === 'function') {
                 player.destroy();
+            }
+            /* B12: OPlayer's destroy() only revokes blob URLs — a direct
+             * /api/video/stream URL stays on the element, keeping the fetch (and
+             * the server-side ffmpeg remux/transcode) alive. Blank src + load()
+             * to force-abort the media fetch so the server sees the disconnect
+             * and kills the ffmpeg process. */
+            if (video) {
+                try {
+                    video.pause();
+                    video.removeAttribute('src');
+                    video.load();
+                } catch (e) {}
             }
             document.removeEventListener('click', closeMenuIfOpen);
             document.removeEventListener('touchend', _onTouchEnd);
