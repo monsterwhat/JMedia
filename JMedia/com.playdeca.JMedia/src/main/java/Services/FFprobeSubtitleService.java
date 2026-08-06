@@ -173,8 +173,9 @@ public class FFprobeSubtitleService {
     /**
      * Extract an internal subtitle track and convert to WebVTT string on-the-fly
      */
+    @Transactional
     public String extractInternalSubtitleToVTT(SubtitleTrack track, double startOffset) throws IOException {
-        if (!track.isEmbedded || track.trackIndex == null || track.video == null) {
+        if (!track.isEmbedded || track.trackIndex == null || track.fullPath == null) {
             throw new IllegalArgumentException("Track is not an embedded subtitle track");
         }
         
@@ -190,8 +191,8 @@ public class FFprobeSubtitleService {
         }
 
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path baseFilePath = Paths.get(track.video.path);
-        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.video.path);
+        Path baseFilePath = Paths.get(track.fullPath);
+        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.fullPath);
 
         // Extract full subtitle track WITHOUT seeking - preserve original timestamps
         // Browser handles sync based on video.currentTime
@@ -237,8 +238,9 @@ public class FFprobeSubtitleService {
      * Extract raw ASS/SSA subtitle content from an embedded track, preserving all styling.
      * Uses a temporary file for extraction since FFmpeg's ASS muxer is not available in all builds.
      */
+    @Transactional
     public String extractRawSubtitle(SubtitleTrack track) throws IOException {
-        if (!track.isEmbedded || track.trackIndex == null || track.video == null) {
+        if (!track.isEmbedded || track.trackIndex == null || track.fullPath == null) {
             throw new IllegalArgumentException("Track is not an embedded subtitle track");
         }
 
@@ -253,8 +255,8 @@ public class FFprobeSubtitleService {
         }
 
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path baseFilePath = Paths.get(track.video.path);
-        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.video.path);
+        Path baseFilePath = Paths.get(track.fullPath);
+        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.fullPath);
 
         // Write to a temp .ass file, then read it back
         Path tempFile = Files.createTempFile("subs_", ".ass");
