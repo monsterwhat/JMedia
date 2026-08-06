@@ -2,7 +2,6 @@ package API.Rest;
 
 import Services.EpgService;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -21,7 +20,6 @@ public class EpgApi {
 
     @POST
     @Path("/import")
-    @Transactional
     public Response importXmltv(JsonNode body) {
         String xmltvContent = body.has("xmltv") ? body.get("xmltv").asText(null) : null;
         String xmltvUrl = body.has("url") ? body.get("url").asText(null) : null;
@@ -51,9 +49,7 @@ public class EpgApi {
         }
         
         try {
-            epgService.deleteAll();
-            epgService.importXmltv(xmltvContent);
-            long count = epgService.count();
+            long count = epgService.importXmltvReplacingAll(xmltvContent);
             return Response.ok("{\"success\":true,\"count\":" + count + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)

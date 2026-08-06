@@ -125,6 +125,13 @@ public class EpgService {
         return EpgEntry.count();
     }
 
+    @Transactional
+    public long importXmltvReplacingAll(String xmltvContent) {
+        deleteAll();
+        importXmltv(xmltvContent);
+        return count();
+    }
+
     private void persistBatch(List<EpgEntry> batch) {
         for (EpgEntry entry : batch) {
             em.persist(entry);
