@@ -1002,6 +1002,407 @@ public class VideoService {
         return true;
     }
 
+    // ========== CINEMA HOME (migrated from VideoUiApi.getCinemaHomeFragment) ==========
+
+    /**
+     * Owns the ENTIRE cinema-home data workflow inside ONE transaction: the direct
+     * Panache queries, continue-watching items, seriesMap dedupe, series enrichment,
+     * seriesCache proxy reads, v.genres / series.genres genre maps, and hero-item
+     * building. Returns fully-initialized detached data (plain maps + entities whose
+     * scalar columns are all loaded) so the API can do lazy-safe HTML assembly only.
+     */
+    @Transactional
+    public CinemaHomeData getCinemaHomeData() {
+        // Targeted paginated queries
+        List<Video> movies = Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
+            .range(0, 99).list();
+        List<Video> episodes = Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
+            .list();
+
+        // --- Continue Watching ---
+        List<Video> cwItems = new ArrayList<>();
+        java.util.Set<String> seenCW = new java.util.HashSet<>();
+        List<VideoState> inProgress = videoStateService.getInProgressVideos();
+        for (VideoState vs : inProgress) {
+            if (vs.video != null && vs.video.isActive) {
+                String key = "cw:" + vs.video.id;
+                if (seenCW.add(key)) {
+                    // Attach progress data
+                    vs.video.watchProgress = vs.watchProgress;
+                    if (vs.watchProgress != null) {
+                        vs.video.watchProgressPercent = (int) (vs.watchProgress * 100);
+                    }
+                    cwItems.add(vs.video);
+                }
+                if (cwItems.size() >= 10) break;
+            }
+        }
+
+        // --- TV Shows (deduped by seriesTitle, one card per show) ---
+        Map<String, Video> seriesMap = new LinkedHashMap<>();
+        for (Video v : episodes) {
+            String key = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+            Video existing = seriesMap.get(key);
+            if (existing == null || (v.dateAdded != null && existing.dateAdded != null && v.dateAdded.isAfter(existing.dateAdded))) {
+                seriesMap.put(key, v);
+            }
+        }
+        List<Video> tvShows = new ArrayList<>(seriesMap.values());
+        if (tvShows.size() > 20) tvShows = tvShows.subList(0, 20);
+
+        // --- Cache and enrich Series entities for TV shows ---
+        Map<String, Models.Series> seriesCache = new HashMap<>();
+        for (Video v : tvShows) {
+            try {
+                String seriesTitle = v.seriesTitle;
+                if (seriesTitle == null || seriesTitle.isBlank()) continue;
+                String cacheKey = seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                if (seriesCache.containsKey(cacheKey)) continue;
+                Models.Series series = v.series;
+                if (series == null) {
+                    series = Models.Series.find("title", seriesTitle).firstResult();
+                }
+                if (series != null && series.id != null) {
+                    videoMetadataService.enrichSeriesTextMetadataAsync(series.id);
+                    seriesCache.put(cacheKey, series);
+                }
+            } catch (Exception e) {
+                LOGGER.debug("Could not enrich series for '{}': {}", v.seriesTitle, e.getMessage());
+            }
+        }
+
+        // Bulk-load every Series once so per-card rendering never queries the DB (N+1)
+        Map<String, Models.Series> allSeriesByTitle = new HashMap<>();
+        for (Models.Series s : Models.Series.<Models.Series>listAll()) {
+            if (s.title == null || s.title.isBlank()) continue;
+            String sKey = s.title.toLowerCase().replaceAll("[^a-z0-9]", "");
+            if (!sKey.isEmpty()) allSeriesByTitle.putIfAbsent(sKey, s);
+        }
+
+        // --- Trending: dedup by seriesTitle, sorted by rating ---
+        Map<String, Video> trendingMap = new LinkedHashMap<>();
+        List<Video> allCombined = new ArrayList<>();
+        allCombined.addAll(movies);
+        allCombined.addAll(episodes);
+        for (Video v : allCombined) {
+            double rating = 0.0;
+            if (v.imdbRating != null) rating = v.imdbRating;
+            else if (v.tmdbRating != null) rating = v.tmdbRating;
+            else if ("episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
+                try {
+                    String trendingKey = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                    Models.Series series = allSeriesByTitle.get(trendingKey);
+                    if (series != null) {
+                        rating = series.tmdbRating != null ? series.tmdbRating : (series.imdbRating != null ? series.imdbRating : 0.0);
+                    }
+                } catch (Exception e) {
+                    // Fall through with 0.0 rating
+                }
+            }
+            String key = (v.seriesTitle != null ? v.seriesTitle : v.title != null ? v.title : "").toLowerCase().replaceAll("[^a-z0-9]", "");
+            if (key.isEmpty()) continue;
+            Video existing = trendingMap.get(key);
+            double existingRating = existing != null ? (existing.imdbRating != null ? existing.imdbRating : (existing.tmdbRating != null ? existing.tmdbRating : 0.0)) : 0.0;
+            if (existingRating <= 0 && existing != null && "episode".equalsIgnoreCase(existing.type) && existing.seriesTitle != null) {
+                try {
+                    String exKey = existing.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                    Models.Series exSeries = allSeriesByTitle.get(exKey);
+                    if (exSeries != null) {
+                        existingRating = exSeries.tmdbRating != null ? exSeries.tmdbRating : (exSeries.imdbRating != null ? exSeries.imdbRating : 0.0);
+                    }
+                } catch (Exception e) {}
+            }
+            if (existing == null || rating > existingRating) {
+                trendingMap.put(key, v);
+            }
+        }
+        List<Video> trending = new ArrayList<>(trendingMap.values());
+        trending.sort((a, b) -> {
+            double ra = 0.0, rb = 0.0;
+            if (a.imdbRating != null) ra = a.imdbRating;
+            else if (a.tmdbRating != null) ra = a.tmdbRating;
+            else if ("episode".equalsIgnoreCase(a.type) && a.seriesTitle != null) {
+                String k = a.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                Models.Series s = seriesCache.get(k);
+                if (s != null) ra = s.tmdbRating != null ? s.tmdbRating : (s.imdbRating != null ? s.imdbRating : 0.0);
+            }
+            if (b.imdbRating != null) rb = b.imdbRating;
+            else if (b.tmdbRating != null) rb = b.tmdbRating;
+            else if ("episode".equalsIgnoreCase(b.type) && b.seriesTitle != null) {
+                String k = b.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
+                Models.Series s = seriesCache.get(k);
+                if (s != null) rb = s.tmdbRating != null ? s.tmdbRating : (s.imdbRating != null ? s.imdbRating : 0.0);
+            }
+            return Double.compare(rb, ra);
+        });
+        if (trending.size() > 20) trending = trending.subList(0, 20);
+
+        // --- Recently Updated: episodes sorted by dateAdded, deduped by series ---
+        List<Video> recentlyUpdated = episodes.stream()
+            .sorted((a, b) -> {
+                if (a.dateAdded == null && b.dateAdded == null) return 0;
+                if (a.dateAdded == null) return 1;
+                if (b.dateAdded == null) return -1;
+                return b.dateAdded.compareTo(a.dateAdded);
+            })
+            .collect(Collectors.toList());
+        // Dedupe by seriesTitle
+        Set<String> seenSeries = new HashSet<>();
+        List<Video> dedupedUpdates = new ArrayList<>();
+        for (Video v : recentlyUpdated) {
+            String key = v.seriesTitle != null ? v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "") : String.valueOf(v.id);
+            if (seenSeries.add(key)) {
+                dedupedUpdates.add(v);
+            }
+        }
+        if (dedupedUpdates.size() > 20) dedupedUpdates = dedupedUpdates.subList(0, 20);
+
+        // --- Recently Added Movies (sorted by dateAdded) ---
+        List<Video> recentlyAddedMovies = movies.stream()
+            .sorted((a, b) -> {
+                if (a.dateAdded == null && b.dateAdded == null) return 0;
+                if (a.dateAdded == null) return 1;
+                if (b.dateAdded == null) return -1;
+                return b.dateAdded.compareTo(a.dateAdded);
+            })
+            .limit(20)
+            .collect(Collectors.toList());
+
+        // --- Build movie genre map (deduplicated across genres) ---
+        Map<String, List<Video>> movieGenreMap = new LinkedHashMap<>();
+        for (Video v : movies) {
+            if (v.genres != null) {
+                for (String g : v.genres) {
+                    if (g != null && !g.equalsIgnoreCase("anime")) {
+                        movieGenreMap.computeIfAbsent(g, k -> new ArrayList<>()).add(v);
+                    }
+                }
+            }
+        }
+        // Filter genres with >= 2 movies, sort by count desc
+        List<Map.Entry<String, List<Video>>> movieGenreEntries = new ArrayList<>(movieGenreMap.entrySet());
+        movieGenreEntries.removeIf(e -> e.getValue().size() < 2);
+        movieGenreEntries.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+        // Deduplicate: each video appears only in the first (largest) genre row it matches
+        Set<Long> movieIdsInGenres = new HashSet<>();
+        for (Map.Entry<String, List<Video>> entry : movieGenreEntries) {
+            List<Video> deduped = new ArrayList<>();
+            for (Video v : entry.getValue()) {
+                if (v.id != null && movieIdsInGenres.add(v.id)) {
+                    deduped.add(v);
+                }
+            }
+            entry.setValue(deduped);
+        }
+        movieGenreEntries.removeIf(e -> e.getValue().size() < 2);
+
+        // --- Recently Added TV Shows (deduped, sorted by dateAdded) ---
+        List<Video> recentlyAddedShows = new ArrayList<>(seriesMap.values());
+        recentlyAddedShows.sort((a, b) -> {
+            if (a.dateAdded == null && b.dateAdded == null) return 0;
+            if (a.dateAdded == null) return 1;
+            if (b.dateAdded == null) return -1;
+            return b.dateAdded.compareTo(a.dateAdded);
+        });
+        if (recentlyAddedShows.size() > 20) recentlyAddedShows = recentlyAddedShows.subList(0, 20);
+
+        // --- Build TV show genre map (deduplicated across genres) ---
+        Map<String, List<Video>> tvGenreMap = new LinkedHashMap<>();
+        for (Video v : tvShows) {
+            String cacheKey = v.seriesTitle != null ? v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "") : null;
+            Models.Series series = cacheKey != null ? seriesCache.get(cacheKey) : null;
+            List<String> genres = (series != null && series.genres != null && !series.genres.isEmpty())
+                ? series.genres
+                : ((v.series != null && v.series.genres != null && !v.series.genres.isEmpty())
+                    ? v.series.genres
+                    : v.genres);
+            if (genres != null) {
+                for (String g : genres) {
+                    if (g != null && !g.equalsIgnoreCase("anime")) {
+                        tvGenreMap.computeIfAbsent(g, k -> new ArrayList<>()).add(v);
+                    }
+                }
+            }
+        }
+        List<Map.Entry<String, List<Video>>> tvGenreEntries = new ArrayList<>(tvGenreMap.entrySet());
+        tvGenreEntries.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+        // Deduplicate: each show appears only in the first (largest) genre row it matches
+        Set<Long> tvIdsInGenres = new HashSet<>();
+        for (Map.Entry<String, List<Video>> entry : tvGenreEntries) {
+            List<Video> deduped = new ArrayList<>();
+            for (Video v : entry.getValue()) {
+                if (v.id != null && tvIdsInGenres.add(v.id)) {
+                    deduped.add(v);
+                }
+            }
+            entry.setValue(deduped);
+        }
+
+        // --- Hero items: tiered selection ---
+        List<Map<String, Object>> heroItemsList = new ArrayList<>();
+
+        // Tier 1: Most recently watched from continue-watching
+        if (!cwItems.isEmpty()) {
+            for (Video v : cwItems.subList(0, Math.min(5, cwItems.size()))) {
+                heroItemsList.add(buildCinemaHeroItem(v));
+            }
+        }
+
+        // Tier 2: Highest-rated movie with description
+        if (heroItemsList.isEmpty()) {
+            movies.stream()
+                .filter(v -> v.description != null && !v.description.isBlank())
+                .sorted((a, b) -> {
+                    double ra = a.imdbRating != null ? a.imdbRating : (a.tmdbRating != null ? a.tmdbRating : 0.0);
+                    double rb = b.imdbRating != null ? b.imdbRating : (b.tmdbRating != null ? b.tmdbRating : 0.0);
+                    return Double.compare(rb, ra);
+                })
+                .filter(v -> (v.imdbRating != null ? v.imdbRating : (v.tmdbRating != null ? v.tmdbRating : 0.0)) > 0)
+                .limit(5)
+                .forEach(v -> heroItemsList.add(buildCinemaHeroItem(v)));
+        }
+
+        // Tier 3: Most recently added movie
+        if (heroItemsList.isEmpty()) {
+            movies.stream()
+                .sorted((a, b) -> {
+                    if (a.dateAdded == null && b.dateAdded == null) return 0;
+                    if (a.dateAdded == null) return 1;
+                    if (b.dateAdded == null) return -1;
+                    return b.dateAdded.compareTo(a.dateAdded);
+                })
+                .limit(5)
+                .forEach(v -> heroItemsList.add(buildCinemaHeroItem(v)));
+        }
+
+        return new CinemaHomeData(movies, episodes, tvShows, allSeriesByTitle, trending,
+            dedupedUpdates, recentlyAddedMovies, movieGenreEntries, recentlyAddedShows,
+            tvGenreEntries, heroItemsList);
+    }
+
+    /**
+     * Fully-initialized detached cinema-home data. Entity lists are loaded inside the
+     * transaction with all scalar columns; the API must only read scalar fields and
+     * plain maps — never trigger lazy loading on Video.series / Series.* / genres.
+     */
+    public static class CinemaHomeData {
+        public final List<Video> movies;
+        public final List<Video> episodes;
+        public final List<Video> tvShows;
+        public final Map<String, Models.Series> allSeriesByTitle;
+        public final List<Video> trending;
+        public final List<Video> recentlyUpdated;
+        public final List<Video> recentlyAddedMovies;
+        public final List<Map.Entry<String, List<Video>>> movieGenreEntries;
+        public final List<Video> recentlyAddedShows;
+        public final List<Map.Entry<String, List<Video>>> tvGenreEntries;
+        public final List<Map<String, Object>> heroItemsList;
+
+        public CinemaHomeData(List<Video> movies, List<Video> episodes, List<Video> tvShows,
+                              Map<String, Models.Series> allSeriesByTitle, List<Video> trending,
+                              List<Video> recentlyUpdated, List<Video> recentlyAddedMovies,
+                              List<Map.Entry<String, List<Video>>> movieGenreEntries,
+                              List<Video> recentlyAddedShows,
+                              List<Map.Entry<String, List<Video>>> tvGenreEntries,
+                              List<Map<String, Object>> heroItemsList) {
+            this.movies = movies;
+            this.episodes = episodes;
+            this.tvShows = tvShows;
+            this.allSeriesByTitle = allSeriesByTitle;
+            this.trending = trending;
+            this.recentlyUpdated = recentlyUpdated;
+            this.recentlyAddedMovies = recentlyAddedMovies;
+            this.movieGenreEntries = movieGenreEntries;
+            this.recentlyAddedShows = recentlyAddedShows;
+            this.tvGenreEntries = tvGenreEntries;
+            this.heroItemsList = heroItemsList;
+        }
+    }
+
+    /**
+     * Builds hero item data map with pre-computed URLs (avoids lazy-loading series).
+     * Must run inside getCinemaHomeData()'s transaction.
+     */
+    private Map<String, Object> buildCinemaHeroItem(Video v) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", v.id);
+        item.put("type", v.type != null ? v.type : "movie");
+        item.put("title", v.title != null ? v.title : (v.seriesTitle != null ? v.seriesTitle : ""));
+        item.put("seriesTitle", v.seriesTitle);
+        // Episodes show the series synopsis in the hero: per-episode recaps can be
+        // very long, while the hero is a showcase for the whole title.
+        String description = v.description != null ? v.description : (v.overview != null ? v.overview : "");
+        if ("episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
+            String synopsis = resolveCinemaSeriesSynopsis(v);
+            if (!synopsis.isBlank()) {
+                description = synopsis;
+            }
+        }
+        item.put("description", description);
+        item.put("overview", v.overview);
+        // Episodes carry no rating/year of their own (fields default to 0.0) —
+        // fall back to the series values so TV shows still show rating and year.
+        Double imdbRating = v.imdbRating != null && v.imdbRating > 0 ? v.imdbRating : null;
+        Double tmdbRating = v.tmdbRating != null && v.tmdbRating > 0 ? v.tmdbRating : null;
+        Integer releaseYear = v.releaseYear;
+        if ("episode".equalsIgnoreCase(v.type)) {
+            Models.Series series = resolveCinemaSeries(v);
+            if (series != null) {
+                if (imdbRating == null && series.imdbRating != null && series.imdbRating > 0) {
+                    imdbRating = series.imdbRating;
+                }
+                if (tmdbRating == null && series.tmdbRating != null && series.tmdbRating > 0) {
+                    tmdbRating = series.tmdbRating;
+                }
+                if (releaseYear == null && series.releaseYear != null) {
+                    releaseYear = series.releaseYear;
+                }
+            }
+        }
+        item.put("imdbRating", imdbRating);
+        item.put("tmdbRating", tmdbRating);
+        item.put("releaseYear", releaseYear);
+        item.put("duration", v.duration != null ? v.duration : 0L);
+        item.put("favorite", v.favorite);
+        item.put("watchProgressPercent", v.watchProgressPercent != null ? v.watchProgressPercent : 0);
+        return item;
+    }
+
+    /**
+     * Returns the series synopsis for an episode, or "" when unavailable.
+     * Looks up the Series via the video's relationship first, then by title.
+     */
+    private String resolveCinemaSeriesSynopsis(Video v) {
+        Models.Series series = resolveCinemaSeries(v);
+        if (series != null) {
+            String synopsis = series.description != null ? series.description : series.overview;
+            if (synopsis != null && !synopsis.isBlank()) {
+                return synopsis;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * Resolves the Series entity for an episode, or null when unavailable.
+     * Looks up the Series via the video's relationship first, then by title.
+     */
+    private Models.Series resolveCinemaSeries(Video v) {
+        if (v == null || !"episode".equalsIgnoreCase(v.type) || v.seriesTitle == null || v.seriesTitle.isBlank()) {
+            return null;
+        }
+        try {
+            Models.Series series = v.series;
+            if (series == null) {
+                series = Models.Series.find("title", v.seriesTitle).firstResult();
+            }
+            return series;
+        } catch (Exception e) {
+            LOGGER.debug("Could not load series for '{}': {}", v.seriesTitle, e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * Discover subtitle tracks for all videos that don't have any subtitle tracks.
      * Now delegates to SubtitleDiscoveryQueueProcessor for background processing.
