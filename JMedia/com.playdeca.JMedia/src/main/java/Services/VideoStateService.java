@@ -87,6 +87,49 @@ public class VideoStateService {
         return VideoState.list("profile = ?1 AND watchProgress > 0 AND watchProgress < 0.95 ORDER BY lastUpdated DESC", activeProfile);
     }
 
+    /**
+     * Removes a video (or an entire series when the video is an episode) from the
+     * Continue Watching list by resetting its progress. Reset states are excluded
+     * from getInProgressVideos() since that query requires watchProgress > 0.
+     */
+    @Transactional
+    public void removeFromContinueWatching(Video video) {
+        Profile activeProfile = settingsService.getActiveProfile();
+        if (activeProfile == null || video == null) {
+            return;
+        }
+
+        // For an episode, target every episode of the series so the whole show
+        // leaves Continue Watching instead of the previous episode reappearing.
+        List<Video> targets = new ArrayList<>();
+        if ("episode".equalsIgnoreCase(video.type)) {
+            if (video.series != null) {
+                targets = Video.list("series = ?1 AND isActive = ?2", video.series, true);
+            }
+            if (targets.isEmpty() && video.seriesTitle != null && !video.seriesTitle.isBlank()) {
+                targets = Video.list("lower(seriesTitle) = ?1 AND isActive = ?2",
+                        video.seriesTitle.toLowerCase(Locale.ROOT).trim(), true);
+            }
+        }
+        if (targets.isEmpty()) {
+            targets = List.of(video);
+        }
+
+        for (Video target : targets) {
+            VideoState state = VideoState.find("profile = ?1 AND video = ?2", activeProfile, target).firstResult();
+            if (state == null) continue;
+            boolean hasProgress = (state.watchProgress != null && state.watchProgress > 0)
+                    || state.currentTime > 0
+                    || Boolean.TRUE.equals(state.watched);
+            if (hasProgress) {
+                state.watchProgress = 0.0;
+                state.currentTime = 0.0;
+                state.watched = false;
+                state.persist();
+            }
+        }
+    }
+
     @Transactional
     public void deleteForProfile(Profile profile) {
         if (profile != null) {

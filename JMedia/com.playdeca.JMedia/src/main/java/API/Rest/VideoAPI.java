@@ -1915,6 +1915,26 @@ public class VideoAPI {
     }
 
     @POST
+    @Path("/progress/{videoId}/remove-from-continue-watching")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Blocking
+    @Transactional
+    public Response removeFromContinueWatching(@PathParam("videoId") Long videoId) {
+        try {
+            Models.Video video = Models.Video.findById(videoId);
+            if (video == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(ApiResponse.error("Video not found")).build();
+            }
+            videoStateService.removeFromContinueWatching(video);
+            return Response.ok(ApiResponse.success(true)).build();
+        } catch (Exception e) {
+            LOG.error("Error removing video {} from continue watching: {}", videoId, e.getMessage());
+            return Response.serverError().entity(ApiResponse.error("Internal server error")).build();
+        }
+    }
+
+    @POST
     @Path("/progress/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
     @Blocking
