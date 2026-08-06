@@ -78,13 +78,16 @@ public class MetadataEnrichmentWorker {
             int phase2 = processMissingIntroOutro();
             total += phase2;
 
-            // Phase 3: Retry previously failed enrichments after cooldown
-            int phase3 = processFailedRetries();
-            total += phase3;
-
             // Phase 4: Videos with IDs but missing image fields -> re-enrich images
             int phase4 = processMissingImages();
             total += phase4;
+
+            // Phase 3: Retry failed enrichments, only when nothing else needs scanning
+            int phase3 = 0;
+            if (total == 0) {
+                phase3 = processFailedRetries();
+                total += phase3;
+            }
 
             if (total > 0) {
                 LOG.debug("MetadataEnrichmentWorker tick complete: {} enriched ({} IDs, {} intro/outro, {} retries, {} images, {} pending failures)",
@@ -98,15 +101,18 @@ public class MetadataEnrichmentWorker {
     }
 
     /**
-     * Phase 1: Find active videos missing external IDs (imdbId, tmdbId, or showImdbId for episodes)
-     * and run full metadata enrichment on them. Skips videos with manually-edited titles.
+     * Phase 1: Find active videos missing external IDs (imdbId, tmdbId, or showImdbId for episodes),
+     * plus movies that have IDs but no rating yet, and run full metadata enrichment on them.
+     * Skips videos with manually-edited titles.
      */
     private int processMissingExternalIds() {
         int count = 0;
         try {
             List<Video> candidates = Video.find(
                     "isActive = ?1 AND titleManuallyEdited = ?2 AND " +
-                    "(imdbId IS NULL OR tmdbId IS NULL OR (type = 'episode' AND showImdbId IS NULL))",
+                    "((imdbId IS NULL OR tmdbId IS NULL OR (type = 'episode' AND showImdbId IS NULL)) " +
+                    "OR (type = 'movie' AND (imdbId IS NOT NULL OR tmdbId IS NOT NULL) " +
+                    "    AND (imdbRating IS NULL OR imdbRating = 0) AND (tmdbRating IS NULL OR tmdbRating = 0)))",
                     true, false
             ).page(0, batchSize).list();
 
