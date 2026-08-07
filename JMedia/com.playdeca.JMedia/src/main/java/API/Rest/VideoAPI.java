@@ -746,7 +746,14 @@ public class VideoAPI {
             // output (which corrupted both the stream and the cache).
             boolean cacheBeingWritten = transcodingService.isCacheBeingWritten(cacheFile);
             if (cacheBeingWritten || (java.nio.file.Files.exists(cacheFile) && java.nio.file.Files.size(cacheFile) > 65536)) {
-                if (transcodingService.isCacheFileComplete(cacheFile) || cacheBeingWritten) {
+                // A failed transcode poisons its cache: requests for it fast-fail 503 in
+                // streamFromTempFile. Delete the partial and fall through to a fresh
+                // transcode, which resets the failed flag.
+                if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
+                    LOG.info("Transcode failed for video {} (start={}s, audio={}, quality={}) — deleting stale cache {} and restarting transcode",
+                             videoId, startSeconds, audioTrackIndex, qualityHeight, cacheFile.getFileName());
+                    transcodingService.deleteCacheFile(cacheFile);
+                } else if (transcodingService.isCacheFileComplete(cacheFile) || cacheBeingWritten) {
                     if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight) + "|cache")) {
                         LOG.info("Serving from cache file for video {} (start={}s, audio={})", videoId, startSeconds, audioTrackIndex);
                     }
@@ -754,10 +761,11 @@ public class VideoAPI {
                         java.nio.file.Files.setLastModifiedTime(cacheFile, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
                     } catch (IOException ignored) {}
                     return streamFromTempFile(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
+                } else {
+                    LOG.info("Deleting stale partial cache for video {} (start={}s, audio={}, quality={}): {}",
+                             videoId, startSeconds, audioTrackIndex, qualityHeight, cacheFile.getFileName());
+                    transcodingService.deleteCacheFile(cacheFile);
                 }
-                LOG.info("Deleting stale partial cache for video {} (start={}s, audio={}, quality={}): {}",
-                         videoId, startSeconds, audioTrackIndex, qualityHeight, cacheFile.getFileName());
-                transcodingService.deleteCacheFile(cacheFile);
             }
         } catch (IOException ignored) {
             LOG.debug("Cache file check failed for video {}, proceeding with transcode", videoId);
@@ -808,11 +816,14 @@ public class VideoAPI {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromTempFile: videoId={} start={}s range={}", traceId, videoId, startSeconds, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
-        // Fast-fail: if the transcode has already failed, return 503 instead of waiting 90s
+        // Fast-fail: if the transcode has already failed, return 503 instead of waiting 90s.
+        // Also delete the dead transcode's partial cache so the client's retry falls through
+        // to a fresh transcode (which clears the failed flag) instead of 503-ing again.
         if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
             LOG.warn("Transcode already failed for video {} (start={}s, audio={}, quality={}), returning 503",
                      videoId, startSeconds, audioTrackIndex, qualityHeight);
             transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+            transcodingService.deleteCacheFile(tempFile);
             return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
         }
 
@@ -898,6 +909,15 @@ public class VideoAPI {
                 currentSize = Files.size(tempFile);
             } catch (IOException ex) {
                 currentSize = 0;
+            }
+            // If the transcode died while we waited, its partial cache is poison — the next
+            // request would 503 again. Delete it so the client's retry falls through to a
+            // fresh transcode (which clears the failed flag). A live but slow transcode
+            // (90s write timeout) is left untouched.
+            if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
+                LOG.info("Transcode failed for video {} (start={}s) while waiting for range {}-{} — deleting stale cache {}",
+                         videoId, startSeconds, start, end, tempFile.getFileName());
+                transcodingService.deleteCacheFile(tempFile);
             }
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .header("Content-Range", "bytes */" + currentSize)

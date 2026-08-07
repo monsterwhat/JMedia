@@ -176,6 +176,14 @@
                  * between `playing` and the server echoing the seek target). */
                 _localSeekAt = Date.now();
                 _endServerSeek(true);
+                /* The ?start= reload restarted the element clock at 0 relative to the
+                 * new offset, so the active subtitle must be re-fetched with the new
+                 * offset URL — the persisted <track> element still points at the old
+                 * window's cues otherwise (mirror the OPlayer adapter's _applySubtitle
+                 * restore in _serverSeekTo). */
+                if (window.testPlayerFeatures && typeof window.testPlayerFeatures.reapplySubtitle === 'function') {
+                    window.testPlayerFeatures.reapplySubtitle();
+                }
             });
             vjsPlayer.on('error', _swapErrorHandler);
             _swapTimeout = setTimeout(function() { _endServerSeek(false); }, 10000);
@@ -772,6 +780,7 @@
         var nativeVideo = videoEl;
         var vjsAdapter = {
             getVideoElement: function() { return nativeVideo; },
+            getStreamStartOffset: function() { return _streamStartOffset; },
             getCurrentTime: function() { return (vjsPlayer.currentTime() || 0) + _streamStartOffset; },
             setCurrentTime: function(t) { _serverSeekTo(t); },
             getDuration: function() {

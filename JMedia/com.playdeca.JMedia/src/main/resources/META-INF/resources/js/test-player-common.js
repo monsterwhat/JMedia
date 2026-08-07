@@ -520,8 +520,8 @@
                     var oplayerSubs = tracks.map(function (t) {
                         return {
                             name: t.displayName || t.filename || ('Track ' + t.id),
-                            src: '/api/video/subtitles/track/' + t.id,
-                            default: t.id === lastTrack
+                            src: self._subtitleUrl(t.id),
+                            default: String(t.id) === lastTrack
                         };
                     });
                     try {
@@ -536,6 +536,7 @@
         }
 
         _selectSubtitleTrack(track) {
+            var self = this;
             this._turnOffSubtitles();
 
             if (track.id === 'off') return;
@@ -545,7 +546,7 @@
                 var oplayerSubs = (this._subtitleTracks || []).map(function (t) {
                     return {
                         name: t.displayName || t.filename || ('Track ' + t.id),
-                        src: '/api/video/subtitles/track/' + t.id,
+                        src: self._subtitleUrl(t.id),
                         default: t.id === track.id
                     };
                 });
@@ -555,14 +556,24 @@
                     console.warn('[TestPlayerFeatures] OPlayer subtitle changeSource failed:', e);
                 }
                 localStorage.setItem(LS_PREFIX + 'subtitle_track', track.id);
+                /* Tell the adapter which track the local UI selected so it can
+                 * re-apply it (with the fresh ?start=) after a server-side seek.
+                 * Without this the adapter's _subtitleIdx stays -1 and the
+                 * seek-time restore in oplayer-adapter.js never fires. */
+                if (this.adapter && typeof this.adapter.setSubtitleSelection === 'function') {
+                    var selIdx = -1;
+                    for (var k = 0; k < this._subtitleTracks.length; k++) {
+                        if (this._subtitleTracks[k].id === track.id) { selIdx = k; break; }
+                    }
+                    if (selIdx >= 0) this.adapter.setSubtitleSelection(selIdx, this._subtitleTracks);
+                }
                 return;
             }
 
             /* Fallback: native <track> element approach for video.js / simple player */
-            var self = this;
             var trackEl = document.createElement('track');
             trackEl.kind = 'subtitles';
-            trackEl.src = '/api/video/subtitles/track/' + track.id;
+            trackEl.src = self._subtitleUrl(track.id);
             trackEl.srclang = track.language || 'en';
             trackEl.label = track.displayName || 'Subtitles';
             trackEl.default = true;
@@ -583,6 +594,32 @@
             setTimeout(enableFn, 500);
 
             localStorage.setItem(LS_PREFIX + 'subtitle_track', track.id);
+        }
+
+        _subtitleUrl(trackId) {
+            var src = '/api/video/subtitles/track/' + trackId;
+            var params = [];
+            var offset = 0;
+            if (this.adapter && typeof this.adapter.getStreamStartOffset === 'function') {
+                offset = this.adapter.getStreamStartOffset() || 0;
+            }
+            if (offset > 0) params.push('start=' + Math.round(offset * 100) / 100);
+            var correction = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
+            if (correction) params.push('correction=' + correction);
+            if (params.length) src += '?' + params.join('&');
+            return src;
+        }
+
+        reapplySubtitle() {
+            var lastTrack = localStorage.getItem(LS_PREFIX + 'subtitle_track');
+            if (!lastTrack || lastTrack === 'off') return;
+            var tracks = this._subtitleTracks || [];
+            for (var i = 0; i < tracks.length; i++) {
+                if (String(tracks[i].id) === lastTrack) {
+                    this._selectSubtitleTrack(tracks[i]);
+                    return;
+                }
+            }
         }
 
         _turnOffSubtitles() {

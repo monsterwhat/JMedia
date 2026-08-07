@@ -167,11 +167,15 @@
             }
             try {
                 if (!_subtitleTracks || !_subtitleTracks[idx]) return false;
-                var offset = (_streamStartOffset > 0) ? '?start=' + Math.max(0, _streamStartOffset) : '';
+                var qsParts = [];
+                if (_streamStartOffset > 0) qsParts.push('start=' + Math.max(0, _streamStartOffset));
+                var correction = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
+                if (correction) qsParts.push('correction=' + correction);
+                var qs = qsParts.length ? '?' + qsParts.join('&') : '';
                 var oplayerSubs = _subtitleTracks.map(function (t) {
                     return {
                         name: t.displayName || t.filename || ('Track ' + t.id),
-                        src: '/api/video/subtitles/track/' + t.id + offset,
+                        src: '/api/video/subtitles/track/' + t.id + qs,
                         default: (t.id === _subtitleTracks[idx].id)
                     };
                 });
@@ -267,7 +271,28 @@
                         if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
                     }
                 },
-                error: function() { if (swapToken === _swapToken) _swapInProgress = false; }
+                error: function() {
+                    if (swapToken !== _swapToken) return;
+                    /* A failed ?start= reload fires MEDIA_ERR_NETWORK when the transcode
+                     * for this position just died (backend fast-fails 503 while it is
+                     * between kills). Retry the load with 1s backoff (max 3), mirroring
+                     * the WS-seek swap path below: the backend deletes the stale cache
+                     * and spawns a fresh transcode, which clears the failed flag. */
+                    _swapRetries++;
+                    if (_swapRetries <= 3) {
+                        console.warn('[OPlayerAdapter] Server-seek source error; retry ' + _swapRetries + '/3');
+                        _swapInProgress = false;
+                        setTimeout(function() {
+                            if (swapToken !== _swapToken) return;
+                            video.src = url;
+                            try { video.load(); } catch (e) {}
+                            try { video.play().catch(function() {}); } catch (e) {}
+                        }, 1000);
+                    } else {
+                        console.error('[OPlayerAdapter] Server-seek source failed after 3 retries');
+                        _swapInProgress = false;
+                    }
+                }
             };
             video.addEventListener('playing', handlers.playing);
             video.addEventListener('error', handlers.error);
@@ -1451,6 +1476,16 @@
                  * and aborts it (AbortError), leaving playback stuck on "loading". */
                 disableBlobSwap: true,
                 getVideoElement: function() { return video; },
+                getStreamStartOffset: function() { return _streamStartOffset; },
+                setSubtitleSelection: function(idx, tracks) {
+                    if (idx === -1) {
+                        _subtitleIdx = -1;
+                        _subtitleTracks = [];
+                        return;
+                    }
+                    if (tracks && tracks[idx]) _subtitleTracks = tracks;
+                    _subtitleIdx = idx;
+                },
                 getCurrentTime: function() { return (video.currentTime || 0) + _streamStartOffset; },
                 setCurrentTime: function(t) { _serverSeekTo(t); },
                 getDuration: function() {
