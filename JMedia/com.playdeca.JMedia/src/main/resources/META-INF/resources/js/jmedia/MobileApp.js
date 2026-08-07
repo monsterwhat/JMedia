@@ -93,9 +93,7 @@
             document.addEventListener('click', (e) => {
                 const btn = e.target.closest('#createPlaylistBtn, #mobileCreatePlaylistBtn');
                 if (btn) {
-                    if (typeof showMobileCreatePlaylistModal === 'function') {
-                        showMobileCreatePlaylistModal();
-                    }
+                    this.showMobileCreatePlaylistModal();
                 }
             });
             document.body.addEventListener('profileSwitched', () => {});
@@ -451,6 +449,157 @@
             }
         }
 
+        showMobileCreatePlaylistModal() {
+            const modal = this.createMobilePlaylistModal();
+            document.body.appendChild(modal);
+            modal.classList.add('is-active');
+            const nameInput = modal.querySelector('#mobilePlaylistNameInput');
+            if (nameInput) nameInput.focus();
+        }
+
+        showMobileEditPlaylistModal(playlist) {
+            const modal = this.createMobilePlaylistModal(playlist);
+            document.body.appendChild(modal);
+            modal.classList.add('is-active');
+            const nameInput = modal.querySelector('#mobilePlaylistNameInput');
+            if (nameInput) nameInput.focus();
+        }
+
+        createMobilePlaylistModal(playlist = null) {
+            const modal = document.createElement('div');
+            modal.className = 'mobile-modal';
+            modal.id = 'mobilePlaylistModal';
+
+            const isEdit = playlist !== null;
+            const title = isEdit ? 'Edit Playlist' : 'Create Playlist';
+            const buttonText = isEdit ? 'Save Changes' : 'Create Playlist';
+
+            modal.innerHTML = `
+                <div class="mobile-modal-overlay" onclick="closeMobilePlaylistModal()"></div>
+                <div class="mobile-modal-card">
+                    <header class="mobile-modal-header">
+                        <h3 class="mobile-modal-title">${title}</h3>
+                        <button class="mobile-modal-close" onclick="closeMobilePlaylistModal()">
+                            <i class="pi pi-times"></i>
+                        </button>
+                    </header>
+                    <div class="mobile-modal-body">
+                        <div class="mobile-form-group">
+                            <label class="mobile-label">Playlist Name</label>
+                            <input type="text" class="mobile-input" id="mobilePlaylistNameInput"
+                                   placeholder="Enter playlist name...">
+                        </div>
+                        <button class="mobile-btn-block mobile-btn-primary" id="mobileSavePlaylistBtn">
+                            <i class="pi pi-${isEdit ? 'save' : 'plus'}"></i> ${buttonText}
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            const saveBtn = modal.querySelector('#mobileSavePlaylistBtn');
+            const nameInput = modal.querySelector('#mobilePlaylistNameInput');
+
+            // Set the value via the DOM property (never interpolate user-supplied
+            // names into the innerHTML template above - that would allow HTML
+            // injection through a crafted playlist name).
+            if (isEdit && playlist.name) {
+                nameInput.value = playlist.name;
+            }
+
+            saveBtn.addEventListener('click', () => {
+                const playlistName = nameInput.value.trim();
+                if (!playlistName) {
+                    nameInput.classList.add('error');
+                    return;
+                }
+                if (isEdit) {
+                    this.updateMobilePlaylist(playlist.id, playlistName);
+                } else {
+                    this.createMobilePlaylist(playlistName);
+                }
+            });
+
+            nameInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    saveBtn.click();
+                }
+            });
+
+            return modal;
+        }
+
+        closeMobilePlaylistModal() {
+            const modal = document.getElementById('mobilePlaylistModal');
+            if (modal) {
+                modal.classList.remove('is-active');
+                setTimeout(() => {
+                    modal.remove();
+                }, 300);
+            }
+        }
+
+        editMobilePlaylist(playlistId) {
+            const profileId = JMedia.Helpers.getActiveProfileId();
+            fetch(`/api/music/playlists/${profileId}`)
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.json();
+                })
+                .then(data => {
+                    const playlists = data.data || data;
+                    const playlist = playlists.find(p => p.id === playlistId);
+                    if (!playlist) throw new Error(`Playlist ${playlistId} not found`);
+                    this.showMobileEditPlaylistModal(playlist);
+                })
+                .catch(err => {
+                    console.error('Error loading playlist for edit:', err);
+                    if (window.showToast) window.showToast('Failed to load playlist', 'error');
+                });
+        }
+
+        createMobilePlaylist(name) {
+            const profileId = JMedia.Helpers.getActiveProfileId();
+            fetch('/api/music/playlists/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, profileId: profileId})
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.json();
+                })
+                .then(() => {
+                    this.closeMobilePlaylistModal();
+                    this.loadMobilePlaylists();
+                    if (window.showToast) window.showToast('Playlist created successfully', 'success');
+                })
+                .catch(err => {
+                    console.error('Error creating playlist:', err);
+                    if (window.showToast) window.showToast('Failed to create playlist', 'error');
+                });
+        }
+
+        updateMobilePlaylist(playlistId, name) {
+            fetch(`/api/music/playlists/${playlistId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.json();
+                })
+                .then(() => {
+                    this.closeMobilePlaylistModal();
+                    this.loadMobilePlaylists();
+                    if (window.showToast) window.showToast('Playlist updated successfully', 'success');
+                })
+                .catch(err => {
+                    console.error('Error updating playlist:', err);
+                    if (window.showToast) window.showToast('Failed to update playlist', 'error');
+                });
+        }
+
         createPlaylistFromAddDialog() {
             const modal = document.querySelector('.mobile-modal[data-song-id]');
             const nameInput = modal?.querySelector('#newPlaylistName');
@@ -516,6 +665,30 @@
     }
 
     JMedia.MobileApp = JMediaMobile;
+
+    // Global helpers referenced by inline onclick handlers in dynamically
+    // created modal markup (e.g. the close button / overlay of the playlist modal).
+    window.showMobileCreatePlaylistModal = function() {
+        const app = window.jmediaMobile;
+        if (app && typeof app.showMobileCreatePlaylistModal === 'function') {
+            app.showMobileCreatePlaylistModal();
+        }
+    };
+    window.editMobilePlaylist = function(playlistId) {
+        const app = window.jmediaMobile;
+        if (app && typeof app.editMobilePlaylist === 'function') {
+            app.editMobilePlaylist(playlistId);
+        }
+    };
+    window.closeMobilePlaylistModal = function() {
+        const app = window.jmediaMobile;
+        if (app && typeof app.closeMobilePlaylistModal === 'function') {
+            app.closeMobilePlaylistModal();
+        } else {
+            const modal = document.getElementById('mobilePlaylistModal');
+            if (modal) modal.remove();
+        }
+    };
 
     document.addEventListener('DOMContentLoaded', () => {
         if (window.initManager) {
