@@ -1,6 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Models.DTOs.PlaybackNextRequest;
 import Models.PlaybackState;
 import Models.Profile;
 import Controllers.PlaybackController;
@@ -94,10 +95,11 @@ public class PlaybackAPI {
 
     @POST
     @Path("/next/{profileId}")
-    public Response next(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+    public Response next(@PathParam("profileId") Long profileId, @Context HttpHeaders headers, PlaybackNextRequest request) {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
-        playbackController.next(userProfile.id);
+        Long endedSongId = request != null ? request.endedSongId : null;
+        playbackController.next(userProfile.id, endedSongId);
         return Response.ok(ApiResponse.success("Skipped to next song")).build();
     }
 

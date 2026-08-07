@@ -160,13 +160,24 @@
                     }
                     
                     if (profileId && profileId !== 'undefined') {
-                        fetch(`/api/music/playback/next/${profileId}`, { method: 'POST' });
+                        // Send the id of the song that actually ended so the server can
+                        // deduplicate against its own end-of-song advance (avoids the
+                        // double-advance that skipped songs after natural endings).
+                        const endedSongId = el._currentSongId != null ? String(el._currentSongId) : null;
+                        fetch(`/api/music/playback/next/${profileId}`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({endedSongId: endedSongId})
+                        });
                     }
                 }
             };
             
             el.onerror = (e) => {
                 console.error('AudioEngine: Element error', el.id, e);
+                if (window.SynchronizationManager) {
+                    window.SynchronizationManager.setFlag('isUpdatingAudioSource', false);
+                }
             };
         },
 
@@ -250,6 +261,7 @@
                     window.Helpers.log('[AudioEngine] ⚠️ Preload timed out for ' + songId + ' after 8s');
                 }, 8000);
                 
+                nextPlayer._currentSongId = songId;
                 nextPlayer.src = url;
                 nextPlayer.load(); // Start buffering
                 
@@ -322,6 +334,7 @@
                 const url = `/api/music/stream/${profileId}/${songId}`;
                 if (!nextPlayer.src.endsWith(url)) {
                     window.Helpers.log('AudioEngine: Loading ' + songId + ' during crossfade');
+                    nextPlayer._currentSongId = songId;
                     nextPlayer.src = url;
                 }
             }
@@ -633,6 +646,7 @@
             const player = this.getActivePlayer();
             const gain = this.getActiveGain();
             const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
+            player._currentSongId = currentSong.id;
             
             if (player.src !== url) {
                 player.src = url;
@@ -694,6 +708,7 @@
             }
             const player = this.getActivePlayer();
             const url = `/api/music/stream/${window.globalActiveProfileId || localStorage.getItem('activeProfileId') || 1}/${currentSong.id}`;
+            player._currentSongId = currentSong.id;
             player.src = url;
             player.onloadedmetadata = () => {
                 player.currentTime = seekTime;
@@ -731,7 +746,7 @@
             }
         },
 
-        setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0) {
+        setSource: function(currentSong, prevSong = null, nextSong = null, play = true, backendTime = 0, retryCount = 0) {
             if (window.videoPlaying) {
                 console.log('[AudioEngine] Blocked setSource — video is active');
                 return false;
@@ -767,9 +782,23 @@
                 return true;
             }
 
-            return SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
+            const result = SynchronizationManager.executeAtomic('audio', profileId, (opId) => {
                 return this.performSetSource(opId, currentSong, prevSong, nextSong, play, backendTime);
             });
+
+            if (result === false && retryCount < 10) {
+                // Audio lock was held by another operation — retry instead of silently
+                // dropping. A dropped setSource left the UI state ahead of the audio
+                // element ("skip doesn't work"), then the stale element's 'ended'
+                // echoed another next and skipped past the song.
+                window.Helpers.log('AudioEngine: Audio lock busy, retrying setSource for song ' + currentSong.id + ' (attempt ' + (retryCount + 1) + ')');
+                const self = this;
+                setTimeout(() => {
+                    self.setSource(currentSong, prevSong, nextSong, play, backendTime, retryCount + 1);
+                }, 150);
+                return true;
+            }
+            return result;
         },
 
         resetAutoplayState: function() { this.autoplayBlocked = false; this.autoplayAttempted = false; },

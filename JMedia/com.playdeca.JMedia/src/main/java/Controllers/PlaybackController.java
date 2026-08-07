@@ -19,7 +19,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +36,13 @@ import java.util.stream.Collectors;
 public class PlaybackController {
 
     private final Map<Long, PlaybackState> memoryStates = new ConcurrentHashMap<>();
+
+    // Tracks the most recent songs playback advanced FROM per profile, so a late
+    // client "song ended" echo (onended -> POST /next) can be deduplicated.
+    // Without this, the server advances once on its own 500ms tick AND again when
+    // the client's audio element fires 'ended', skipping the next song.
+    private static final long ADVANCE_ECHO_WINDOW_MS = 2000;
+    private final Map<Long, Deque<AdvanceRecord>> recentAdvances = new ConcurrentHashMap<>();
 
     @Inject
     PlaybackPersistenceController playbackPersistenceController;
@@ -63,6 +72,16 @@ public class PlaybackController {
     private static final long PLAYBACK_UPDATE_INTERVAL_MS = 500; // Update every 500ms to prevent stream jumping
 
     private static final Logger LOGGER = Logger.getLogger(PlaybackController.class.getName());
+
+    private static class AdvanceRecord {
+        final Long songId;
+        final long timestampMs;
+
+        AdvanceRecord(Long songId, long timestampMs) {
+            this.songId = songId;
+            this.timestampMs = timestampMs;
+        }
+    }
 
     public PlaybackController() {
         System.out.println("[PlaybackController] PlaybackController instance created");
@@ -516,9 +535,33 @@ public class PlaybackController {
                 profileId, s.isPlaying(), s.getCurrentSongId(), s.getCurrentTime(), s.getVolume());
     }
 
+    private void recordAdvanceFrom(Long profileId, Long songId) {
+        if (songId == null) return;
+        Deque<AdvanceRecord> records = recentAdvances.computeIfAbsent(profileId, k -> new ArrayDeque<>());
+        long now = System.currentTimeMillis();
+        records.addFirst(new AdvanceRecord(songId, now));
+        while (!records.isEmpty() && now - records.peekLast().timestampMs > ADVANCE_ECHO_WINDOW_MS) {
+            records.pollLast();
+        }
+    }
+
+    private boolean isEchoAdvance(Long profileId, Long endedSongId) {
+        if (endedSongId == null) return false;
+        Deque<AdvanceRecord> records = recentAdvances.get(profileId);
+        if (records == null) return false;
+        long now = System.currentTimeMillis();
+        for (AdvanceRecord record : records) {
+            if (record.songId.equals(endedSongId) && now - record.timestampMs <= ADVANCE_ECHO_WINDOW_MS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Helper method to advance song
     private synchronized void advanceSong(boolean forward, boolean fromSongEnd, Long profileId) {
         PlaybackState st = getState(profileId);
+        recordAdvanceFrom(profileId, st.getCurrentSongId());
 
         // Handle RepeatMode.ONE when song ends naturally
         if (fromSongEnd && st.getRepeatMode() == PlaybackState.RepeatMode.ONE) {
@@ -624,10 +667,39 @@ public class PlaybackController {
     }
 
     public synchronized void next(Long profileId) {
+        next(profileId, null);
+    }
+
+    /**
+     * Advance to the next song.
+     *
+     * @param endedSongId the id of the song whose audio element fired 'ended' on
+     *                    the client, or null for a genuine manual skip. When a
+     *                    song ends naturally the server already advanced on its
+     *                    own tick, so a client echo must not advance the queue a
+     *                    second time (which skipped the next song). An echo for a
+     *                    song the server has NOT yet advanced from is treated as
+     *                    the natural end it represents (Repeat ONE / DJ logic).
+     */
+    public synchronized void next(Long profileId, Long endedSongId) {
+        if (endedSongId != null) {
+            if (isEchoAdvance(profileId, endedSongId)) {
+                currentSettings.addLog("Ignoring echoed next for ended song " + endedSongId + " (already advanced).");
+                return;
+            }
+            PlaybackState st = getState(profileId);
+            if (!endedSongId.equals(st.getCurrentSongId())) {
+                currentSettings.addLog("Ignoring stale next echo for song " + endedSongId + " (no longer current).");
+                return;
+            }
+            handleSongEnded(profileId);
+            return;
+        }
+
         // DJ Mode is INDEPENDENT of Smart Shuffle - do NOT disable it on next
         PlaybackState st = getState(profileId);
         clearDjTransitionPlan(st);
-        
+
         currentSettings.addLog("Skipped to next song.");
         advanceSong(true, false, profileId);
     }
@@ -659,6 +731,7 @@ public class PlaybackController {
             Long oldSongId = st.getCurrentSongId();
             Long nextSongId = st.getDjNextSongId();
             Double entryTime = st.getDjEntryTime();
+            recordAdvanceFrom(profileId, oldSongId);
             
             // Update history for current song
             if (oldSongId != null) {

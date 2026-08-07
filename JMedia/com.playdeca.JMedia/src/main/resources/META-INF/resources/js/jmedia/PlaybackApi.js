@@ -26,7 +26,11 @@
 
         next: function(profileId) {
             profileId = profileId || JMedia.Helpers.getActiveProfileId();
-            return fetch(`/api/music/playback/next/${profileId}`, {method: 'POST'});
+            return fetch(`/api/music/playback/next/${profileId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({})
+            });
         },
 
         previous: function(profileId) {
