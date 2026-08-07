@@ -122,6 +122,9 @@
          * subtitle reload in StreamManager.performServerSeek). */
         var _subtitleIdx = -1;
         var _subtitleTracks = [];
+        /* Set while OPlayer's error overlay may be showing (see _dismissErrorOverlay
+         * below). Cleared the first time the stream proves it is alive again. */
+        var _errorOverlayShown = false;
 
         function _clearSwapListeners() {
             if (_swapTimeout) { clearTimeout(_swapTimeout); _swapTimeout = null; }
@@ -141,6 +144,30 @@
             /* B6: on `playing` the swap sends ONE confirmation broadcast, which restarts
              * the server playback timer with the new videoId. */
             if (confirmBroadcast) _broadcastState();
+        }
+
+        /* ---------- OPlayer error-overlay dismissal ---------- */
+        /* A mid-stream network error (e.g. a 503 on the range request after a seek,
+         * while the backend is between transcode kills) makes OPlayer render its
+         * fullscreen MEDIA_ERR_NETWORK overlay. The element keeps playing buffered
+         * data, so playback "recovers" without ever firing videosourcechange or
+         * loadedmetadata again — the overlay then sticks over live playback forever.
+         * Dismiss it the moment the stream proves it is alive: OPlayer's UI hides
+         * the overlay on exactly these events, and a synthetic loadedmetadata is
+         * harmless to its internals (only duration/once-subscribers, none armed
+         * mid-playback). Callers: play/timeupdate/seeked, all no-ops unless the
+         * flag is set. */
+        function _dismissErrorOverlay() {
+            if (!_errorOverlayShown) return;
+            _errorOverlayShown = false;
+            var op = window.__oplayerPlayer;
+            if (!op || typeof op.emit !== 'function') return;
+            try {
+                op.emit('loadedmetadata');
+                console.log('[OPlayerAdapter] Dismissed OPlayer error overlay after stream recovery');
+            } catch (e) {
+                console.error('[OPlayerAdapter] Failed to dismiss OPlayer error overlay:', e);
+            }
         }
 
         function _buildStreamUrl(startAbs, quality) {
@@ -1296,6 +1323,7 @@
                 _reportStreamStatus('working');
                 _broadcastState();
                 showControls();
+                _dismissErrorOverlay();
             });
 
             video.addEventListener('pause', function() {
@@ -1308,6 +1336,7 @@
              * reports it lags after a seek and the drift-sync yanks back every 3s. */
             video.addEventListener('timeupdate', function() {
                 _broadcastState();
+                _dismissErrorOverlay();
             });
 
             video.addEventListener('seeking', function() {
@@ -1322,6 +1351,7 @@
                    immediate report when a broadcast was mid-apply, and the server must
                    learn the seek or it keeps broadcasting the pre-seek position. */
                 setTimeout(function() { _broadcastState(); }, 150);
+                _dismissErrorOverlay();
             });
 
             video.addEventListener('error', function() {
@@ -1329,6 +1359,11 @@
                    level above.  If we get here it is a real error. */
                 PlayerUtils?.releaseWakeLock?.();
                 _reportStreamStatus('dead');
+                /* OPlayer shows its fullscreen error overlay for real errors, but a
+                 * mid-stream 503 keeps playing buffered data — no new metadata load
+                 * ever fires to hide it. Flag it so the next sign of life
+                 * (play/timeupdate/seeked) dismisses the overlay. */
+                _errorOverlayShown = true;
             });
 
             video.addEventListener('ended', function() {
