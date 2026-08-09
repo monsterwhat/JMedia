@@ -507,9 +507,27 @@ public class VideoImportService {
 
     private boolean isVideoFile(Path path) {
         String fileName = path.getFileName().toString().toLowerCase();
+        // Skip incomplete downloads and temp files: they will be picked up on a
+        // later scan once fully written. A .tmp.mp4 has no moov atom yet, so
+        // importing it now would leave the library with an unplayable entry that
+        // triggers repeated probe/transcode failures until it is overwritten.
+        if (isPartialOrTempFile(fileName)) {
+            return false;
+        }
         return fileName.endsWith(".mp4") || fileName.endsWith(".mkv") || fileName.endsWith(".avi") ||
                fileName.endsWith(".mov") || fileName.endsWith(".wmv") || fileName.endsWith(".flv") ||
                fileName.endsWith(".webm") || fileName.endsWith(".m4v") || fileName.endsWith(".srt");
+    }
+
+    private boolean isPartialOrTempFile(String fileName) {
+        // Hidden/system files (leading dot, e.g. ._Movie.mp4 or .Movie.mp4.part)
+        if (fileName.startsWith(".")) {
+            return true;
+        }
+        // Download-in-progress markers from common downloaders
+        return fileName.contains(".tmp.") || fileName.contains(".part")
+                || fileName.contains(".crdownload") || fileName.contains(".download")
+                || fileName.contains(".!qB");
     }
 
     void applyContentType(Video video) {

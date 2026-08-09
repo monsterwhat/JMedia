@@ -62,6 +62,52 @@ public class VideoAPI {
     private static final int STREAM_LOG_MAX_ENTRIES = 4096;
     private static final java.util.Map<String, Long> STREAM_LAST_REQUEST = new java.util.concurrent.ConcurrentHashMap<>();
 
+    // Unreadable-file failure cache: videoId -> StreamFailure. Once ffprobe proves
+    // a file has no readable video stream (e.g. a partial download missing its
+    // moov atom), repeated stream requests short-circuit here instead of re-probing
+    // metadata and spawning a doomed FFmpeg transcode for every retry.
+    private static final long STREAM_FAILURE_TTL_MS = 5 * 60_000L;
+    private static final java.util.Map<Long, StreamFailure> STREAM_FAILURES = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** A cached unreadable-file failure: expires, and is invalidated when the file changes. */
+    private static final class StreamFailure {
+        final long expiresAt;
+        final long fileSize;
+        final long fileMtime;
+
+        StreamFailure(long expiresAt, long fileSize, long fileMtime) {
+            this.expiresAt = expiresAt;
+            this.fileSize = fileSize;
+            this.fileMtime = fileMtime;
+        }
+    }
+
+    /** True while a cached failure still applies to this exact file. */
+    private boolean isStreamFailureCached(Long videoId, File videoFile) {
+        StreamFailure failure = STREAM_FAILURES.get(videoId);
+        if (failure == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() >= failure.expiresAt
+                || failure.fileSize != videoFile.length()
+                || failure.fileMtime != videoFile.lastModified()) {
+            // Expired, or the file changed on disk (download completed) — re-evaluate.
+            STREAM_FAILURES.remove(videoId);
+            return false;
+        }
+        return true;
+    }
+
+    private void cacheStreamFailure(Long videoId, File videoFile) {
+        STREAM_FAILURES.put(videoId, new StreamFailure(
+                System.currentTimeMillis() + STREAM_FAILURE_TTL_MS,
+                videoFile.length(), videoFile.lastModified()));
+        if (STREAM_FAILURES.size() > STREAM_LOG_MAX_ENTRIES) {
+            long cutoff = System.currentTimeMillis() - STREAM_FAILURE_TTL_MS;
+            STREAM_FAILURES.entrySet().removeIf(e -> e.getValue().expiresAt < cutoff);
+        }
+    }
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
@@ -644,6 +690,15 @@ public class VideoAPI {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
+        // Fast-fail: a previous request proved this file unreadable (e.g. a partial
+        // download missing its moov atom). Short-circuit repeated identical requests
+        // instead of re-probing and spawning a doomed FFmpeg transcode each time.
+        if (isStreamFailureCached(videoId, videoFile)) {
+            LOG.warn("[STREAM] videoId={} file={} short-circuited (cached unreadable-file failure)", videoId, videoFile.getName());
+            return Response.status(422)
+                    .entity("Video file is unreadable or still downloading").build();
+        }
+
         String filename = videoFile.getName().toLowerCase();
         boolean isMKV = filename.endsWith(".mkv");
 
@@ -652,6 +707,17 @@ public class VideoAPI {
         // Ensure we have metadata to make an informed transcoding decision
         if (video.videoCodec == null || video.audioCodec == null) {
             videoService.probeVideoMetadata(video);
+        }
+
+        // The file exists but ffprobe found no video stream — unreadable/corrupt
+        // file (e.g. a partial *.tmp.mp4 download with no moov atom). Fail fast and
+        // cache the failure so the retry storm short-circuits at the top instead of
+        // forcing a transcode of an undecodable input.
+        if (video.videoCodec == null) {
+            cacheStreamFailure(videoId, videoFile);
+            LOG.warn("[STREAM] videoId={} file={} has no readable video stream (unreadable/partial file); returning 422", videoId, videoFile.getName());
+            return Response.status(422)
+                    .entity("Video file is unreadable or still downloading").build();
         }
 
         // Default quality cap: when no explicit quality is requested, limit to

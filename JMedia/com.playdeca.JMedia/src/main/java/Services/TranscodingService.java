@@ -600,6 +600,54 @@ public class TranscodingService {
     private static final int MAX_RETRIES = 5;
     private static final long RETRY_DELAY_MS = 2000;
 
+    /**
+     * Tracks how many bytes a single ffmpeg attempt wrote to the HTTP response.
+     * If a failed attempt already sent media data, a retry would append a SECOND
+     * independent stream (new moov + SPS/PPS from a different encoder) into the
+     * same response, which players reject as corrupt content (Firefox:
+     * H264ChangeMonitor "Invalid H264 content"). Only zero-byte failures may retry.
+     */
+    private static final class CountingOutputStream extends OutputStream {
+        private final OutputStream delegate;
+        private long count;
+
+        CountingOutputStream(OutputStream delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            delegate.write(b);
+            count++;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            delegate.write(b, off, len);
+            count += len;
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            delegate.write(b);
+            count += b.length;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            delegate.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
+        }
+
+        long getCount() {
+            return count;
+        }
+    }
+
     private void streamViaFFmpeg(Video video, File videoFile, String ffmpegPath, double startSeconds,
                                   boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag, OutputStream output, int audioTrackIndex, int qualityHeight) throws IOException {
         streamViaFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, output, audioTrackIndex, qualityHeight, null);
@@ -618,13 +666,23 @@ public class TranscodingService {
                 transcodeRetryCount.incrementAndGet();
             }
             errorOutput.setLength(0);
-            
-            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, useHardware, output, errorOutput, audioTrackIndex, qualityHeight, cacheFile);
+
+            CountingOutputStream attemptOutput = new CountingOutputStream(output);
+            exitCode = runFFmpeg(video, videoFile, ffmpegPath, startSeconds, needsVideoTranscode, canCopyAudio, needsAppleHvc1Tag, useHardware, attemptOutput, errorOutput, audioTrackIndex, qualityHeight, cacheFile);
             
             if (exitCode == 0 || exitCode == EPIPE) {
                 return;
             }
             String errors = errorOutput.toString();
+
+            // A failed attempt that already wrote media bytes has consumed the response:
+            // retrying would append a second independent stream into it, which players
+            // reject as corrupt. Only zero-byte failures may fall back / retry.
+            if (attemptOutput.getCount() > 0) {
+                LOG.warn("FFmpeg attempt {} for {} failed (code {}) after writing {} bytes; aborting to avoid appending a second stream",
+                         attempt + 1, videoFile.getName(), exitCode, attemptOutput.getCount());
+                break;
+            }
 
             if (exitCode == 137) {
                 transcodeOomCount.incrementAndGet();
