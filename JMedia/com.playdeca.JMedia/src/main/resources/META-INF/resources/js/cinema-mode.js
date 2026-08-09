@@ -1606,14 +1606,24 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
   const restMissing = stillMissing.filter(ep => !isActiveSeason(ep));
 
   const pollBatch = async (batch) => {
+    const triggered = new Set();
     for (let attempt = 0; attempt < 6 && batch.length > 0; attempt++) {
       if (isStale()) return;
 
       // Fire-and-forget enrichment triggers (batched) — the per-video call
       // persists the episode's TMDB overview and episode name server-side.
-      for (let i = 0; i < batch.length; i += 5) {
-        await Promise.all(batch.slice(i, i + 5).map(ep =>
-          fetchJSON(`/api/video/${ep.id}?textOnly=true`).catch(() => null)));
+      // Each episode is triggered at most once per session (unless the call
+      // failed); later attempts only re-check the list. Previously every
+      // attempt re-triggered every still-missing episode, hammering
+      // /api/video up to 6x per episode even when TMDB had no data to give.
+      const toTrigger = batch.filter(ep => !triggered.has(String(ep.id)));
+      for (let i = 0; i < toTrigger.length; i += 5) {
+        await Promise.all(toTrigger.slice(i, i + 5).map(async ep => {
+          triggered.add(String(ep.id));
+          if (await fetchJSON(`/api/video/${ep.id}?textOnly=true`) === null) {
+            triggered.delete(String(ep.id)); // transient failure — retry next attempt
+          }
+        }));
         if (isStale()) return;
       }
 
@@ -1646,8 +1656,15 @@ async function fetchMissingModalEpisodeData(seriesTitle, defaultSeasonKey, serie
         updateCardInPlace(ep);
         if (pending) still.push(ep);
       }
+      // Stop when nothing converged this attempt and every remaining episode
+      // already had a successful trigger — re-checking can't change anything.
+      const noProgress = still.length === batch.length;
+      const allTriggered = still.every(ep => triggered.has(String(ep.id)));
       batch = still;
-      if (batch.length && attempt < 5) await sleep(5000);
+      if (batch.length && attempt < 5) {
+        if (noProgress && allTriggered) break;
+        await sleep(5000);
+      }
     }
   };
 
