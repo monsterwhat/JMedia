@@ -80,6 +80,12 @@ public class DjTransitionService {
      */
     @Transactional(jakarta.transaction.Transactional.TxType.REQUIRED)
     public DjTransition calculateTransition(Song currentSong, Song nextSong, int crossfadeSeconds) {
+        return calculateTransition(currentSong, nextSong, crossfadeSeconds, null, null);
+    }
+
+    @Transactional(jakarta.transaction.Transactional.TxType.REQUIRED)
+    public DjTransition calculateTransition(Song currentSong, Song nextSong, int crossfadeSeconds,
+                                            Integer crossfadeOverride, String strictness) {
         if (currentSong == null || nextSong == null) {
             LOG.warn("Null song(s) provided for transition calculation");
             return null;
@@ -209,7 +215,9 @@ public class DjTransitionService {
         // Fast songs (EDM/Pop) mix better with tighter fades (6s)
         // Slow songs (Ambient/Jazz) mix better with long fades (12s)
         int adjustedCrossfade = crossfadeSeconds;
-        if (nextBpm > 120) adjustedCrossfade = 6;
+        if (crossfadeOverride != null && crossfadeOverride >= 0) {
+            adjustedCrossfade = crossfadeOverride;
+        } else if (nextBpm > 120) adjustedCrossfade = 6;
         else if (nextBpm < 90) adjustedCrossfade = 12;
         else adjustedCrossfade = 8;
 
@@ -222,6 +230,11 @@ public class DjTransitionService {
             confidence,
             reason
         );
+
+        if ("HIGH".equalsIgnoreCase(strictness) && confidence < 0.4) {
+            LOG.info(String.format("DJ strictness HIGH rejected low-confidence transition (confidence: %.2f)", confidence));
+            return null;
+        }
 
         LOG.info(String.format("Calculated transition: %s → %s (confidence: %.2f)", 
             currentSong.getTitle(), nextSong.getTitle(), confidence));
