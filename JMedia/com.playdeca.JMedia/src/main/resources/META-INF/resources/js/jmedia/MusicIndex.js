@@ -473,7 +473,7 @@
             const profileId = JMedia.Helpers.getActiveProfileId();
             const encodedGenre = encodeURIComponent(genre);
             if (window.htmx) {
-                window.htmx.ajax('GET', `/api/music/ui/mobile-genre-songs/${profileId}/${encodedGenre}`, {
+                window.htmx.ajax('GET', `/api/music/ui/mobile-genre-songs/${profileId}?genre=${encodedGenre}`, {
                     target: '#mobileSongList', swap: 'innerHTML'
                 });
             }

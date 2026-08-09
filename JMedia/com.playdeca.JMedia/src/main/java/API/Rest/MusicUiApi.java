@@ -1689,11 +1689,11 @@ public class MusicUiApi {
     // ── Genre Songs (drill-down) ──
 
     @GET
-    @Path("/mobile-genre-songs/{profileId}/{genre}")
+    @Path("/mobile-genre-songs/{profileId}")
     @Blocking
     public String getMobileGenreSongs(
             @PathParam("profileId") Long profileId,
-            @PathParam("genre") String genre,
+            @jakarta.ws.rs.QueryParam("genre") @jakarta.ws.rs.DefaultValue("") String genre,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("1") int page,
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
@@ -1716,15 +1716,17 @@ public class MusicUiApi {
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
                 .data("profileId", String.valueOf(profileId))
+                .data("genre", genre)
+                .data("genreEncoded", java.net.URLEncoder.encode(genre, java.nio.charset.StandardCharsets.UTF_8))
                 .render();
     }
 
     @GET
-    @Path("/mobile-genre-songs-more/{profileId}/{genre}")
+    @Path("/mobile-genre-songs-more/{profileId}")
     @Blocking
     public String getMoreMobileGenreSongs(
             @PathParam("profileId") Long profileId,
-            @PathParam("genre") String genre,
+            @jakarta.ws.rs.QueryParam("genre") @jakarta.ws.rs.DefaultValue("") String genre,
             @jakarta.ws.rs.QueryParam("page") @jakarta.ws.rs.DefaultValue("2") int page,
             @jakarta.ws.rs.QueryParam("limit") @jakarta.ws.rs.DefaultValue("20") int limit,
             @jakarta.ws.rs.QueryParam("sortBy") @jakarta.ws.rs.DefaultValue("title") String sortBy,
@@ -1747,6 +1749,8 @@ public class MusicUiApi {
                 .data("sortBy", sortBy)
                 .data("sortDirection", sortDirection)
                 .data("profileId", String.valueOf(profileId))
+                .data("genre", genre)
+                .data("genreEncoded", java.net.URLEncoder.encode(genre, java.nio.charset.StandardCharsets.UTF_8))
                 .render();
     }
 

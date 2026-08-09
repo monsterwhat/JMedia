@@ -12,12 +12,21 @@
 </div>
 {/for}
 {#if hasMore}
+{#if genre}
+<div class="scroll-sentinel"
+     hx-get="/api/music/ui/mobile-genre-songs-more/{profileId}?genre={genreEncoded}&page={nextPage}&limit={limit}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML">
+    <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
+</div>
+{#else}
 <div class="scroll-sentinel"
      hx-get="/api/music/ui/mobile-tbody-more/{profileId}/{playlistId}?page={nextPage}&limit={limit}{#if search}&search={search}{/if}{#if sortBy}&sortBy={sortBy}{/if}{#if sortDirection}&sortDirection={sortDirection}{/if}"
      hx-trigger="intersect once"
      hx-swap="outerHTML">
     <span class="htmx-indicator scroll-loader"><span class="skeleton-scroll-loader"></span></span>
 </div>
+{/if}
 {#else}
 <div class="scroll-end">— end —</div>
 {/if}
