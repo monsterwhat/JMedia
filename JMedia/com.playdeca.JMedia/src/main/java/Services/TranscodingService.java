@@ -1473,6 +1473,23 @@ public class TranscodingService {
     }
 
     /**
+     * Returns true when any FFmpeg process is currently running for the given
+     * video (live streaming OR temp-file transcoding). Used by
+     * VideoConversionService to defer a completed conversion's destructive
+     * finalize (old-file deletion + DB path swap) while the video is actively
+     * streaming — swapping the path mid-playback would switch serving mode
+     * under the player and manifest as playback restarting from 0.
+     */
+    public boolean hasActiveTranscodesForVideo(Long videoId) {
+        java.util.Set<String> keys = videoProcessKeys.get(videoId);
+        if (keys == null || keys.isEmpty()) return false;
+        return keys.stream()
+                .map(activeProcesses::get)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(Process::isAlive);
+    }
+
+    /**
      * Returns the count of currently running FFmpeg processes.
      */
     public int getActiveTranscodeCount() {

@@ -155,6 +155,9 @@ public class VideoAPI {
     @Inject
     AuthService authService;
 
+    @Inject
+    Services.VideoConversionService videoConversionService;
+
     @GET
     @Path("/{videoId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -667,6 +670,10 @@ public class VideoAPI {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
+
+        // Complete a conversion finalize deferred while the video was streaming
+        // — must run BEFORE findById so the path resolves to the converted file.
+        videoConversionService.finalizePendingIfIdle(videoId);
 
         Models.Video video = Models.Video.findById(videoId);
         if (video == null) {

@@ -64,6 +64,9 @@ public class VideoConversionService {
     @Inject
     FFprobeAudioService ffprobeAudioService;
 
+    @Inject
+    TranscodingService transcodingService;
+
     // ── Audio remux (permanent audio fix) ─────────────────────────────────
 
     /* Codecs safe to bit-copy into MP4 and play natively in every browser
@@ -86,6 +89,13 @@ public class VideoConversionService {
     private static final long FFMPEG_STALL_POLL_MS = 30_000L;
 
     private final ConcurrentHashMap<Long, Long> audioRemuxLastFailure = new ConcurrentHashMap<>();
+
+    /** A completed conversion whose destructive finalize (old-file deletion +
+     *  DB path swap) was deferred because the video was actively streaming.
+     *  Completed by finalizePendingIfIdle once the video is idle. */
+    private record PendingFinalize(Path inputPath, Path outputPath) {}
+
+    private final ConcurrentHashMap<Long, PendingFinalize> pendingFinalizes = new ConcurrentHashMap<>();
 
     // ── Job tracking ──────────────────────────────────────────────────────
 
@@ -288,9 +298,11 @@ public class VideoConversionService {
      * e.g. two playback-fragment renders for the same video landed at once.
      *
      * <p>Also reuses a COMPLETED job while the MP4 it produced is still the
-     * current file, so re-rendering the fragment for an already-converted video
-     * (including when the post-conversion metadata re-probe fails) can't start
-     * an endless re-conversion loop.
+     * current file — or while its finalize is still pending (the video is
+     * being watched and the destructive path swap was deferred) — so
+     * re-rendering the fragment for an already-converted video (including
+     * when the post-conversion metadata re-probe fails) can't start an
+     * endless re-conversion loop.
      */
     private synchronized ConversionStart createOrGetConversionJob(Long videoId) {
         String existingJobId = videoToJob.get(videoId);
@@ -307,7 +319,8 @@ public class VideoConversionService {
 
         if (existingJobId != null) {
             ConversionJob existing = jobs.get(existingJobId);
-            if (existing != null && existing.status == ConversionJob.Status.COMPLETED && isMp4File(video)) {
+            if (existing != null && existing.status == ConversionJob.Status.COMPLETED
+                    && (isMp4File(video) || pendingFinalizes.containsKey(videoId))) {
                 return new ConversionStart(existing, false);
             }
         }
@@ -567,6 +580,23 @@ public class VideoConversionService {
         job.message = "Updating database...";
         job.progressPercent = 98;
 
+        // Defer the destructive finalize (old-file deletion + DB path swap)
+        // while the video is actively streaming: the live transcode has the
+        // source file open, and swapping the DB path mid-playback makes
+        // subsequent player requests resolve to a different serving mode
+        // (remux → direct-faststart), which manifests as playback restarting
+        // from 0. finalizePendingIfIdle completes the swap once the video is
+        // idle (on the next stream request).
+        if (transcodingService.hasActiveTranscodesForVideo(video.id)) {
+            pendingFinalizes.put(video.id, new PendingFinalize(inputPath, outputPath));
+            job.status = ConversionJob.Status.COMPLETED;
+            job.progressPercent = 100;
+            job.message = "Converted; finalize deferred until video is no longer streaming";
+            job.endTime = System.currentTimeMillis();
+            LOG.info("Deferred finalize for video {} (actively streaming); old-file deletion + DB swap pending", video.id);
+            return;
+        }
+
         // Delete old file with retry (Windows file locks)
         // Only delete if it's actually a different file — converting an already-MP4 file
         // (due to container misdetection) would make inputPath == outputPath, and deleting
@@ -587,6 +617,46 @@ public class VideoConversionService {
         job.progressPercent = 100;
         job.message = "Conversion completed successfully!";
         job.endTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Completes a deferred conversion finalize (old-file deletion + DB path
+     * swap) once the video is no longer actively streaming. Called from the
+     * streaming path BEFORE the video record is resolved, so a completed
+     * conversion is picked up without ever switching serving mode mid-playback.
+     *
+     * @return true if a pending finalize existed and was completed
+     */
+    @Transactional
+    public boolean finalizePendingIfIdle(Long videoId) {
+        PendingFinalize pending = pendingFinalizes.get(videoId);
+        if (pending == null) return false;
+        if (transcodingService.hasActiveTranscodesForVideo(videoId)) {
+            LOG.debug("Finalize still deferred for video {} (actively streaming)", videoId);
+            return false;
+        }
+        if (!pendingFinalizes.remove(videoId, pending)) return false;
+        try {
+            Video video = videoService.findById(videoId);
+            if (video == null) return false;
+            Path current = video.path != null
+                    ? java.nio.file.Paths.get(video.path).toAbsolutePath().normalize()
+                    : null;
+            if (current != null && current.equals(pending.outputPath().toAbsolutePath().normalize())) {
+                return false; // already swapped
+            }
+            if (!pending.inputPath().toAbsolutePath().normalize()
+                    .equals(pending.outputPath().toAbsolutePath().normalize())) {
+                deleteOldFileWithRetry(pending.inputPath());
+            }
+            updateVideoRecord(video, pending.outputPath(), pending.inputPath());
+            LOG.info("Completed deferred finalize for video {}: path={}", videoId, pending.outputPath());
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Deferred finalize failed for video {}: {}", videoId, e.getMessage());
+            pendingFinalizes.put(videoId, pending); // retry on the next touch
+            return false;
+        }
     }
 
     private void moveTempToFinal(Path tempOutput, Path outputPath) throws IOException {
