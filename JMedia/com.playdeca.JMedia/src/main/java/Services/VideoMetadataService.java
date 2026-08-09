@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
+import java.util.Set;
 import Models.DTOs.VerificationField;
 import Models.DTOs.VerificationPreview;
 import jakarta.annotation.PreDestroy;
@@ -40,6 +41,9 @@ import java.util.regex.Pattern;
 public class VideoMetadataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(VideoMetadataService.class);
+
+    /** Video IDs currently being text-enriched — dedups concurrent batched UI requests. */
+    private static final Set<Long> ENRICHING_VIDEOS = ConcurrentHashMap.newKeySet();
     
     @Inject
     SettingsService settingsService;
@@ -1637,6 +1641,11 @@ public class VideoMetadataService {
             return;
         }
 
+        if (!ENRICHING_VIDEOS.add(videoId)) {
+            LOG.debug("[EnsureTextMetadata] Video {} already being enriched by another request, skipping", videoId);
+            return;
+        }
+
         try {
             Map<String, String> authHeaders = isBearerToken(tmdbKey)
                     ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
@@ -1728,7 +1737,7 @@ public class VideoMetadataService {
                     }
                     video.tmdbId = showId;
                 } else {
-                    LOG.info("[EnsureTextMetadata] Episode '{}' using stored tmdbId={}", video.seriesTitle, showId);
+                    LOG.debug("[EnsureTextMetadata] Episode '{}' using stored tmdbId={}", video.seriesTitle, showId);
                 }
 
                 if ((needsOverview || needsEpisodeTitle) && video.seasonNumber != null && video.episodeNumber != null) {
@@ -1780,6 +1789,8 @@ public class VideoMetadataService {
             video.persist();
         } catch (Exception e) {
             LOG.warn("[EnsureTextMetadata] Failed for video {}: {}", videoId, e.getMessage());
+        } finally {
+            ENRICHING_VIDEOS.remove(videoId);
         }
     }
 
