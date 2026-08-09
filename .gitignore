@@ -77,6 +77,12 @@ sessions/
 # SpotDL cache
 .spotdl-cache
 
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# PGS subtitle extraction output
+pgs-subtitles/
+
 # Node / JS
 node_modules/
 
