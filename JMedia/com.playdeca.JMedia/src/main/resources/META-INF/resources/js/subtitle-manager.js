@@ -6,6 +6,8 @@ class SubtitleManager {
         this.currentStyle = null; // Will store current subtitle style
         this.boundVideo = null;
         this.boundContainer = null;
+        this.aiPollInterval = null;
+        this.aiCancelRequested = false;
         
         // Auto-apply saved styles on initialization
         this.applySavedStyle();
@@ -94,6 +96,31 @@ class SubtitleManager {
 
         if (tab === 'manual') this.scanLocal();
         else if (tab === 'style') this.loadStyle();
+        else if (tab === 'ai') this.loadAiAudioTracks();
+    }
+
+    async loadAiAudioTracks() {
+        const sel = document.getElementById('subtitleAiAudioTrack');
+        if (!sel || !this.currentVideoId) return;
+
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">Default audio track</option>';
+        try {
+            const res = await fetch(`/api/video/${encodeURIComponent(this.currentVideoId)}/audio-tracks`);
+            if (!res.ok) return;
+            const json = await res.json();
+            const tracks = json.data || [];
+            tracks.forEach((track, idx) => {
+                const label = track.displayName || track.languageName || track.languageCode || `Audio ${idx + 1}`;
+                const opt = document.createElement('option');
+                opt.value = track.trackIndex != null ? track.trackIndex : idx;
+                opt.textContent = label;
+                sel.appendChild(opt);
+            });
+            if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
+        } catch (e) {
+            console.warn('Failed to load AI audio tracks:', e);
+        }
     }
 
     onFileSelected(event) {
@@ -602,6 +629,140 @@ class SubtitleManager {
                 this.refreshSubtitleList();
             }
         } catch (e) {} finally { btn.classList.remove('is-loading'); }
+    }
+
+    async generateAiSubtitles() {
+        if (!this.currentVideoId) return;
+
+        const btn = document.getElementById('startAiSubtitleBtn');
+        if (!btn) return;
+
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+        this.aiCancelRequested = false;
+
+        const statusEl = document.getElementById('aiGenerationStatus');
+        if (statusEl) statusEl.textContent = 'Starting generation...';
+
+        try {
+            const audioSel = document.getElementById('subtitleAiAudioTrack');
+            const audioTrack = audioSel && audioSel.value !== '' ? audioSel.value : null;
+            let url = `/api/video/subtitles/${this.currentVideoId}/generate`;
+            if (audioTrack != null) url += '?audioTrack=' + encodeURIComponent(audioTrack);
+            const res = await fetch(url, { method: 'POST' });
+
+            if (res.status === 503) {
+                const message = 'Parakeet AI is not available on this server';
+                if (window.showToast) window.showToast(message, 'error');
+                if (statusEl) statusEl.textContent = message;
+                btn.classList.remove('is-loading');
+                btn.disabled = false;
+                return;
+            }
+
+            if (!res.ok) {
+                let message = 'Failed to start AI generation';
+                try {
+                    const errData = await res.json();
+                    if (errData && errData.error) message = errData.error;
+                } catch (e) {}
+                if (window.showToast) window.showToast(message, 'error');
+                btn.classList.remove('is-loading');
+                btn.disabled = false;
+                return;
+            }
+
+            const progress = document.getElementById('aiGenerationProgress');
+            if (progress) progress.style.display = 'block';
+            if (statusEl) statusEl.textContent = 'Initializing...';
+            this.startAiPolling(this.currentVideoId);
+        } catch (e) {
+            console.error('Failed to start AI generation:', e);
+            if (window.showToast) window.showToast('Failed to start AI generation: ' + e.message, 'error');
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        } finally {
+            btn.classList.remove('is-loading');
+        }
+    }
+
+    startAiPolling(videoId) {
+        this.stopAiPolling();
+        this.aiPollInterval = setInterval(() => this.pollAiStatus(videoId), 2000);
+    }
+
+    stopAiPolling() {
+        if (this.aiPollInterval) {
+            clearInterval(this.aiPollInterval);
+            this.aiPollInterval = null;
+        }
+    }
+
+    async pollAiStatus(videoId) {
+        try {
+            const res = await fetch(`/api/video/subtitles/${videoId}/generate/status`);
+            if (!res.ok) return;
+            const data = await res.json();
+
+            const statusEl = document.getElementById('aiGenerationStatus');
+            if (statusEl) {
+                const stage = data.stage || 'generating';
+                const label = stage.charAt(0).toUpperCase() + stage.slice(1);
+                statusEl.textContent = data.progress != null
+                    ? `${label}... ${Math.round(data.progress)}%`
+                    : `${label}...`;
+            }
+
+            if (!data.running) {
+                this.stopAiPolling();
+                if (this.aiCancelRequested) {
+                    this.aiCancelRequested = false;
+                    return;
+                }
+                this.resetAiGenerationUI();
+                if (data.error) {
+                    if (window.showToast) window.showToast(data.error, 'error');
+                    if (statusEl) statusEl.textContent = 'Failed: ' + data.error;
+                } else {
+                    if (window.showToast) window.showToast('AI subtitles generated!', 'success');
+                    this.refreshSubtitleList();
+                }
+            }
+        } catch (e) {
+            console.error('Failed to poll AI generation status:', e);
+        }
+    }
+
+    async cancelAiGeneration() {
+        this.stopAiPolling();
+        this.aiCancelRequested = true;
+
+        const btn = document.getElementById('cancelAiGenerationBtn');
+        if (btn) btn.classList.add('is-loading');
+
+        try {
+            if (this.currentVideoId) {
+                await fetch(`/api/video/subtitles/${this.currentVideoId}/generate/cancel`, { method: 'POST' });
+            }
+            if (window.showToast) window.showToast('Generation cancelled', 'info');
+        } catch (e) {
+            console.error('Failed to cancel AI generation:', e);
+        } finally {
+            if (btn) btn.classList.remove('is-loading');
+            this.resetAiGenerationUI();
+        }
+    }
+
+    resetAiGenerationUI() {
+        const progress = document.getElementById('aiGenerationProgress');
+        if (progress) progress.style.display = 'none';
+        const statusEl = document.getElementById('aiGenerationStatus');
+        if (statusEl) statusEl.textContent = 'Generating subtitles...';
+        const btn = document.getElementById('startAiSubtitleBtn');
+        if (btn) {
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        }
     }
 }
 

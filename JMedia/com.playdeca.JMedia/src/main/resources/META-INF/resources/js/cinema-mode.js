@@ -3042,6 +3042,8 @@ function openSubtitleSearchSidebar() {
   if (sidebar) sidebar.classList.add('open');
   if (backdrop) backdrop.classList.add('active');
   if (toggleBtn) toggleBtn.classList.add('active');
+  var aiTab = document.getElementById('subtitle-search-ai-tab');
+  if (aiTab && aiTab.style.display !== 'none') loadSubtitleAiAudioTracks();
 }
 
 function closeSubtitleSearchSidebar() {
@@ -3067,7 +3069,7 @@ function toggleSubtitleSearchSidebar() {
 }
 
 function switchSubtitleSearchTab(tab) {
-  var tabs = ['search', 'local', 'upload'];
+  var tabs = ['search', 'local', 'upload', 'ai'];
   tabs.forEach(function(t) {
     var content = document.getElementById('subtitle-search-' + t + '-tab');
     var btn = document.querySelector('[data-click="switchSubtitleSearchTab:' + t + '"]');
@@ -3075,6 +3077,150 @@ function switchSubtitleSearchTab(tab) {
     if (btn) btn.classList.toggle('active', t === tab);
   });
   if (tab === 'local') scanLocalSubtitles();
+  if (tab === 'ai') loadSubtitleAiAudioTracks();
+}
+
+async function loadSubtitleAiAudioTracks() {
+  var sel = document.getElementById('subtitleSearchAiAudio');
+  if (!sel) return;
+  var videoId = getSubtitleSearchVideoId();
+  var prev = sel.value;
+  sel.innerHTML = '<option value="">Default audio track</option>';
+  if (!videoId) return;
+  try {
+    var resp = await fetch('/api/video/' + encodeURIComponent(videoId) + '/audio-tracks');
+    if (!resp.ok) return;
+    var json = await resp.json();
+    var tracks = json.data || [];
+    tracks.forEach(function(track, idx) {
+      var label = track.displayName || track.languageName || track.languageCode || ('Audio ' + (idx + 1));
+      var opt = document.createElement('option');
+      opt.value = track.trackIndex != null ? track.trackIndex : idx;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    });
+    if (prev && Array.prototype.some.call(sel.options, function(o) { return o.value === prev; })) sel.value = prev;
+  } catch (e) {
+    console.warn('Failed to load AI audio tracks:', e);
+  }
+}
+
+var _aiPollInterval = null;
+var _aiCancelRequested = false;
+
+async function generateAiSubtitles() {
+  var videoId = getSubtitleSearchVideoId();
+  if (!videoId) {
+    if (window.showToast) window.showToast('No video selected', 'error');
+    return;
+  }
+  var btn = document.getElementById('startAiSidebarBtn');
+  if (btn) {
+    btn.classList.add('loading');
+    btn.disabled = true;
+  }
+  var langSelect = document.getElementById('subtitleSearchAiLang');
+  var lang = langSelect ? langSelect.value : 'en';
+  var audioSel = document.getElementById('subtitleSearchAiAudio');
+  var audioTrack = audioSel && audioSel.value !== '' ? audioSel.value : null;
+  var url = '/api/video/subtitles/' + videoId + '/generate?language=' + encodeURIComponent(lang);
+  if (audioTrack != null) url += '&audioTrack=' + encodeURIComponent(audioTrack);
+  try {
+    var resp = await fetch(url, { method: 'POST' });
+    if (resp.status === 503) {
+      if (window.showToast) window.showToast('Parakeet AI is not available on this server', 'error');
+      resetAiGenerationUI();
+      return;
+    }
+    if (!resp.ok) {
+      var data = await resp.json().catch(function() { return {}; });
+      if (window.showToast) window.showToast(data.error || 'Failed to start AI generation', 'error');
+      resetAiGenerationUI();
+      return;
+    }
+    var progress = document.getElementById('subtitleAiGenerationProgress');
+    if (progress) progress.style.display = 'flex';
+    var statusEl = document.getElementById('subtitleAiGenerationStatus');
+    if (statusEl) statusEl.textContent = 'Initializing...';
+    if (_aiPollInterval === null) {
+      _aiPollInterval = setInterval(pollAiGenerationStatus, 2000);
+    }
+  } catch (e) {
+    console.error('Failed to start AI generation:', e);
+    if (window.showToast) window.showToast('Failed to start AI generation: ' + e.message, 'error');
+    resetAiGenerationUI();
+  }
+}
+
+async function pollAiGenerationStatus() {
+  var videoId = getSubtitleSearchVideoId();
+  if (!videoId) return;
+  try {
+    var resp = await fetch('/api/video/subtitles/' + videoId + '/generate/status');
+    if (!resp.ok) return;
+    var data = await resp.json();
+    var statusEl = document.getElementById('subtitleAiGenerationStatus');
+    if (statusEl) {
+      var stage = data.stage || 'generating';
+      var label = stage.charAt(0).toUpperCase() + stage.slice(1);
+      statusEl.textContent = data.progress != null ? label + '... ' + Math.round(data.progress) + '%' : label + '...';
+    }
+    if (data.running === false) {
+      if (_aiPollInterval !== null) {
+        clearInterval(_aiPollInterval);
+        _aiPollInterval = null;
+      }
+      if (_aiCancelRequested) {
+        _aiCancelRequested = false;
+        resetAiGenerationUI();
+        return;
+      }
+      resetAiGenerationUI();
+      if (data.error) {
+        if (window.showToast) window.showToast(data.error, 'error');
+        if (statusEl) statusEl.textContent = 'Failed: ' + data.error;
+      } else {
+        if (window.showToast) window.showToast('AI subtitles generated!', 'success');
+        refreshPlayerSubtitleTracks();
+      }
+    }
+  } catch (e) {
+    console.error('Failed to poll AI generation status:', e);
+  }
+}
+
+async function cancelAiGeneration() {
+  var videoId = getSubtitleSearchVideoId();
+  if (_aiPollInterval !== null) {
+    clearInterval(_aiPollInterval);
+    _aiPollInterval = null;
+  }
+  _aiCancelRequested = true;
+  var btn = document.getElementById('cancelAiSidebarBtn');
+  if (btn) btn.classList.add('loading');
+  try {
+    if (videoId) {
+      await fetch('/api/video/subtitles/' + videoId + '/generate/cancel', { method: 'POST' });
+    }
+    if (window.showToast) window.showToast('Generation cancelled', 'info');
+  } catch (e) {
+    console.error('Failed to cancel AI generation:', e);
+  } finally {
+    if (btn) btn.classList.remove('loading');
+    resetAiGenerationUI();
+  }
+}
+
+function resetAiGenerationUI() {
+  var progress = document.getElementById('subtitleAiGenerationProgress');
+  if (progress) progress.style.display = 'none';
+  var statusEl = document.getElementById('subtitleAiGenerationStatus');
+  if (statusEl) statusEl.textContent = 'Generating subtitles...';
+  var btn = document.getElementById('startAiSidebarBtn');
+  if (btn) {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
 }
 
 function escapeHtml(str) {

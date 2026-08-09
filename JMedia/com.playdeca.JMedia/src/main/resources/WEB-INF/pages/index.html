@@ -479,7 +479,18 @@
                             <h3 class="title is-5 mt-3">Parakeet AI Generation</h3>
                             <p class="mb-3">Generate high-quality subtitles using NVIDIA Parakeet TDT directly from the video audio.</p>
                             <p class="help mb-3">This process runs in the background and may take several minutes depending on video length and server hardware.</p>
-                            
+
+                            <div class="field mb-3">
+                                <label class="label">Audio Track</label>
+                                <div class="control">
+                                    <div class="select is-fullwidth">
+                                        <select id="subtitleAiAudioTrack">
+                                            <option value="">Default audio track</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
                             <button class="button is-warning is-rounded is-medium" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
                                 <i class="pi pi-magic"></i>&nbsp;Generate with AI
                             </button>

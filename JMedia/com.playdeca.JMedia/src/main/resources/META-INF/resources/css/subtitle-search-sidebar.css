@@ -93,6 +93,19 @@
   pointer-events: none;
 }
 
+/* AI Generation tab: amber generate button + centered cancel in progress row */
+.subtitle-search-go.generate {
+  background: rgba(255, 164, 27, 0.15);
+  border-color: rgba(255, 164, 27, 0.4);
+}
+.subtitle-search-go.generate:hover {
+  background: rgba(255, 164, 27, 0.25);
+  border-color: rgba(255, 164, 27, 0.6);
+}
+#cancelAiSidebarBtn {
+  margin: 0 auto;
+}
+
 /* Upload tab: drop zone + file input */
 .subtitle-upload-drop {
   flex: 1 1 100%;
