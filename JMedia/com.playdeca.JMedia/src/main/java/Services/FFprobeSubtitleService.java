@@ -118,16 +118,18 @@ public class FFprobeSubtitleService {
         String codec = stream.path("codec_name").asText();
         int index = stream.path("index").asInt();
         
-        // Skip image-based subtitles (PGS/DVD) - they cannot be streamed as WebVTT
-        // These would require OCR processing which is not currently supported
-        if (IMAGE_BASED_CODECS.contains(codec)) {
+        // PGS is image-based but streamable: registered as "pgs" and OCR'd by PgsOcrService on demand
+        boolean isPgs = "hdmv_pgs_subtitle".equals(codec) || "pgssub".equals(codec);
+        
+        // Skip other image-based subtitles (DVD/DVB) - they cannot be streamed as WebVTT
+        if (IMAGE_BASED_CODECS.contains(codec) && !isPgs) {
             LOGGER.debug("Skipping image-based subtitle track {} with codec '{}' - not streamable", 
                         index, codec);
             return null;
         }
         
-        // Only process text-based subtitle codecs
-        if (!STREAMABLE_SUBTITLE_CODECS.contains(codec)) {
+        // Only process text-based subtitle codecs (or PGS, handled above)
+        if (!isPgs && !STREAMABLE_SUBTITLE_CODECS.contains(codec)) {
             LOGGER.warn("Unknown subtitle codec '{}' for track {} - skipping", codec, index);
             return null;
         }
@@ -159,7 +161,11 @@ public class FFprobeSubtitleService {
         track.isForced = disposition.path("forced").asInt() == 1;
         track.isSDH = disposition.path("hearing_impaired").asInt() == 1;
         
-        if ("ass".equals(codec) || "ssa".equals(codec)) {
+        if (isPgs) {
+            // Image-based PGS: streamed on demand through PgsOcrService
+            track.format = "pgs";
+            track.filename = String.format("internal_%d.pgs", index);
+        } else if ("ass".equals(codec) || "ssa".equals(codec)) {
             track.format = codec;
             track.filename = String.format("internal_%d.%s", index, codec);
         } else {

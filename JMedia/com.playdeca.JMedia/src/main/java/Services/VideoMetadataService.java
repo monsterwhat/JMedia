@@ -2,6 +2,7 @@ package Services;
 
 import Models.Series;
 import Models.Settings;
+import Models.SubtitleTrack;
 import Models.Video;
 import Utils.MediaPathResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -54,6 +55,12 @@ public class VideoMetadataService {
 
     @Inject
     FFprobeAudioService audioService;
+
+    @Inject
+    EnhancedSubtitleMatcher subtitleMatcher;
+
+    @Inject
+    PgsOcrService pgsOcrService;
 
     @Inject
     ThumbnailService thumbnailService;
@@ -389,6 +396,29 @@ public class VideoMetadataService {
                     }
                 } catch (Exception e) {
                     LOG.error("Failed to extract audio tracks for {}: {}", video.title, e.getMessage());
+                }
+            }
+
+            // 5b. Subtitle discovery + PGS OCR pre-warm (re-enrichment path)
+            if (video.path != null && !video.path.isBlank()) {
+                try {
+                    java.nio.file.Path vPath = java.nio.file.Paths.get(video.path);
+                    if (!vPath.isAbsolute()) {
+                        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+                        vPath = java.nio.file.Paths.get(videoLibraryPath, video.path);
+                    }
+                    if (java.nio.file.Files.exists(vPath)) {
+                        List<SubtitleTrack> existing = SubtitleTrack.list("video.id", video.id);
+                        if (existing == null || existing.isEmpty()) {
+                            List<SubtitleTrack> discovered = subtitleMatcher.discoverSubtitleTracks(vPath, video);
+                            if (discovered != null && !discovered.isEmpty()) {
+                                videoService.updateSubtitleTracks(video.id, discovered);
+                            }
+                        }
+                        pgsOcrService.preloadForVideo(video.id);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to discover/pre-warm subtitles for {}: {}", video.title, e.getMessage());
                 }
             }
 

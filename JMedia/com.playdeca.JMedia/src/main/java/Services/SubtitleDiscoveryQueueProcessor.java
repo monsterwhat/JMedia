@@ -33,6 +33,9 @@ public class SubtitleDiscoveryQueueProcessor {
     
     @Inject
     VideoService videoService;
+
+    @Inject
+    PgsOcrService pgsOcrService;
     
     private final BlockingQueue<Long> queue = new LinkedBlockingQueue<>();
     private ExecutorService executorService;
@@ -141,6 +144,8 @@ public class SubtitleDiscoveryQueueProcessor {
                 if (!subtitleTracks.isEmpty()) {
                     videoService.updateSubtitleTracks(videoId, subtitleTracks);
                     LOGGER.debug("Found {} subtitle tracks for video: {}", subtitleTracks.size(), video.title);
+                    // Pre-warm OCR cache for any PGS tracks discovered at import time
+                    pgsOcrService.preloadForVideo(videoId);
                 }
                 
                 Thread.sleep(DELAY_MS);

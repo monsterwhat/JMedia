@@ -14,6 +14,7 @@ import Services.ParakeetService;
 import Services.SubtitleDownloadService;
 import Services.SubtitleTrackService;
 import Services.FFprobeSubtitleService; 
+import Services.PgsOcrService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,9 @@ public class SubtitleAPI {
 
     @Inject
     private SubtitleTrackService subtitleTrackService;
+
+    @Inject
+    private PgsOcrService pgsOcrService;
 
     @Inject
     private Services.EnhancedSubtitleMatcher subtitleMatcher;
@@ -291,6 +295,13 @@ public class SubtitleAPI {
                 .map(Models.DTOs.SubtitleTrackDTO::new)
                 .collect(java.util.stream.Collectors.toList());
 
+            // Pre-warm OCR cache for PGS tracks in the background so playback never blocks
+            for (SubtitleTrack track : tracks) {
+                if (PgsOcrService.isPgsCodec(track.codec) || "pgs".equals(track.format)) {
+                    pgsOcrService.preload(track);
+                }
+            }
+
             Map<String, Object> response = new HashMap<>();
             response.put("tracks", dtoTracks);
             response.put("preferredTrackId", preferredTrack != null ? preferredTrack.id : null);
@@ -330,7 +341,12 @@ public class SubtitleAPI {
             // When the video stream starts at an offset (server-side seek), video.currentTime starts at 0
             // but the video is actually at the offset position. We must shift subtitles to match.
             if (track.isEmbedded) {
-                webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track, offset);
+                if (PgsOcrService.isPgsCodec(track.codec) || "pgs".equals(track.format)) {
+                    // PGS is image-based: OCR to WebVTT on demand (cached per track)
+                    webVTTContent = pgsOcrService.getOrCreateWebVTT(track);
+                } else {
+                    webVTTContent = ffprobeSubtitleService.extractInternalSubtitleToVTT(track, offset);
+                }
                 
                 // Apply the same offset shift as external tracks: negative offset shifts timestamps
                 // so a cue originally at 'offset' seconds appears at video.currentTime = 0
