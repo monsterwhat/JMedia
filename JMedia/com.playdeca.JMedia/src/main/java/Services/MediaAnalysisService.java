@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -279,9 +280,15 @@ public class MediaAnalysisService {
         }
     }
 
-    private void extractAndPersistAudioTracks(Video video) {
+    /**
+     * Extracts audio tracks via ffprobe and persists them for the given video.
+     * Returns the extracted tracks (possibly empty for unreadable files or files
+     * with no audio streams); callers use the result for negative caching.
+     */
+    public List<AudioTrack> extractAndPersistAudioTracks(Video video) {
+        List<AudioTrack> tracks = new ArrayList<>();
         try {
-            List<AudioTrack> tracks = audioService.extractAudioTracks(video, video.path);
+            tracks = audioService.extractAudioTracks(video, video.path);
             if (tracks != null && !tracks.isEmpty()) {
                 for (AudioTrack track : tracks) {
                     track.video = video;
@@ -292,6 +299,8 @@ public class MediaAnalysisService {
             }
         } catch (Exception e) {
             LOG.warn("Could not extract audio tracks for {}: {}", video.path, e.getMessage());
+            return new ArrayList<>();
         }
+        return tracks == null ? new ArrayList<>() : tracks;
     }
 }

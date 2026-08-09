@@ -948,13 +948,39 @@ public class VideoService {
     
     // ========== AUDIO TRACKS & PLAYBACK PROGRESS (migrated from VideoAPI) ==========
 
+    // Negative cache for corrupt/unreadable files: videoId -> millis until which
+    // we skip re-probing (empty extraction strongly suggests the file is bad).
+    private static final long AUDIO_TRACK_PROBE_FAILURE_TTL_MS = 10 * 60_000L;
+    private final java.util.Map<Long, Long> audioTrackProbeFailures = new java.util.concurrent.ConcurrentHashMap<>();
+
     @Transactional
     public List<AudioTrack> getAudioTracks(Long videoId) {
-        if (Video.findById(videoId) == null) {
+        Video video = Video.findById(videoId);
+        if (video == null) {
             return null;
         }
         List<AudioTrack> tracks = AudioTrack.list("video.id", videoId);
-        return tracks == null ? new ArrayList<>() : tracks;
+        if (tracks != null && !tracks.isEmpty()) {
+            return tracks;
+        }
+
+        // Lazy on-demand extraction: videos scanned before the audio-track feature
+        // existed have no persisted tracks. Probe once and persist so the language
+        // toggle appears without a manual re-scan.
+        Long skipUntil = audioTrackProbeFailures.get(videoId);
+        if (skipUntil != null && System.currentTimeMillis() < skipUntil) {
+            return new ArrayList<>();
+        }
+
+        List<AudioTrack> extracted = mediaAnalysisService.extractAndPersistAudioTracks(video);
+        if (extracted == null || extracted.isEmpty()) {
+            // Unreadable/corrupt file or genuinely no audio streams: don't hammer
+            // ffprobe on every render/stream request within the TTL window.
+            audioTrackProbeFailures.put(videoId, System.currentTimeMillis() + AUDIO_TRACK_PROBE_FAILURE_TTL_MS);
+            return new ArrayList<>();
+        }
+        audioTrackProbeFailures.remove(videoId);
+        return extracted;
     }
 
     @Transactional
