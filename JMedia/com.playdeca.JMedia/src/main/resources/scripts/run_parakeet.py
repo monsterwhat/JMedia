@@ -8,7 +8,9 @@ Reports output path to stderr in format: SRT:<path>
 
 import argparse
 import os
+import subprocess
 import sys
+import tempfile
 import time
 import warnings
 from pathlib import Path
@@ -20,6 +22,7 @@ def main():
     parser.add_argument("--audio", required=True, help="Path to audio/video file")
     parser.add_argument("--output", required=True, help="Output directory for SRT file")
     parser.add_argument("--language", default=None, help="Language code (optional, model auto-detects)")
+    parser.add_argument("--audio-index", type=int, default=None, help="Absolute audio stream index to transcribe (0-based); defaults to the file's default audio stream")
     args = parser.parse_args()
 
     audio_path = Path(args.audio)
@@ -78,7 +81,27 @@ def main():
 
     print(f"PARAKEET:Loading audio from {audio_path.name}...", file=sys.stderr)
     try:
-        audio, sr = librosa.load(str(audio_path), sr=16000, mono=True)
+        if args.audio_index is not None:
+            # Extract the selected audio stream (absolute FFprobe stream index)
+            # to a temporary mono 16k WAV, then transcribe that.
+            tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp_wav.close()
+            try:
+                extract = subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(audio_path),
+                     "-map", f"0:{args.audio_index}",
+                     "-vn", "-ac", "1", "-ar", "16000",
+                     "-f", "wav", tmp_wav.name],
+                    capture_output=True, text=True
+                )
+                if extract.returncode != 0:
+                    print(f"ERROR:Failed to extract audio stream {args.audio_index}: {extract.stderr.strip()[-500:]}", file=sys.stderr)
+                    sys.exit(1)
+                audio, sr = librosa.load(tmp_wav.name, sr=16000, mono=True)
+            finally:
+                os.unlink(tmp_wav.name)
+        else:
+            audio, sr = librosa.load(str(audio_path), sr=16000, mono=True)
     except Exception as e:
         print(f"ERROR:Failed to load audio: {e}", file=sys.stderr)
         sys.exit(1)

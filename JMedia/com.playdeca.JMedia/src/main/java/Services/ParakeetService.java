@@ -66,6 +66,13 @@ public class ParakeetService {
     private final AtomicReference<Process> currentProcess = new AtomicReference<>(null);
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
+    /**
+     * Pollable state for the single-video generation path (started from the player modal).
+     * The batch job flow (AiSubtitleJobService) passes its own progress callback and
+     * tracks progress separately, so it does not update this state.
+     */
+    private final AtomicReference<GenerationState> generationState = new AtomicReference<>(new GenerationState());
+
     private static final Path SCRIPT_PATH = Paths.get("src", "main", "resources", "scripts", "run_parakeet.py");
 
     private static final ExecutorService PARKEET_EXECUTOR = Executors.newThreadPerTaskExecutor(
@@ -112,15 +119,40 @@ public class ParakeetService {
             p.destroyForcibly();
             LOG.info("Parakeet process forcibly terminated");
         }
+        GenerationState state = generationState.get();
+        state.running = false;
+        state.error = "Generation cancelled";
+    }
+
+    public java.util.Map<String, Object> getGenerationStatus() {
+        GenerationState state = generationState.get();
+        java.util.Map<String, Object> status = new java.util.HashMap<>();
+        status.put("running", state.running);
+        status.put("videoId", state.running ? state.videoId : null);
+        status.put("progress", state.progress);
+        status.put("stage", state.stage != null ? state.stage : "idle");
+        status.put("error", state.error);
+        return status;
     }
 
     public CompletableFuture<String> generateSubtitle(Video video, String languageCode) {
-        return generateSubtitle(video, languageCode, null);
+        return generateSubtitle(video, languageCode, -1, null);
     }
 
     public CompletableFuture<String> generateSubtitle(Video video, String languageCode, Consumer<Double> progressCallback) {
+        return generateSubtitle(video, languageCode, -1, progressCallback);
+    }
+
+    public CompletableFuture<String> generateSubtitle(Video video, String languageCode, int audioTrackIndex) {
+        return generateSubtitle(video, languageCode, audioTrackIndex, null);
+    }
+
+    public CompletableFuture<String> generateSubtitle(Video video, String languageCode, int audioTrackIndex, Consumer<Double> progressCallback) {
         cancelled.set(false);
         String languageName = getLanguageName(languageCode);
+
+        final boolean trackState = (progressCallback == null);
+        final GenerationState state = trackState ? startGenerationState(video.id) : null;
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -137,7 +169,7 @@ public class ParakeetService {
                 }
                 Path outputDir = videoPath.getParent();
 
-                LOG.info("Starting Parakeet transcription for: {} (language: {})", video.filename, languageName);
+                LOG.info("Starting Parakeet transcription for: {} (language: {}, audioTrack: {})", video.filename, languageName, audioTrackIndex >= 0 ? audioTrackIndex : "default");
 
                 Services.Platform.PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
                 String pythonExec = platformOps.getParakeetPythonExecutable();
@@ -175,6 +207,10 @@ public class ParakeetService {
                 command.add(outputDir.toString());
                 command.add("--language");
                 command.add(languageCode);
+                if (audioTrackIndex >= 0) {
+                    command.add("--audio-index");
+                    command.add(String.valueOf(audioTrackIndex));
+                }
 
                 LOG.debug("Parakeet command: {}", String.join(" ", command));
 
@@ -204,6 +240,10 @@ public class ParakeetService {
                                 if (progressCallback != null) {
                                     progressCallback.accept(progress);
                                 }
+                                if (state != null) {
+                                    state.progress = (int) Math.round(progress);
+                                    state.stage = "transcribing";
+                                }
                             } catch (NumberFormatException e) {
                                 LOG.debug("Failed to parse progress from: {}", line);
                             }
@@ -229,6 +269,9 @@ public class ParakeetService {
                     throw new RuntimeException("Parakeet process timed out after 60 minutes");
                 }
                 currentProcess.set(null);
+                if (state != null) {
+                    state.stage = "finalizing";
+                }
                 if (cancelled.get()) {
                     throw new InterruptedException("Generation cancelled");
                 }
@@ -251,6 +294,7 @@ public class ParakeetService {
                         }
                     });
 
+                    completeGenerationState(state);
                     return "Success";
                 } else {
                     String details = String.join("\n", outputLines.subList(Math.max(0, outputLines.size() - 10), outputLines.size()));
@@ -260,18 +304,55 @@ public class ParakeetService {
 
             } catch (InterruptedException e) {
                 LOG.info("Parakeet transcription cancelled for: {}", video.filename);
+                failGenerationState(state, "Generation cancelled");
                 throw new RuntimeException("Generation cancelled");
             } catch (IOException e) {
                 if (cancelled.get()) {
                     LOG.info("Parakeet transcription cancelled for: {}", video.filename);
+                    failGenerationState(state, "Generation cancelled");
                     throw new RuntimeException("Generation cancelled");
                 }
                 LOG.error("Error transcribing with Parakeet", e);
+                failGenerationState(state, "Error transcribing with Parakeet: " + e.getMessage());
                 throw new RuntimeException("Error transcribing with Parakeet: " + e.getMessage());
             } catch (Exception e) {
                 LOG.error("Error transcribing with Parakeet", e);
+                failGenerationState(state, "Error transcribing with Parakeet: " + e.getMessage());
                 throw new RuntimeException("Error transcribing with Parakeet: " + e.getMessage());
             }
         }, PARKEET_EXECUTOR);
+    }
+
+    private GenerationState startGenerationState(long videoId) {
+        GenerationState state = generationState.get();
+        state.videoId = videoId;
+        state.progress = 0;
+        state.stage = "initializing";
+        state.running = true;
+        state.error = null;
+        return state;
+    }
+
+    private static void completeGenerationState(GenerationState state) {
+        if (state != null) {
+            state.progress = 100;
+            state.stage = "completed";
+            state.running = false;
+        }
+    }
+
+    private static void failGenerationState(GenerationState state, String error) {
+        if (state != null) {
+            state.running = false;
+            state.error = error;
+        }
+    }
+
+    private static final class GenerationState {
+        volatile long videoId;
+        volatile int progress;
+        volatile String stage;
+        volatile boolean running;
+        volatile String error;
     }
 }

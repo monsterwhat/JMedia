@@ -66,7 +66,8 @@ public class SubtitleAPI {
     @POST
     @Path("/{videoId}/generate")
     public Response generateSubtitle(@PathParam("videoId") Long videoId,
-                                     @QueryParam("language") @DefaultValue("en") String language) {
+                                     @QueryParam("language") @DefaultValue("en") String language,
+                                     @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex) {
         Video video = Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Video not found").build();
@@ -77,9 +78,22 @@ public class SubtitleAPI {
                     .entity("Parakeet is not available on this server").build();
         }
         
-        parakeetService.generateSubtitle(video, language);
+        parakeetService.generateSubtitle(video, language, audioTrackIndex);
         
         return Response.ok(createSuccessResponse("Subtitle generation started in background")).build();
+    }
+    
+    @GET
+    @Path("/{videoId}/generate/status")
+    public Response getGenerationStatus(@PathParam("videoId") Long videoId) {
+        return Response.ok(parakeetService.getGenerationStatus()).build();
+    }
+    
+    @POST
+    @Path("/{videoId}/generate/cancel")
+    public Response cancelGeneration(@PathParam("videoId") Long videoId) {
+        parakeetService.cancelGeneration();
+        return Response.ok(createSuccessResponse("Generation cancelled")).build();
     }
     
     @GET
