@@ -31,6 +31,12 @@
         var _swapRetries = 0;
         var _swapErrorHandler = null;
         var _swapTimeout = null;
+        /* Connect-time snapshot guard: VideoSocket.sendCurrentState pushes the persisted
+         * session position on every WS (re)connect — server memory, not an action. Yanking
+         * a fresh/reconnected element to that stale position is the load/reconnect bounce;
+         * the element's own reports re-sync the phantom within one broadcast cycle. */
+        var _wsConnectedAt = 0;
+        var _yankEnabled = false;
         // pid was previously scoped inside _initWebSocket only; _broadcastState referencing it threw a strict-mode ReferenceError
         var pid = profileId;
 
@@ -62,7 +68,11 @@
          * the element from byte 0 while the offset claims otherwise, so resume must be
          * a native post-load seek instead (mirror SimplePlayer's needsTranscode branch). */
         var _isDirectFile = !container.dataset.externalUrl && container.dataset.needsTranscode !== 'true' && container.dataset.needsConversion !== 'true';
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 && !_isDirectFile ? '?start=' + startTime : '')));
+        /* Cache-buster on the initial stream URL: Firefox's session media cache keys
+         * on the URL and can resume a STALE response (bytes=<total>- -> 416) when the
+         * same URL is loaded again — the page-load bounce. Direct-streamed files are
+         * served no-cache with native byte-range resume, so they stay unbusted. */
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (!_isDirectFile ? '?start=' + Math.max(0, startTime) + '&trace=' + Date.now() : '')));
         var streamType = streamUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
 
         /* Absolute stream time base: the server's ?start=N remux emits RELATIVE
@@ -139,6 +149,14 @@
             if (_swapErrorHandler) { vjsPlayer.off('error', _swapErrorHandler); _swapErrorHandler = null; }
 
             _streamStartOffset = Math.max(0, absTarget);
+            /* Re-fetch the active subtitle at swap-start so the whole-file VTT
+             * conversion overlaps the stream restart instead of serializing after
+             * `playing` (mirrors the OPlayer adapter's swap-start restore). The
+             * playing-time reapply below stays as the safety net for tracks reset
+             * by the video.js source swap. */
+            if (window.testPlayerFeatures && typeof window.testPlayerFeatures.reapplySubtitle === 'function') {
+                window.testPlayerFeatures.reapplySubtitle();
+            }
             /* Arm the echo-lock with the seek target. After a ?start= reload the
              * element clock restarts at 0 while the server may keep broadcasting the
              * OLD absolute position — above the new offset on a backward seek, so the
@@ -516,6 +534,7 @@
             if (!pid) return;
             _wsManager = new window.VideoWebSocketManager({
                 profileId: pid,
+                onOpen: function() { _wsConnectedAt = Date.now(); },
                 onStateUpdate: function(state) {
                     if (!state || _destroyed || !videoEl) return;
                     _applyingServerState = true;
@@ -585,7 +604,13 @@
                              * every 3s. The reloaded element is authoritative until the
                              * server's phantom clock catches up (B6 confirmation or the
                              * next server-side seek). */
-                            if (drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
+                            /* Drift-yank guard: only follow the phantom once real playback
+                             * has started (element reports positions) and the WS has been up
+                             * for a grace window — the connect-time snapshot and load echoes
+                             * are server memory, not actions, and yanking to them is the
+                             * page-load/reconnect bounce. */
+                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
+                                console.warn('[VideojsAdapter] Drift-yank ' + (videoEl.currentTime || 0).toFixed(2) + ' -> ' + relTarget.toFixed(2) + ' (phantom ' + state.currentTime.toFixed(2) + ', offset ' + _streamStartOffset + ')');
                                 videoEl.currentTime = relTarget;
                             }
                         }
@@ -737,6 +762,7 @@
         });
 
         vjsPlayer.on('timeupdate', function() {
+            _yankEnabled = true;
             _broadcastState();
         });
 

@@ -46,7 +46,18 @@
          * the element from byte 0 while the offset claims otherwise, so resume must be
          * a native post-load seek instead (mirror SimplePlayer's needsTranscode branch). */
         var _isDirectFile = !container.dataset.externalUrl && container.dataset.needsTranscode !== 'true' && container.dataset.needsConversion !== 'true';
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (startTime > 0 && !_isDirectFile ? '?start=' + startTime : '')));
+        /* Per-load cache-buster (trace=) on the initial stream URL, mirroring the
+         * remote-swap path below. Completed segments are served with Cache-Control:
+         * immutable and a deterministic ETag, so Firefox's session media cache
+         * resumes a STALE transcode by requesting bytes=<cachedTotal>-; the server
+         * 416s (its fresh transcode has the same total) and Firefox silently plays
+         * the stale cached stream while the server's independent phantom clock
+         * advances — the divergence drift-sync then "bounces" playback back. A fresh
+         * trace per load forces a real fetch so element and server always track the
+         * same stream. Direct files are exempt: the backend serves them with
+         * Cache-Control: no-cache (no media-cache resume) and resume is a native
+         * post-load seek. */
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (!_isDirectFile ? '?start=' + Math.max(0, startTime) + '&trace=' + Date.now() : '')));
 
         /* DB duration in seconds (data-duration is milliseconds, native-player
          * convention — same >5000 guard as StateManager) or NaN when unknown
@@ -86,6 +97,12 @@
         var _destroyed = false;
         var _wsManager = null;
         var _controlsTimer = null;
+        /* Connect-time snapshot guard: VideoSocket.sendCurrentState pushes the persisted
+         * session position on every WS (re)connect — server memory, not an action. Yanking
+         * a fresh/reconnected element to that stale position is the load/reconnect bounce;
+         * the element's own reports re-sync the phantom within one broadcast cycle. */
+        var _wsConnectedAt = 0;
+        var _yankEnabled = false;
 
         /* ---------- In-place source-swap hardening (per-instance, never global - B9) ----------
          * While a remote source swap is in progress, suppress stale broadcasts and the
@@ -147,16 +164,19 @@
         }
 
         /* ---------- OPlayer error-overlay dismissal ---------- */
-        /* A mid-stream network error (e.g. a 503 on the range request after a seek,
-         * while the backend is between transcode kills) makes OPlayer render its
-         * fullscreen MEDIA_ERR_NETWORK overlay. The element keeps playing buffered
-         * data, so playback "recovers" without ever firing videosourcechange or
-         * loadedmetadata again — the overlay then sticks over live playback forever.
-         * Dismiss it the moment the stream proves it is alive: OPlayer's UI hides
-         * the overlay on exactly these events, and a synthetic loadedmetadata is
-         * harmless to its internals (only duration/once-subscribers, none armed
-         * mid-playback). Callers: play/timeupdate/seeked, all no-ops unless the
-         * flag is set. */
+         /* A mid-stream network error (e.g. a 503 on the range request after a seek,
+          * while the backend is between transcode kills) makes OPlayer render its
+          * fullscreen MEDIA_ERR_NETWORK overlay. The element keeps playing buffered
+          * data, so playback "recovers" without ever firing videosourcechange or
+          * loadedmetadata again — the overlay then sticks over live playback forever.
+          * Dismiss it the moment the stream proves it is alive: OPlayer's UI hides
+          * the overlay on exactly these events. NOTE: the synthetic loadedmetadata is
+          * NOT purely harmless — the engine's changeSource() arms a
+          * once("loadedmetadata", fetchSubtitle) handler whenever it runs while
+          * duration is NaN (the startup error window), so the emit below fires that
+          * handler with the URL pushed at init time (start=0, pre-resume). The
+          * re-apply below supersedes that stale fetch with the current offset.
+          * Callers: play/timeupdate/seeked, all no-ops unless the flag is set. */
         function _dismissErrorOverlay() {
             if (!_errorOverlayShown) return;
             _errorOverlayShown = false;
@@ -164,6 +184,14 @@
             if (!op || typeof op.emit !== 'function') return;
             try {
                 op.emit('loadedmetadata');
+                /* The synthetic emit just fired the engine's once-armed subtitle fetch
+                 * holding the init-time start=0 URL; if we let that VTT land, cues sit
+                 * at 0:00 against the offset element clock (subtitles "restart from the
+                 * beginning" after the error overlay clears). Re-applying the active
+                 * track now rebuilds the engine's settings children and re-fetches with
+                 * the current ?start=; that request is issued after the stale one, so it
+                 * wins the race and the aligned cues land last. */
+                if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
                 console.log('[OPlayerAdapter] Dismissed OPlayer error overlay after stream recovery');
             } catch (e) {
                 console.error('[OPlayerAdapter] Failed to dismiss OPlayer error overlay:', e);
@@ -259,6 +287,14 @@
             _clearSwapListeners();
 
             _streamStartOffset = Math.max(0, absTarget);
+            /* Re-apply the selected subtitle track with the NEW offset at swap-start
+             * so the whole-file VTT re-fetch (the server re-converts every request)
+             * overlaps the stream restart instead of serializing after `playing` —
+             * OPlayer's engine renders only after its track `load` event, so a late
+             * changeSource leaves subtitles missing for the conversion+fetch window.
+             * The playing-time re-apply below stays as the safety net (it hits the
+             * browser cache when this fetch already completed). */
+            if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
             /* Arm the echo-lock with the seek target. After a ?start= reload the
              * element clock restarts at 0 while the server may keep broadcasting the
              * OLD absolute position — above the new offset on a backward seek, so the
@@ -626,6 +662,7 @@
             if (!pid) return;
             _wsManager = new window.VideoWebSocketManager({
                 profileId: pid,
+                onOpen: function() { _wsConnectedAt = Date.now(); },
                 onCommand: function(msg) {
                     console.log('[OplayerAdapter onCommand]', msg.type, msg.payload);
                     var cmd = msg;
@@ -850,8 +887,16 @@
                              * every 3s. The reloaded element is authoritative until the
                              * server's phantom clock catches up (B6 confirmation or the
                              * next server-side seek). */
-                            if (drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
-                                try { video.currentTime = relTarget; } catch (e) {}
+                            /* Drift-yank guard: only follow the phantom once real playback
+                             * has started (element reports positions) and the WS has been up
+                             * for a grace window — the connect-time snapshot and load echoes
+                             * are server memory, not actions, and yanking to them is the
+                             * page-load/reconnect bounce. */
+                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
+                                try {
+                                    console.warn('[OPlayerAdapter] Drift-yank ' + (video.currentTime || 0).toFixed(2) + ' -> ' + relTarget.toFixed(2) + ' (phantom ' + state.currentTime.toFixed(2) + ', offset ' + _streamStartOffset + ')');
+                                    video.currentTime = relTarget;
+                                } catch (e) {}
                             }
                         }
                     } catch (e) {
@@ -1335,6 +1380,7 @@
             /* Keep the server phantom clock locked to client truth: without periodic
              * reports it lags after a seek and the drift-sync yanks back every 3s. */
             video.addEventListener('timeupdate', function() {
+                _yankEnabled = true;
                 _broadcastState();
                 _dismissErrorOverlay();
             });

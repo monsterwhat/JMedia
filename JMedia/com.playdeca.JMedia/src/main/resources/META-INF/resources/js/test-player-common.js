@@ -384,7 +384,7 @@
 
             this.intervalId = setInterval(function () {
                 if (self._destroyed) return;
-                if (self.video && !self.video.paused && self.video.currentTime > 0) {
+                if (self.video && !self.video.paused && (self.adapter.getCurrentTime() || 0) > 0) {
                     self._reportProgress();
                 }
             }, 5000);
@@ -396,9 +396,9 @@
             });
 
             window.addEventListener('beforeunload', function () {
-                if (self.video && self.video.currentTime > 0) {
+                if (self.video && (self.adapter.getCurrentTime() || 0) > 0) {
                     var url = '/api/video/playback/progress?videoId=' + encodeURIComponent(self.videoId) +
-                        '&time=' + self.video.currentTime + '&playing=false';
+                        '&time=' + self.adapter.getCurrentTime() + '&playing=false';
                     try {
                         navigator.sendBeacon(url, '');
                     } catch (e) {
@@ -409,9 +409,9 @@
         }
 
         _reportProgress() {
-            if (!this.video || this.video.currentTime <= 0) return;
+            if (!this.video || (this.adapter.getCurrentTime() || 0) <= 0) return;
             var url = '/api/video/playback/progress?videoId=' + encodeURIComponent(this.videoId) +
-                '&time=' + this.video.currentTime + '&playing=' + !this.video.paused;
+                '&time=' + this.adapter.getCurrentTime() + '&playing=' + !this.video.paused;
             fetch(url, {
                 method: 'POST',
                 credentials: 'include',
