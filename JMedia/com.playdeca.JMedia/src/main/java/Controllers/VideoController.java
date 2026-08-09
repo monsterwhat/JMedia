@@ -195,18 +195,9 @@ public class VideoController {
                 // Record history when a new video is selected
                 videoHistoryService.addFromVideoId(id);
 
-                // Use provided startTime (> 0) or get per-profile resume time from VideoState
-                if (startTime != null && startTime > 0) {
-                    st.currentTime = startTime;
-                } else {
-                    // Get per-profile progress
-                    VideoState progress = videoStateService.getOrCreate(newVideo);
-                    if (progress != null && progress.currentTime > 0) {
-                        st.currentTime = progress.currentTime;
-                    } else {
-                        st.currentTime = 0;
-                    }
-                }
+                // Resume-at-start is intentionally disabled: always begin at 0:00
+                // so the WS state never re-seeks the freshly loaded player.
+                st.currentTime = 0;
                 
                 // Include audio preferences for frontend to restore
                 st.preferredAudioLanguage = newVideo.preferredAudioLanguage;

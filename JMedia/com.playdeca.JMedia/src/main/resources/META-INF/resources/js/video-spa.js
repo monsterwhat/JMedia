@@ -230,15 +230,7 @@ class VideoSPA {
     async playVideo(videoId, extraParams = {}) {
         this.showLoading();
         try {
-            // Fetch video details first to get the resume time
-            const res = await fetch(`/api/video/${videoId}`);
-            const json = await res.json();
-            let startTime = 0;
-            if (json.success && json.data && json.data.resumeTime) {
-                startTime = json.data.resumeTime;
-            }
-
-            await fetch(`/api/video/playback/play/${videoId}?startTime=${startTime}`, { method: 'POST' });
+            await fetch(`/api/video/playback/play/${videoId}?startTime=0`, { method: 'POST' });
             await this.switchSection('playback', {videoId: videoId, ...extraParams});
         } catch (error) {
             this.handleError(error);

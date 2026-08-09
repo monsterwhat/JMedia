@@ -1453,22 +1453,8 @@ public class VideoService {
         Video item = find(videoId);
         if (item == null) return null;
 
-        // Get per-profile progress
-        VideoState progress = videoStateService.getOrCreate(item);
+        // Resume-at-start is intentionally disabled: playback always begins at 0:00.
         double resumeTime = 0;
-        if (progress != null) {
-            if (progress.currentTime > 0) {
-                resumeTime = progress.currentTime;
-            } else if (progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
-                resumeTime = progress.watchProgress * (item.getDurationSeconds());
-            }
-        }
-
-        // If the video is nearly finished (over 95%), start from the beginning
-        double durationSeconds = item.getDurationSeconds();
-        if (durationSeconds > 0 && (resumeTime / durationSeconds) >= 0.95) {
-            resumeTime = 0;
-        }
 
         Video nextEpisode = findNextEpisode(item);
         Video prevEpisode = findPreviousEpisode(item);
