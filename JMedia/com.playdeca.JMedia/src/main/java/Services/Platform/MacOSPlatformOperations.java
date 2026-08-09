@@ -81,6 +81,11 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public boolean isTesseractInstalled() {
+        return isCommandAvailable("tesseract");
+    }
+    
+    @Override
     public boolean isParakeetInstalled() {
         try {
             String[] pythonExecutables = getPythonExecutableVariants();
@@ -254,6 +259,25 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public void installTesseract(Long profileId) throws Exception {
+        broadcastInstallationProgress("tesseract", 0, true, profileId);
+        
+        if (isCommandAvailable("brew")) {
+            broadcast("Installing Tesseract using Homebrew...\n", profileId);
+            executeCommand("brew install tesseract", profileId);
+        } else if (isCommandAvailable("port")) {
+            broadcast("Installing Tesseract using MacPorts...\n", profileId);
+            executeCommand("sudo port install tesseract", profileId);
+        } else {
+            throw new Exception("No package manager available. Please install Tesseract manually.");
+        }
+        
+        broadcastInstallationProgress("tesseract", 100, false, profileId);
+        broadcast("Tesseract installation completed\n", profileId);
+        broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
+    }
+    
+    @Override
     public void installParakeet(Long profileId) throws Exception {
         broadcastInstallationProgress("parakeet", 0, true, profileId);
         broadcast("Installing Parakeet dependencies (transformers, torch, librosa)...\n", profileId);
@@ -344,6 +368,25 @@ public class MacOSPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("ffmpeg", 100, false, profileId);
         broadcast("FFmpeg uninstallation completed\n", profileId);
+    }
+    
+    @Override
+    public void uninstallTesseract(Long profileId) throws Exception {
+        broadcastInstallationProgress("tesseract", 0, true, profileId);
+        
+        if (isCommandAvailable("brew")) {
+            broadcast("Uninstalling Tesseract using Homebrew...\n", profileId);
+            executeCommand("brew uninstall tesseract", profileId);
+        } else if (isCommandAvailable("port")) {
+            broadcast("Uninstalling Tesseract using MacPorts...\n", profileId);
+            executeCommand("sudo port uninstall tesseract", profileId);
+        } else {
+            throw new Exception("No package manager available. Please uninstall Tesseract manually.");
+        }
+        
+        broadcastInstallationProgress("tesseract", 100, false, profileId);
+        broadcast("Tesseract uninstallation completed\n", profileId);
+        broadcast("[TESSERACT_UNINSTALLATION_FINISHED]", profileId);
     }
     
     @Override
@@ -456,6 +499,11 @@ public class MacOSPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public String getTesseractInstallMessage() {
+        return "Tesseract is not installed. Please install Tesseract using Homebrew: brew install tesseract";
+    }
+    
+    @Override
     public String getSystemPythonCommand() {
         return "python3";
     }
@@ -483,6 +531,11 @@ public class MacOSPlatformOperations implements PlatformOperations {
     @Override
     public String getParakeetScriptCommand() {
         return "run_parakeet.py";
+    }
+    
+    @Override
+    public String getTesseractCommand() {
+        return "tesseract";
     }
     
     @Override

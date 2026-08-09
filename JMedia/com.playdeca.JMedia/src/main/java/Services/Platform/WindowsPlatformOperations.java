@@ -170,6 +170,29 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public boolean isTesseractInstalled() {
+        try {
+            if (isCommandAvailable("tesseract")) {
+                return true;
+            }
+
+            String[] tesseractPaths = {
+                "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+                "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
+                "C:\\ProgramData\\chocolatey\\bin\\tesseract.exe"
+            };
+            for (String p : tesseractPaths) {
+                if (new File(p).exists()) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return false;
+    }
+    
+    @Override
     public void installPackageManger(Long profileId) throws Exception {
         broadcastInstallationProgress("choco", 0, true, profileId);
         broadcast("Installing Chocolatey using administrator PowerShell...\n", profileId);
@@ -400,6 +423,38 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public void installTesseract(Long profileId) throws Exception {
+        broadcastInstallationProgress("tesseract", 0, true, profileId);
+        broadcast("Installing Tesseract via Chocolatey...\n", profileId);
+        
+        try {
+            String chocoInstallScript = "choco install tesseract -y";
+            executePowerShellCommandAsAdmin(chocoInstallScript, profileId);
+            broadcastInstallationProgress("tesseract", 100, false, profileId);
+            broadcast("Tesseract installation completed via Chocolatey\n", profileId);
+            broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
+        } catch (Exception e) {
+            broadcast("Chocolatey not available, downloading Tesseract manually...\n", profileId);
+            broadcastInstallationProgress("tesseract", 25, true, profileId);
+            
+            String downloadScript = "Invoke-WebRequest -Uri 'https://github.com/UB-Mannheim/tesseract/releases/latest/download/tesseract-ocr-w64-setup.exe' -OutFile '$env:TEMP\\tesseract-installer.exe'";
+            executePowerShellCommandAsAdmin(downloadScript, profileId);
+            
+            broadcastInstallationProgress("tesseract", 50, true, profileId);
+            broadcast("Installing Tesseract (this may take a few minutes)...\n", profileId);
+            
+            String installScript = "Start-Process -FilePath '$env:TEMP\\tesseract-installer.exe' -ArgumentList '/S' -Wait -Verb RunAs";
+            executePowerShellCommandAsAdmin(installScript, profileId);
+            
+            executePowerShellCommandAsAdmin("Remove-Item '$env:TEMP\\tesseract-installer.exe' -ErrorAction SilentlyContinue", profileId);
+            
+            broadcastInstallationProgress("tesseract", 100, false, profileId);
+            broadcast("Tesseract installation completed via manual installer\n", profileId);
+            broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
+        }
+    }
+    
+    @Override
     public void uninstallPython(Long profileId) throws Exception {
         broadcastInstallationProgress("python", 0, true, profileId);
         broadcast("Uninstalling Python...\n", profileId);
@@ -473,6 +528,23 @@ public class WindowsPlatformOperations implements PlatformOperations {
         broadcastInstallationProgress("parakeet", 100, false, profileId);
         broadcast("Parakeet dependencies uninstallation completed\n", profileId);
         broadcast("[PARAKEET_UNINSTALLATION_FINISHED]", profileId);
+    }
+    
+    @Override
+    public void uninstallTesseract(Long profileId) throws Exception {
+        broadcastInstallationProgress("tesseract", 0, true, profileId);
+        broadcast("Uninstalling Tesseract via Chocolatey...\n", profileId);
+        
+        try {
+            executeCommand("choco uninstall tesseract -y", profileId);
+            broadcastInstallationProgress("tesseract", 100, false, profileId);
+            broadcast("Tesseract uninstallation completed\n", profileId);
+            broadcast("[TESSERACT_UNINSTALLATION_FINISHED]", profileId);
+        } catch (Exception e) {
+            broadcastInstallationProgress("tesseract", 100, false, profileId);
+            broadcast("Tesseract uninstallation completed with warnings\n", profileId);
+            broadcast("[TESSERACT_UNINSTALLATION_FINISHED]", profileId);
+        }
     }
     
     @Override
@@ -618,6 +690,11 @@ public class WindowsPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public String getTesseractInstallMessage() {
+        return "Tesseract OCR is not installed or not found in PATH. Please install Tesseract.";
+    }
+    
+    @Override
     public String getSystemPythonCommand() {
         return "python";
     }
@@ -645,6 +722,11 @@ public class WindowsPlatformOperations implements PlatformOperations {
     @Override
     public String getParakeetScriptCommand() {
         return "run_parakeet.py";
+    }
+    
+    @Override
+    public String getTesseractCommand() {
+        return "tesseract";
     }
     
     @Override

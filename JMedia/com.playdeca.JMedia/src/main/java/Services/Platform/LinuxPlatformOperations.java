@@ -154,6 +154,11 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public boolean isTesseractInstalled() {
+        return isCommandAvailable("tesseract");
+    }
+    
+    @Override
     public void installPackageManger(Long profileId) throws Exception {
         broadcast("Linux distributions typically come with package managers pre-installed.\n", profileId);
         broadcast("Detected package managers: apt, yum, dnf, pacman, or zypper should be available.\n", profileId);
@@ -420,6 +425,31 @@ public class LinuxPlatformOperations implements PlatformOperations {
 
     
     @Override
+    public void installTesseract(Long profileId) throws Exception {
+        broadcastInstallationProgress("tesseract", 0, true, profileId);
+        broadcast("Installing Tesseract using system package manager...\n", profileId);
+        
+        if (isCommandAvailable("apt")) {
+            executeCommandAsRoot("apt update && apt install -y tesseract-ocr", profileId);
+        } else if (isCommandAvailable("yum")) {
+            executeCommandAsRoot("yum install -y tesseract", profileId);
+        } else if (isCommandAvailable("dnf")) {
+            executeCommandAsRoot("dnf install -y tesseract", profileId);
+        } else if (isCommandAvailable("pacman")) {
+            executeCommandAsRoot("pacman -S --noconfirm tesseract", profileId);
+        } else if (isCommandAvailable("zypper")) {
+            executeCommandAsRoot("zypper install -y tesseract-ocr", profileId);
+        } else {
+            throw new Exception("No supported package manager found. Please install Tesseract manually.");
+        }
+        
+        broadcastInstallationProgress("tesseract", 100, false, profileId);
+        broadcast("Tesseract installation completed\n", profileId);
+        broadcast("[TESSERACT_INSTALLATION_FINISHED]", profileId);
+    }
+
+    
+    @Override
     public void uninstallPython(Long profileId) throws Exception {
         broadcastInstallationProgress("python", 0, true, profileId);
         broadcast("Uninstalling Python using system package manager...\n", profileId);
@@ -508,6 +538,30 @@ public class LinuxPlatformOperations implements PlatformOperations {
         
         broadcastInstallationProgress("ffmpeg", 100, false, profileId);
         broadcast("FFmpeg uninstallation completed\n", profileId);
+     }
+     
+     @Override
+     public void uninstallTesseract(Long profileId) throws Exception {
+         broadcastInstallationProgress("tesseract", 0, true, profileId);
+         broadcast("Uninstalling Tesseract using system package manager...\n", profileId);
+         
+         if (isCommandAvailable("apt")) {
+             executeCommandAsRoot("apt remove -y tesseract-ocr", profileId);
+         } else if (isCommandAvailable("yum")) {
+             executeCommandAsRoot("yum remove -y tesseract", profileId);
+         } else if (isCommandAvailable("dnf")) {
+             executeCommandAsRoot("dnf remove -y tesseract", profileId);
+         } else if (isCommandAvailable("pacman")) {
+             executeCommandAsRoot("pacman -R --noconfirm tesseract", profileId);
+         } else if (isCommandAvailable("zypper")) {
+             executeCommandAsRoot("zypper remove -y tesseract-ocr", profileId);
+         } else {
+             throw new Exception("No supported package manager found. Please uninstall Tesseract manually.");
+         }
+         
+         broadcastInstallationProgress("tesseract", 100, false, profileId);
+         broadcast("Tesseract uninstallation completed\n", profileId);
+         broadcast("[TESSERACT_UNINSTALLATION_FINISHED]", profileId);
      }
      
      @Override
@@ -643,6 +697,11 @@ public class LinuxPlatformOperations implements PlatformOperations {
     }
     
     @Override
+    public String getTesseractInstallMessage() {
+        return "Tesseract is not installed. Please install Tesseract using your system package manager.";
+    }
+    
+    @Override
     public String getSystemPythonCommand() {
         return "python3";
     }
@@ -686,6 +745,11 @@ public class LinuxPlatformOperations implements PlatformOperations {
     @Override
     public String getParakeetScriptCommand() {
         return "run_parakeet.py";
+    }
+    
+    @Override
+    public String getTesseractCommand() {
+        return "tesseract";
     }
     
     @Override

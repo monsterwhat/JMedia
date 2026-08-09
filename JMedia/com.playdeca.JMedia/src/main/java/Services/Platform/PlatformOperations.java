@@ -13,6 +13,7 @@ public interface PlatformOperations {
     boolean isYtdlpInstalled();
     boolean isFFmpegInstalled();
     boolean isParakeetInstalled();
+    boolean isTesseractInstalled();
     
 // Installation methods
     void installPackageManger(Long profileId) throws Exception;
@@ -22,6 +23,7 @@ public interface PlatformOperations {
     void installYtdlp(Long profileId) throws Exception;
     void installFFmpeg(Long profileId) throws Exception;
     void installParakeet(Long profileId) throws Exception;
+    void installTesseract(Long profileId) throws Exception;
     
 // Uninstallation methods
     void uninstallPython(Long profileId) throws Exception;
@@ -30,6 +32,7 @@ public interface PlatformOperations {
     void uninstallYtdlp(Long profileId) throws Exception;
     void uninstallFFmpeg(Long profileId) throws Exception;
     void uninstallParakeet(Long profileId) throws Exception;
+    void uninstallTesseract(Long profileId) throws Exception;
     
     // Command execution
     void executeCommand(String command, Long profileId) throws Exception;
@@ -49,6 +52,7 @@ public interface PlatformOperations {
     String getYtdlpInstallMessage();
     String getFFmpegInstallMessage();
     String getParakeetInstallMessage();
+    String getTesseractInstallMessage();
     
     // Platform-specific paths and configurations
     String getSystemPythonCommand();
@@ -58,6 +62,7 @@ public interface PlatformOperations {
     String getFFmpegCommand();
     String getParakeetScriptCommand();
     String getNodeCommand();
+    String getTesseractCommand();
     
     // Execution method detection
     boolean shouldUseSpotdlDirectCommand();
