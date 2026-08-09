@@ -1908,3 +1908,97 @@ body[data-video-active="true"] .music-player {
 }
 
 /* OPlayer native header hidden via config (header: false) */
+
+/* ===== Audio Track Selector =====
+   Styles were originally inlined in templates/audioTrackSelector.html, but that
+   fragment is never included in any page, so the dropdown rendered unstyled and
+   huge. Moved here so they actually load. The menu is anchored with position:fixed
+   via JS (AudioTrackSelector.js) to escape the controls-row overflow clipping and
+   the player's stacking contexts (episode sidebar is z-index 20000). */
+.audio-track-selector {
+    position: relative;
+    display: inline-flex;
+}
+
+.audio-track-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+    letter-spacing: -0.01em;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.audio-track-button:hover {
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.audio-track-button .current-track {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.audio-track-menu {
+    position: fixed;
+    z-index: 30000;
+    background: rgba(20, 20, 22, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    min-width: 200px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+.audio-track-menu .track-list-header {
+    padding: 10px 14px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.audio-track-menu .track-list {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.audio-track-menu .track-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85rem;
+    transition: background 0.15s;
+}
+
+.audio-track-menu .track-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.audio-track-menu .track-item.selected {
+    color: #48c774;
+}
+
+.audio-track-menu .track-selected {
+    font-size: 0.8rem;
+}

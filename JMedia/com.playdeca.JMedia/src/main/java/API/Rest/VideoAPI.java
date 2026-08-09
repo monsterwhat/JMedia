@@ -670,11 +670,13 @@ public class VideoAPI {
         }
         if (qualityHeight <= 0) {
             int sourceHeight = parseSourceHeight(video.resolution);
-            if (isFastStart && !transcodeNeeded && sourceHeight > 0) {
+            if (isFastStart && !transcodeNeeded && sourceHeight > 0 && audioTrackIndex < 0) {
                 // Faststart + native codec → serve directly at source resolution.
-                // No quality cap is applied because re-encoding just to downscale
-                // is CPU-intensive and counterproductive: transcoded H.264 at 720p
-                // often uses more bandwidth than source HEVC at 1080p.
+                // No re-encoding to downscale is CPU-intensive and counterproductive:
+                // transcoded H.264 at 720p often uses more bandwidth than source HEVC
+                // at 1080p. BUT only when no specific audio track is requested —
+                // streamDirectFile serves the raw file and would play the file's
+                // default audio stream regardless of ?audioTrack=.
                 if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight))) {
                     LOG.info("[STREAM] videoId={} file={} codec={}/{} path=direct-faststart res={}",
                         videoId, videoFile.getName(), video.videoCodec, video.audioCodec, video.resolution);

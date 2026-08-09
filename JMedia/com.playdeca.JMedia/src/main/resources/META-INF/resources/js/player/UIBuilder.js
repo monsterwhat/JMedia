@@ -284,17 +284,6 @@
                 const clone = audioSelector.cloneNode(true);
                 audioPlaceholder.appendChild(clone);
                 console.log('[SimplePlayer] Cloned audioTrackSelector into player UI');
-
-                // Move the dropdown menu OUT of .controls-row so overflow-x:auto
-                // doesn't clip the absolutely-positioned menu (CSS spec forces
-                // overflow-y:auto when overflow-x is auto).  Find the menu inside
-                // the cloned content, not the original in the static layout.
-                const audioMenu = audioPlaceholder.querySelector('#audioTrackMenu');
-                const controlsContainer = p.container.querySelector('.controls-container');
-                if (audioMenu && controlsContainer) {
-                    controlsContainer.appendChild(audioMenu);
-                    console.log('[SimplePlayer] Moved audioTrackMenu outside controls-row');
-                }
             } else if (audioPlaceholder) {
                 // Safety net: the original #audioTrackSelector was destroyed by a
                 // previous SPA navigation (e.g. Bug 3 before this fix).  Build a
@@ -317,12 +306,6 @@
                             '</div>' +
                         '</div>' +
                     '</div>';
-                // Also move the newly created menu out of the controls-row
-                const newMenu = audioPlaceholder.querySelector('#audioTrackMenu');
-                const ctrlCont = p.container.querySelector('.controls-container');
-                if (newMenu && ctrlCont) {
-                    ctrlCont.appendChild(newMenu);
-                }
             }
 
             // Raise logo-overlay z-index above .media-info (z-index:100) so the

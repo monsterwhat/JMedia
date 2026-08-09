@@ -92,7 +92,12 @@ Episode Sidebar Styles - Liquid Glass Redesign */
   justify-content: space-between;
   padding: 16px 20px;
   position: relative;
-  z-index: 1;
+  /* Must paint ABOVE .episode-sidebar-list (z-index:1, later in DOM) and the
+     season scroll buttons (z-index:5): the header hosts the audio pill's
+     dropdown, whose own z-index:10001 is trapped inside this stacking
+     context. Equal z-index siblings resolve by DOM order, so without a higher
+     z-index here the episode rows covered the menu and clicks fell through. */
+  z-index: 6;
   min-height: 48px;
   flex-shrink: 0;
 }
