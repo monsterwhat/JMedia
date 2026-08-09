@@ -17,12 +17,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -50,12 +55,25 @@ public class TranscodingService {
     @Inject
     VideoConversionService videoConversionService;
 
+    @Inject
+    SegmentCacheService segmentCacheService;
+
     private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
     private final Map<String, Long> processLastOutput = new ConcurrentHashMap<>();
     private final Map<Long, java.util.Set<String>> videoProcessKeys = new ConcurrentHashMap<>();
+    /** Process keys whose transcodes were intentionally killed by a
+     *  latest-seek-wins supersede (releaseStaleTranscodesForVideo). Their partial
+     *  output is KEPT as a complete cache segment — see runFFmpeg completion. */
+    private final java.util.Set<String> supersededProcessKeys = ConcurrentHashMap.newKeySet();
 
     private static final long TRANSCODE_IDLE_TTL_MS = 48 * 60 * 60 * 1000L;
     private static final long CACHE_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000L;
+    /* Default cap on complete (".done"-marked) cache files kept in the temp
+     * dir, used when the maxCompleteCacheFiles setting is unset. Eviction is
+     * LRU: mtime is refreshed on every cache serve, so the oldest files are
+     * the least-recently-watched. Independent of the 7-day TTL sweep above,
+     * which still runs for whatever survives. */
+    private static final int DEFAULT_MAX_COMPLETE_CACHE_FILES = 15;
     private static final long TRANSCODE_START_TIMEOUT_MS = 90_000L;
     private static final long TRANSCODE_STALL_TTL_MS = 10 * 60 * 1000L; // no output for 10min => abandoned
     private static final long PARTIAL_CACHE_GRACE_MS = 60 * 60 * 1000L; // delete partial (no .done) after 1h idle
@@ -107,6 +125,19 @@ public class TranscodingService {
         return t;
     });
 
+    // ── Gap backfill (SegmentCacheService) ─────────────────────────────────
+
+    /* Serializes background gap transcodes outside the streaming permit pool.
+     * Shutdown uses a Quarkus ShutdownEvent observer (onShutdown below) because
+     * CDI allows at most one @PreDestroy per bean and stopAllTranscoding()
+     * already takes that slot. */
+    private final ExecutorService gapExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "gap-transcode");
+        t.setDaemon(true);
+        return t;
+    });
+    private final Map<String, Process> activeGapProcesses = new ConcurrentHashMap<>();
+
     @PostConstruct
     void init() {
         cacheCleanupExecutor.scheduleAtFixedRate(this::cleanupOldCacheFiles, 1, 1, TimeUnit.HOURS);
@@ -151,6 +182,19 @@ public class TranscodingService {
         return transcodePoolSize;
     }
 
+    private int resolveMaxCompleteCacheFiles() {
+        try {
+            Settings settings = settingsService.getOrCreateSettings();
+            Integer configured = settings != null ? settings.getMaxCompleteCacheFiles() : null;
+            if (configured != null && configured > 0) {
+                return configured;
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to read maxCompleteCacheFiles setting, falling back to default {}: {}", DEFAULT_MAX_COMPLETE_CACHE_FILES, e.getMessage());
+        }
+        return DEFAULT_MAX_COMPLETE_CACHE_FILES;
+    }
+
     private void cleanupOldCacheFiles() {
         try {
             Path dir = getTempDir();
@@ -168,6 +212,7 @@ public class TranscodingService {
                          try {
                              java.nio.file.Files.delete(p);
                              java.nio.file.Files.deleteIfExists(completedMarkerPath(p));
+                             java.nio.file.Files.deleteIfExists(Paths.get(p.toString() + ".json"));
                              LOG.info("Deleted stale cache file: {}", p);
                          } catch (IOException e) {
                              LOG.warn("Failed to delete stale cache file {}: {}", p, e.getMessage());
@@ -192,14 +237,85 @@ public class TranscodingService {
                      .forEach(p -> {
                          try {
                              java.nio.file.Files.delete(p);
+                             java.nio.file.Files.deleteIfExists(Paths.get(p.toString() + ".json"));
                              LOG.info("Deleted abandoned partial cache file: {}", p);
                          } catch (IOException e) {
                              LOG.warn("Failed to delete abandoned partial cache file {}: {}", p, e.getMessage());
                          }
                      });
             }
+            // LRU cap on complete caches: these (concatenated/fully-watched
+            // episodes) are the biggest files, so bound how many we keep even
+            // though each is still subject to the 7-day TTL sweep above.
+            // Complete files carry a .done marker and their mtime is refreshed
+            // on every cache serve, so evicting the oldest = evicting the
+            // least-recently-watched.
+            try (java.util.stream.Stream<Path> files = java.nio.file.Files.list(dir)) {
+                int cap = resolveMaxCompleteCacheFiles();
+                List<Path> completeCaches = files
+                        .filter(p -> p.getFileName().toString().startsWith("cache-") && p.toString().endsWith(".mp4"))
+                        .filter(p -> java.nio.file.Files.exists(completedMarkerPath(p)))
+                        .sorted(Comparator.comparingLong(TranscodingService::lastModifiedMillis))
+                        .collect(Collectors.toList());
+                int excess = completeCaches.size() - cap;
+                if (excess > 0) {
+                    for (Path p : completeCaches.subList(0, excess)) {
+                        try {
+                            java.nio.file.Files.delete(p);
+                            java.nio.file.Files.deleteIfExists(completedMarkerPath(p));
+                            java.nio.file.Files.deleteIfExists(Paths.get(p.toString() + ".json"));
+                            LOG.info("Evicted complete cache file (cap {}): {}", cap, p);
+                        } catch (IOException e) {
+                            LOG.warn("Failed to evict complete cache file {}: {}", p, e.getMessage());
+                        }
+                    }
+                }
+            }
+            // Stale-chain purge: a chain whose source file changed on disk is
+            // invalidated wholesale so stale bytes are never served.
+            try {
+                segmentCacheService.sweepStaleChains();
+            } catch (Exception e) {
+                LOG.warn("Stale-chain sweep failed: {}", e.getMessage());
+            }
+            // Orphan sweep: sidecars (.json) and completion markers (.done) whose
+            // base cache-*.mp4 no longer exists. Every pass above anchors on .mp4,
+            // so sidecars stranded by a failed delete/purge were never visited.
+            // Safe: startSegment writes the .mp4 before the sidecar, and .done is
+            // only written after the segment completes.
+            try (java.util.stream.Stream<Path> files = java.nio.file.Files.list(dir)) {
+                files.filter(p -> {
+                            String name = p.getFileName().toString();
+                            return name.startsWith("cache-") && (name.endsWith(".json") || name.endsWith(".done"));
+                        })
+                     .filter(p -> {
+                            String name = p.getFileName().toString();
+                            String base = name.endsWith(".json")
+                                    ? name.substring(0, name.length() - ".json".length())
+                                    : name.substring(0, name.length() - ".done".length());
+                            return !java.nio.file.Files.exists(p.resolveSibling(base));
+                        })
+                     .forEach(p -> {
+                            try {
+                                java.nio.file.Files.delete(p);
+                                LOG.info("Deleted orphaned cache sidecar/marker: {}", p);
+                            } catch (IOException e) {
+                                LOG.warn("Failed to delete orphaned cache sidecar/marker {}: {}", p, e.getMessage());
+                            }
+                        });
+            }
         } catch (IOException e) {
             LOG.warn("Cache cleanup failed: {}", e.getMessage());
+        }
+    }
+
+    /** File mtime in millis; Long.MAX_VALUE if unreadable, so a file we can't
+     *  inspect is never the LRU-eviction victim. */
+    private static long lastModifiedMillis(Path p) {
+        try {
+            return java.nio.file.Files.getLastModifiedTime(p).toMillis();
+        } catch (IOException e) {
+            return Long.MAX_VALUE;
         }
     }
 
@@ -803,6 +919,11 @@ public class TranscodingService {
         if (startSeconds >0) {
             command.add("-async"); command.add("1");
             command.add("-vsync"); command.add("vfr");
+            // NOTE: -output_ts_offset does NOT shift tfdt (verified inert on ffmpeg 8.x);
+            // segments therefore keep a 0-based relative timeline. The server converts
+            // video-absolute seek targets to relative before probing and shifts tfdt at
+            // concat time. Flag kept for compatibility; see FragmentedMp4Seeker callers.
+            command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
         }
 
         // Low-latency streaming: flush output immediately, skip input buffering, discard corrupt data
@@ -917,38 +1038,54 @@ public class TranscodingService {
             }
             try {
                 int code = process.waitFor();
-                if (clientDisconnected) {
-                    LOG.debug("Client disconnected, killed ffmpeg for {}", videoFile.getName());
-                } else if (code == EPIPE) {
-                    LOG.debug("FFmpeg pipe closed (client disconnected) for {}", videoFile.getName());
-                } else {
-                    String errors = errorOutput.toString();
-                    if (!errors.isEmpty()) {
-                        LOG.info("FFmpeg exited with code {} for {}. Error output: {}", code, videoFile.getName(), errors);
+                boolean superseded = processKey != null && supersededProcessKeys.contains(processKey);
+                try {
+                    if (clientDisconnected) {
+                        LOG.debug("Client disconnected, killed ffmpeg for {}", videoFile.getName());
+                    } else if (code == EPIPE) {
+                        LOG.debug("FFmpeg pipe closed (client disconnected) for {}", videoFile.getName());
+                    } else if (superseded) {
+                        LOG.debug("Superseded transcode {} killed by latest-seek-wins for {}", processKey, videoFile.getName());
                     } else {
-                        LOG.info("FFmpeg exited with code {} for {}", code, videoFile.getName());
-                    }
-                }
-                // .done marker exists <=> exit code 0 => complete; anything else is a partial file.
-                if (cacheFile != null) {
-                    if (code == 0) {
-                        writeCompletedMarker(cacheFile);
-                    } else {
-                        deleteCacheFile(cacheFile);
-                    }
-                }
-                if (transcodeKey != null) {
-                    ActiveTranscode at = activeTranscodes.get(transcodeKey);
-                    if (at != null) {
-                        at.lastAccessed = System.currentTimeMillis();
-                        if (code == 0) {
-                            at.completed = true;
-                        } else if (!clientDisconnected && code != EPIPE) {
-                            at.failed = true;
+                        String errors = errorOutput.toString();
+                        if (!errors.isEmpty()) {
+                            LOG.info("FFmpeg exited with code {} for {}. Error output: {}", code, videoFile.getName(), errors);
+                        } else {
+                            LOG.info("FFmpeg exited with code {} for {}", code, videoFile.getName());
                         }
                     }
+                    // Completion semantics: a killed transcode (client disconnect,
+                    // EPIPE, or intentional supersede) is VALID CACHE — keep the
+                    // file and record the segment as complete-with-coverage. Only a
+                    // genuine non-zero failure deletes the file.
+                    boolean keepAsCompleteSegment = clientDisconnected || code == EPIPE || superseded;
+                    if (cacheFile != null) {
+                        if (code == 0) {
+                            writeCompletedMarker(cacheFile);
+                            segmentCacheService.completeSegment(cacheFile);
+                        } else if (keepAsCompleteSegment) {
+                            LOG.debug("Killed transcode kept as complete segment (valid cache)");
+                            writeCompletedMarker(cacheFile);
+                            segmentCacheService.completeSegment(cacheFile);
+                        } else {
+                            deleteCacheFile(cacheFile);
+                        }
+                    }
+                    if (transcodeKey != null) {
+                        ActiveTranscode at = activeTranscodes.get(transcodeKey);
+                        if (at != null) {
+                            at.lastAccessed = System.currentTimeMillis();
+                            if (code == 0) {
+                                at.completed = true;
+                            } else if (!clientDisconnected && code != EPIPE && !superseded) {
+                                at.failed = true;
+                            }
+                        }
+                    }
+                    return clientDisconnected ? EPIPE : code;
+                } finally {
+                    supersededProcessKeys.remove(processKey);
                 }
-                return clientDisconnected ? EPIPE : code;
             } catch (InterruptedException e) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
@@ -1029,6 +1166,8 @@ public class TranscodingService {
         try {
             boolean deleted = java.nio.file.Files.deleteIfExists(cacheFile);
             java.nio.file.Files.deleteIfExists(completedMarkerPath(cacheFile));
+            // Segment sidecar convention: same path + ".json".
+            java.nio.file.Files.deleteIfExists(Paths.get(cacheFile.toString() + ".json"));
             return deleted;
         } catch (IOException e) {
             LOG.warn("Failed to delete cache file {}: {}", cacheFile, e.getMessage());
@@ -1171,10 +1310,40 @@ public class TranscodingService {
                 continue;
             }
             Process proc = activeProcesses.get(processKey);
-            if (proc != null && proc.isAlive()) {
-                LOG.info("Killing superseded transcode {} for video {} (new request start={}s)", processKey, videoId, startSeconds);
-                proc.destroyForcibly();
+            if (proc == null || !proc.isAlive()) {
+                continue;
             }
+            // Never kill a transcode whose segment another client is reading —
+            // it keeps growing and serves them; overlap is resolved at concat.
+            java.nio.file.Path segmentFile = segmentFileForProcessKey(processKey);
+            if (segmentCacheService.getActiveReaderCount(segmentFile) > 0) {
+                LOG.debug("Skipping kill of superseded transcode {}, segment {} has active readers",
+                        processKey, segmentFile != null ? segmentFile.getFileName() : "?");
+                continue;
+            }
+            supersededProcessKeys.add(processKey);
+            LOG.info("Killing superseded transcode {} for video {} (new request start={}s)", processKey, videoId, startSeconds);
+            proc.destroyForcibly();
+        }
+    }
+
+    /** Resolves the segment file a process key writes to, or null when the key
+     *  is not a segment-backed transcode ("live-*" keys have no cache file).
+     *  Process keys are `<segmentFileName>-<nanoTime>` (see runFFmpeg). */
+    private java.nio.file.Path segmentFileForProcessKey(String processKey) {
+        int dash = processKey.lastIndexOf("-");
+        if (dash <= 0) {
+            return null;
+        }
+        String segmentName = processKey.substring(0, dash);
+        if (!segmentName.startsWith("cache-") || !segmentName.endsWith(".mp4")) {
+            return null;
+        }
+        try {
+            return getTempDir().resolve(segmentName);
+        } catch (IOException e) {
+            LOG.warn("Failed to resolve temp dir for process key {}: {}", processKey, e.getMessage());
+            return null;
         }
     }
 
@@ -1223,11 +1392,16 @@ public class TranscodingService {
     // === End temp-file transcode management ===
 
     public java.nio.file.Path getCacheFilePath(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
-        String key = videoId + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight;
+        // Segment-aware naming, matching SegmentCacheService.segmentFileName:
+        // the hash is keyed on (videoId|audioTrackIndex|qualityHeight) only, so
+        // any seek position within a video shares one chain of segment files.
+        String key = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
+        int absHash = Math.abs(key.hashCode());
+        String fileName = "cache-" + absHash + "-" + String.format(Locale.ROOT, "%.3f", startSeconds) + ".mp4";
         try {
-            return getTempDir().resolve("cache-" + Math.abs(key.hashCode()) + ".mp4");
+            return getTempDir().resolve(fileName);
         } catch (IOException e) {
-            return java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "jmedia-mp4", "cache-" + Math.abs(key.hashCode()) + ".mp4");
+            return java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "jmedia-mp4", fileName);
         }
     }
 
@@ -1272,5 +1446,369 @@ public class TranscodingService {
         stats.put("activeTranscodes", (long) activeTranscodes.size());
         stats.put("activeProcesses", (long) activeProcesses.values().stream().filter(Process::isAlive).count());
         return stats;
+    }
+
+    // === Gap transcode (SegmentCacheService backfill) ===
+
+    /**
+     * Transcodes the missing [gapStartSeconds, gapStartSeconds + gapDurationSeconds)
+     * span of a video into a fragmented-MP4 temp file, mirroring the streaming
+     * pipeline's codec decisions (same hw-accel / encoder / quality cap / audio
+     * mode) so the produced segment is concatenable with its neighbors.
+     *
+     * <p>Differences from streaming: {@code -ss} before {@code -i},
+     * {@code -t <duration>} and {@code -output_ts_offset <gapStart>}; output goes
+     * only to a temp file (no HTTP pipe). Runs on the dedicated gapExecutor.
+     *
+     * @return the temp file on success (exit 0 and non-empty), or null on failure
+     *         (input invalid, FFmpeg missing, non-zero exit, stall).
+     */
+    public Path runGapTranscode(Video video, File videoFile, double gapStartSeconds,
+                                double gapDurationSeconds, int audioTrackIndex, int qualityHeight) {
+        if (video == null || videoFile == null || !videoFile.exists() || !videoFile.canRead()) {
+            LOG.warn("Gap transcode aborted: invalid input (video={}, file={})",
+                    video != null ? video.id : null, videoFile != null ? videoFile.getName() : "null");
+            return null;
+        }
+        if (gapDurationSeconds <= 0) {
+            LOG.debug("Gap transcode skipped: non-positive duration {}", gapDurationSeconds);
+            return null;
+        }
+        String ffmpegPath = discoveryService.findFFmpegExecutable();
+        if (ffmpegPath == null) {
+            LOG.warn("Gap transcode skipped: FFmpeg not found");
+            return null;
+        }
+        if (video.videoCodec == null || video.audioCodec == null) {
+            try {
+                videoService.probeVideoMetadata(video);
+            } catch (Exception e) {
+                LOG.warn("Could not probe metadata for gap transcode of {}: {}", video.id, e.getMessage());
+            }
+        }
+        Path tempFile;
+        try {
+            tempFile = getTempDir().resolve(gapTempFileName(video.id, audioTrackIndex, qualityHeight, gapStartSeconds));
+        } catch (IOException e) {
+            LOG.warn("Gap transcode aborted: cannot resolve temp dir: {}", e.getMessage());
+            return null;
+        }
+        // Hardware attempt first (mirrors the streaming pipeline's fallback):
+        // a broken GPU encoder must not leave a permanent hole in the segment
+        // chain — that hole is what made seeking past the gap restart playback.
+        boolean useHardware = isHardwareAccelerationEnabled();
+        Path result = runGapAttempt(ffmpegPath, videoFile, tempFile, video,
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware);
+        if (result != null || !useHardware) {
+            return result;
+        }
+        LOG.warn("Gap transcode for {} failed with hardware acceleration, retrying with software encoder", videoFile.getName());
+        String encoder = discoveryService.detectHardwareEncoder();
+        if (encoder != null && !"libx264".equals(encoder)) {
+            discoveryService.recordEncoderFailure(encoder);
+        }
+        transcodeHwFallbackCount.incrementAndGet();
+        return runGapAttempt(ffmpegPath, videoFile, tempFile, video,
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, false);
+    }
+
+    private Path runGapAttempt(String ffmpegPath, File videoFile, Path tempFile, Video video,
+                               double gapStartSeconds, double gapDurationSeconds,
+                               int audioTrackIndex, int qualityHeight, boolean useHardware) {
+        List<String> command = buildGapFfmpegCommand(ffmpegPath, videoFile, tempFile, video,
+                gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware);
+        Future<Path> future = gapExecutor.submit(() -> runGapProcess(command, tempFile, videoFile, gapStartSeconds));
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (ExecutionException e) {
+            LOG.warn("Gap transcode for {} failed: {}", videoFile.getName(),
+                    e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+            return null;
+        }
+    }
+
+    /** Temp file name matching the segment naming scheme so a completed gap can
+     *  be moved into the chain directly: cache-&lt;absHash(videoId|audio|quality)&gt;-&lt;%.3f gapStart&gt;.mp4.tmp. */
+    private String gapTempFileName(Long videoId, int audioTrackIndex, int qualityHeight, double gapStartSeconds) {
+        String key = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
+        return "cache-" + Math.abs(key.hashCode()) + "-"
+                + String.format(Locale.ROOT, "%.3f", gapStartSeconds) + ".mp4.tmp";
+    }
+
+    /** Mirrors the streaming pipeline's video/audio codec decisions for the gap
+     *  span; -ss/-t/-output_ts_offset are the only structural differences.
+     *  useHardware=false (software fallback after a HW failure) yields a plain
+     *  libx264 command with no hwaccel flags. */
+    private List<String> buildGapFfmpegCommand(String ffmpegPath, File videoFile, Path tempFile, Video video,
+                                               double gapStartSeconds, double gapDurationSeconds,
+                                               int audioTrackIndex, int qualityHeight, boolean useHardware) {
+        String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
+        String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
+        boolean isHardwareEncoder = useHardware && (hardwareEncoder.startsWith("h264") || hardwareEncoder.startsWith("hevc"));
+
+        boolean needsVideoTranscode = gapNeedsVideoTranscode(video, qualityHeight);
+        boolean canCopyAudio = canCopyAudio(video);
+
+        String videoEncoder;
+        String preset = "ultrafast";
+        if (needsVideoTranscode) {
+            if (isHardwareEncoder) {
+                videoEncoder = hardwareEncoder;
+                if (hardwareEncoder.contains("nvenc")) {
+                    preset = "fast";
+                } else if (hardwareEncoder.contains("amf")) {
+                    preset = "speed";
+                } else if (hardwareEncoder.contains("qsv") || hardwareEncoder.contains("videotoolbox")) {
+                    preset = "fast";
+                } else {
+                    preset = "medium";
+                }
+            } else {
+                videoEncoder = "libx264";
+            }
+        } else {
+            videoEncoder = "copy";
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+
+        if (useHardware && hardwareDecoder != null && needsVideoTranscode) {
+            if (hardwareDecoder.contains("cuvid")) {
+                command.add("-hwaccel"); command.add("cuda");
+                if (videoEncoder.contains("nvenc")) {
+                    command.add("-hwaccel_output_format"); command.add("cuda");
+                }
+                String index = discoveryService.getBestNvidiaDeviceIndex();
+                if (index != null) {
+                    command.add("-hwaccel_device"); command.add(index);
+                }
+            } else if (hardwareDecoder.contains("videotoolbox")) {
+                command.add("-hwaccel"); command.add("videotoolbox");
+            } else if (hardwareDecoder.contains("qsv")) {
+                command.add("-hwaccel"); command.add("qsv");
+                if (videoEncoder.contains("qsv")) {
+                    command.add("-hwaccel_output_format"); command.add("qsv");
+                }
+                String device = discoveryService.getBestQsvDevicePath();
+                if (device != null) {
+                    command.add("-qsv_device"); command.add(device);
+                }
+            } else if (hardwareDecoder.contains("vaapi")) {
+                command.add("-hwaccel"); command.add("vaapi");
+                if (videoEncoder.contains("vaapi")) {
+                    command.add("-hwaccel_output_format"); command.add("vaapi");
+                }
+                String device = discoveryService.getBestVaaPiDevicePath();
+                if (device != null) {
+                    command.add("-hwaccel_device"); command.add(device);
+                }
+            } else if (hardwareDecoder.contains("amf")) {
+                command.add("-hwaccel"); command.add("amf");
+                if (videoEncoder.contains("amf")) {
+                    command.add("-hwaccel_output_format"); command.add("amf");
+                }
+            } else if (hardwareDecoder.contains("d3d11va")) {
+                command.add("-hwaccel"); command.add("d3d11va");
+                if (videoEncoder != null && videoEncoder.contains("d3d11va")) {
+                    command.add("-hwaccel_output_format"); command.add("d3d11");
+                }
+            } else if (hardwareDecoder.contains("dxva2")) {
+                command.add("-hwaccel"); command.add("dxva2");
+            }
+        }
+
+        command.add("-v"); command.add("error");
+        command.add("-hide_banner");
+        command.add("-stats");
+
+        command.add("-ss"); command.add(String.format(Locale.ROOT, "%.3f", gapStartSeconds));
+        command.add("-i"); command.add(videoFile.getAbsolutePath());
+
+        command.add("-map"); command.add("0:v:0");
+        if (audioTrackIndex >= 0) {
+            command.add("-map"); command.add("0:" + audioTrackIndex);
+        } else {
+            command.add("-map"); command.add("0:a:0?");
+        }
+
+        if (needsVideoTranscode) {
+            command.add("-c:v"); command.add(videoEncoder);
+            if (videoEncoder.contains("amf")) {
+                command.add("-preset"); command.add("speed");
+                command.add("-usage"); command.add("transcoding");
+                command.add("-quality"); command.add("quality");
+            } else if (!videoEncoder.equals("copy")) {
+                command.add("-preset"); command.add(preset);
+            }
+            if (videoEncoder.contains("nvenc")) {
+                command.add("-rc"); command.add("vbr");
+                command.add("-cq"); command.add("23");
+            } else if (videoEncoder.contains("qsv")) {
+                command.add("-global_quality"); command.add("23");
+            } else if (videoEncoder.contains("videotoolbox")) {
+                command.add("-quality"); command.add("70");
+            } else if (videoEncoder.contains("vaapi")) {
+                command.add("-rc_mode"); command.add("CQP");
+                command.add("-qp"); command.add("23");
+            } else {
+                command.add("-crf"); command.add("23");
+            }
+            if (videoEncoder.equals("libx264")) {
+                command.add("-pix_fmt"); command.add("yuv420p");
+                command.add("-tune"); command.add("zerolatency");
+            }
+            if (qualityHeight > 0) {
+                String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
+                if (scaleFilter != null) {
+                    command.add("-vf"); command.add(scaleFilter);
+                }
+            }
+        } else {
+            command.add("-c:v"); command.add("copy");
+        }
+
+        boolean transcodeAudio = needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio;
+        if (transcodeAudio) {
+            command.addAll(List.of("-c:a", "aac", "-b:a", "192k", "-ac", "2"));
+        } else {
+            command.add("-c:a"); command.add("copy");
+            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
+                command.add("-bsf:a"); command.add("aac_adtstoasc");
+            }
+        }
+
+        command.add("-sn");
+        command.add("-t"); command.add(String.format(Locale.ROOT, "%.3f", gapDurationSeconds));
+        command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", gapStartSeconds));
+        command.add("-f"); command.add("mp4");
+        command.add("-movflags"); command.add("frag_keyframe+empty_moov+default_base_moof");
+        command.add("-g"); command.add("48");
+        command.add("-avoid_negative_ts"); command.add("make_zero");
+        command.add("-ignore_unknown");
+        command.add("-max_muxing_queue_size"); command.add("1024");
+        command.add("-y");
+        command.add(tempFile.toAbsolutePath().toString());
+
+        LOG.info("[GAP] videoId={} start={}s duration={}s hw={} decoder={} encoder={} audio={}",
+                video.id, gapStartSeconds, gapDurationSeconds, useHardware, hardwareDecoder,
+                videoEncoder, transcodeAudio ? "aac" : "copy");
+        LOG.info("Gap FFmpeg command: {}", String.join(" ", command));
+        return command;
+    }
+
+    /** Gap segments must be browser-decodable H.264 like the rest of the chain:
+     *  transcode when the source codec is not web-compatible or a real downscale
+     *  is requested (qualityHeight below the source height). */
+    private boolean gapNeedsVideoTranscode(Video video, int qualityHeight) {
+        boolean codecNeedsTranscode = !isWebCompatibleVideoCodec(video.videoCodec);
+        int sourceHeight = parseSourceHeight(video.resolution);
+        return codecNeedsTranscode
+                || (qualityHeight > 0 && sourceHeight > 0 && qualityHeight < sourceHeight);
+    }
+
+    private static boolean isWebCompatibleVideoCodec(String codec) {
+        if (codec == null) {
+            return false;
+        }
+        String c = codec.toLowerCase(Locale.ROOT);
+        return c.contains("h264") || c.contains("avc");
+    }
+
+    /** Runs one gap ffmpeg process to completion on the gapExecutor thread.
+     *  Kills it if no stderr output arrives for TRANSCODE_STALL_TTL_MS. */
+    private Path runGapProcess(List<String> command, Path tempFile, File videoFile, double gapStartSeconds) {
+        final StringBuilder errorOutput = new StringBuilder();
+        final java.util.concurrent.atomic.AtomicLong lastProgressNs = new java.util.concurrent.atomic.AtomicLong(System.nanoTime());
+        String processKey = tempFile.getFileName().toString() + "-" + System.nanoTime();
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            process = pb.start();
+            final Process running = process;
+            activeGapProcesses.put(processKey, running);
+
+            Thread errorLogger = new Thread(() -> {
+                try (Scanner sc = new Scanner(running.getErrorStream())) {
+                    while (sc.hasNextLine()) {
+                        String line = sc.nextLine();
+                        errorOutput.append(line).append("\n");
+                        lastProgressNs.set(System.nanoTime());
+                        LOG.debug("Gap FFmpeg: {}", line);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error reading gap FFmpeg stderr for {}: {}", videoFile.getName(), e.getMessage());
+                }
+            });
+            errorLogger.setDaemon(true);
+            errorLogger.start();
+
+            while (true) {
+                boolean finished;
+                try {
+                    finished = process.waitFor(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+                if (finished) {
+                    break;
+                }
+                long idleMs = (System.nanoTime() - lastProgressNs.get()) / 1_000_000L;
+                if (idleMs > TRANSCODE_STALL_TTL_MS) {
+                    LOG.warn("Gap transcode for {} stalled (no output for {} ms), killing",
+                            videoFile.getName(), TRANSCODE_STALL_TTL_MS);
+                    process.destroyForcibly();
+                    try {
+                        process.waitFor(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return null;
+                }
+            }
+            int exitCode = process.exitValue();
+            try {
+                errorLogger.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (exitCode == 0 && Files.exists(tempFile) && Files.size(tempFile) > 0) {
+                LOG.info("Gap transcode complete: {} (start={}s)", tempFile.getFileName(), gapStartSeconds);
+                return tempFile;
+            }
+            LOG.warn("Gap transcode for {} failed (exit {}): {}", videoFile.getName(), exitCode,
+                    errorOutput.length() > 300 ? errorOutput.substring(0, 300) : errorOutput);
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException e) {
+                LOG.debug("Could not delete failed gap temp {}: {}", tempFile, e.getMessage());
+            }
+            return null;
+        } catch (IOException e) {
+            LOG.warn("Failed to start gap transcode for {}: {}", videoFile.getName(), e.getMessage());
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException ex) {
+                LOG.debug("Could not delete gap temp {} after launch failure: {}", tempFile, ex.getMessage());
+            }
+            return null;
+        } finally {
+            activeGapProcesses.remove(processKey);
+        }
+    }
+
+    void onShutdown(@jakarta.enterprise.event.Observes io.quarkus.runtime.ShutdownEvent event) {
+        activeGapProcesses.values().forEach(p -> {
+            if (p.isAlive()) p.destroyForcibly();
+        });
+        activeGapProcesses.clear();
+        gapExecutor.shutdownNow();
     }
 }

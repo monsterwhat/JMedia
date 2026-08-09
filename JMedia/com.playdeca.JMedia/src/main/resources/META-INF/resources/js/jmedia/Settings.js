@@ -611,6 +611,23 @@
             } catch (e) {}
         },
 
+        saveMaxCompleteCacheFiles: async function () {
+            const profileId = getProfileId();
+            const value = parseInt(document.getElementById('maxCompleteCacheFilesInput').value) || 15;
+            try {
+                const res = await fetch(`/api/settings/${profileId}/max-complete-cache-files`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ maxCompleteCacheFiles: value })
+                });
+                if (res.ok && window.showToast) {
+                    window.showToast('Max complete cache files updated', 'success');
+                } else if (window.showToast) {
+                    window.showToast('Failed to save max complete cache files', 'error');
+                }
+            } catch (e) {}
+        },
+
         saveHardwareAcceleration: async function () {
             const profileId = getProfileId();
             try {
@@ -689,6 +706,7 @@
                 setVal("downloadThreads", d.downloadThreads);
                 setVal("searchThreads", d.searchThreads);
                 setVal("maxConcurrentTranscodesInput", d.maxConcurrentTranscodes);
+                setVal("maxCompleteCacheFilesInput", d.maxCompleteCacheFiles);
                 const hwEl = document.getElementById('hardwareAccelerationToggle');
                 if (hwEl) hwEl.checked = d.hardwareAccelerationEnabled === true;
             }
@@ -915,6 +933,7 @@
     window.loadAutoSkipSettings = JMedia.Settings.loadAutoSkipSettings;
     window.saveAutoSkipSettings = JMedia.Settings.saveAutoSkipSettings;
     window.saveMaxConcurrentTranscodes = JMedia.Settings.saveMaxConcurrentTranscodes;
+    window.saveMaxCompleteCacheFiles = JMedia.Settings.saveMaxCompleteCacheFiles;
     window.saveHardwareAcceleration = JMedia.Settings.saveHardwareAcceleration;
     window.loadProfiles = JMedia.Settings.loadProfiles;
     window.loadInstallationStatus = JMedia.Settings.loadInstallationStatus;

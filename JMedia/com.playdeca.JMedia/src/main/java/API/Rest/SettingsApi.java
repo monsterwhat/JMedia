@@ -1012,6 +1012,37 @@ public class SettingsApi {
         }
     }
 
+    @POST
+    @Path("/{profileId}/max-complete-cache-files")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response setMaxCompleteCacheFiles(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            Object value = data.get("maxCompleteCacheFiles");
+            if (!(value instanceof Number)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("'maxCompleteCacheFiles' must be an integer"))
+                    .build();
+            }
+            int max = ((Number) value).intValue();
+            if (max < 1) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("'maxCompleteCacheFiles' must be >= 1"))
+                    .build();
+            }
+            Settings settings = settingsController.getOrCreateSettings();
+            settings.setMaxCompleteCacheFiles(max);
+            settingsService.save(settings);
+            settingsController.addLog("Max complete cache files set to " + max + " (applies at next cache cleanup)");
+            return Response.ok(ApiResponse.success("Max complete cache files set to " + max + ". Applies at the next hourly cache cleanup.")).build();
+        } catch (Exception e) {
+            LOGGER.error("Failed to update max complete cache files setting", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(ApiResponse.error("Failed to update max complete cache files setting: " + e.getMessage()))
+                .build();
+        }
+    }
+
     @GET
     @Path("/{profileId}/default-player")
     public Response getDefaultPlayer(@PathParam("profileId") Long profileId) {

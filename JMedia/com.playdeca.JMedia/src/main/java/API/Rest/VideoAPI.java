@@ -12,6 +12,7 @@ import Services.VideoService;
 import Services.VideoScanExecutor;
 import Services.SubtitleDiscoveryQueueProcessor;
 import Services.ExternalVideoService;
+import Utils.FragmentedMp4Seeker;
 import jakarta.inject.Inject;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.ws.rs.GET;
@@ -65,6 +66,9 @@ public class VideoAPI {
 
     @Inject
     TranscodingService transcodingService;
+
+    @Inject
+    Services.SegmentCacheService segmentCacheService;
 
     @Inject
     VideoService videoService;
@@ -722,11 +726,40 @@ public class VideoAPI {
         // reveal the (estimated) total size.  Safari then follows up with a proper range
         // request (e.g. bytes 0-65535) by which time the transcode will have data ready.
         if (rangeHeader != null && (rangeHeader.startsWith("bytes=0-0") || rangeHeader.startsWith("bytes=0-1"))) {
-            LOG.info("[trace:{}] iOS Safari bytes=0-1 probe for videoId={}, returning empty 206 (total={})", traceId != null ? traceId : "-", videoId, estimatedFinalSize);
+            // Safari rejects changing totals: probe reports the same total + ETag the follow-up
+            // range request will use — the segment's byte-relative total when one covers the seek.
+            Services.SegmentCacheService.SegmentCoverage probeCoverage = segmentCacheService
+                    .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, videoFile.toPath());
+            long probeTotal = estimatedFinalSize;
             String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+            if (probeCoverage != null) {
+                etag = Integer.toHexString((probeCoverage.file.getFileName().toString() + "|" + String.format(java.util.Locale.ROOT, "%.3f", probeCoverage.startSeconds)).hashCode());
+                // Same effective-offset rule as the serve path: a segment whose head is
+                // at the seek point is served from byte 0, so the probe total must match
+                // (Safari rejects changing totals between the probe and the range request).
+                Long effectiveOffset = probeCoverage.byteOffset;
+                if (effectiveOffset != null && startSeconds - probeCoverage.startSeconds < 0.5) {
+                    effectiveOffset = 0L;
+                }
+                if (effectiveOffset != null) {
+                    try {
+                        // Match the serve path: mid-segment serves prefix the init segment, so the
+                        // probe total must include it too (Safari rejects changing totals).
+                        long probeInit = 0;
+                        if (effectiveOffset > 0) {
+                            probeInit = FragmentedMp4Seeker.firstFragmentOffset(probeCoverage.file);
+                            if (probeInit > effectiveOffset) probeInit = effectiveOffset;
+                        }
+                        probeTotal = Math.max(1L, probeInit + (java.nio.file.Files.size(probeCoverage.file) - effectiveOffset));
+                    } catch (IOException e) {
+                        LOG.debug("Failed to size segment {} for Safari probe: {}", probeCoverage.file, e.getMessage());
+                    }
+                }
+            }
+            LOG.info("[trace:{}] iOS Safari bytes=0-1 probe for videoId={}, returning empty 206 (total={})", traceId != null ? traceId : "-", videoId, probeTotal);
             return Response.status(Response.Status.PARTIAL_CONTENT)
                     .header("Content-Type", "video/mp4")
-                    .header("Content-Range", "bytes 0-1/" + estimatedFinalSize)
+                    .header("Content-Range", "bytes 0-1/" + probeTotal)
                     .header("Content-Length", "0")
                     .header("Accept-Ranges", "bytes")
                     .header("Access-Control-Allow-Origin", "*")
@@ -735,40 +768,53 @@ public class VideoAPI {
                     .build();
         }
 
-        // Check for an existing cache file (from a prior pipe stream). Serve from it only
-        // when it is provably complete (.done marker) or still being written by a live
-        // transcode. A leftover partial from an aborted/abandoned transcode is deleted so
-        // the request falls through to a fresh transcode instead of serving truncated data.
-        try {
-            java.nio.file.Path cacheFile = transcodingService.getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight);
-            // A cache that is still being written is served even before it crosses 64KB, so a
-            // concurrent request never starts a second transcode that truncates the first one's
-            // output (which corrupted both the stream and the cache).
-            boolean cacheBeingWritten = transcodingService.isCacheBeingWritten(cacheFile);
-            if (cacheBeingWritten || (java.nio.file.Files.exists(cacheFile) && java.nio.file.Files.size(cacheFile) > 65536)) {
-                // A failed transcode poisons its cache: requests for it fast-fail 503 in
-                // streamFromTempFile. Delete the partial and fall through to a fresh
-                // transcode, which resets the failed flag.
-                if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
-                    LOG.info("Transcode failed for video {} (start={}s, audio={}, quality={}) — deleting stale cache {} and restarting transcode",
-                             videoId, startSeconds, audioTrackIndex, qualityHeight, cacheFile.getFileName());
-                    transcodingService.deleteCacheFile(cacheFile);
-                } else if (transcodingService.isCacheFileComplete(cacheFile) || cacheBeingWritten) {
-                    if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight) + "|cache")) {
-                        LOG.info("Serving from cache file for video {} (start={}s, audio={})", videoId, startSeconds, audioTrackIndex);
-                    }
+        // Segment-aware coverage lookup: if a segment chain covers the requested time, serve from
+        // the segment at the byte offset of the fragment containing the seek point. findCoveringSegment
+        // also purges stale chains internally (source-file change detected via sidecar identity).
+        java.nio.file.Path sourcePath = videoFile.toPath();
+        Services.SegmentCacheService.SegmentCoverage coverage = segmentCacheService
+                .findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath);
+        if (coverage != null) {
+            Long off = coverage.byteOffset;
+            if (off == null) {
+                // Target lies beyond the segment's written end (still growing): wait for the
+                // fragment containing the seek point, then re-probe.
+                if (segmentCacheService.waitForTimeCovered(coverage.file, startSeconds, 10_000L)) {
                     try {
-                        java.nio.file.Files.setLastModifiedTime(cacheFile, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
-                    } catch (IOException ignored) {}
-                    return streamFromTempFile(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize);
+                        // Segments are 0-based relative; convert the video-absolute target.
+                        double relTarget = Math.max(0.0, startSeconds - coverage.startSeconds);
+                        off = FragmentedMp4Seeker.byteOffsetForTime(coverage.file, relTarget);
+                    } catch (IOException e) {
+                        LOG.warn("Failed to re-probe segment {} for time {}s: {}", coverage.file, startSeconds, e.getMessage());
+                        off = null;
+                    }
                 } else {
-                    LOG.info("Deleting stale partial cache for video {} (start={}s, audio={}, quality={}): {}",
-                             videoId, startSeconds, audioTrackIndex, qualityHeight, cacheFile.getFileName());
-                    transcodingService.deleteCacheFile(cacheFile);
+                    LOG.info("Segment {} did not cover time {}s within timeout; falling back to direct transcode",
+                             coverage.file.getFileName(), startSeconds);
                 }
             }
-        } catch (IOException ignored) {
-            LOG.debug("Cache file check failed for video {}, proceeding with transcode", videoId);
+            if (off != null) {
+                // Serve from byte 0 when the seek target sits at the segment's head: the
+                // transcode created this segment from byte 0 (moov + fragments), so the
+                // browser-visible total equals the file size — the same coordinate view
+                // the initial raw-path response used. Only mid-segment seeks need the
+                // fragment offset (baseOffset > 0). Segments carry a 0-based relative
+                // timeline (tfdt starts at 0), so lookups convert to relative first.
+                if (startSeconds - coverage.startSeconds < 0.5) {
+                    off = 0L;
+                }
+                if (shouldLogStreamStart(streamSessionKey(videoId, startSeconds, audioTrackIndex, qualityHeight) + "|segment")) {
+                    LOG.info("Serving from segment {} (start={}s, baseOffset={}) for video {} (start={}s)",
+                             coverage.file.getFileName(), coverage.startSeconds, off, videoId, startSeconds);
+                }
+                // Touch the segment mtime so the LRU tier keeps it fresh.
+                try {
+                    java.nio.file.Files.setLastModifiedTime(coverage.file, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+                } catch (IOException e) {
+                    LOG.debug("Failed to refresh mtime of segment {}: {}", coverage.file, e.getMessage());
+                }
+                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize, off, coverage.startSeconds);
+            }
         }
 
         // Temporary path: instead of blocking with 409 CONVERTING and forcing an
@@ -789,7 +835,8 @@ public class VideoAPI {
     private Response streamRemuxedMKVDirect(Models.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKVDirect: videoId={} start={}s", traceId, videoId, startSeconds);
-        java.nio.file.Path cacheFile = transcodingService.getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight);
+        // Create (or reuse) the growing segment file + sidecar; the transcode writes into it.
+        java.nio.file.Path cacheFile = segmentCacheService.startSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, videoFile.toPath());
 
         StreamingOutput streamingOutput = output -> {
             try {
@@ -811,63 +858,106 @@ public class VideoAPI {
                 .build();
     }
 
-    private Response streamFromTempFile(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
-                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
+    private Response streamFromSegment(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
+                                       String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize,
+                                       long baseOffset, double segmentStart) {
         final Long videoId = video.id;
-        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromTempFile: videoId={} start={}s range={}", traceId, videoId, startSeconds, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
+        if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromSegment: videoId={} start={}s segmentStart={}s baseOffset={} range={}", traceId, videoId, startSeconds, segmentStart, baseOffset, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
-        // Fast-fail: if the transcode has already failed, return 503 instead of waiting 90s.
-        // Also delete the dead transcode's partial cache so the client's retry falls through
-        // to a fresh transcode (which clears the failed flag) instead of 503-ing again.
-        if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
-            LOG.warn("Transcode already failed for video {} (start={}s, audio={}, quality={}), returning 503",
-                     videoId, startSeconds, audioTrackIndex, qualityHeight);
-            transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+        // Fast-fail: if the segment's writer transcode has failed, return 503 instead of waiting 90s.
+        // Also delete the dead segment's partial file so the client's retry falls through to a fresh
+        // transcode (which clears the failed flag) instead of 503-ing again.
+        if (transcodingService.isTranscodeFailed(videoId, segmentStart, audioTrackIndex, qualityHeight, false)) {
+            LOG.warn("Transcode for segment {} already failed for video {} (segmentStart={}s, audio={}, quality={}), returning 503",
+                     tempFile.getFileName(), videoId, segmentStart, audioTrackIndex, qualityHeight);
+            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
             transcodingService.deleteCacheFile(tempFile);
             return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
         }
 
         long fileLength;
         try {
-            transcodingService.waitForFile(tempFile, 65536, videoId, startSeconds, audioTrackIndex, qualityHeight);
+            transcodingService.waitForFile(tempFile, 65536, videoId, segmentStart, audioTrackIndex, qualityHeight);
             fileLength = Files.size(tempFile);
         } catch (IOException e) {
             LOG.error("Cannot get size of temp file for video {}: {}", videoId, e.getMessage());
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
 
+        // Mid-segment serves (baseOffset > 0) must prepend the file's init segment (ftyp + moov,
+        // bytes [0, initLen)) so the browser can parse track metadata — a bare moof makes Firefox
+        // fail metadata parsing (NS_ERROR_DOM_MEDIA_METADATA_ERR). The browser-visible stream is
+        // then [init][payload from baseOffset], so browser byte B maps to file byte
+        // (B < initLen ? B : baseOffset + (B - initLen)), and the visible total is
+        // initLen + (fileSize - baseOffset). When baseOffset == 0 the file already starts with the
+        // init segment, so no prefix is added and the total stays the plain file size.
+        long initLen = 0;
+        if (baseOffset > 0) {
+            try {
+                initLen = FragmentedMp4Seeker.firstFragmentOffset(tempFile);
+            } catch (IOException e) {
+                LOG.warn("Cannot determine init segment length for {}: {}", tempFile.getFileName(), e.getMessage());
+                initLen = 0;
+            }
+            if (initLen > baseOffset) {
+                // Seek landed inside the header region: prefixing [0, baseOffset) and serving from
+                // baseOffset reproduces the whole file from byte 0 — always parseable.
+                initLen = baseOffset;
+            }
+        }
+        long browserTotal = Math.max(0, initLen + (fileLength - baseOffset));
+
         long start = 0;
-        long end = fileLength - 1;
+        long end = browserTotal - 1;
 
         if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
             try {
                 String rangeValue = rangeHeader.substring(6).trim();
                 if (rangeValue.startsWith("-")) {
                     long suffix = Long.parseLong(rangeValue.substring(1));
-                    start = Math.max(0, fileLength - suffix);
-                    end = fileLength - 1;
+                    start = Math.max(0, browserTotal - suffix);
+                    end = browserTotal - 1;
                 } else {
                     String[] parts = rangeValue.split("-", -1);
                     start = Long.parseLong(parts[0].trim());
                     if (parts.length > 1 && !parts[1].trim().isEmpty()) {
                         end = Long.parseLong(parts[1].trim());
                     } else {
-                        end = fileLength - 1;
+                        end = browserTotal - 1;
                     }
                 }
             } catch (Exception e) {
                 LOG.warn("Invalid Range header '{}': {}", rangeHeader, e.getMessage());
                 start = 0;
-                end = fileLength - 1;
+                end = browserTotal - 1;
             }
+        }
+
+        // A client sends a trailing continuation (bytes=<size>-) once the stream ends.
+        // On a COMPLETE segment the file never grows, so a start at/past the
+        // browser-visible total is unsatisfiable: answer 416 immediately with the final
+        // total. Waiting out waitForFile (then 503) makes Firefox treat the stream as
+        // failed and restart playback from byte 0; a 416 is the RFC-correct "no more
+        // data" EOF signal and plays as a clean end of stream.
+        if (transcodingService.isCacheFileComplete(tempFile) && start >= browserTotal) {
+            LOG.info("Client requested bytes {} >= total {} on completed segment {} — returning 416",
+                     start, browserTotal, tempFile.getFileName());
+            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+            return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header("Content-Range", "bytes */" + browserTotal)
+                    .header("Content-Length", "0")
+                    .header("Accept-Ranges", "bytes")
+                    .header("Content-Type", "video/mp4")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .build();
         }
 
         // Validate range bounds — for streaming files, do NOT reset start=0.
         // That would send Safari duplicate data from byte 0 and freeze playback.
         // Save original end before clamping so waitForFile uses the correct target.
         long originalEnd = end;
-        if (end >= fileLength && start < fileLength) {
-            end = fileLength - 1;
+        if (end >= browserTotal && start < browserTotal) {
+            end = browserTotal - 1;
         }
         if (start > end) {
             // Requested range starts past current EOF — preserve original end
@@ -875,52 +965,56 @@ public class VideoAPI {
             end = originalEnd;
         }
 
-        String etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+        String etag;
+        if (baseOffset == 0) {
+            // Non-segment (exact-key cache) case — keep the legacy ETag.
+            etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
+        } else {
+            // Segment-served ETag: segmentId + segment start, so a switch between
+            // segment-served and transcode-served invalidates browser range caches.
+            etag = Integer.toHexString((tempFile.getFileName().toString() + "|" + String.format(java.util.Locale.ROOT, "%.3f", segmentStart)).hashCode());
+        }
 
         LOG.debug("Stream: range {}-{} (len={}) for video {} (etag={})", start, end, end - start + 1, videoId, etag);
 
         // Wait for the requested range to be available before sending headers.
-        // Add a 1MB write-ahead margin for growing fMP4 files so Firefox never
-        // reads a moof atom whose referenced mdat data hasn't been written yet.
+        // Add a 1MB write-ahead margin for growing segments so Firefox never reads a
+        // moof atom whose referenced mdat data hasn't been written yet. The grow target
+        // is file-relative: map the browser coordinate back to the file byte it lives at.
         try {
             boolean xcodeFinished = transcodingService.isCacheFileComplete(tempFile);
-            long waitTarget;
-            if (start >= fileLength) {
-                // File hasn't grown to the requested start offset yet.
-                waitTarget = start + 1;
-                if (!xcodeFinished) waitTarget += 1024 * 1024;
-            } else {
-                waitTarget = end + 1;
-                if (!xcodeFinished) waitTarget += 1024 * 1024;
-            }
-            // Cap wait target: the streaming loop reads incrementally as the
-            // transcode produces data, so we only need enough to start reading.
-            // Without this cap, requesting the full file (bytes 0-2.5GB) would
-            // block for 90s waiting on a file that's still being transcoded.
+            long targetByte = (start >= browserTotal) ? start : end;
+            long waitTarget = (targetByte < initLen)
+                    ? targetByte + 1
+                    : baseOffset + (targetByte - initLen) + 1;
+            if (!xcodeFinished) waitTarget += 1024 * 1024;
+            // Cap wait target: the streaming loop reads incrementally as the transcode
+            // produces data, so we only need enough to start reading. Without this cap,
+            // requesting the full file (bytes 0-2.5GB) would block for 90s waiting on a
+            // file that's still being transcoded.
             if (!xcodeFinished) {
                 waitTarget = Math.min(waitTarget, fileLength + 5 * 1024 * 1024);
             }
-            transcodingService.waitForFile(tempFile, waitTarget, videoId, startSeconds, audioTrackIndex, qualityHeight);
+            transcodingService.waitForFile(tempFile, waitTarget, videoId, segmentStart, audioTrackIndex, qualityHeight);
         } catch (IOException e) {
             LOG.error("Timeout waiting for requested byte range {}-{} for video {}: {}", start, end, videoId, e.getMessage());
-            transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+            transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
             long currentSize;
             try {
                 currentSize = Files.size(tempFile);
             } catch (IOException ex) {
                 currentSize = 0;
             }
-            // If the transcode died while we waited, its partial cache is poison — the next
-            // request would 503 again. Delete it so the client's retry falls through to a
-            // fresh transcode (which clears the failed flag). A live but slow transcode
-            // (90s write timeout) is left untouched.
-            if (transcodingService.isTranscodeFailed(videoId, startSeconds, audioTrackIndex, qualityHeight, false)) {
-                LOG.info("Transcode failed for video {} (start={}s) while waiting for range {}-{} — deleting stale cache {}",
-                         videoId, startSeconds, start, end, tempFile.getFileName());
+            // If the segment's writer died while we waited, its partial file is poison — the next
+            // request would 503 again. Delete it so the client's retry falls through to a fresh
+            // transcode (which clears the failed flag). A live but slow transcode is left untouched.
+            if (transcodingService.isTranscodeFailed(videoId, segmentStart, audioTrackIndex, qualityHeight, false)) {
+                LOG.info("Transcode failed for video {} (segmentStart={}s) while waiting for range {}-{} — deleting stale segment {}",
+                         videoId, segmentStart, start, end, tempFile.getFileName());
                 transcodingService.deleteCacheFile(tempFile);
             }
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
-                    .header("Content-Range", "bytes */" + currentSize)
+                    .header("Content-Range", "bytes */" + Math.max(0, initLen + (currentSize - baseOffset)))
                     .build();
         }
 
@@ -930,11 +1024,12 @@ public class VideoAPI {
         } catch (IOException e) {
             currentFileSize = fileLength;
         }
+        long currentBrowserTotal = Math.max(0, initLen + (currentFileSize - baseOffset));
 
         // Content-Length: only up to what the file actually has after waitForFile
         long contentLength;
-        if (start < currentFileSize) {
-            long adjustedEnd = Math.min(end, currentFileSize - 1);
+        if (start < currentBrowserTotal) {
+            long adjustedEnd = Math.min(end, currentBrowserTotal - 1);
             contentLength = adjustedEnd - start + 1;
         } else {
             contentLength = 0;
@@ -943,46 +1038,76 @@ public class VideoAPI {
         boolean transcodeFinished = transcodingService.isCacheFileComplete(tempFile);
 
         // Check for discontinuity
-        boolean hasDiscontinuity = transcodingService.hasTranscodeDiscontinuity(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+        boolean hasDiscontinuity = transcodingService.hasTranscodeDiscontinuity(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
 
         final long finalStart = start;
         final long finalEnd = end;
+        final long finalBaseOffset = baseOffset;
+        final long finalInitLen = initLen;
 
         StreamingOutput streamingOutput = output -> {
+            // Hold a reader on the segment for the whole stream so the merge pass never deletes
+            // the segment mid-serve; released in the finally below.
+            segmentCacheService.acquireReader(tempFile);
             try {
                 try (RandomAccessFile raf = new RandomAccessFile(tempFile.toFile(), "r")) {
-                    raf.seek(finalStart);
                     byte[] buffer = new byte[65536];
                     // For range requests, send exactly the requested range.
-                    // For non-range (transcode in progress), send until transcode finishes.
+                    // For non-range (segment still growing), send until the writer finishes.
                     long remaining = (rangeHeader != null || transcodeFinished) ? contentLength : Long.MAX_VALUE;
-                    while (remaining > 0) {
-                        int readSize = (remaining == Long.MAX_VALUE) ? buffer.length : (int) Math.min(buffer.length, remaining);
-                        int read = raf.read(buffer, 0, readSize);
-                        if (read == -1) {
-                            // Check if transcode is done — no more data will come
-                            if (transcodingService.isCacheFileComplete(tempFile) || !transcodingService.isCacheBeingWritten(tempFile)) {
-                                LOG.debug("Transcode finished or abandoned, stopping stream for video {}", videoId);
-                                break;
-                            }
-                            try {
-                                Thread.sleep(200);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                            continue;
+
+                    // Region 1: init segment prefix (browser bytes [0, finalInitLen) == file bytes).
+                    // Only served when the request starts inside it; the moov is written first, so
+                    // these bytes exist as soon as the file does.
+                    long headerEnd = Math.min(finalInitLen - 1, finalEnd);
+                    if (finalStart <= headerEnd) {
+                        raf.seek(finalStart);
+                        long headerBytes = headerEnd - finalStart + 1;
+                        while (headerBytes > 0 && remaining > 0) {
+                            int readSize = (int) Math.min(buffer.length, headerBytes);
+                            if (remaining != Long.MAX_VALUE) readSize = (int) Math.min(readSize, remaining);
+                            int read = raf.read(buffer, 0, readSize);
+                            if (read <= 0) break;
+                            output.write(buffer, 0, read);
+                            headerBytes -= read;
+                            if (remaining != Long.MAX_VALUE) remaining -= read;
                         }
-                        output.write(buffer, 0, read);
-                        if (remaining != Long.MAX_VALUE) remaining -= read;
+                    }
+
+                    // Region 2: payload from baseOffset. Browser byte B >= finalInitLen lives at
+                    // file byte (finalBaseOffset + (B - finalInitLen)).
+                    long payloadStart = Math.max(finalStart, finalInitLen);
+                    if (remaining > 0 && payloadStart <= finalEnd) {
+                        raf.seek(finalBaseOffset + (payloadStart - finalInitLen));
+                        while (remaining > 0) {
+                            int readSize = (remaining == Long.MAX_VALUE) ? buffer.length : (int) Math.min(buffer.length, remaining);
+                            int read = raf.read(buffer, 0, readSize);
+                            if (read == -1) {
+                                // Check if the segment's writer is done — no more data will come.
+                                if (transcodingService.isCacheFileComplete(tempFile) || !transcodingService.isCacheBeingWritten(tempFile)) {
+                                    LOG.debug("Segment writer finished or abandoned, stopping stream for video {}", videoId);
+                                    break;
+                                }
+                                try {
+                                    Thread.sleep(200);
+                                } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                    break;
+                                }
+                                continue;
+                            }
+                            output.write(buffer, 0, read);
+                            if (remaining != Long.MAX_VALUE) remaining -= read;
+                        }
                     }
                 }
             } catch (IOException e) {
                 if (!isClientDisconnect(e)) {
-                    LOG.error("Streaming error for temp file of video {}: {}", videoId, e.getMessage());
+                    LOG.error("Streaming error for segment file of video {}: {}", videoId, e.getMessage());
                 }
             } finally {
-                transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
+                segmentCacheService.releaseReader(tempFile);
+                transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
             }
         };
 
@@ -1005,15 +1130,15 @@ public class VideoAPI {
 
         if (isRangeRequest) {
             if (transcodeFinished) {
-                long responseEnd = Math.min(finalEnd, currentFileSize - 1);
-                // After transcode finishes, use actual file size (not inflated estimate).
-                // Safari is already playing and handles this total adjustment mid-stream.
-                long finishedTotal = currentFileSize;
+                long responseEnd = Math.min(finalEnd, currentBrowserTotal - 1);
+                // Segment total = actual file bytes past baseOffset (NOT the inflated estimate).
+                long finishedTotal = currentBrowserTotal;
                 responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + responseEnd + "/" + finishedTotal);
             } else {
-                // Use current file size so every response has a real (if growing) total,
-                // but never below estimatedFinalSize so the total stays consistent across requests.
-                long reportedSize = Math.max(estimatedFinalSize, Math.max(currentFileSize, end + 1));
+                // Use the current browser-visible total so every response has a real (if growing)
+                // total, but never below the requested end so the range stays satisfiable.
+                long floorTotal = baseOffset == 0 ? estimatedFinalSize : 0;
+                long reportedSize = Math.max(floorTotal, Math.max(currentBrowserTotal, finalEnd + 1));
                 responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + Math.min(finalEnd, reportedSize - 1) + "/" + reportedSize);
             }
         }
@@ -1023,6 +1148,11 @@ public class VideoAPI {
         }
 
         return responseBuilder.build();
+    }
+
+    private Response streamFromTempFile(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
+                                        String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
+        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize, 0, startSeconds);
     }
 
     /**

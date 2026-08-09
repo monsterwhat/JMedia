@@ -660,6 +660,15 @@
                         </div>
 
                         <div class="field mt-4">
+                            <label class="label">Max Complete Cache Files</label>
+                            <div class="field has-addons">
+                                <div class="control is-expanded"><input type="number" id="maxCompleteCacheFilesInput" class="input is-small" min="1"></div>
+                                <div class="control"><button id="saveMaxCompleteCacheFilesBtn" class="button is-small is-success" onclick="window.saveMaxCompleteCacheFiles()">Save</button></div>
+                            </div>
+                            <p class="help is-size-7">Keep at most this many complete video caches (least recently watched evicted first). Applies at the next hourly cleanup.</p>
+                        </div>
+
+                        <div class="field mt-4">
                             <label class="checkbox">
                                 <input type="checkbox" id="hardwareAccelerationToggle"> Hardware Acceleration
                             </label>

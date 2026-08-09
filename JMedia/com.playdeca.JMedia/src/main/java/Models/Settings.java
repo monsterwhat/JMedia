@@ -113,6 +113,7 @@ public class Settings extends PanacheEntity {
 
     // Streaming / transcoding configuration
     private Integer maxConcurrentTranscodes = 0; // Max concurrent transcode sessions (0 = auto: CPU-based, capped)
+    private Integer maxCompleteCacheFiles = 15; // Max complete (concatenated) video cache files kept (LRU eviction)
     private Boolean hardwareAccelerationEnabled = true; // Enable hardware-accelerated transcoding
 
     // YouTube (yt-dlp) advanced options
