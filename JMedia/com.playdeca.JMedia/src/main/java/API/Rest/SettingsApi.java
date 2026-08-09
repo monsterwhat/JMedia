@@ -391,6 +391,28 @@ public class SettingsApi {
     }
 
     // -----------------------------
+    // OPENSUBTITLES CREDENTIALS
+    // -----------------------------
+    @POST
+    @Path("/opensubtitles")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response saveOpenSubtitlesCredentials(@FormParam("openSubtitlesApiKey") String apiKey,
+                                                 @FormParam("openSubtitlesUsername") String username,
+                                                 @FormParam("openSubtitlesPassword") String password,
+                                                 @Context HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+        Settings settings = settingsController.getOrCreateSettings();
+        settings.setOpenSubtitlesApiKey(apiKey != null && !apiKey.isBlank() ? apiKey : null);
+        settings.setOpenSubtitlesUsername(username != null && !username.isBlank() ? username : null);
+        settings.setOpenSubtitlesPassword(password != null && !password.isBlank() ? password : null);
+        settingsService.save(settings);
+        settingsController.addLog("OpenSubtitles credentials updated");
+        return Response.ok(ApiResponse.success("OpenSubtitles credentials saved")).build();
+    }
+
+    // -----------------------------
     // VALIDATE PATHS
     // -----------------------------
     @POST
@@ -535,6 +557,15 @@ public class SettingsApi {
                 if (isValidTmdbKey(sourcesDTO.getTmdbApiKey())) {
                     settings.setTmdbApiKey(sourcesDTO.getTmdbApiKey());
                 }
+            }
+            if (sourcesDTO.getOpenSubtitlesApiKey() != null && !sourcesDTO.getOpenSubtitlesApiKey().isBlank()) {
+                settings.setOpenSubtitlesApiKey(sourcesDTO.getOpenSubtitlesApiKey());
+            }
+            if (sourcesDTO.getOpenSubtitlesUsername() != null) {
+                settings.setOpenSubtitlesUsername(sourcesDTO.getOpenSubtitlesUsername());
+            }
+            if (sourcesDTO.getOpenSubtitlesPassword() != null) {
+                settings.setOpenSubtitlesPassword(sourcesDTO.getOpenSubtitlesPassword());
             }
 
             if (sourcesDTO.getPrimarySource() != null && sourcesDTO.getSecondarySource() != null

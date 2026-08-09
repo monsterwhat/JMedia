@@ -41,6 +41,8 @@ public class Settings extends PanacheEntity {
     private String tmdbApiKey; // TMDb API key for video metadata and artwork
     private String omdbApiKey; // OMDb API key for additional ratings and details
     private String openSubtitlesApiKey; // OpenSubtitles.org API key
+    private String openSubtitlesUsername; // OpenSubtitles.com account username (optional, higher download quota)
+    private String openSubtitlesPassword; // OpenSubtitles.com account password (optional, higher download quota)
     
     // Cookies file path for yt-dlp on Linux
     private String cookiesFilePath;
@@ -613,5 +615,30 @@ public class Settings extends PanacheEntity {
     // Subtitle source toggle
     public Boolean getOpenSubtitlesEnabled() { return openSubtitlesEnabled != null ? openSubtitlesEnabled : true; }
     public void setOpenSubtitlesEnabled(Boolean openSubtitlesEnabled) { this.openSubtitlesEnabled = openSubtitlesEnabled; }
+
+    // OpenSubtitles.com credentials (optional login for higher quota)
+    public String getOpenSubtitlesApiKey() {
+        return openSubtitlesApiKey;
+    }
+
+    public void setOpenSubtitlesApiKey(String openSubtitlesApiKey) {
+        this.openSubtitlesApiKey = openSubtitlesApiKey;
+    }
+
+    public String getOpenSubtitlesUsername() {
+        return openSubtitlesUsername;
+    }
+
+    public void setOpenSubtitlesUsername(String openSubtitlesUsername) {
+        this.openSubtitlesUsername = openSubtitlesUsername;
+    }
+
+    public String getOpenSubtitlesPassword() {
+        return openSubtitlesPassword;
+    }
+
+    public void setOpenSubtitlesPassword(String openSubtitlesPassword) {
+        this.openSubtitlesPassword = openSubtitlesPassword;
+    }
 
 }

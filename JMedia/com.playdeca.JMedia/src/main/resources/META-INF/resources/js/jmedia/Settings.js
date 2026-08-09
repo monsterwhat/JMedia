@@ -411,6 +411,7 @@
             setupClick("savePlaybackSettingsBtn", window.savePlaybackSettings);
             setupClick("saveUiSettingsBtn", window.saveUiSettings);
             setupClick("createProfileBtn", window.createProfile);
+            setupClick("saveOpenSubtitlesBtn", window.saveOpenSubtitlesSettings);
 
             const refreshSessionsBtn = document.getElementById('refreshSessionsBtn');
             if (refreshSessionsBtn) {
@@ -644,6 +645,32 @@
             } catch (e) {}
         },
 
+        saveOpenSubtitlesSettings: async function () {
+            const apiKey = document.getElementById('openSubtitlesApiKeyInput')?.value?.trim() || '';
+            const username = document.getElementById('openSubtitlesUsernameInput')?.value?.trim() || '';
+            const password = document.getElementById('openSubtitlesPasswordInput')?.value?.trim() || '';
+            try {
+                const body = new URLSearchParams({
+                    openSubtitlesApiKey: apiKey,
+                    openSubtitlesUsername: username,
+                    openSubtitlesPassword: password
+                });
+                const res = await fetch('/api/settings/opensubtitles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body
+                });
+                const json = await res.json();
+                if (res.ok && json.success !== false) {
+                    if(window.showToast) window.showToast('OpenSubtitles credentials saved', 'success');
+                } else {
+                    if(window.showToast) window.showToast(json.error || 'Failed to save OpenSubtitles credentials', 'error');
+                }
+            } catch (e) {
+                if(window.showToast) window.showToast('Error saving OpenSubtitles credentials', 'error');
+            }
+        },
+
         loadProfiles: async function () {
             const list = document.getElementById('profileList');
             if (!list) return;
@@ -702,6 +729,9 @@
                 setVal("musicLibraryPathInput", d.libraryPath);
                 setVal("videoLibraryPathInput", d.videoLibraryPath);
                 setVal("tmdbApiKeyInput", d.tmdbApiKey);
+                setVal("openSubtitlesApiKeyInput", d.openSubtitlesApiKey);
+                setVal("openSubtitlesUsernameInput", d.openSubtitlesUsername);
+                setVal("openSubtitlesPasswordInput", d.openSubtitlesPassword);
                 setVal("outputFormat", d.outputFormat);
                 setVal("downloadThreads", d.downloadThreads);
                 setVal("searchThreads", d.searchThreads);
@@ -935,6 +965,7 @@
     window.saveMaxConcurrentTranscodes = JMedia.Settings.saveMaxConcurrentTranscodes;
     window.saveMaxCompleteCacheFiles = JMedia.Settings.saveMaxCompleteCacheFiles;
     window.saveHardwareAcceleration = JMedia.Settings.saveHardwareAcceleration;
+    window.saveOpenSubtitlesSettings = JMedia.Settings.saveOpenSubtitlesSettings;
     window.loadProfiles = JMedia.Settings.loadProfiles;
     window.loadInstallationStatus = JMedia.Settings.loadInstallationStatus;
     window.refreshSettingsUI = JMedia.Settings.refreshSettingsUI;

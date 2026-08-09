@@ -49,6 +49,8 @@ public class ImportSettingsDTO {
     private Boolean openSubtitlesEnabled;
     private String omdbApiKey;
     private String openSubtitlesApiKey;
+    private String openSubtitlesUsername;
+    private String openSubtitlesPassword;
     
     // Getters and setters for Lombok issues
     public Settings.DownloadSource getPrimarySource() { return primarySource; }
@@ -155,4 +157,10 @@ public class ImportSettingsDTO {
     
     public String getOpenSubtitlesApiKey() { return openSubtitlesApiKey; }
     public void setOpenSubtitlesApiKey(String openSubtitlesApiKey) { this.openSubtitlesApiKey = openSubtitlesApiKey; }
+
+    public String getOpenSubtitlesUsername() { return openSubtitlesUsername; }
+    public void setOpenSubtitlesUsername(String openSubtitlesUsername) { this.openSubtitlesUsername = openSubtitlesUsername; }
+
+    public String getOpenSubtitlesPassword() { return openSubtitlesPassword; }
+    public void setOpenSubtitlesPassword(String openSubtitlesPassword) { this.openSubtitlesPassword = openSubtitlesPassword; }
 }
