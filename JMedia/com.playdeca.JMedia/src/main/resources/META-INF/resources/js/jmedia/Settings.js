@@ -7,7 +7,7 @@
         return window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
     }
 
-    window.componentStates = window.componentStates || { choco: false, python: false, ffmpeg: false, spotdl: false, parakeet: false };
+    window.componentStates = window.componentStates || { choco: false, python: false, ffmpeg: false, spotdl: false, parakeet: false, tesseract: false };
 
     document.body.addEventListener('htmx:configRequest', function(evt) {
         const profileId = getProfileId();
@@ -48,7 +48,7 @@
         window.installationWebSocket = new WebSocket(`${protocol}${location.host}/ws/import-status/${profileId}`);
         window.installationWebSocket.onmessage = (e) => {
             const msg = e.data;
-            ['CHOCO', 'PYTHON', 'FFMPEG', 'SPOTDL', 'PARAKEET'].forEach(c => {
+            ['CHOCO', 'PYTHON', 'FFMPEG', 'SPOTDL', 'PARAKEET', 'TESSERACT'].forEach(c => {
                 if (msg.includes(`[${c}_INSTALLATION_FINISHED]`) || msg.includes(`[${c}_UNINSTALLATION_FINISHED]`)) window.loadInstallationStatus();
             });
         };
@@ -436,7 +436,7 @@
                 };
             }
 
-            ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet'].forEach(c => {
+            ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet', 'tesseract'].forEach(c => {
                 const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
                 if (btn) btn.onclick = () => handleComponentAction(c, btn);
             });
@@ -672,7 +672,7 @@
                 const json = await res.json();
                 const status = json.data || json;
                 if (status) {
-                    ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet'].forEach(c => {
+                    ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet', 'tesseract'].forEach(c => {
                         const isInst = status[`${c}Installed`];
                         window.componentStates[c] = isInst;
                         const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);

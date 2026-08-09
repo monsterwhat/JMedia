@@ -106,6 +106,13 @@ public class ImportController {
     }
 
     /**
+     * Installs Tesseract.
+     */
+    public void installTesseract(Long profileId) throws Exception {
+        importService.installTesseract(profileId);
+    }
+
+    /**
      * Uninstalls Python.
      */
     public void uninstallPython(Long profileId) throws Exception {
@@ -138,5 +145,12 @@ public class ImportController {
      */
     public void uninstallParakeet(Long profileId) throws Exception {
         importService.uninstallParakeet(profileId);
+    }
+
+    /**
+     * Uninstalls Tesseract.
+     */
+    public void uninstallTesseract(Long profileId) throws Exception {
+        importService.uninstallTesseract(profileId);
     }
 }

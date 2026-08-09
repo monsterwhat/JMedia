@@ -461,6 +461,10 @@ public class ImportService {
         installationService.installParakeet(profileId);
     }
 
+    public void installTesseract(Long profileId) throws Exception {
+        installationService.installTesseract(profileId);
+    }
+
     public void uninstallPython(Long profileId) throws Exception {
         installationService.uninstallPython(profileId);
     }
@@ -479,6 +483,10 @@ public class ImportService {
 
     public void uninstallParakeet(Long profileId) throws Exception {
         installationService.uninstallParakeet(profileId);
+    }
+
+    public void uninstallTesseract(Long profileId) throws Exception {
+        installationService.uninstallTesseract(profileId);
     }
 
     // Delegate metadata methods to MetadataService

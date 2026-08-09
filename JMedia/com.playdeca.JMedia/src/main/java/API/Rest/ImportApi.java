@@ -210,6 +210,22 @@ public class ImportApi {
                     .build();
         }
     }
+
+    @POST
+    @Path("/install/tesseract/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response installTesseract(@PathParam("profileId") Long profileId) {
+        try {
+            importController.installTesseract(profileId);
+            return Response.ok(ApiResponse.success("Tesseract installation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error installing Tesseract: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error installing Tesseract: " + e.getMessage()))
+                    .build();
+        }
+    }
  
     // Uninstallation endpoints for backward compatibility
     @POST
@@ -287,6 +303,22 @@ public class ImportApi {
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Error uninstalling Parakeet: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/uninstall/tesseract/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response uninstallTesseract(@PathParam("profileId") Long profileId) {
+        try {
+            importController.uninstallTesseract(profileId);
+            return Response.ok(ApiResponse.success("Tesseract uninstallation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error uninstalling Tesseract: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error uninstalling Tesseract: " + e.getMessage()))
                     .build();
         }
     }

@@ -55,6 +55,13 @@ public class InstallationController {
     }
 
     /**
+     * Installs Tesseract.
+     */
+    public void installTesseract(Long profileId) throws Exception {
+        installationService.installTesseract(profileId);
+    }
+
+    /**
      * Installs all required tools.
      */
     public void installAllRequirements(Long profileId) throws Exception {
@@ -87,5 +94,12 @@ public class InstallationController {
      */
     public void uninstallParakeet(Long profileId) throws Exception {
         installationService.uninstallParakeet(profileId);
+    }
+
+    /**
+     * Uninstalls Tesseract.
+     */
+    public void uninstallTesseract(Long profileId) throws Exception {
+        installationService.uninstallTesseract(profileId);
     }
 }

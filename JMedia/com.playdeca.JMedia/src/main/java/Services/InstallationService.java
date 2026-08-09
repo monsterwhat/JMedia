@@ -56,6 +56,7 @@ public class InstallationService {
             boolean ytdlpInstalled = platformOps.isYtdlpInstalled();
             boolean ffmpegInstalled = platformOps.isFFmpegInstalled();
             boolean parakeetInstalled = platformOps.isParakeetInstalled();
+            boolean tesseractInstalled = platformOps.isTesseractInstalled();
             
             String packageManagerMessage = packageManagerInstalled ? 
                 platformOps.getPackageManagerName() + " found" : 
@@ -78,6 +79,9 @@ public class InstallationService {
             String parakeetMessage = parakeetInstalled ? 
                 "Parakeet found" : 
                 platformOps.getParakeetInstallMessage();
+            String tesseractMessage = tesseractInstalled ? 
+                "Tesseract found" : 
+                platformOps.getTesseractInstallMessage();
             
             // Log final detection results
             LOGGER.info("Library installation status detection completed:");
@@ -88,9 +92,10 @@ public class InstallationService {
             LOGGER.info("  yt-dlp: {} - {}", ytdlpInstalled ? "INSTALLED" : "NOT INSTALLED", ytdlpMessage);
             LOGGER.info("  FFmpeg: {} - {}", ffmpegInstalled ? "INSTALLED" : "NOT INSTALLED", ffmpegMessage);
             LOGGER.info("  Parakeet: {} - {}", parakeetInstalled ? "INSTALLED" : "NOT INSTALLED", parakeetMessage);
+            LOGGER.info("  Tesseract: {} - {}", tesseractInstalled ? "INSTALLED" : "NOT INSTALLED", tesseractMessage);
             
-            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, parakeetInstalled, 
-                    packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, parakeetMessage);
+            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, parakeetInstalled, tesseractInstalled, 
+                    packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, parakeetMessage, tesseractMessage);
             
             // Update cache
             statusCache.set(new CachedStatus(now, status));
@@ -99,14 +104,15 @@ public class InstallationService {
         } catch (Exception e) {
             LOGGER.error("Critical error during installation status detection", e);
             return new ImportInstallationStatus(
-                    false, false, false, false, false, false, false,
+                    false, false, false, false, false, false, false, false,
                     "Error checking package manager: " + e.getMessage(),
                     "Error checking Python: " + e.getMessage(),
                     "Error checking Node.js: " + e.getMessage(),
                     "Error checking SpotDL: " + e.getMessage(),
                     "Error checking yt-dlp: " + e.getMessage(),
                     "Error checking FFmpeg: " + e.getMessage(),
-                    "Error checking Parakeet: " + e.getMessage()
+                    "Error checking Parakeet: " + e.getMessage(),
+                    "Error checking Tesseract: " + e.getMessage()
             );
         }
     }
@@ -346,6 +352,18 @@ public class InstallationService {
         platformOps.installParakeet(profileId);
         clearCache();
     }
+
+    /**
+     * Installs Tesseract.
+     *
+     * @param profileId The profile ID for broadcasting status updates
+     * @throws Exception If installation fails
+     */
+    public void installTesseract(Long profileId) throws Exception {
+        PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+        platformOps.installTesseract(profileId);
+        clearCache();
+    }
     
     /**
      * Uninstalls Python.
@@ -416,6 +434,18 @@ public class InstallationService {
     public void uninstallParakeet(Long profileId) throws Exception {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.uninstallParakeet(profileId);
+        clearCache();
+    }
+
+    /**
+     * Uninstalls Tesseract.
+     *
+     * @param profileId The profile ID for broadcasting status updates
+     * @throws Exception If uninstallation fails
+     */
+    public void uninstallTesseract(Long profileId) throws Exception {
+        PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+        platformOps.uninstallTesseract(profileId);
         clearCache();
     }
     
