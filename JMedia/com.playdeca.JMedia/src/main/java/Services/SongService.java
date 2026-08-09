@@ -186,7 +186,7 @@ public class SongService {
                     + "LOWER(s.artist) LIKE :search OR "
                     + "LOWER(s.album) LIKE :search OR "
                     + "LOWER(s.albumArtist) LIKE :search OR "
-                    + "LOWER(s.genre) LIKE :search";
+                    + genreNormExpr() + " LIKE :normSearch";
         }
 
         // Build the ORDER BY clause dynamically
@@ -217,6 +217,7 @@ public class SongService {
 
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
+            query.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
         }
 
         List<Song> songs = query
@@ -236,12 +237,13 @@ public class SongService {
                     + "LOWER(s.artist) LIKE :search OR "
                     + "LOWER(s.album) LIKE :search OR "
                     + "LOWER(s.albumArtist) LIKE :search OR "
-                    + "LOWER(s.genre) LIKE :search";
+                    + genreNormExpr() + " LIKE :normSearch";
         }
 
         jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery + whereClause, Long.class);
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
+            query.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
         }
         return query.getSingleResult();
     }
@@ -699,16 +701,43 @@ public class SongService {
 
     public record PaginatedGenres(List<Object[]> genres, long totalCount) {}
 
+    /**
+     * Normalizes a genre string for consistent matching across genre browsing and search.
+     * Lowercases, replaces separators ('/', '&', ',', ';', '|') with a single space,
+     * collapses whitespace runs to a single space, and trims. Returns "" for null/blank.
+     */
+    public static String normalizeGenre(String genre) {
+        if (genre == null || genre.isBlank()) {
+            return "";
+        }
+        return genre.toLowerCase()
+                .replace('/', ' ')
+                .replace('&', ' ')
+                .replace(',', ' ')
+                .replace(';', ' ')
+                .replace('|', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    /**
+     * JPQL expression that normalizes s.genre the same way {@link #normalizeGenre} does:
+     * lowercase + replace separators with a space + collapse double spaces (twice to catch runs).
+     */
+    public static String genreNormExpr() {
+        return "LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(s.genre,'/',' '),'&',' '),',',' '),';',' '),'|',' '),'  ',' '),'  ',' '))";
+    }
+
     public PaginatedGenres findGenres(int page, int limit, String search) {
         String where = " WHERE s.genre IS NOT NULL AND s.genre != ''";
         if (search != null && !search.isBlank()) {
-            where += " AND LOWER(s.genre) LIKE :search";
+            where += " AND " + genreNormExpr() + " LIKE :normSearch";
         }
         var q = em.createQuery(
-            "SELECT s.genre, COUNT(s.id) FROM Song s" + where + " GROUP BY s.genre ORDER BY s.genre",
+            "SELECT MIN(s.genre), COUNT(s.id) FROM Song s" + where + " GROUP BY " + genreNormExpr() + " ORDER BY MIN(s.genre)",
             Object[].class);
         if (search != null && !search.isBlank()) {
-            q.setParameter("search", "%" + search.toLowerCase() + "%");
+            q.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
         }
         List<Object[]> genres = q.setFirstResult((page - 1) * limit).setMaxResults(limit).getResultList();
         long total = countGenres(search);
@@ -718,11 +747,11 @@ public class SongService {
     public long countGenres(String search) {
         String where = " WHERE s.genre IS NOT NULL AND s.genre != ''";
         if (search != null && !search.isBlank()) {
-            where += " AND LOWER(s.genre) LIKE :search";
+            where += " AND " + genreNormExpr() + " LIKE :normSearch";
         }
-        var q = em.createQuery("SELECT COUNT(DISTINCT s.genre) FROM Song s" + where, Long.class);
+        var q = em.createQuery("SELECT COUNT(DISTINCT " + genreNormExpr() + ") FROM Song s" + where, Long.class);
         if (search != null && !search.isBlank()) {
-            q.setParameter("search", "%" + search.toLowerCase() + "%");
+            q.setParameter("normSearch", "%" + normalizeGenre(search) + "%");
         }
         return q.getSingleResult();
     }
@@ -739,15 +768,16 @@ public class SongService {
         }
         order += "desc".equalsIgnoreCase(sortDirection) ? " DESC" : " ASC";
 
+        String norm = normalizeGenre(genre);
         List<Song> songs = em.createQuery(
-            "SELECT s FROM Song s WHERE LOWER(s.genre) = :genre" + order, Song.class)
-            .setParameter("genre", genre.toLowerCase())
+            "SELECT s FROM Song s WHERE " + genreNormExpr() + " = :genre" + order, Song.class)
+            .setParameter("genre", norm)
             .setFirstResult((page - 1) * limit).setMaxResults(limit)
             .getResultList();
 
         long total = em.createQuery(
-            "SELECT COUNT(s) FROM Song s WHERE LOWER(s.genre) = :genre", Long.class)
-            .setParameter("genre", genre.toLowerCase())
+            "SELECT COUNT(s) FROM Song s WHERE " + genreNormExpr() + " = :genre", Long.class)
+            .setParameter("genre", norm)
             .getSingleResult();
 
         return new PaginatedSongs(songs, total);

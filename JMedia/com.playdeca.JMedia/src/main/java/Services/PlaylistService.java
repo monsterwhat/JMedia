@@ -171,7 +171,7 @@ public class PlaylistService {
         StringBuilder baseQuery = new StringBuilder("SELECT s FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
 
         if (search != null && !search.isBlank()) {
-            baseQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR LOWER(s.genre) LIKE :search)");
+            baseQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR " + SongService.genreNormExpr() + " LIKE :normSearch)");
         }
 
         baseQuery.append(" ORDER BY ");
@@ -195,6 +195,7 @@ public class PlaylistService {
 
         if (search != null && !search.isBlank()) {
             songsQuery.setParameter("search", "%" + search.toLowerCase() + "%");
+            songsQuery.setParameter("normSearch", "%" + SongService.normalizeGenre(search) + "%");
         }
 
         List<Song> songs = songsQuery.getResultList();
@@ -211,7 +212,7 @@ public class PlaylistService {
         StringBuilder countQuery = new StringBuilder("SELECT COUNT(s) FROM Playlist p JOIN p.songs s WHERE p.id = :playlistId");
 
         if (search != null && !search.isBlank()) {
-            countQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR LOWER(s.genre) LIKE :search)");
+            countQuery.append(" AND (LOWER(s.title) LIKE :search OR LOWER(s.artist) LIKE :search OR LOWER(s.album) LIKE :search OR LOWER(s.albumArtist) LIKE :search OR " + SongService.genreNormExpr() + " LIKE :normSearch)");
         }
 
         jakarta.persistence.TypedQuery<Long> query = em.createQuery(countQuery.toString(), Long.class)
@@ -219,6 +220,7 @@ public class PlaylistService {
 
         if (search != null && !search.isBlank()) {
             query.setParameter("search", "%" + search.toLowerCase() + "%");
+            query.setParameter("normSearch", "%" + SongService.normalizeGenre(search) + "%");
         }
         return query.getSingleResult();
     }
