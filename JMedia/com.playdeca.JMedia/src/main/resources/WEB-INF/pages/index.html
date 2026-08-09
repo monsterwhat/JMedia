@@ -55,6 +55,7 @@
         <script src="/js/musicBar/controls/VolumeController.js?v=2" defer></script>
         <script src="/js/musicBar/ui/UIUpdater.js?v=2" defer></script>
         <script src="/js/musicBar/ui/EventBindings.js?v=2" defer></script>
+        <script src="/js/musicBar/ui/DjSettingsPanel.js?v=1" defer></script>
         <script src="/js/musicBar/ui/ImageManager.js?v=2" defer></script>
         <script src="/js/musicBar/mobile/MobileBridge.js?v=2" defer></script>
         <script src="/js/musicBar/responsive/ResponsivePlayer.js?v=2" defer></script>
@@ -315,6 +316,62 @@
                         <div id="djModeIndicator" class="dj-indicator is-hidden my-1" style="display: none; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px 8px;">
                             <i class="pi pi-compact-disc" style="font-size: 0.75rem"></i>
                             <span id="djModeIndicatorText"></span>
+                            <div id="djSettingsPanel" class="dj-settings-panel">
+                                <div class="dj-settings-header">
+                                    <span class="dj-settings-title"><i class="pi pi-sliders-h"></i> DJ Settings</span>
+                                    <button type="button" class="dj-settings-close" data-dj-action="close" title="Close (Esc)"><i class="pi pi-times"></i></button>
+                                </div>
+                                <div class="dj-settings-body">
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Genre Pool</span>
+                                        <input type="text" id="djGenreFilter" class="dj-genre-filter" placeholder="Filter genres..." autocomplete="off" spellcheck="false">
+                                        <div class="dj-settings-chips" id="djGenrePoolChips"><span class="dj-chip-loading">Loading genres...</span></div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Songs per Genre</span>
+                                        <div class="dj-stepper">
+                                            <button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                                            <span class="dj-stepper-value" id="djSongsPerGenreValue">3</span>
+                                            <button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                                        </div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Crossfade Override</span>
+                                        <div class="dj-segmented" data-dj-field="crossfade">
+                                            <button type="button" class="dj-seg-btn" data-dj-value="-1">Auto</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="0">0s</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="3">3s</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="5">5s</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="10">10s</button>
+                                        </div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Match Strictness</span>
+                                        <div class="dj-segmented" data-dj-field="strictness">
+                                            <button type="button" class="dj-seg-btn" data-dj-value="LOW">Relaxed</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="MEDIUM">Medium</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="HIGH">Strict</button>
+                                        </div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">BPM Range <span class="dj-settings-hint">(0 = auto)</span></span>
+                                        <div class="dj-bpm-row">
+                                            <input type="number" id="djBpmMin" class="dj-number-input" min="0" max="400" placeholder="Min">
+                                            <span class="dj-bpm-sep">&ndash;</span>
+                                            <input type="number" id="djBpmMax" class="dj-number-input" min="0" max="400" placeholder="Max">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="dj-settings-footer">
+                                    <label class="switch dj-settings-switch" title="Enable / disable DJ Mode">
+                                        <input type="checkbox" id="djEnabledToggle" checked>
+                                        <span class="check"></span>
+                                    </label>
+                                    <span class="dj-settings-footer-label">Enabled</span>
+                                    <span class="dj-settings-save-state" id="djSettingsSaveState"></span>
+                                    <button type="button" class="dj-settings-reset" data-dj-action="reset"><i class="pi pi-refresh"></i> Reset</button>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="mobile-progress-container">

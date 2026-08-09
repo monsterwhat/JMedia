@@ -52,6 +52,12 @@
                     shuffleMode: currentState.shuffleMode,
                     repeatMode: currentState.repeatMode,
                     djModeActive: currentState.djModeActive,
+                    djGenrePool: currentState.djGenrePool,
+                    djSongsPerGenre: currentState.djSongsPerGenre,
+                    djCrossfadeOverride: currentState.djCrossfadeOverride,
+                    djStrictness: currentState.djStrictness,
+                    djBpmMin: currentState.djBpmMin,
+                    djBpmMax: currentState.djBpmMax,
                     timestamp: Date.now(),
                     deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
                     savedOffline: false
@@ -136,6 +142,12 @@
                     shuffleMode: currentState.shuffleMode,
                     repeatMode: currentState.repeatMode,
                     djModeActive: currentState.djModeActive,
+                    djGenrePool: currentState.djGenrePool,
+                    djSongsPerGenre: currentState.djSongsPerGenre,
+                    djCrossfadeOverride: currentState.djCrossfadeOverride,
+                    djStrictness: currentState.djStrictness,
+                    djBpmMin: currentState.djBpmMin,
+                    djBpmMax: currentState.djBpmMax,
                     timestamp: Date.now(),
                     deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null
                 };

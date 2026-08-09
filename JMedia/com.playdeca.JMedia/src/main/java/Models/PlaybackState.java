@@ -1,5 +1,6 @@
 package Models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.Transient;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
@@ -78,6 +79,24 @@ public class PlaybackState extends PanacheEntity {
     // DJ Mode state tracking
     private Boolean djModeActive = false;
     private Integer originalCrossfadeDuration = 0;
+
+    // DJ Mode settings (persisted per-profile). @JsonIgnore keeps them out of
+    // WebSocket/state-sync payloads — read/write only via REST dj-settings endpoints.
+    @JsonIgnore
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<String> djGenrePool = new ArrayList<>();
+    @JsonIgnore
+    private Integer djSongsPerGenre = 0;
+    @JsonIgnore
+    private Integer djCrossfadeOverride = -1;
+    @JsonIgnore
+    private String djStrictness = "MEDIUM";
+    @JsonIgnore
+    private Integer djBpmMin = 0;
+    @JsonIgnore
+    private Integer djBpmMax = 0;
+    @JsonIgnore
+    private Integer djMaxConsecutiveByArtist = 0; // 0 = unlimited, else max songs per artist in a row
 
     // DJ Mode transition planning (beat-aligned cross-song transitions)
     private Long djNextSongId;           // The next song to transition into

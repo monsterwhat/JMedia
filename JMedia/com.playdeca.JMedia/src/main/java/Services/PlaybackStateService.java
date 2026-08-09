@@ -101,6 +101,13 @@ private PlaybackState createDefaultState(Profile profile) {
         existingState.setUsingSecondaryQueue(newState.isUsingSecondaryQueue());
 existingState.setRepeatMode(newState.getRepeatMode());
         existingState.setDjModeActive(newState.getDjModeActive() != null ? newState.getDjModeActive() : false);
+        existingState.setDjGenrePool(newState.getDjGenrePool() != null ? new ArrayList<>(newState.getDjGenrePool()) : new ArrayList<>());
+        existingState.setDjSongsPerGenre(newState.getDjSongsPerGenre() != null ? newState.getDjSongsPerGenre() : 0);
+        existingState.setDjCrossfadeOverride(newState.getDjCrossfadeOverride() != null ? newState.getDjCrossfadeOverride() : -1);
+        existingState.setDjStrictness(newState.getDjStrictness() != null ? newState.getDjStrictness() : "MEDIUM");
+        existingState.setDjBpmMin(newState.getDjBpmMin() != null ? newState.getDjBpmMin() : 0);
+        existingState.setDjBpmMax(newState.getDjBpmMax() != null ? newState.getDjBpmMax() : 0);
+        existingState.setDjMaxConsecutiveByArtist(newState.getDjMaxConsecutiveByArtist() != null ? newState.getDjMaxConsecutiveByArtist() : 0);
 
         em.merge(existingState);
         em.flush();
@@ -134,6 +141,13 @@ existingState.setRepeatMode(newState.getRepeatMode());
         state.setUsingSecondaryQueue(defaultState.isUsingSecondaryQueue());
 state.setRepeatMode(defaultState.getRepeatMode());
         state.setDjModeActive(defaultState.getDjModeActive() != null ? defaultState.getDjModeActive() : false);
+        state.setDjGenrePool(defaultState.getDjGenrePool() != null ? new ArrayList<>(defaultState.getDjGenrePool()) : new ArrayList<>());
+        state.setDjSongsPerGenre(defaultState.getDjSongsPerGenre() != null ? defaultState.getDjSongsPerGenre() : 0);
+        state.setDjCrossfadeOverride(defaultState.getDjCrossfadeOverride() != null ? defaultState.getDjCrossfadeOverride() : -1);
+        state.setDjStrictness(defaultState.getDjStrictness() != null ? defaultState.getDjStrictness() : "MEDIUM");
+        state.setDjBpmMin(defaultState.getDjBpmMin() != null ? defaultState.getDjBpmMin() : 0);
+        state.setDjBpmMax(defaultState.getDjBpmMax() != null ? defaultState.getDjBpmMax() : 0);
+        state.setDjMaxConsecutiveByArtist(defaultState.getDjMaxConsecutiveByArtist() != null ? defaultState.getDjMaxConsecutiveByArtist() : 0);
 
         em.merge(state);
         em.flush();

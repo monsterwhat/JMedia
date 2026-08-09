@@ -44,7 +44,13 @@
             djTransitionConfidence: 0,
             djTransitionReason: '',
             djModeActive: false,
-            crossfadeDuration: 0
+            crossfadeDuration: 0,
+            djGenrePool: [],
+            djSongsPerGenre: 3,
+            djCrossfadeOverride: -1,
+            djStrictness: 'MEDIUM',
+            djBpmMin: 0,
+            djBpmMax: 0
         },
         
         // Offline flag management
@@ -340,7 +346,13 @@
                 contextMenuVisible: false,
                 filterMenuVisible: false,
                 profileModalVisible: false,
-                volumeSliderVisible: false
+                volumeSliderVisible: false,
+                djGenrePool: [],
+                djSongsPerGenre: 3,
+                djCrossfadeOverride: -1,
+                djStrictness: 'MEDIUM',
+                djBpmMin: 0,
+                djBpmMax: 0
             };
             
             this.notifyStateChange(oldState, this.state, this.state, 'reset');
@@ -402,6 +414,12 @@
                     shuffleMode: "OFF",
                     repeatMode: "OFF",
                     djModeActive: false,
+                    djGenrePool: [],
+                    djSongsPerGenre: 3,
+                    djCrossfadeOverride: -1,
+                    djStrictness: 'MEDIUM',
+                    djBpmMin: 0,
+                    djBpmMax: 0,
                     cue: [],
                     hasLyrics: false,
                     currentSongData: null,

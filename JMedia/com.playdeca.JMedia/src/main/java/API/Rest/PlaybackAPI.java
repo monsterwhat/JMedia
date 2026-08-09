@@ -1,6 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Models.DTOs.DjSettingsDTO;
 import Models.DTOs.PlaybackNextRequest;
 import Models.PlaybackState;
 import Models.Profile;
@@ -177,6 +178,24 @@ public class PlaybackAPI {
         if (userProfile == null) return Response.status(401).build();
         playbackController.setDjMode(userProfile.id, active);
         return Response.ok(ApiResponse.success("DJ Mode set to " + active)).build();
+    }
+
+    @GET
+    @Path("/dj-settings/{profileId}")
+    public Response getDjSettings(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        DjSettingsDTO dto = playbackController.getDjSettings(userProfile.id);
+        return Response.ok(ApiResponse.success(dto)).build();
+    }
+
+    @POST
+    @Path("/dj-settings/{profileId}")
+    public Response saveDjSettings(@PathParam("profileId") Long profileId, DjSettingsDTO request, @Context HttpHeaders headers) {
+        Profile userProfile = getUserProfile(headers);
+        if (userProfile == null) return Response.status(401).build();
+        playbackController.saveDjSettings(userProfile.id, request);
+        return Response.ok(ApiResponse.success("DJ Mode settings updated")).build();
     }
 
     @POST

@@ -4043,6 +4043,319 @@ input[type="range"]::-webkit-slider-thumb {
     display: none !important;
 }
 
+/* ==================== DJ SETTINGS PANEL (expands from indicator) ==================== */
+.dj-indicator.active,
+.dj-indicator.preparing,
+.dj-indicator.crossfading,
+.dj-indicator.complete {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.dj-indicator.expanded {
+    display: flex !important;
+    pointer-events: auto !important;
+    cursor: auto;
+    /* Keep the indicator as the small pill anchor; the settings panel
+       floats ABOVE it so the dialogue extends upward, never downward
+       (the indicator sits low on screen, near the player bar). */
+    animation: none !important;
+    z-index: 200;
+    border-color: var(--standard-accent, #48c78e) !important;
+    background: linear-gradient(135deg, rgba(72, 199, 142, 0.25), rgba(50, 152, 220, 0.25)) !important;
+}
+
+.dj-settings-panel {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(320px, 92vw);
+    display: none;
+    flex-direction: column;
+    background: var(--glass-bg, rgba(24, 24, 32, 0.95));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(14px);
+    color: var(--standard-text);
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+    overflow: hidden;
+    pointer-events: auto;
+    z-index: 5;
+}
+
+.dj-indicator.expanded .dj-settings-panel {
+    display: flex !important;
+}
+
+.dj-settings-off .dj-settings-header,
+.dj-settings-off .dj-settings-body {
+    opacity: 0.45;
+    pointer-events: none;
+    filter: grayscale(0.7);
+    transition: opacity 0.2s ease;
+}
+
+.dj-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.dj-settings-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--standard-accent, #48c78e);
+}
+
+.dj-settings-close {
+    background: transparent;
+    border: none;
+    color: var(--standard-text);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    line-height: 1;
+}
+.dj-settings-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ff6b6b;
+}
+
+.dj-settings-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.7rem 0.8rem;
+    max-height: 42vh;
+    overflow-y: auto;
+}
+
+.dj-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.dj-settings-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.75;
+}
+
+.dj-settings-hint {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    opacity: 0.6;
+}
+
+.dj-settings-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.dj-chip-loading {
+    font-size: 0.7rem;
+    opacity: 0.6;
+}
+
+.dj-chip {
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--standard-text);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    white-space: nowrap;
+}
+.dj-chip:hover {
+    border-color: var(--standard-accent, #48c78e);
+}
+.dj-chip.selected {
+    background: var(--standard-accent, #48c78e);
+    border-color: var(--standard-accent, #48c78e);
+    color: #fff;
+}
+.dj-genre-filter {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    color: var(--standard-text);
+    margin-bottom: 0.35rem;
+    outline: none;
+}
+.dj-genre-filter:focus {
+    border-color: var(--standard-accent, #48c78e);
+}
+.dj-chip.similar:not(.selected) {
+    border: 1px solid var(--standard-info, #3b82f6);
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--standard-text);
+}
+.dj-chip.similar:not(.selected):hover {
+    border-color: #60a5fa;
+}
+
+.dj-stepper {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.dj-stepper-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--standard-text);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.7rem;
+}
+.dj-stepper-btn:hover {
+    border-color: var(--standard-accent, #48c78e);
+    color: var(--standard-accent, #48c78e);
+}
+
+.dj-stepper-value {
+    min-width: 26px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.dj-segmented {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.dj-seg-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--standard-text);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.dj-seg-btn:hover {
+    border-color: var(--standard-accent, #48c78e);
+}
+.dj-seg-btn.selected {
+    background: var(--standard-accent, #48c78e);
+    border-color: var(--standard-accent, #48c78e);
+    color: #fff;
+}
+
+.dj-bpm-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.dj-number-input {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    color: var(--standard-text);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+}
+.dj-number-input:focus {
+    outline: none;
+    border-color: var(--standard-accent, #48c78e);
+}
+
+.dj-bpm-sep {
+    opacity: 0.5;
+}
+
+.dj-settings-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.dj-settings-switch {
+    gap: 0 !important;
+}
+
+.dj-settings-footer-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.dj-settings-save-state {
+    margin-left: auto;
+    font-size: 0.65rem;
+    opacity: 0.75;
+}
+.dj-settings-save-state.saving {
+    opacity: 1;
+}
+.dj-settings-save-state.saved {
+    color: #48c78e;
+    opacity: 1;
+}
+.dj-settings-save-state.failed {
+    color: #ff6b6b;
+    opacity: 1;
+}
+
+.dj-settings-reset {
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--standard-text);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.68rem;
+    cursor: pointer;
+}
+.dj-settings-reset:hover {
+    border-color: #ff6b6b;
+    color: #ff6b6b;
+}
+
+[data-theme="dark"] .dj-settings-panel {
+    background: rgba(16, 16, 22, 0.96) !important;
+}
+
 /* ==================== EXTERNAL VIDEO PAGE ==================== */
 .external-video-page {
     padding: 1.5rem;

@@ -1,6 +1,7 @@
 package Controllers;
 
 import API.WS.MusicSocket;
+import Models.DTOs.DjSettingsDTO;
 import Models.PlaybackHistory;
 import Models.PlaybackState;
 import Models.Playlist;
@@ -198,7 +199,8 @@ public class PlaybackController {
         Song nextSong = songService.find(nextSongId);
         
         if (currentSong != null && nextSong != null) {
-            DjTransition transition = djTransitionService.calculateTransition(currentSong, nextSong, djCrossfade);
+            DjTransition transition = djTransitionService.calculateTransition(currentSong, nextSong, djCrossfade,
+                    st.getDjCrossfadeOverride(), st.getDjStrictness());
             if (transition != null) {
                 st.setDjNextSongId(nextSongId);
                 st.setDjEntryTime(transition.getEntryTime());
@@ -305,6 +307,25 @@ public class PlaybackController {
             // Default NULL djModeActive to false (existing DB rows have NULL)
             if (state.getDjModeActive() == null) {
                 state.setDjModeActive(false);
+            }
+            // Default NULL DJ settings fields (existing DB rows have NULL)
+            if (state.getDjGenrePool() == null) {
+                state.setDjGenrePool(new ArrayList<>());
+            }
+            if (state.getDjSongsPerGenre() == null) {
+                state.setDjSongsPerGenre(0);
+            }
+            if (state.getDjCrossfadeOverride() == null) {
+                state.setDjCrossfadeOverride(-1);
+            }
+            if (state.getDjStrictness() == null) {
+                state.setDjStrictness("MEDIUM");
+            }
+            if (state.getDjBpmMin() == null) {
+                state.setDjBpmMin(0);
+            }
+            if (state.getDjBpmMax() == null) {
+                state.setDjBpmMax(0);
             }
             System.out.println("[PlaybackController] Initial state loaded for profile " + profileId + ": " + safeSummary(state, profileId));
             return state;
@@ -972,6 +993,7 @@ public class PlaybackController {
             if (state.getCrossfadeDuration() == null || state.getCrossfadeDuration() == 0) {
                 state.setCrossfadeDuration(8);
             }
+            rebuildDjCueForPool(state, profileId);
             planNextDjTransition(state, profileId);
             currentSettings.addLog("DJ Mode activated (set)");
         } else {
@@ -1004,6 +1026,7 @@ public class PlaybackController {
             if (state.getCrossfadeDuration() == null || state.getCrossfadeDuration() == 0) {
                 state.setCrossfadeDuration(8);
             }
+            rebuildDjCueForPool(state, profileId);
             // Plan transition for current song
             planNextDjTransition(state, profileId);
             currentSettings.addLog("DJ Mode activated manually");
@@ -1019,6 +1042,78 @@ public class PlaybackController {
         // Force-persist immediately - DJ mode must survive page reloads
         playbackPersistenceController.persist(profileId, state, true);
         updateState(profileId, state, true);
+    }
+
+    private void rebuildDjCueForPool(PlaybackState state, Long profileId) {
+        if (state.getDjGenrePool() == null || state.getDjGenrePool().isEmpty()) {
+            return;
+        }
+        clearDjTransitionPlan(state);
+        playbackQueueController.initSmartShuffle(state, profileId);
+    }
+
+    public synchronized DjSettingsDTO getDjSettings(Long profileId) {
+        PlaybackState st = getState(profileId);
+        DjSettingsDTO dto = new DjSettingsDTO();
+        dto.setGenrePool(st.getDjGenrePool() != null ? new ArrayList<>(st.getDjGenrePool()) : new ArrayList<>());
+        dto.setSongsPerGenre(st.getDjSongsPerGenre() != null ? st.getDjSongsPerGenre() : 0);
+        dto.setCrossfade(st.getDjCrossfadeOverride() != null ? st.getDjCrossfadeOverride() : -1);
+        dto.setStrictness(st.getDjStrictness() != null ? st.getDjStrictness() : "MEDIUM");
+        dto.setBpmMin(st.getDjBpmMin() != null ? st.getDjBpmMin() : 0);
+        dto.setBpmMax(st.getDjBpmMax() != null ? st.getDjBpmMax() : 0);
+        dto.setMaxConsecutiveByArtist(st.getDjMaxConsecutiveByArtist() != null ? st.getDjMaxConsecutiveByArtist() : 0);
+        dto.setEnabled(Boolean.TRUE.equals(st.getDjModeActive()));
+        return dto;
+    }
+
+    public synchronized void saveDjSettings(Long profileId, DjSettingsDTO dto) {
+        if (dto == null) {
+            return;
+        }
+        PlaybackState st = getState(profileId);
+        List<String> oldGenrePool = st.getDjGenrePool() != null ? new ArrayList<>(st.getDjGenrePool()) : new ArrayList<>();
+        Integer oldSongsPerGenre = st.getDjSongsPerGenre();
+        Integer oldBpmMin = st.getDjBpmMin();
+        Integer oldBpmMax = st.getDjBpmMax();
+        Integer oldMaxConsecutiveByArtist = st.getDjMaxConsecutiveByArtist();
+        st.setDjGenrePool(dto.getGenrePool() != null ? new ArrayList<>(dto.getGenrePool()) : new ArrayList<>());
+        int songsPerGenre = dto.getSongsPerGenre() != null ? dto.getSongsPerGenre() : 0;
+        st.setDjSongsPerGenre(Math.max(0, Math.min(10, songsPerGenre)));
+        int crossfade = dto.getCrossfade() != null ? dto.getCrossfade() : -1;
+        st.setDjCrossfadeOverride(Math.max(-1, Math.min(12, crossfade)));
+        String strictness = dto.getStrictness() != null ? dto.getStrictness().toUpperCase() : "MEDIUM";
+        if (!"LOW".equals(strictness) && !"MEDIUM".equals(strictness) && !"HIGH".equals(strictness)) {
+            strictness = "MEDIUM";
+        }
+        st.setDjStrictness(strictness);
+        int bpmMin = dto.getBpmMin() != null ? Math.max(0, dto.getBpmMin()) : 0;
+        int bpmMax = dto.getBpmMax() != null ? Math.max(0, dto.getBpmMax()) : 0;
+        if (bpmMin > bpmMax && bpmMax > 0) {
+            bpmMax = bpmMin;
+        }
+        st.setDjBpmMin(bpmMin);
+        st.setDjBpmMax(bpmMax);
+        int maxConsecutiveByArtist = dto.getMaxConsecutiveByArtist() != null ? dto.getMaxConsecutiveByArtist() : 0;
+        st.setDjMaxConsecutiveByArtist(Math.max(0, Math.min(10, maxConsecutiveByArtist)));
+
+        // Force-persist immediately so settings survive reloads
+        playbackPersistenceController.persist(profileId, st, true);
+
+        // Queue-affecting settings changed (genre pool, songsPerGenre, BPM bounds,
+        // max consecutive by artist): rebuild the queue and re-plan the transition
+        // so the new settings apply immediately
+        boolean poolChanged = !oldGenrePool.equals(st.getDjGenrePool());
+        boolean songsPerGenreChanged = !java.util.Objects.equals(oldSongsPerGenre, st.getDjSongsPerGenre());
+        boolean bpmBoundsChanged = !java.util.Objects.equals(oldBpmMin, st.getDjBpmMin())
+                || !java.util.Objects.equals(oldBpmMax, st.getDjBpmMax());
+        boolean maxConsecutiveByArtistChanged = !java.util.Objects.equals(oldMaxConsecutiveByArtist, st.getDjMaxConsecutiveByArtist());
+        if (Boolean.TRUE.equals(st.getDjModeActive()) && (poolChanged || songsPerGenreChanged || bpmBoundsChanged || maxConsecutiveByArtistChanged)) {
+            clearDjTransitionPlan(st);
+            playbackQueueController.initSmartShuffle(st, profileId);
+            planNextDjTransition(st, profileId);
+        }
+
+        updateState(profileId, st, true);
     }
 
     /**
@@ -1433,7 +1528,8 @@ public class PlaybackController {
         }
 
         int crossfadeSeconds = st.getCrossfadeDuration() != null ? st.getCrossfadeDuration() : 8;
-        DjTransition transition = djTransitionService.calculateTransition(currentSong, nextSong, crossfadeSeconds);
+        DjTransition transition = djTransitionService.calculateTransition(currentSong, nextSong, crossfadeSeconds,
+                st.getDjCrossfadeOverride(), st.getDjStrictness());
 
         if (transition != null) {
             st.setDjNextSongId(nextSongId);
