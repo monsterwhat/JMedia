@@ -132,6 +132,14 @@
          * restart the stream with ?start=<abs> instead of issuing a byte-range
          * request into the still-growing transcode cache. */
         var _streamStartOffset = (startTime > 0 && !_isDirectFile && !container.dataset.externalUrl) ? startTime : 0;
+        /* Actual content start of the currently loaded media. On the fresh-transcode
+         * path this equals _streamStartOffset (element 0 == the ?start= seek point),
+         * but the segment cache can serve a mid-segment seek from a byte offset
+         * inside a segment whose relative timeline starts at 0 at its head — the
+         * element clock then lands at relTarget = seek - segment.start, so the true
+         * content start is _streamStartOffset - video.currentTime. The subtitle
+         * ?start= shift must use THIS value or cues land relTarget seconds early. */
+        var _subtitleBaseOffset = _streamStartOffset;
         var _currentQuality = 0;
         /* Currently selected native subtitle index (-1 = off) and the track list it
          * refers to. Used to re-apply the subtitle source after a ?start= server seek
@@ -191,7 +199,7 @@
                  * track now rebuilds the engine's settings children and re-fetches with
                  * the current ?start=; that request is issued after the stale one, so it
                  * wins the race and the aligned cues land last. */
-                if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
+                _restoreSubtitlesAfterSeek();
                 console.log('[OPlayerAdapter] Dismissed OPlayer error overlay after stream recovery');
             } catch (e) {
                 console.error('[OPlayerAdapter] Failed to dismiss OPlayer error overlay:', e);
@@ -201,19 +209,32 @@
         function _buildStreamUrl(startAbs, quality) {
             /* Direct-streamed files ignore ?start= (server has no start param on the
              * direct path), so never bake it — a native seek after load handles resume. */
-            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs));
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs) + '&trace=' + Date.now());
             if (quality && quality > 0) url += (_isDirectFile ? '?' : '&') + 'quality=' + quality;
             return _withNativeHevc(url);
         }
 
         /* Shared native-subtitle applier: rebuilds the OPlayer subtitle source list
          * for the given index. The track URL carries ?start= so server-shifted cues
-         * align with the element clock (element 0 == absolute _streamStartOffset),
+         * align with the element clock (element 0 == absolute _subtitleBaseOffset),
          * mirroring SimplePlayer's SubtitleController. Re-invoked after every
          * ?start= server seek with the new offset. */
         function _applySubtitle(idx) {
             if (idx === -1) {
                 _subtitleIdx = -1;
+                try { localStorage.setItem('jmedia_test_subtitle_track', 'off'); } catch (e) {}
+                /* changeSource([]) alone drops currentSubtitle but leaves the loaded
+                 * track's cues rendering ("off but still shown") — hide the engine
+                 * and check the selector's OFF child. hide() has no $track null
+                 * guard, so only call it while the engine is alive. */
+                var opOff = window.__oplayerPlayer;
+                if (opOff && opOff.context && opOff.context.ui && opOff.context.ui.subtitle) {
+                    try {
+                        var subOff = opOff.context.ui.subtitle;
+                        if (subOff.$track) subOff.hide();
+                        opOff.context.ui.setting.select('Subtitle', 0);
+                    } catch (e) {}
+                }
                 return;
             }
             var oplayer = window.__oplayerPlayer;
@@ -223,7 +244,7 @@
             try {
                 if (!_subtitleTracks || !_subtitleTracks[idx]) return false;
                 var qsParts = [];
-                if (_streamStartOffset > 0) qsParts.push('start=' + Math.max(0, _streamStartOffset));
+                if (_subtitleBaseOffset > 0) qsParts.push('start=' + Math.max(0, _subtitleBaseOffset));
                 var correction = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
                 if (correction) qsParts.push('correction=' + correction);
                 var qs = qsParts.length ? '?' + qsParts.join('&') : '';
@@ -234,13 +255,133 @@
                         default: (t.id === _subtitleTracks[idx].id)
                     };
                 });
+                _installSubtitleEngineSync();
                 oplayer.context.ui.subtitle.changeSource(oplayerSubs);
                 _subtitleIdx = idx;
+                /* Persist so seek-time restores (_restoreSubtitlesAfterSeek) and the
+                 * menu restore in test-player-common.js re-apply the same track. */
+                try { localStorage.setItem('jmedia_test_subtitle_track', String(_subtitleTracks[idx].id)); } catch (e) {}
+                /* changeSource only re-fetches when no track exists yet, or waits for
+                 * the next loadedmetadata — with a track already loaded, a re-apply
+                 * (new ?start= / correction) never fetches the new URL and the offset
+                 * selector appears to "do nothing". Force the re-fetch. */
+                try { if (oplayer.context.ui.subtitle.$track) oplayer.context.ui.subtitle.fetchSubtitle(); } catch (e2) {}
+                /* The engine derives its selector default from currentSubtitle at
+                 * registration; force the checked entry so the native Subtitle
+                 * selector can never drift to OFF after a seek re-apply.
+                 * Children: [OFF, track0, track1, ...]. */
+                try { oplayer.context.ui.setting.select('Subtitle', idx + 1); } catch (e3) {}
                 return true;
             } catch (e) {
                 console.error('[OplayerAdapter] OPlayer subtitle changeSource failed:', e);
                 return true;
             }
+        }
+
+        /* Restore the active subtitle after a ?start= reload so cues stay aligned
+         * with the restarted element clock (element 0 == the new _streamStartOffset),
+         * mirroring SimplePlayer's subtitle reload. Fast path re-applies the last
+         * applied index (_applySubtitle persists it); the localStorage fallback
+         * re-applies the persisted selection when the index/tracks were reset
+         * out-of-band (e.g. a selection made through OPlayer's own settings panel
+         * that never touched _subtitleIdx). */
+        function _restoreSubtitlesAfterSeek() {
+            if (_subtitleIdx >= 0 && _subtitleTracks && _subtitleTracks[_subtitleIdx]) {
+                _applySubtitle(_subtitleIdx);
+                return;
+            }
+            var last = null;
+            try { last = localStorage.getItem('jmedia_test_subtitle_track'); } catch (e) {}
+            if (!last || last === 'off' || !_subtitleTracks) return;
+            for (var i = 0; i < _subtitleTracks.length; i++) {
+                if (String(_subtitleTracks[i].id) === last) {
+                    if (_applySubtitle(i)) _subtitleIdx = i;
+                    return;
+                }
+            }
+        }
+
+        /* ---------- OPlayer subtitle engine state mirror ----------
+         * The engine's native settings panel (selector key 'Subtitle') mutates
+         * currentSubtitle directly through its own onChange, which the adapter
+         * never sees — so a native-panel pick desyncs _subtitleIdx and the
+         * seek-time restore can't re-apply it. Wrapping the engine's state
+         * transitions mirrors the live selection back into the adapter. */
+        var _subtitleEngineWrapped = false;
+        function _installSubtitleEngineSync() {
+            if (_subtitleEngineWrapped) return true;
+            var op = window.__oplayerPlayer;
+            if (!op || !op.context || !op.context.ui || !op.context.ui.subtitle) return false;
+            var sub = op.context.ui.subtitle;
+            try {
+                var wrap = function(fn) {
+                    return function() {
+                        var r = fn.apply(this, arguments);
+                        try { _syncSubtitleEngineState(); } catch (e) {}
+                        return r;
+                    };
+                };
+                if (typeof sub.changeSource === 'function') sub.changeSource = wrap(sub.changeSource);
+                if (typeof sub.fetchSubtitle === 'function') sub.fetchSubtitle = wrap(sub.fetchSubtitle);
+                if (typeof sub.show === 'function') sub.show = wrap(sub.show);
+                if (typeof sub.hide === 'function') {
+                    var origHide = sub.hide;
+                    sub.hide = function() {
+                        var r = origHide.apply(this, arguments);
+                        try {
+                            /* A real engine hide() (native OFF pick, _applySubtitle(-1),
+                             * _turnOffSubtitles) — mirror it so seek-time restores stay
+                             * off instead of resurrecting the track. */
+                            _subtitleIdx = -1;
+                            _subtitleTracks = [];
+                            localStorage.setItem('jmedia_test_subtitle_track', 'off');
+                        } catch (e) {}
+                        return r;
+                    };
+                }
+                _subtitleEngineWrapped = true;
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        /* Mirror the engine's live selection into the adapter:
+         *  - $track undefined → engine destroyed (mid-swap) → keep adapter state
+         *  - isShow false     → hidden (native OFF / mid re-fetch) → the hide wrap
+         *                        handles real OFF; nothing to do here
+         *  - active           → resolve the track id from its src URL and persist
+         *                        it, rebuilding _subtitleTracks when the pick came
+         *                        from the native panel (never seen by the adapter) */
+        function _syncSubtitleEngineState() {
+            var op = window.__oplayerPlayer;
+            if (!op || !op.context || !op.context.ui || !op.context.ui.subtitle) return;
+            var sub = op.context.ui.subtitle;
+            if (!sub.$track) return;
+            if (!sub.isShow) return;
+            var cur = sub.currentSubtitle;
+            if (!cur || !cur.src) return;
+            var m = /\/track\/([^/?]+)/.exec(cur.src);
+            if (!m) return;
+            var id = decodeURIComponent(m[1]);
+            try { localStorage.setItem('jmedia_test_subtitle_track', id); } catch (e) {}
+            for (var i = 0; i < _subtitleTracks.length; i++) {
+                if (String(_subtitleTracks[i].id) === id) { _subtitleIdx = i; return; }
+            }
+            /* Active track unknown to the adapter (native-panel pick) — rebuild the
+             * list from the engine's current sources so seek-time restores can
+             * re-apply it. */
+            var srcs = (sub.options && sub.options.source) || [];
+            var rebuilt = [];
+            for (var j = 0; j < srcs.length; j++) {
+                var sm = /\/track\/([^/?]+)/.exec(srcs[j].src || '');
+                rebuilt.push({ id: sm ? decodeURIComponent(sm[1]) : ('track-' + j), displayName: srcs[j].name || ('Track ' + (j + 1)) });
+            }
+            if (rebuilt.length) _subtitleTracks = rebuilt;
+            for (var k = 0; k < _subtitleTracks.length; k++) {
+                if (String(_subtitleTracks[k].id) === id) { _subtitleIdx = k; return; }
+            }
+            _subtitleIdx = -1;
         }
 
         /* Route every seek through here. In-buffer targets seek the element natively
@@ -287,6 +428,10 @@
             _clearSwapListeners();
 
             _streamStartOffset = Math.max(0, absTarget);
+            /* Best pre-load estimate of the content start; the loadeddata sampler in
+             * onVideoReady corrects it to the segment's start when the segment cache
+             * serves this seek from a mid-segment byte offset. */
+            _subtitleBaseOffset = _streamStartOffset;
             /* Re-apply the selected subtitle track with the NEW offset at swap-start
              * so the whole-file VTT re-fetch (the server re-converts every request)
              * overlaps the stream restart instead of serializing after `playing` —
@@ -294,7 +439,7 @@
              * changeSource leaves subtitles missing for the conversion+fetch window.
              * The playing-time re-apply below stays as the safety net (it hits the
              * browser cache when this fetch already completed). */
-            if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
+            _restoreSubtitlesAfterSeek();
             /* Arm the echo-lock with the seek target. After a ?start= reload the
              * element clock restarts at 0 while the server may keep broadcasting the
              * OLD absolute position — above the new offset on a backward seek, so the
@@ -331,7 +476,7 @@
                          * restarts at 0 relative to the new ?start= — re-apply the
                          * selected track with the new offset so cues stay aligned
                          * (mirror SimplePlayer's subtitle reload after server seek). */
-                        if (_subtitleIdx >= 0) _applySubtitle(_subtitleIdx);
+                        _restoreSubtitlesAfterSeek();
                     }
                 },
                 error: function() {
@@ -774,6 +919,7 @@
                          * Direct-streamed files have no baked param: offset stays 0 and
                          * the element clock is absolute from byte 0. */
                         _streamStartOffset = _isDirectFile ? 0 : startAbs;
+                        _subtitleBaseOffset = _streamStartOffset;
 
                         function loadSwapSource() {
                             vEl.src = url;
@@ -1197,6 +1343,9 @@
                     if (player && player.$video) {
                         clearInterval(waitForVideo);
                         onVideoReady(player.$video);
+                        /* Mirror native-panel subtitle picks into the adapter so
+                         * seek-time restores re-apply the same track. */
+                        _installSubtitleEngineSync();
                         /* Restore saved subtitle offset in OPlayer settings selector */
                         (function() {
                             var savedOffset = parseFloat(localStorage.getItem('jmedia_subtitle_correction') || '0');
@@ -1424,6 +1573,21 @@
                 }
             });
 
+            /* The loaded media's timeline may not start at the requested seek point:
+             * the segment cache serves a mid-segment seek from a byte offset inside a
+             * segment whose relative timeline starts at 0 at its head, so the element
+             * clock lands at relTarget = seek - segment.start, not 0. Sample the clock
+             * at load and derive the true content start so the subtitle ?start= shift
+             * matches the real timeline (fixes the small forward-seek desync). */
+            video.addEventListener('loadeddata', function() {
+                var ct = video.currentTime || 0;
+                var base = Math.max(0, _streamStartOffset - ct);
+                if (Math.abs(base - _subtitleBaseOffset) > 0.1) {
+                    _subtitleBaseOffset = base;
+                    _restoreSubtitlesAfterSeek();
+                }
+            });
+
             /* iOS native fullscreen events */
             video.addEventListener('webkitbeginfullscreen', function() {
                 _isCssFS = false;
@@ -1558,6 +1722,7 @@
                 disableBlobSwap: true,
                 getVideoElement: function() { return video; },
                 getStreamStartOffset: function() { return _streamStartOffset; },
+                getSubtitleStartOffset: function() { return _subtitleBaseOffset; },
                 setSubtitleSelection: function(idx, tracks) {
                     if (idx === -1) {
                         _subtitleIdx = -1;
@@ -1566,6 +1731,16 @@
                     }
                     if (tracks && tracks[idx]) _subtitleTracks = tracks;
                     _subtitleIdx = idx;
+                },
+                /* Live selection mirror: returns the active track id (null when
+                 * off/unknown) so test-player-common marks the right OPlayer source
+                 * default:true — an all-false list makes the engine drop
+                 * currentSubtitle and silently skip the re-fetch. */
+                getSelectedSubtitleId: function() {
+                    if (_subtitleIdx >= 0 && _subtitleTracks && _subtitleTracks[_subtitleIdx]) {
+                        return String(_subtitleTracks[_subtitleIdx].id);
+                    }
+                    return null;
                 },
                 getCurrentTime: function() { return (video.currentTime || 0) + _streamStartOffset; },
                 setCurrentTime: function(t) { _serverSeekTo(t); },

@@ -98,7 +98,7 @@
         function _buildStreamUrl(startAbs, quality) {
             /* Direct-streamed files ignore ?start= (server has no start param on the
              * direct path), so never bake it — a native seek after load handles resume. */
-            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs));
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs) + '&trace=' + Date.now());
             if (quality && quality > 0) url += (_isDirectFile ? '?' : '&') + 'quality=' + quality;
             return _withNativeHevc(url);
         }
@@ -807,6 +807,31 @@
         var vjsAdapter = {
             getVideoElement: function() { return nativeVideo; },
             getStreamStartOffset: function() { return _streamStartOffset; },
+            /* video.js runs with nativeTextTracks:false (emulation mode), so plain
+             * <track> elements appended to the element never render. Add through the
+             * emulated list instead. manualCleanup:true keeps the track across the
+             * ?start= source swaps, so the swap-start reapply (which already carries
+             * the fresh offset) survives the reload; removal is owned by clearSubtitles. */
+            addSubtitleTrack: function(track, src) {
+                var rt = vjsPlayer.addRemoteTextTrack({
+                    kind: 'subtitles',
+                    src: src,
+                    srclang: track.language || 'en',
+                    label: track.displayName || 'Subtitles',
+                    default: true
+                }, true);
+                if (rt && rt.track) {
+                    try { rt.track.mode = 'showing'; } catch (e) {}
+                }
+                return rt;
+            },
+            clearSubtitles: function() {
+                if (!vjsPlayer) return;
+                var tracks = vjsPlayer.remoteTextTracks();
+                for (var i = tracks.length - 1; i >= 0; i--) {
+                    try { vjsPlayer.removeRemoteTextTrack(tracks[i]); } catch (e) {}
+                }
+            },
             getCurrentTime: function() { return (vjsPlayer.currentTime() || 0) + _streamStartOffset; },
             setCurrentTime: function(t) { _serverSeekTo(t); },
             getDuration: function() {

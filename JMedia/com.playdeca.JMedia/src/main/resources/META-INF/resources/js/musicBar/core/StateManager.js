@@ -50,7 +50,11 @@
             djCrossfadeOverride: -1,
             djStrictness: 'MEDIUM',
             djBpmMin: 0,
-            djBpmMax: 0
+            djBpmMax: 0,
+            djMaxConsecutiveByArtist: 0,
+            djSkipsBeforeGenreChange: 1,
+            djYearMin: 0,
+            djYearMax: 0
         },
         
         // Offline flag management
@@ -352,7 +356,11 @@
                 djCrossfadeOverride: -1,
                 djStrictness: 'MEDIUM',
                 djBpmMin: 0,
-                djBpmMax: 0
+                djBpmMax: 0,
+                djMaxConsecutiveByArtist: 0,
+                djSkipsBeforeGenreChange: 1,
+                djYearMin: 0,
+                djYearMax: 0
             };
             
             this.notifyStateChange(oldState, this.state, this.state, 'reset');
@@ -420,6 +428,10 @@
                     djStrictness: 'MEDIUM',
                     djBpmMin: 0,
                     djBpmMax: 0,
+                    djMaxConsecutiveByArtist: 0,
+                    djSkipsBeforeGenreChange: 1,
+                    djYearMin: 0,
+                    djYearMax: 0,
                     cue: [],
                     hasLyrics: false,
                     currentSongData: null,

@@ -2524,8 +2524,13 @@ async function loadAccountPanel() {
 }
 
 function switchProfile(profileId) {
+  localStorage.setItem('activeProfileId', profileId);
+  window.globalActiveProfileId = profileId;
   fetch(`/api/profiles/switch/${profileId}`, { method: 'POST' })
-    .then(() => { window.location.reload(); })
+    .then(() => {
+      document.body.dispatchEvent(new Event('profileSwitched'));
+      window.location.reload();
+    })
     .catch(e => console.error('Error switching profile:', e));
 }
 

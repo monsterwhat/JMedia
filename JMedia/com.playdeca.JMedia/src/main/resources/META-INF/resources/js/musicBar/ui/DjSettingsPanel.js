@@ -27,6 +27,9 @@
         bpmMin: 0,
         bpmMax: 0,
         maxConsecutiveByArtist: 0,
+        skipsBeforeGenreChange: 1,
+        yearMin: 0,
+        yearMax: 0,
         enabled: true
     };
 
@@ -59,6 +62,14 @@
                     '</div>' +
                 '</div>' +
                 '<div class="dj-settings-section">' +
+                    '<span class="dj-settings-label">Skips before Genre Change <span class="dj-settings-hint">(0 = off)</span></span>' +
+                    '<div class="dj-stepper">' +
+                        '<button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>' +
+                        '<span class="dj-stepper-value" id="djSkipsBeforeGenreChangeValue">1</span>' +
+                        '<button type="button" class="dj-stepper-btn" data-dj-action="stepSkips" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dj-settings-section">' +
                     '<span class="dj-settings-label">Crossfade Override</span>' +
                     '<div class="dj-segmented" data-dj-field="crossfade">' +
                         '<button type="button" class="dj-seg-btn" data-dj-value="-1">Auto</button>' +
@@ -82,6 +93,14 @@
                         '<input type="number" id="djBpmMin" class="dj-number-input" min="0" max="400" placeholder="Min">' +
                         '<span class="dj-bpm-sep">&ndash;</span>' +
                         '<input type="number" id="djBpmMax" class="dj-number-input" min="0" max="400" placeholder="Max">' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dj-settings-section">' +
+                    '<span class="dj-settings-label">Year Range <span class="dj-settings-hint">(0 = any)</span></span>' +
+                    '<div class="dj-bpm-row">' +
+                        '<input type="number" id="djYearMin" class="dj-number-input" min="0" max="2100" placeholder="Min">' +
+                        '<span class="dj-bpm-sep">&ndash;</span>' +
+                        '<input type="number" id="djYearMax" class="dj-number-input" min="0" max="2100" placeholder="Max">' +
                     '</div>' +
                 '</div>' +
             '</div>' +
@@ -191,6 +210,9 @@
             if (typeof payload.bpmMin === 'number' && isFinite(payload.bpmMin)) merged.bpmMin = payload.bpmMin;
             if (typeof payload.bpmMax === 'number' && isFinite(payload.bpmMax)) merged.bpmMax = payload.bpmMax;
             if (typeof payload.maxConsecutiveByArtist === 'number' && isFinite(payload.maxConsecutiveByArtist)) merged.maxConsecutiveByArtist = payload.maxConsecutiveByArtist;
+            if (typeof payload.skipsBeforeGenreChange === 'number' && isFinite(payload.skipsBeforeGenreChange)) merged.skipsBeforeGenreChange = payload.skipsBeforeGenreChange;
+            if (typeof payload.yearMin === 'number' && isFinite(payload.yearMin)) merged.yearMin = payload.yearMin;
+            if (typeof payload.yearMax === 'number' && isFinite(payload.yearMax)) merged.yearMax = payload.yearMax;
             if (typeof payload.enabled === 'boolean') merged.enabled = payload.enabled;
         }
         return merged;
@@ -205,7 +227,10 @@
             djStrictness: state.settings.strictness,
             djBpmMin: state.settings.bpmMin,
             djBpmMax: state.settings.bpmMax,
-            djMaxConsecutiveByArtist: state.settings.maxConsecutiveByArtist
+            djMaxConsecutiveByArtist: state.settings.maxConsecutiveByArtist,
+            djSkipsBeforeGenreChange: state.settings.skipsBeforeGenreChange,
+            djYearMin: state.settings.yearMin,
+            djYearMax: state.settings.yearMax
         }, 'djSettingsPanel');
     }
 
@@ -299,6 +324,9 @@
         const artistStepperValue = panel.querySelector('#djMaxConsecutiveByArtistValue');
         if (artistStepperValue) artistStepperValue.textContent = state.settings.maxConsecutiveByArtist;
 
+        const skipsStepperValue = panel.querySelector('#djSkipsBeforeGenreChangeValue');
+        if (skipsStepperValue) skipsStepperValue.textContent = state.settings.skipsBeforeGenreChange;
+
         panel.querySelectorAll('.dj-segmented').forEach((container) => {
             const field = container.getAttribute('data-dj-field');
             container.querySelectorAll('.dj-seg-btn').forEach((btn) => {
@@ -310,6 +338,11 @@
         const maxInput = panel.querySelector('#djBpmMax');
         if (minInput) minInput.value = state.settings.bpmMin || '';
         if (maxInput) maxInput.value = state.settings.bpmMax || '';
+
+        const yearMinInput = panel.querySelector('#djYearMin');
+        const yearMaxInput = panel.querySelector('#djYearMax');
+        if (yearMinInput) yearMinInput.value = state.settings.yearMin || '';
+        if (yearMaxInput) yearMaxInput.value = state.settings.yearMax || '';
 
         const enabledToggle = panel.querySelector('#djEnabledToggle');
         if (enabledToggle) enabledToggle.checked = !!state.settings.enabled;
@@ -495,6 +528,15 @@
         scheduleSave();
     }
 
+    function adjustSkipsBeforeGenreChange(delta) {
+        const next = Math.max(0, Math.min(10, state.settings.skipsBeforeGenreChange + delta));
+        if (next === state.settings.skipsBeforeGenreChange) return;
+        state.settings.skipsBeforeGenreChange = next;
+        state.touched.skipsBeforeGenreChange = true;
+        render();
+        scheduleSave();
+    }
+
     function setField(field, value) {
         if (state.settings[field] === value) return;
         state.settings[field] = value;
@@ -548,6 +590,8 @@
                 adjustSongsPerGenre(parseInt(actionEl.getAttribute('data-dj-step'), 10) || 0);
             } else if (action === 'stepArtist') {
                 adjustMaxConsecutiveByArtist(parseInt(actionEl.getAttribute('data-dj-step'), 10) || 0);
+            } else if (action === 'stepSkips') {
+                adjustSkipsBeforeGenreChange(parseInt(actionEl.getAttribute('data-dj-step'), 10) || 0);
             } else if (action === 'reset') {
                 resetToDefaults();
             }
@@ -607,16 +651,29 @@
         }
         if (!state.open || !e.target.classList || !e.target.classList.contains('dj-number-input')) return;
         const id = e.target.id;
-        if (id !== 'djBpmMin' && id !== 'djBpmMax') return;
-        const value = Math.max(0, Math.min(400, parseInt(e.target.value, 10) || 0));
-        if (id === 'djBpmMin') {
-            state.settings.bpmMin = value;
-            state.touched.bpmMin = true;
-        } else {
-            state.settings.bpmMax = value;
-            state.touched.bpmMax = true;
+        if (id === 'djBpmMin' || id === 'djBpmMax') {
+            const value = Math.max(0, Math.min(400, parseInt(e.target.value, 10) || 0));
+            if (id === 'djBpmMin') {
+                state.settings.bpmMin = value;
+                state.touched.bpmMin = true;
+            } else {
+                state.settings.bpmMax = value;
+                state.touched.bpmMax = true;
+            }
+            scheduleSave();
+            return;
         }
-        scheduleSave();
+        if (id === 'djYearMin' || id === 'djYearMax') {
+            const value = Math.max(0, Math.min(2100, parseInt(e.target.value, 10) || 0));
+            if (id === 'djYearMin') {
+                state.settings.yearMin = value;
+                state.touched.yearMin = true;
+            } else {
+                state.settings.yearMax = value;
+                state.touched.yearMax = true;
+            }
+            scheduleSave();
+        }
     }
 
     function onChange(e) {

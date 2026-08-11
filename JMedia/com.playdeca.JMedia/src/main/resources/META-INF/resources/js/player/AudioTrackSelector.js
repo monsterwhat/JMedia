@@ -11,6 +11,8 @@
             this.trackList = null;
             this.display = null;
             this._repositionHandler = null;
+            this._preferenceInFlight = false;
+            this._pendingPreference = undefined;
             window.availableAudioTracks = [];
             window.__audioTrackSelectorInstance = this;
 
@@ -53,7 +55,7 @@
                 if (savedTrack) {
                     setTimeout(() => {
                         if (p.switchAudioTrack) {
-                            p.switchAudioTrack(parseInt(savedTrack));
+                            p.switchAudioTrack(this._resolveTrackIndex(savedTrack));
                         }
                     }, 1000);
                 }
@@ -199,6 +201,17 @@
             menu.style.left = rect.left + 'px';
         }
 
+        // The DB id is not the ffprobe stream index: resolve the track object
+        // and prefer its trackIndex, falling back to a raw int for legacy ids.
+        _resolveTrackIndex(trackId) {
+            const track = window.availableAudioTracks.find(t => t.id == trackId);
+            if (track && track.trackIndex !== undefined && track.trackIndex !== null) {
+                return track.trackIndex;
+            }
+            const parsed = parseInt(trackId);
+            return isNaN(parsed) ? (track ? (track.id ?? 0) : 0) : parsed;
+        }
+
         selectTrack(trackId) {
             const p = this.player;
             console.log('[AudioSelector] Selecting track:', trackId);
@@ -221,11 +234,9 @@
                 return;
             }
 
-            let trackIndex = parseInt(trackId);
-            if (isNaN(trackIndex)) {
-                const track = window.availableAudioTracks.find(t => t.id == trackId);
-                trackIndex = track ? (track.trackIndex ?? track.id ?? 0) : 0;
-            }
+            // trackId is the DB id; the server's ?audioTrack= expects the ffprobe
+            // stream index (trackIndex), so resolve the track object first.
+            const trackIndex = this._resolveTrackIndex(trackId);
 
             if (p && p.switchAudioTrack) {
                 p.switchAudioTrack(trackIndex);
@@ -277,7 +288,28 @@
             }
         }
 
+        // Last-write-wins: rapid switching fires overlapping POSTs that can land
+        // out of order on the server, leaving the OLDER choice persisted. Record
+        // the newest request; if a save chain is already in flight it will flush
+        // this value when the current POST finishes, so the final choice always
+        // reaches the server last.
         async savePreference(trackId) {
+            this._pendingPreference = trackId;
+            if (this._preferenceInFlight) return; // active chain will flush it
+
+            this._preferenceInFlight = true;
+            try {
+                while (this._pendingPreference !== undefined) {
+                    const toSend = this._pendingPreference;
+                    this._pendingPreference = undefined;
+                    await this._sendPreference(toSend);
+                }
+            } finally {
+                this._preferenceInFlight = false;
+            }
+        }
+
+        async _sendPreference(trackId) {
             const p = this.player;
             if (!p) return;
             const videoId = p.videoId;

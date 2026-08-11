@@ -148,10 +148,56 @@
                 window.StatePersistence.initializeWithRestored();
             }
 
+            this.syncDjSettingsFromServer();
+
             this.setupGlobalAPI();
             this.initializeAudioElement();
             this.startAudioEngine();
             this.bindLegacyEvents();
+        },
+
+        /**
+         * Re-fetch DJ settings from the server for the active profile and apply
+         * them to StateManager. The WebSocket 'state' payload deliberately omits
+         * DJ settings (they are @JsonIgnore'd server-side), so without this the
+         * UI can keep another profile's settings (or stale defaults) after a
+         * profile switch / page reload. The settings panel refreshes on open,
+         * but StateManager-driven UI needs them from startup.
+         */
+        syncDjSettingsFromServer: function() {
+            if (!window.StateManager) return;
+            const pid = (window.StatePersistence && typeof window.StatePersistence.getProfileId === 'function')
+                ? window.StatePersistence.getProfileId()
+                : (window.globalActiveProfileId || localStorage.getItem('activeProfileId'));
+            if (!pid) return;
+
+            fetch(`/api/music/playback/dj-settings/${pid}`, { credentials: 'include' })
+                .then((r) => (r.ok ? r.json() : null))
+                .then((raw) => {
+                    if (!raw || !window.StateManager) return;
+                    const payload = raw.data && typeof raw.data === 'object' ? raw.data : raw;
+                    const changes = {};
+                    if (Array.isArray(payload.genrePool)) changes.djGenrePool = payload.genrePool.slice();
+                    if (typeof payload.songsPerGenre === 'number' && isFinite(payload.songsPerGenre)) changes.djSongsPerGenre = payload.songsPerGenre;
+                    if (typeof payload.crossfade === 'number' && isFinite(payload.crossfade)) changes.djCrossfadeOverride = payload.crossfade;
+                    if (typeof payload.strictness === 'string' && payload.strictness) changes.djStrictness = payload.strictness;
+                    if (typeof payload.bpmMin === 'number' && isFinite(payload.bpmMin)) changes.djBpmMin = payload.bpmMin;
+                    if (typeof payload.bpmMax === 'number' && isFinite(payload.bpmMax)) changes.djBpmMax = payload.bpmMax;
+                    if (typeof payload.maxConsecutiveByArtist === 'number' && isFinite(payload.maxConsecutiveByArtist)) changes.djMaxConsecutiveByArtist = payload.maxConsecutiveByArtist;
+                    if (typeof payload.skipsBeforeGenreChange === 'number' && isFinite(payload.skipsBeforeGenreChange)) changes.djSkipsBeforeGenreChange = payload.skipsBeforeGenreChange;
+                    if (typeof payload.yearMin === 'number' && isFinite(payload.yearMin)) changes.djYearMin = payload.yearMin;
+                    if (typeof payload.yearMax === 'number' && isFinite(payload.yearMax)) changes.djYearMax = payload.yearMax;
+                    // djModeActive is intentionally NOT set here: the WebSocket
+                    // 'state' message is the authoritative channel for it and is
+                    // delivered on connect; this sync only covers the settings
+                    // that WS never carries.
+                    window.StateManager.updateState(changes, 'djSettingsServerSync');
+                    window.Helpers.log('MusicBarInit: DJ settings synced from server for profile', pid);
+                })
+                .catch(() => {
+                    // Non-fatal: WS still delivers djModeActive; the panel
+                    // re-fetches settings when opened.
+                });
         },
 
         setupGlobalAPI: function() {

@@ -6,6 +6,14 @@
             this.player = player;
         }
 
+        /* Fresh per-request query param so Firefox's session media cache can't
+         * resume a stale transcode (immutable Cache-Control + deterministic ETag
+         * make completed segments resumable) — a fresh trace= forces a real
+         * fetch against the server's current phantom clock. */
+        _traceId() {
+            return `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+        }
+
         /**
          * Check if browser supports WebCodecs API (VideoDecoder + VideoEncoder)
          * Required for hevc.js HEVC to H.264 transcoding
@@ -40,7 +48,7 @@
             console.log('[SimplePlayer] Initializing hevc.js stream for HEVC playback');
 
             // Get the direct MP4 URL
-            const videoUrl = `/api/video/stream/${p.videoId}.mp4${savedTime > 0 ? `?start=${savedTime}` : ''}`;
+            const videoUrl = `/api/video/stream/${p.videoId}.mp4?${savedTime > 0 ? `start=${savedTime}&` : ''}trace=${this._traceId()}`;
             
             p.streamStartOffset = savedTime || 0;
             p._showLoading('Loading HEVC video (client-side transcoding)...');
@@ -271,10 +279,13 @@
             const absTime = Math.max(0, p.streamStartOffset > 0 ? p.lastKnownGoodPosition + p.streamStartOffset : p.lastKnownGoodPosition);
             p.streamStartOffset = absTime;
 
-            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-            const startParam = absTime > 0 ? `?start=${absTime}` : '';
+            const params = [];
+            if (absTime > 0) params.push(`start=${absTime}`);
+            if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
+            params.push(`trace=${this._traceId()}`);
+            const queryString = params.length ? '?' + params.join('&') : '';
             const setupFallback = () => {
-                p.video.src = `/api/video/stream/${p.videoId}.mp4${startParam}${qualityParam}`;
+                p.video.src = `/api/video/stream/${p.videoId}.mp4${queryString}`;
                 p.video.load();
                 p.video.addEventListener('loadedmetadata', () => {
                     p._fallbackInProgress = false;
@@ -360,24 +371,62 @@
             const savedTime = p.video.currentTime + (p.streamStartOffset || 0);
 
             const audioParam = (trackIndex !== null && trackIndex >= 0) ? `&audioTrack=${trackIndex}` : '';
-            // Do NOT use ?start= — server-side seeking makes the browser think
-            // currentTime=0 while content is at the offset, breaking the timer
-            // and seekbar. Instead, let the browser seek explicitly after load.
-            p.video.src = `/api/video/stream/${p.videoId}.mp4${audioParam}`;
+            // Transcode: reload with a server-side seek (?start=) so the new audio track's
+            // fresh transcode starts AT the current position. The old approach loaded without
+            // ?start= and attempted a client-side seek after metadata - but the new audio
+            // track has no segment coverage yet, so the seek lands beyond the growing segment,
+            // the server falls back to a fresh transcode from 0:00, and the movie restarts.
+            // Direct streams are the opposite: server-side ?start= is unreliable for them
+            // (simple-player resume uses client-side seek for the same reason), so load from
+            // 0 (absolute timeline) and seek client-side once metadata is ready.
+            p._swapInProgress = true;
+            if (p._swapSafetyTimer) clearTimeout(p._swapSafetyTimer);
+            p._swapSafetyTimer = setTimeout(() => {
+                p._swapInProgress = false;
+                p._swapSafetyTimer = null;
+            }, 10000);
+
+            p.video.pause();
+            p.video.src = "";
             p.video.load();
 
-            // After metadata is ready, seek to saved position and reset offset
-            p.streamStartOffset = 0;
-            const onReady = () => {
-                if (p.video.readyState >= 2) {
-                    p.video.currentTime = savedTime;
-                    p.video.play().catch(() => {});
-                    p.video.removeEventListener('loadedmetadata', onReady);
-                    p.video.removeEventListener('canplay', onReady);
-                }
+            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
+            if (p.needsTranscode) {
+                p.streamStartOffset = Math.max(0, savedTime);
+                p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, savedTime)}${audioParam}${qualityParam}&trace=${this._traceId()}`;
+            } else {
+                p.streamStartOffset = 0;
+                const params = [];
+                if (trackIndex !== null && trackIndex >= 0) params.push(`audioTrack=${trackIndex}`);
+                if (p._preferredQuality > 0) params.push(`quality=${p._preferredQuality}`);
+                params.push(`trace=${this._traceId()}`);
+                p.video.src = `/api/video/stream/${p.videoId}.mp4${params.length ? '?' + params.join('&') : ''}`;
+                p.video.addEventListener('loadedmetadata', () => {
+                    if (!p._destroyed && savedTime > 0) {
+                        const target = Math.min(savedTime, (isFinite(p.video.duration) ? p.video.duration : savedTime) || savedTime);
+                        try { p.video.currentTime = target; } catch (e) {}
+                    }
+                }, { once: true });
+            }
+            p.video.load();
+
+            // On playing, clear the swap guard and send ONE confirmation broadcast so
+            // the server's phantom clock snaps to the new absolute position.
+            const onSeekPlaying = () => {
+                p._clearSwapInProgress();
+                if (!p._destroyed) p._broadcastState();
             };
-            p.video.addEventListener('loadedmetadata', onReady);
-            p.video.addEventListener('canplay', onReady);
+            const onSeekReady = () => p._clearSwapInProgress();
+            p.video.addEventListener('playing', onSeekPlaying, { once: true });
+            p.video.addEventListener('loadeddata', onSeekReady, { once: true });
+            p.video.addEventListener('error', onSeekReady, { once: true });
+
+            // The streamStartOffset changed (0 → savedTime for a 0-based stream):
+            // reload subtitles so the active track's ?start= matches the new offset.
+            // loadSubtitles re-clicks the saved track itself.
+            p.video.addEventListener('loadedmetadata', () => {
+                if (!p._destroyed) p.loadSubtitles();
+            }, { once: true });
 
             p._hasPlayedData = false;
             p.lastKnownGoodPosition = 0;
@@ -526,7 +575,7 @@
             p.streamStartOffset = Math.max(0, time);
             const audioParam = p.currentAudioTrackIndex !== null ? `&audioTrack=${p.currentAudioTrackIndex}` : '';
             const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, time)}${audioParam}${qualityParam}`;
+            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, time)}${audioParam}${qualityParam}&trace=${this._traceId()}`;
             p.video.load();
 
             // On playing, clear the swap guard and send ONE confirmation broadcast so

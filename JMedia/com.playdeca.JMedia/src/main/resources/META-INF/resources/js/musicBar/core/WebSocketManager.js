@@ -31,10 +31,25 @@
          * Set up event listeners
          */
         setupEventListeners: function() {
-            // Listen for profile changes to reconnect
+            // Listen for profile changes to reconnect. ProfileManager dispatches
+            // 'profileSwitched' on document.body; also accept the generic
+            // 'profileChanged' on window for other emitters.
             window.addEventListener('profileChanged', () => {
                 this.reconnect();
             });
+            if (document.body) {
+                document.body.addEventListener('profileSwitched', () => {
+                    this.reconnect();
+                });
+            } else {
+                window.addEventListener('DOMContentLoaded', () => {
+                    if (document.body) {
+                        document.body.addEventListener('profileSwitched', () => {
+                            this.reconnect();
+                        });
+                    }
+                }, { once: true });
+            }
             
             // Listen for manual send requests
             window.addEventListener('sendWebSocketMessage', (e) => {
@@ -385,8 +400,10 @@
                             }
                             
                             if (payload && typeof payload === 'object' && payload.timestamp) {
-                                // Get localStorage state for age comparison
-                                const savedState = JSON.parse(localStorage.getItem('playbackState') || '{}');
+                                // Get localStorage state for age comparison (per-profile key)
+                                const savedState = (window.StatePersistence && typeof window.StatePersistence.getSavedState === 'function')
+                                    ? (window.StatePersistence.getSavedState() || {})
+                                    : {};
                                 
                                 if (savedState.timestamp) {
                                     const localStorageAge = Date.now() - savedState.timestamp;

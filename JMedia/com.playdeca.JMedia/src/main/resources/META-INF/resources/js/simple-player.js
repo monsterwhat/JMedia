@@ -306,8 +306,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                             this._streamFallbackCount = 0;
 
                             // New episode starts fresh — never inherit the old episode's position.
+                            // Transcode resumes via server-side ?start= (streamStartOffset carries
+                            // the offset); direct files start at 0 and seek client-side below.
                             this.videoId = newId;
-                            this.streamStartOffset = 0;
+                            this.streamStartOffset = (this.needsTranscode && newStateTime > 0) ? Math.max(0, newStateTime) : 0;
                             this.lastKnownGoodPosition = 0;
                             this.initialResumeTime = 0;
 
@@ -318,9 +320,10 @@ if (typeof window.SimplePlayer === 'undefined') {
                             this.video.muted = mute;
 
                             // Resume: selectVideo → state.currentTime > 0 → seek the new source there;
-                            // advanceVideo → server sets 0 → no seek. One-time listener per swap (B10).
+                            // advanceVideo → server sets 0 → no seek. Direct files seek client-side;
+                            // transcode was positioned by ?start= (streamStartOffset > 0) (B10).
                             this.video.addEventListener('loadedmetadata', () => {
-                                if (newStateTime > 0 && this.video && !this._destroyed) {
+                                if (newStateTime > 0 && this.streamStartOffset === 0 && this.video && !this._destroyed) {
                                     try { this.video.currentTime = newStateTime; } catch (e) {}
                                 }
                             }, { once: true });
@@ -337,7 +340,8 @@ if (typeof window.SimplePlayer === 'undefined') {
 
                             // Load the new source through the StreamManager retry machinery
                             // (cache-busted ?trace=, bounded error retry as on initial load).
-                            this.streamMgr.initDirectStream(0);
+                            // Pass newStateTime so transcode resumes via server-side ?start=.
+                            this.streamMgr.initDirectStream(newStateTime);
                             if (!state.playing) {
                                 try { this.video.pause(); } catch (e) {}
                             }

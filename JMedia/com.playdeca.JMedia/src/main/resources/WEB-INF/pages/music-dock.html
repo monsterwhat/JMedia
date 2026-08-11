@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        <title id="pageTitle">JMedia</title>
+        
+        <!-- Shared Scripts -->
+        <script src="/js/theme-initializer.js"></script>
+        <script src="/js/fetch-credentials.js"></script>
+        <script src="/js/htmx.min.js"></script>
+        
+        <script>
+            htmx.config.withCredentials = true;
+        </script>
+        <script defer src="/lib/alpine.min.js"></script>
+        <script>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('profile', { currentProfile: null });
+            });
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+        </script>
+
+        <!-- CSS -->
+        <link rel="stylesheet" href="/css/bulma.min.css"/>
+        <link rel="stylesheet" href="/lib/primeicons.css">
+        <link rel="stylesheet" href="/css/video-cards.css">
+        <link rel="stylesheet" href="/css/jmedia-unified.css">
+        <link rel="stylesheet" href="/css/music-dock.css?v=10">
+        <link rel="stylesheet" href="/css/subtitle-styling.css">
+        <link rel="stylesheet" href="/css/video-sidebar.css">
+        <link id="favicon" rel="icon" type="image/x-icon" href="logo.png">
+
+        <!-- SPA Scripts -->
+        <script src="/js/CollectionManager.js" defer></script>
+        <script src="/js/video/VideoWebSocketManager.js" defer></script>
+        <script src="/js/video-spa.js" defer></script>
+        <script src="/js/videoContextMenu.js" defer></script>
+    <script src="/js/video/VideoSidebarController.js" defer></script>
+        
+        <!-- Legacy/Shared Scripts (Loaded globally) -->
+        <!-- Modular Music Bar System (Migrated from legacy monolith) -->
+        <script src="/js/musicBar/utils/Helpers.js?v=2" defer></script>
+        <script src="/js/musicBar/utils/ActionTracker.js?v=2" defer></script>
+        <script src="/js/musicBar/core/DeviceManager.js?v=2" defer></script>
+        <script src="/js/musicBar/core/SynchronizationManager.js?v=2" defer></script>
+        <script src="/js/musicBar/core/StateManager.js?v=2" defer></script>
+        <script src="/js/musicBar/data/StatePersistence.js?v=2" defer></script>
+        <script src="/js/musicBar/data/SongContextCache.js?v=2" defer></script>
+        <script src="/js/musicBar/data/QueueManager.js?v=2" defer></script>
+        <script src="/js/musicBar/core/AudioEngine.js?v=2" defer></script>
+        <script src="/js/musicBar/core/DjTransitionManager.js?v=1" defer></script>
+        <script src="/js/musicBar/core/WebSocketManager.js?v=2" defer></script>
+        <script src="/js/musicBar/controls/PlaybackController.js?v=2" defer></script>
+        <script src="/js/musicBar/controls/TimeController.js?v=2" defer></script>
+        <script src="/js/musicBar/controls/VolumeController.js?v=2" defer></script>
+        <script src="/js/musicBar/ui/UIUpdater.js?v=2" defer></script>
+        <script src="/js/music-dock.js?v=3" defer></script>
+        <script src="/js/musicBar/ui/EventBindings.js?v=2" defer></script>
+        <script src="/js/musicBar/ui/DjSettingsPanel.js?v=1" defer></script>
+        <script src="/js/musicBar/ui/ImageManager.js?v=2" defer></script>
+        <script src="/js/musicBar/mobile/MobileBridge.js?v=2" defer></script>
+        <script src="/js/musicBar/responsive/ResponsivePlayer.js?v=2" defer></script>
+        <script src="/js/musicBar/adapters/DesktopAdapter.js?v=2" defer></script>
+        <script src="/js/musicBar/adapters/MobileAdapter.js?v=2" defer></script>
+
+        
+        <!-- jMedia Module System -->
+        <script src="/js/jmedia/Helpers.js" defer></script>
+        <script src="/js/jmedia/ToastSystem.js" defer></script>
+        <script src="/js/jmedia/Settings.js" defer></script>
+        <script src="/js/video-settings.js" defer></script>
+        <script src="/js/ai-subtitle-generator.js" defer></script>
+        <script src="/js/jmedia/Users.js" defer></script>
+        <script src="/js/jmedia/SessionManagement.js" defer></script>
+        <script src="/js/jmedia/SyncUI.js" defer></script>
+        <script src="/js/jmedia/Navbar.js" defer></script>
+        <script src="/js/jmedia/ProfileManager.js" defer></script>
+        <script src="/js/jmedia/PlaylistCreator.js" defer></script>
+        <script src="/js/jmedia/ImportUI.js" defer></script>
+        <script src="/js/jmedia/ImportApi.js" defer></script>
+        <script src="/js/jmedia/Player.js" defer></script>
+        <script src="/js/jmedia/PlaybackApi.js" defer></script>
+        <script src="/js/jmedia/QueueManager.js" defer></script>
+        <script src="/js/jmedia/SongCache.js" defer></script>
+        <script src="/js/jmedia/MusicIndex.js" defer></script>
+        <script src="/js/jmedia/MobileContextMenu.js" defer></script>
+        <script src="/js/jmedia/MusicBarInit.js" defer></script>
+        <script src="/js/jmedia/MediaSession.js" defer></script>
+        <script src="/js/jmedia/HistoryManager.js" defer></script>
+        <script src="/js/jmedia/PlaylistBar.js" defer></script>
+        <script src="/js/jmedia/PlaylistBodyHelper.js" defer></script>
+        <script src="/js/jmedia/Breadcrumbs.js" defer></script>
+        <script src="/js/jmedia/PageChrome.js" defer></script>
+        <script src="/js/jmedia/App.js" defer></script>
+        <script src="/js/jmedia/MobileApp.js" defer></script>
+        <script src="/js/subtitle-manager.js" defer></script>
+        <script src="/js/timezone-fix.js" defer></script>
+
+    </head>
+    <body class="music-page">
+        <div class="standard-layout sidebar-right" id="standard-layout">
+            
+            <!-- Persistent Sidebar -->
+            <aside class="standard-sidebar" id="standard-sidebar">
+                <div class="sidebar-brand">
+                    <img src="/logo.png" alt="JMedia" class="sidebar-logo" onclick="window.app.navigate('/')">
+                    <span class="sidebar-brand-text" onclick="window.app.navigate('/')">JMedia</span>
+                    
+                    <button id="themeToggle" class="button is-ghost theme-toggle-btn" title="Toggle Theme">
+                        <i id="themeIcon" class="pi pi-sun"></i>
+                    </button>
+
+                    <button class="button is-ghost sidebar-toggle" id="toggleSidebarBtn">
+                        <i class="pi pi-bars"></i>
+                    </button>
+                </div>
+                
+                <nav class="sidebar-nav">
+                    <!-- 1. Settings-only Libraries Group -->
+                    <div class="nav-group" id="settings-libraries-group" style="display: none;">
+                        <p class="nav-label">Libraries</p>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/')">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/video')">
+                            <i class="pi pi-video"></i> <span>Videos</span>
+                        </a>
+                    </div>
+
+                    <!-- 2. Video Group (Primary for Video View) -->
+                    <div class="nav-group" id="video-nav-group">
+                        <p class="nav-label">Video Library</p>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-home" onclick="window.app.navigate('/video')">
+                            <i class="pi pi-video"></i> <span>Videos</span>
+                        </a>
+                        
+                        <!-- Video Sub-Nav (Visible when in Video view) -->
+                        <div id="video-sub-nav" style="display: none;">
+                            <a href="javascript:void(0)" class="nav-item" id="nav-movies" onclick="window.switchSection('movies')">
+                                <i class="pi pi-ticket"></i> <span>Movies</span>
+                            </a>
+                            <a href="javascript:void(0)" class="nav-item" id="nav-shows" onclick="window.switchSection('shows')">
+                                <i class="pi pi-desktop"></i> <span>TV Shows</span>
+                            </a>
+                             <a href="javascript:void(0)" class="nav-item" id="nav-collections" onclick="window.switchSection('collections')">
+                                 <i class="pi pi-th-large"></i> <span>Collections</span>
+                             </a>
+                             <a href="javascript:void(0)" class="nav-item" id="nav-video-history" onclick="window.switchSection('history')">
+                                <i class="pi pi-clock"></i> <span>History</span>
+                            </a>
+                            <a href="javascript:void(0)" class="nav-item" id="nav-video-watchlist" onclick="window.switchSection('watchlist')">
+                                <i class="pi pi-bookmark"></i> <span>Watchlist</span>
+                            </a>
+                            <a href="javascript:void(0)" class="nav-item admin-only" id="nav-admin-video-history" onclick="window.switchSection('adminHistory')">
+                                <i class="pi pi-shield"></i> <span>All History</span>
+                            </a>
+                             <a href="javascript:void(0)" class="nav-item" id="nav-manage" onclick="window.switchSection('manage')">
+                                 <i class="pi pi-cog"></i> <span>Manage Library</span>
+                             </a>
+                               <a href="javascript:void(0)" class="nav-item" id="nav-needs-attention" onclick="window.switchSection('needsAttention')" title="Videos with missing or unmatched metadata that require review">
+                                   <i class="pi pi-exclamation-triangle" style="color: #ffa502;"></i> <span>Needs Attention</span>
+                               </a>
+                               <a href="javascript:void(0)" class="nav-item" id="nav-verification" onclick="window.switchSection('verification')" title="Recently imported videos awaiting metadata verification">
+                                   <i class="pi pi-check-square" style="color: #48c774;"></i> <span>Verification</span>
+                               </a>
+                              <a href="javascript:void(0)" class="nav-item admin-only" id="nav-external" onclick="window.switchSection('external')">
+                                   <i class="pi pi-external-link"></i> <span>External Link</span>
+                                   <span class="tag is-small is-warning" style="margin-left: auto;">Beta</span>
+                               </a>
+                              <a href="javascript:void(0)" class="nav-item" id="nav-liveTv" onclick="window.switchSection('liveTv')">
+                                    <i class="pi pi-desktop" style="color: #48c774;"></i> <span>Live TV</span>
+                                    <span class="tag is-small is-info" style="margin-left: auto;">New</span>
+                                </a>
+                              <a href="javascript:void(0)" class="nav-item" id="nav-now-playing" onclick="window.switchSection('nowPlaying')">
+                                    <i class="pi pi-play"></i> <span>Now Playing</span>
+                                </a>
+                           </div>
+                    </div>
+
+                    <!-- 3. Music Group (Primary for Music View) -->
+                    <div class="nav-group" id="music-nav-group">
+                        <p class="nav-label">Music Library</p>
+                        <a href="javascript:void(0)" class="nav-item active" id="nav-music" onclick="window.app.navigate('/')">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-albums" onclick="window.switchToTab('albums')">
+                            <i class="pi pi-disc"></i> <span>Albums</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-genres" onclick="window.switchToTab('genres')">
+                            <i class="pi pi-tags"></i> <span>Genres</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-playlists" onclick="window.switchToTab('playlists')">
+                            <i class="pi pi-list"></i> <span>Playlists</span>
+                        </a>
+
+                        <p class="nav-label mt-3">Playlists</p>
+                        <div class="nav-sub-group" id="sidebarPlaylistList">
+                            <!-- Populated by music-index.js -->
+                        </div>
+
+                        <a href="javascript:void(0)" class="nav-sub-item create-playlist-btn" onclick="document.getElementById('playlistModal').classList.add('is-active')">
+                            <i class="pi pi-plus"></i> <span>New Playlist</span>
+                        </a>
+                    </div>
+
+                    <!-- 4. Personal Group (Music) -->
+                    <div class="nav-group" id="personal-nav-group">
+                        <p class="nav-label">Personal</p>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-queue" onclick="window.switchToTab('queue')">
+                            <i class="pi pi-list"></i> <span>Queue</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-music-history" onclick="window.switchToTab('history')">
+                            <i class="pi pi-history"></i> <span>History</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="nav-import" onclick="window.app.navigate('/import')">
+                            <i class="pi pi-download"></i> <span>Import</span>
+                        </a>
+                    </div>
+
+                    <!-- 5. Music-view Video Link (Simplified for Music view) -->
+                    <div class="nav-group" id="music-video-link-group">
+                        <p class="nav-label">Videos</p>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/video')">
+                            <i class="pi pi-video"></i> <span>Video Library</span>
+                        </a>
+                    </div>
+
+                    <!-- 6. Video-only Music Group (Simple link for Video View) -->
+                    <div class="nav-group" id="video-music-group" style="display: none;">
+                        <p class="nav-label">Music Library</p>
+                        <a href="javascript:void(0)" class="nav-item" onclick="window.app.navigate('/')">
+                            <i class="pi pi-play-circle"></i> <span>Music</span>
+                        </a>
+                    </div>
+
+                    <!-- Settings Tabs (Hidden by default, shown in Settings view) -->
+                    <div class="nav-group" id="settingsSideTabs" style="display: none;">
+                        <p class="nav-label">Configuration</p>
+                        <a href="javascript:void(0)" class="nav-item active" data-tab="library-management">
+                            <i class="pi pi-folder-open"></i> <span>Library</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="import-installation">
+                            <i class="pi pi-download"></i> <span>Import</span>
+                        </a>
+
+                        <a href="javascript:void(0)" class="nav-item" data-tab="playlist-creator">
+                            <i class="pi pi-plus-circle"></i> <span>Playlists</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="logs">
+                            <i class="pi pi-list"></i> <span>Logs</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="user-management">
+                            <i class="pi pi-users"></i> <span>Users</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="session-management">
+                            <i class="pi pi-id-card"></i> <span>Sessions</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="ai-subtitle-generator">
+                            <i class="pi pi-magic"></i> <span>AI Subtitles</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="sync-configuration">
+                            <i class="pi pi-sync"></i> <span>Sync</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item admin-only" data-tab="system">
+                            <i class="pi pi-sliders-h"></i> <span>System</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-group mt-auto">
+                        <a href="javascript:void(0)" class="nav-item" id="nav-settings" onclick="window.app.navigate('/settings')">
+                            <i class="pi pi-cog"></i> <span>Settings</span>
+                        </a>
+                        <a href="javascript:void(0)" class="nav-item" id="openProfileModalBtn" onclick="document.getElementById('profileModal').classList.add('is-active')">
+                            <i class="pi pi-user"></i> <span id="currentProfileName">Profile</span>
+                        </a>
+                    </div>
+                </nav>
+            </aside>
+
+            <!-- Main Content Area (Shell) -->
+            <div class="standard-main">
+                <!-- Music Hero (ultrawide, driven by the currently playing song) -->
+                <section class="music-hero" id="musicHero">
+                    <img class="music-hero-backdrop" id="musicHeroBackdrop" src="/logo.png" alt="" style="background: #0a0a0a;">
+                    <div class="music-hero-shade"></div>
+                    <div class="music-hero-inner">
+                        <div class="music-hero-artwork" id="musicHeroArtworkWrap">
+                            <img id="musicHeroArtwork" src="/logo.png" alt="Now Playing">
+                        </div>
+                        <div class="music-hero-meta">
+                            <span class="music-hero-badge"><i class="pi pi-volume-up"></i> Now Playing</span>
+                            <h1 class="music-hero-title" id="musicHeroTitle">Nothing Playing</h1>
+                            <p class="music-hero-artist" id="musicHeroArtist">Unknown Artist</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Views will be injected here (Header + Content) -->
+                <div id="app-content" style="flex: 1; display: flex; flex-direction: column; min-height: 0;"><div class="skeleton-shell"><div class="field has-addons m-2"><div class="control is-expanded"><div class="skeleton-block is-skeleton" style="height:2em;border-radius:999px;"></div></div><div class="control"><div class="skeleton-block is-skeleton" style="width:60px;height:2em;border-radius:999px;"></div></div></div><div class="is-flex is-flex-wrap-wrap px-3 py-2" style="gap:0.75rem;"><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div><div style="flex:0 0 auto;width:calc(33.33% - 0.5rem);"><div class="card is-skeleton" style="aspect-ratio:1;border-radius:8px;"></div><div class="skeleton-lines mt-2"><div></div></div></div></div></div></div>
+
+                <!-- Persistent Player -->
+                <div id="musicPlayerContainer" class="persistent-music-player">
+                    <audio id="audioPlayer" preload="auto" playsinline></audio>
+                    <div class="mobile-player">
+                        <div class="mobile-player-info">
+                            <div class="mobile-player-artwork" id="songCoverImageContainer"><img id="songCoverImage" src="/logo.png" alt="Cover"><i class="pi pi-music" id="songCoverFallback" style="display: none;"></i></div>
+                            <div class="mobile-player-details">
+                                <p id="songTitle" class="mobile-player-title">Loading...</p>
+                                <p id="songArtist" class="mobile-player-artist" onclick="window.showArtistFromPlayer()">Unknown Artist</p>
+                            </div>
+                        </div>
+                        
+                        <div class="mobile-player-controls">
+                            <button id="shuffleBtn" class="mobile-btn"><i id="shuffleIcon" class="pi pi-sort-alt"></i></button>
+                            <button id="djModeBtn" class="mobile-btn" title="Toggle DJ Mode (Seamless Transitions)"><i id="djModeIcon" class="pi pi-headphones"></i></button>
+                            <button id="prevBtn" class="mobile-btn"><i class="pi pi-step-backward"></i></button>
+                            <button id="playPauseBtn" class="mobile-btn mobile-btn-primary"><i id="playPauseIcon" class="pi pi-play"></i></button>
+                            <button id="nextBtn" class="mobile-btn"><i class="pi pi-step-forward"></i></button>
+                            <button id="repeatBtn" class="mobile-btn"><i id="repeatIcon" class="pi pi-refresh"></i></button>
+                        </div>
+
+                        <!-- Standalone search pill (next to the center dock, not inside it) -->
+                        <div class="mobile-search-wrapper">
+                            <button id="dockSearchBtn" class="mobile-btn" title="Search Music"><i id="dockSearchIcon" class="pi pi-search"></i></button>
+                        </div>
+
+                        <!-- Glass search shell (video-style liquid glass: typing area + results dropdown) -->
+                        <div class="dock-search-shell" id="dockSearchShell">
+                            <i class="pi pi-search"></i>
+                            <input class="dock-search-input" id="dockSearchInput" type="text" placeholder="Search songs..." autocomplete="off">
+                            <button class="dock-search-close" id="dockSearchClose" aria-label="Close search"><i class="pi pi-times"></i></button>
+                            <div class="dock-search-dropdown" id="dockSearchDropdown"></div>
+                        </div>
+
+<div class="mobile-player-right-side">
+                                <div class="mobile-volume-wrapper">
+                                    <button id="volumeToggleBtn" class="mobile-btn"><i id="volumeIcon" class="pi pi-volume-up"></i></button>
+                                    <div class="volume-slider-container">
+                                        <input type="range" id="musicVolumeProgressBar" class="vertical-volume" min="0" max="100" value="70">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DJ Mode Indicator (above progress bar, below controls) -->
+                        <div id="djModeIndicator" class="dj-indicator is-hidden my-1" style="display: none; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px 8px;">
+                            <i class="pi pi-compact-disc" style="font-size: 0.75rem"></i>
+                            <span id="djModeIndicatorText"></span>
+                            <div id="djSettingsPanel" class="dj-settings-panel">
+                                <div class="dj-settings-header">
+                                    <span class="dj-settings-title"><i class="pi pi-sliders-h"></i> DJ Settings</span>
+                                    <button type="button" class="dj-settings-close" data-dj-action="close" title="Close (Esc)"><i class="pi pi-times"></i></button>
+                                </div>
+                                <div class="dj-settings-body">
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Genre Pool</span>
+                                        <input type="text" id="djGenreFilter" class="dj-genre-filter" placeholder="Filter genres..." autocomplete="off" spellcheck="false">
+                                        <div class="dj-settings-chips" id="djGenrePoolChips"><span class="dj-chip-loading">Loading genres...</span></div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Songs per Genre</span>
+                                        <div class="dj-stepper">
+                                            <button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="-1" title="Decrease"><i class="pi pi-minus"></i></button>
+                                            <span class="dj-stepper-value" id="djSongsPerGenreValue">3</span>
+                                            <button type="button" class="dj-stepper-btn" data-dj-action="step" data-dj-step="1" title="Increase"><i class="pi pi-plus"></i></button>
+                                        </div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Crossfade Override</span>
+                                        <div class="dj-segmented" data-dj-field="crossfade">
+                                            <button type="button" class="dj-seg-btn" data-dj-value="-1">Auto</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="0">0s</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="3">3s</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="5">5s</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="10">10s</button>
+                                        </div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">Match Strictness</span>
+                                        <div class="dj-segmented" data-dj-field="strictness">
+                                            <button type="button" class="dj-seg-btn" data-dj-value="LOW">Relaxed</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="MEDIUM">Medium</button>
+                                            <button type="button" class="dj-seg-btn" data-dj-value="HIGH">Strict</button>
+                                        </div>
+                                    </div>
+                                    <div class="dj-settings-section">
+                                        <span class="dj-settings-label">BPM Range <span class="dj-settings-hint">(0 = auto)</span></span>
+                                        <div class="dj-bpm-row">
+                                            <input type="number" id="djBpmMin" class="dj-number-input" min="0" max="400" placeholder="Min">
+                                            <span class="dj-bpm-sep">&ndash;</span>
+                                            <input type="number" id="djBpmMax" class="dj-number-input" min="0" max="400" placeholder="Max">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="dj-settings-footer">
+                                    <label class="switch dj-settings-switch" title="Enable / disable DJ Mode">
+                                        <input type="checkbox" id="djEnabledToggle" checked>
+                                        <span class="check"></span>
+                                    </label>
+                                    <span class="dj-settings-footer-label">Enabled</span>
+                                    <span class="dj-settings-save-state" id="djSettingsSaveState"></span>
+                                    <button type="button" class="dj-settings-reset" data-dj-action="reset"><i class="pi pi-refresh"></i> Reset</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mobile-progress-container">
+                            <span id="musicCurrentTime">0:00</span>
+                            <input type="range" id="musicProgressBar" class="mobile-progress" min="0" max="100" value="0">
+                            <span id="musicTotalTime">0:00</span>
+                        </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared Modals -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 2000000;"></div>
+
+        <!-- Playlist Modal -->
+        <div id="playlistModal" class="modal">
+            <div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div>
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head"><p class="modal-card-title">New Playlist</p></header>
+                <section class="modal-card-body">
+                    <input class="input" type="text" id="newPlaylistNameInputModal" placeholder="Playlist Name">
+                </section>
+                <footer class="modal-card-foot">
+                    <button class="button is-success" onclick="confirmCreatePlaylist()">Create</button>
+                    <button class="button" onclick="this.closest('.modal').classList.remove('is-active')">Cancel</button>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Profile Modal -->
+        <div id="profileModal" class="modal">
+            <div class="modal-background" onclick="this.parentElement.classList.remove('is-active')"></div>
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head"><p class="modal-card-title">Manage Profiles</p></header>
+                <section class="modal-card-body">
+                    <div id="profileList" class="field is-grouped is-grouped-multiline is-justify-content-center"></div>
+                    <hr>
+                    <div class="field has-addons">
+                        <div class="control is-expanded"><input class="input" type="text" id="newProfileNameInput"></div>
+                        <div class="control"><button class="button is-info" id="createProfileBtn">Create</button></div>
+                    </div>
+                    <button class="button is-danger is-fullwidth mt-4" id="deleteCurrentProfileBtn">Delete Profile</button>
+                </section>
+                <footer class="modal-card-foot" style="justify-content: space-between;">
+                    <button class="button is-danger is-small" onclick="window.handleLogout()">Logout</button>
+                    <button class="button is-small" onclick="this.closest('.modal').classList.remove('is-active')">Close</button>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Subtitle Management Modal -->
+        <div id="subtitleManagementModal" class="modal">
+            <div class="modal-background" onclick="subtitleManager.closeModal()"></div>
+            <div class="modal-card glass-modal" style="width: 80%; max-width: 900px;">
+                <header class="modal-card-head glass-modal-header" style="flex-direction: column; align-items: flex-start; padding: 1.5rem;">
+                    <div class="is-flex is-justify-content-between is-align-items-center" style="width: 100%;">
+                        <p class="modal-card-title mb-0">Subtitle Management</p>
+                        <button class="delete" aria-label="close" onclick="subtitleManager.closeModal()"></button>
+                    </div>
+                    <div id="subtitle-modal-path" class="has-text-grey-light is-size-7 mt-2" style="font-family: monospace; word-break: break-all; opacity: 0.7;"></div>
+                </header>
+                <section class="modal-card-body glass-modal-body">
+                    <div class="tabs is-centered is-boxed">
+                        <ul>
+                            <li id="search-tab-btn" class="is-active"><a onclick="subtitleManager.switchTab('search')">Search Online</a></li>
+                            <li id="manual-tab-btn"><a onclick="subtitleManager.switchTab('manual')">Manual Find</a></li>
+                            <li id="ai-tab-btn"><a onclick="subtitleManager.switchTab('ai')">AI Generation</a></li>
+                            <li id="style-tab-btn"><a onclick="subtitleManager.switchTab('style')">Style</a></li>
+                            <li id="upload-tab-btn"><a onclick="subtitleManager.switchTab('upload')">Upload</a></li>
+                        </ul>
+                    </div>
+
+                    <!-- Search Tab -->
+                    <div id="search-tab-content">
+                        <div class="field has-addons">
+                            <div class="control is-expanded">
+                                <input class="input is-rounded" type="text" id="subtitleSearchInput" placeholder="Search by name...">
+                            </div>
+                            <div class="control">
+                                <span class="select is-rounded">
+                                    <select id="subtitleLanguageSelect">
+                                        <option value="en">English</option>
+                                        <option value="es">Español</option>
+                                        <option value="spl">Español (Latinoamérica)</option>
+                                        <option value="fr">Français</option>
+                                        <option value="de">Deutsch</option>
+                                        <option value="it">Italiano</option>
+                                        <option value="pt">Português</option>
+                                        <option value="ru">Русский</option>
+                                        <option value="ja">日本語</option>
+                                        <option value="ko">한국어</option>
+                                        <option value="zh">中文</option>
+                                    </select>
+                                </span>
+                            </div>
+                            <div class="control">
+                                <button class="button is-info is-rounded" onclick="subtitleManager.search()">
+                                    <i class="pi pi-search"></i>&nbsp;Search
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="subtitleSearchResultsContainer" class="mt-4" style="min-height: 200px; max-height: 400px; overflow-y: auto;">
+                            <table class="table is-fullwidth is-hoverable is-narrow subtitle-table">
+                                <thead>
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Language</th>
+                                        <th>Rating</th>
+                                        <th>Downloads</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subtitleSearchResultsBody">
+                                    <tr>
+                                        <td colspan="5" class="has-text-centered has-text-grey">
+                                            Use the search bar above to find subtitles
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Manual Tab -->
+                    <div id="manual-tab-content" style="display: none;">
+                        <div class="field">
+                            <label class="label">Local Directory Scanning</label>
+                            <p class="help mb-4">The system scanned the video folder and sub-folders (up to 3 levels deep). Select files to add them as subtitle tracks.</p>
+                            <div class="buttons">
+                                <button class="button is-info is-small is-rounded" onclick="subtitleManager.scanLocal()">
+                                    <i class="pi pi-refresh"></i>&nbsp;Rescan Folder
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="subtitleManualResultsContainer" class="mt-4" style="min-height: 200px; max-height: 400px; overflow-y: auto;">
+                            <table class="table is-fullwidth is-hoverable is-narrow subtitle-table">
+                                <thead>
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Detected Lang</th>
+                                        <th>Path</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subtitleManualResultsBody">
+                                    <tr>
+                                        <td colspan="4" class="has-text-centered has-text-grey">
+                                            Click "Rescan Folder" to see all potential subtitle files
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- AI Tab -->
+                    <div id="ai-tab-content" style="display: none;">
+                        <div class="content has-text-centered py-4">
+                            <i class="pi pi-bolt" style="font-size: 3rem; color: #ffa502;"></i>
+                            <h3 class="title is-5 mt-3">Parakeet AI Generation</h3>
+                            <p class="mb-3">Generate high-quality subtitles using NVIDIA Parakeet TDT directly from the video audio.</p>
+                            <p class="help mb-3">This process runs in the background and may take several minutes depending on video length and server hardware.</p>
+
+                            <div class="field mb-3">
+                                <label class="label">Audio Track</label>
+                                <div class="control">
+                                    <div class="select is-fullwidth">
+                                        <select id="subtitleAiAudioTrack">
+                                            <option value="">Default audio track</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button class="button is-warning is-rounded is-medium" id="startAiSubtitleBtn" onclick="subtitleManager.generateAiSubtitles()">
+                                <i class="pi pi-magic"></i>&nbsp;Generate with AI
+                            </button>
+                            
+                            <!-- Progress indicator (hidden by default) -->
+                            <div id="aiGenerationProgress" class="mt-4" style="display: none;">
+                                <div class="is-flex is-justify-content-center is-align-items-center">
+                                    <i class="pi pi-spin pi-spinner mr-2"></i>
+                                    <span id="aiGenerationStatus">Generating subtitles...</span>
+                                </div>
+                                <button class="button is-danger is-small is-rounded mt-2" id="cancelAiGenerationBtn" onclick="subtitleManager.cancelAiGeneration()">
+                                    <i class="pi pi-times"></i>&nbsp;Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Style Tab -->
+                    <div id="style-tab-content" style="display: none;">
+                        <div class="columns is-multiline">
+                            <!-- Font & Size -->
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Font Family</label>
+                                    <div class="control">
+                                        <div class="select is-fullwidth">
+                                            <select id="subStyleFont" onchange="subtitleManager.updateStyle()">
+                                                <option value="'Segoe UI', sans-serif">Segoe UI (Default)</option>
+                                                <option value="'Arial', sans-serif">Arial</option>
+                                                <option value="'Georgia', serif">Georgia (Serif)</option>
+                                                <option value="'Courier New', monospace">Courier (Mono)</option>
+                                                <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Font Size (<span id="fontSizeVal">20</span>px)</label>
+                                    <div class="control">
+                                        <input class="slider is-fullwidth" id="subStyleSize" type="range" min="12" max="48" value="20" oninput="subtitleManager.updateStyle()">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Colors -->
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Text Color</label>
+                                    <div class="control is-flex">
+                                        <input class="input" type="color" id="subStyleColor" value="#ffffff" style="width: 50px; padding: 0; height: 40px; border: none; cursor: pointer;" oninput="subtitleManager.updateStyle()">
+                                        <input class="input ml-2" type="text" id="subStyleColorHex" value="#ffffff" readonly style="background: transparent; border: none; color: white;">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Background Opacity (<span id="bgOpacityVal">0.7</span>)</label>
+                                    <div class="control">
+                                        <input class="slider is-fullwidth" id="subStyleBgOpacity" type="range" min="0" max="1" step="0.1" value="0.7" oninput="subtitleManager.updateStyle()">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Spacing & Position -->
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Line Height</label>
+                                    <div class="control">
+                                        <div class="select is-fullwidth">
+                                            <select id="subStyleLineHeight" onchange="subtitleManager.updateStyle()">
+                                                <option value="1.2">Compact</option>
+                                                <option value="1.4" selected>Normal</option>
+                                                <option value="1.8">Spaced</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Bottom Distance (<span id="bottomDistVal">60</span>px)</label>
+                                    <div class="control">
+                                        <input class="slider is-fullwidth" id="subStyleBottom" type="range" min="0" max="200" value="60" oninput="subtitleManager.updateStyle()">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Preview Box -->
+                        <div class="subtitle-preview mt-4 p-5 has-text-centered" style="background: rgba(0,0,0,0.4); border-radius: 8px; position: relative; min-height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                            <span id="subPreviewText" style="padding: 4px 12px; border-radius: 4px;">The quick brown fox jumps over the lazy dog.</span>
+                        </div>
+
+                        <div class="buttons is-centered mt-5">
+                            <button class="button is-success is-rounded" onclick="subtitleManager.saveStyle()">
+                                <i class="pi pi-save mr-2"></i> Save Settings
+                            </button>
+                            <button class="button is-ghost" onclick="subtitleManager.resetStyle()">Reset to Default</button>
+                        </div>
+                    </div>
+
+                    <!-- Upload Tab -->
+                    <div id="upload-tab-content" style="display: none;">
+                        <div class="field">
+                            <label class="label">Upload Subtitle File</label>
+                            <p class="help mb-4">Select a subtitle file from your computer to upload for this video. Supported formats: SRT, VTT, ASS, SSA, SUB.</p>
+                            <div class="file has-name is-fullwidth is-boxed" id="subtitleFileUpload">
+                                <label class="file-label">
+                                    <input class="file-input" type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa,.sub,.idx" onchange="subtitleManager.onFileSelected(event)">
+                                    <span class="file-cta">
+                                        <span class="file-icon">
+                                            <i class="pi pi-upload"></i>
+                                        </span>
+                                        <span class="file-label">Choose file</span>
+                                    </span>
+                                    <span class="file-name" id="subtitleUploadFileName">No file selected</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="columns">
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Language</label>
+                                    <div class="control">
+                                        <span class="select is-fullwidth is-rounded">
+                                            <select id="subtitleUploadLanguage">
+                                                <option value="en">English</option>
+                                                <option value="es">Español</option>
+                                                <option value="spl">Español (Latinoamérica)</option>
+                                                <option value="fr">Français</option>
+                                                <option value="de">Deutsch</option>
+                                                <option value="it">Italiano</option>
+                                                <option value="pt">Português</option>
+                                                <option value="ru">Русский</option>
+                                                <option value="ja">日本語</option>
+                                                <option value="ko">한국어</option>
+                                                <option value="zh">中文</option>
+                                            </select>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="column is-6">
+                                <div class="field">
+                                    <label class="label">Display Name</label>
+                                    <div class="control">
+                                        <input class="input is-rounded" type="text" id="subtitleUploadName" placeholder="e.g. English (Forced)">
+                                    </div>
+                                    <p class="help">Optional. Leave empty to use the filename.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <div class="control">
+                                <button class="button is-success is-rounded is-medium" id="uploadSubtitleBtn" onclick="subtitleManager.uploadSubtitle()" disabled>
+                                    <i class="pi pi-upload"></i>&nbsp;Upload Subtitle
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <footer class="modal-card-foot glass-modal-footer">
+                    <button class="button" onclick="subtitleManager.closeModal()">Close</button>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Edit Video Metadata Modal -->
+        <div id="editVideoModal" class="modal">
+            <div class="modal-background" onclick="document.getElementById('editVideoModal').classList.remove('is-active')"></div>
+            <div class="modal-card glass-modal">
+                <header class="modal-card-head glass-modal-header">
+                    <p class="modal-card-title">Edit Video Metadata</p>
+                    <button class="delete" aria-label="close" onclick="document.getElementById('editVideoModal').classList.remove('is-active')"></button>
+                </header>
+                <section class="modal-card-body glass-modal-body" id="editVideoModalBody">
+                    <div class="has-text-centered p-6">
+                        <i class="pi pi-spin pi-spinner" style="font-size: 2rem;"></i>
+                    </div>
+                </section>
+            </div>
+        </div>
+        
+        <script>
+             // Sidebar Toggle Logic
+             document.addEventListener('DOMContentLoaded', () => {
+                const layout = document.getElementById('standard-layout');
+                const toggleBtn = document.getElementById('toggleSidebarBtn');
+                const isMobile = window.matchMedia('(max-width: 768px)').matches;
+                
+                if (toggleBtn) {
+                    toggleBtn.onclick = () => {
+                        layout.classList.toggle('collapsed');
+                        localStorage.setItem('sidebarCollapsed', layout.classList.contains('collapsed'));
+                    };
+                }
+                
+                // Collapse by default on mobile, unless user has a saved preference
+                if (isMobile && !localStorage.getItem('sidebarCollapsed')) {
+                    layout.classList.add('collapsed');
+                } else if (localStorage.getItem('sidebarCollapsed') === 'true') {
+                    layout.classList.add('collapsed');
+                }
+
+                const sidebarPos = localStorage.getItem('sidebarPosition');
+                if (layout && sidebarPos === 'right') {
+                    layout.classList.add('sidebar-right');
+                } else if (layout && sidebarPos === 'left') {
+                    layout.classList.remove('sidebar-right');
+                }
+            });
+            
+            // Playlist Creation Logic (Moved from indexNew.html inline)
+            function confirmCreatePlaylist() {
+                const name = document.getElementById('newPlaylistNameInputModal').value;
+                if (!name) return;
+                fetch(`/api/music/playlists/${window.globalActiveProfileId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name})
+                }).then(() => {
+                    document.getElementById('playlistModal').classList.remove('is-active');
+                    if(window.loadMobilePlaylists) window.loadMobilePlaylists();
+                    if(window.showToast) window.showToast('Playlist created', 'success');
+                });
+            }
+
+            function handleLogout() {
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('activeProfileId');
+                window.location.href = '/login'; 
+            }
+        </script>
+    </body>
+</html>

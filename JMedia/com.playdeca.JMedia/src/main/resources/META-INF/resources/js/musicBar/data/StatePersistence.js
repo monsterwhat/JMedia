@@ -13,6 +13,41 @@
         MAX_AGE_MS: 30000,
         
         /**
+         * Get the active profile id used to scope stored state.
+         * @returns {string|null} Profile id or null if not yet resolved
+         */
+        getProfileId: function() {
+            return window.globalActiveProfileId || localStorage.getItem('activeProfileId') || null;
+        },
+        
+        /**
+         * Per-profile storage key: state saved under one profile can never be
+         * restored (or compared) against another profile's state.
+         * @returns {string} Storage key scoped to the active profile
+         */
+        getStorageKey: function() {
+            const pid = this.getProfileId();
+            return pid ? this.STORAGE_KEY + ':' + pid : this.STORAGE_KEY;
+        },
+        
+        /**
+         * Read the raw saved state blob for the active profile without age
+         * validation (used for timestamp comparisons, e.g. WebSocket resync).
+         * @returns {Object|null} Parsed state or null
+         */
+        getSavedState: function() {
+            if (!window.localStorage) return null;
+            try {
+                const saved = localStorage.getItem(this.getStorageKey());
+                if (!saved) return null;
+                return JSON.parse(saved);
+            } catch (e) {
+                window.Helpers.log('StatePersistence: Error reading saved state:', e);
+                return null;
+            }
+        },
+        
+        /**
          * Initialize state persistence
          */
         init: function() {
@@ -60,6 +95,7 @@
                     djBpmMax: currentState.djBpmMax,
                     timestamp: Date.now(),
                     deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
+                    profileId: this.getProfileId(),
                     savedOffline: false
                 };
                 
@@ -71,7 +107,7 @@
                     stateToSave.currentTime = currentState.currentTime || 0;
                 }
                 
-                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(stateToSave));
+                localStorage.setItem(this.getStorageKey(), JSON.stringify(stateToSave));
                 window.Helpers.log('StatePersistence saved state before unload:', {
                     currentSongId: stateToSave.currentSongId,
                     currentTime: stateToSave.currentTime
@@ -149,7 +185,8 @@
                     djBpmMin: currentState.djBpmMin,
                     djBpmMax: currentState.djBpmMax,
                     timestamp: Date.now(),
-                    deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null
+                    deviceId: window.DeviceManager ? window.DeviceManager.getDeviceId() : null,
+                    profileId: this.getProfileId()
                 };
                 
                 // Only save time if offline or specifically requested
@@ -162,7 +199,7 @@
                     stateToSave.savedOffline = false;
                 }
                 
-                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(stateToSave));
+                localStorage.setItem(this.getStorageKey(), JSON.stringify(stateToSave));
                 window.Helpers.log('StatePersistence saved state:', {
                     currentSongId: stateToSave.currentSongId,
                     playing: stateToSave.playing,
@@ -189,13 +226,25 @@
             }
             
             try {
-                const saved = localStorage.getItem(this.STORAGE_KEY);
+                const saved = localStorage.getItem(this.getStorageKey());
                 if (!saved) {
                     window.Helpers.log('StatePersistence: No saved state found');
                     return null;
                 }
                 
                 const state = JSON.parse(saved);
+                
+                // Per-profile safety: never restore state that was saved under a
+                // different profile (covers stale keys and legacy blobs).
+                const activeProfileId = this.getProfileId();
+                if (state.profileId && activeProfileId && String(state.profileId) !== String(activeProfileId)) {
+                    window.Helpers.log('StatePersistence: Saved state belongs to a different profile - ignoring:', {
+                        savedProfile: state.profileId,
+                        activeProfile: activeProfileId
+                    });
+                    return null;
+                }
+                
                 const age = Date.now() - state.timestamp;
                 
                 // Check if state is recent and for same device
@@ -234,7 +283,7 @@
             }
             
             try {
-                localStorage.removeItem(this.STORAGE_KEY);
+                localStorage.removeItem(this.getStorageKey());
                 window.Helpers.log('StatePersistence cleared saved state');
                 return true;
             } catch (e) {
@@ -253,7 +302,7 @@
             }
             
             try {
-                const saved = localStorage.getItem(this.STORAGE_KEY);
+                const saved = localStorage.getItem(this.getStorageKey());
                 return saved !== null && saved !== undefined;
             } catch (e) {
                 window.Helpers.log('StatePersistence: Error checking saved state:', e);
@@ -271,7 +320,7 @@
             }
             
             try {
-                const saved = localStorage.getItem(this.STORAGE_KEY);
+                const saved = localStorage.getItem(this.getStorageKey());
                 if (!saved) {
                     return null;
                 }
@@ -315,7 +364,7 @@
             }
             
             try {
-                const saved = localStorage.getItem(this.STORAGE_KEY);
+                const saved = localStorage.getItem(this.getStorageKey());
                 const size = saved ? new Blob([saved]).size : 0;
                 const metadata = this.getSavedStateMetadata();
                 

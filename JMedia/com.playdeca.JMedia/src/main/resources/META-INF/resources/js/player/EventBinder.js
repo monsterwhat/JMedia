@@ -176,7 +176,8 @@
                             if (window.Toast) window.Toast.warning('Playback stalled - reconnecting... (' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + ')');
                             const pos = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
                             const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${pos}${qualityParam}`;
+                            const traceId = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${pos}${qualityParam}&trace=${traceId}`;
                             p.video.load();
                             p.video.play().catch(() => {});
                         } else {

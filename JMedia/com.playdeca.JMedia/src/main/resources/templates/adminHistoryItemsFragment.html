@@ -18,7 +18,7 @@
             {/if}
         </div>
         <div class="admin-history-details">
-            <span class="profile-avatar-small">{getProfileInitials.apply(h.profile.name)}</span>
+            <span class="profile-avatar-small">{getProfileInitials.apply(h.profileId)}</span>
             <span class="history-date" data-utc="{formatDateTimeISO.apply(h.history.playedAt)}">{formatDateTime.apply(h.history.playedAt)}</span>
         </div>
     </div>
