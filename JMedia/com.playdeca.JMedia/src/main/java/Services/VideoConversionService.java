@@ -1,7 +1,7 @@
 package Services;
 
-import Models.AudioTrack;
-import Models.Video;
+import Models.Video.AudioTrack;
+import Models.Video.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -1245,7 +1245,7 @@ public class VideoConversionService {
 
         // Update the corresponding MediaFile entity so history recording still works
         if (oldPath != null && !oldPath.equals(newPath)) {
-            Models.MediaFile mediaFile = Models.MediaFile.find("path", oldPath).firstResult();
+            Models.Video.MediaFile mediaFile = Models.Video.MediaFile.find("path", oldPath).firstResult();
             if (mediaFile != null) {
                 mediaFile.path = newPath;
                 // Re-probe metadata since the file content changed (re-encoded)
@@ -1281,7 +1281,7 @@ public class VideoConversionService {
 
     private boolean isHardwareAccelerationEnabled() {
         try {
-            Models.Settings settings = settingsService.getOrCreateSettings();
+            Models.Settings.Settings settings = settingsService.getOrCreateSettings();
             return settings.getHardwareAccelerationEnabled() != null ? settings.getHardwareAccelerationEnabled() : true;
         } catch (Exception e) {
             LOG.debug("Could not read hardware acceleration setting, defaulting to enabled: {}", e.getMessage());

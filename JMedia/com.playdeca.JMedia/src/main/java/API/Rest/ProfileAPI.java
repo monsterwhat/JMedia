@@ -1,9 +1,9 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Models.Profile;
-import Models.Session;
-import Models.User;
+import Models.Settings.Profile;
+import Models.Settings.Session;
+import Models.Settings.User;
 import Services.ProfileService;
 import Services.SessionService;
 import Services.UserService;
@@ -192,19 +192,19 @@ public class ProfileAPI {
         Profile otherProfile = Profile.find("id != ?1 and userId = ?2", id, currentUser.id).firstResult();
         
         if (otherProfile != null) {
-            List<Models.Playlist> playlists = Models.Playlist.list("profile", profile);
-            for (Models.Playlist p : playlists) {
-                p.setProfile(otherProfile);
+            List<Models.Music.Playlist> playlists = Models.Music.Playlist.list("profileId", profile.id);
+            for (Models.Music.Playlist p : playlists) {
+                p.setProfileId(otherProfile.id);
                 p.persist();
             }
             
-            List<Models.PlaybackHistory> history = Models.PlaybackHistory.list("profile", profile);
-            for (Models.PlaybackHistory h : history) {
-                h.profile = otherProfile;
+            List<Models.Music.PlaybackHistory> history = Models.Music.PlaybackHistory.list("profileId", profile.id);
+            for (Models.Music.PlaybackHistory h : history) {
+                h.profileId = otherProfile.id;
                 h.persist();
             }
             
-            Models.PlaybackState state = Models.PlaybackState.find("profile", profile).firstResult();
+            Models.Music.PlaybackState state = Models.Music.PlaybackState.find("profileId", profile.id).firstResult();
             if (state != null) {
                 state.delete();
             }
@@ -228,7 +228,7 @@ public class ProfileAPI {
             return Response.status(Response.Status.NOT_FOUND).entity("Profile not found.").build();
         }
         
-        Models.Playlist playlist = Models.Playlist.findById(playlistId);
+        Models.Music.Playlist playlist = Models.Music.Playlist.findById(playlistId);
         if (playlist == null) {
             return Response.status(Response.Status.NOT_FOUND).entity("Playlist not found.").build();
         }

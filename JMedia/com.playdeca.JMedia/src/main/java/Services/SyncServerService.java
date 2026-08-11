@@ -1,7 +1,7 @@
 package Services;
 
-import Models.SyncLog;
-import Models.SyncServer;
+import Models.Settings.SyncLog;
+import Models.Settings.SyncServer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;

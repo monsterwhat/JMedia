@@ -1,9 +1,9 @@
 package Services;
 
-import Models.MediaFile;
-import Models.Video;
-import Models.VideoHistory;
-import Models.ScanState;
+import Models.Video.MediaFile;
+import Models.Video.Video;
+import Models.Video.VideoHistory;
+import Models.Video.ScanState;
 import io.quarkus.runtime.Startup;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -41,7 +41,7 @@ public class VideoImportService {
 
     private static final Set<String> EXCLUDED_SCAN_DIRS = Set.of("hls", "mp4");
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "video")
     private EntityManager em;
 
     @Inject
@@ -378,34 +378,34 @@ public class VideoImportService {
         loggingService.addLog("Resetting video database...");
         try {
             // Clear per-profile video progress (video_progress table)
-            Models.VideoState.deleteAll();
+            Models.Video.VideoState.deleteAll();
         } catch (Exception e) {
             loggingService.addLog("Warning: Could not reset video progress: " + e.getMessage());
         }
         try {
             // Clear profile session states
-            Models.ProfileSessionState.deleteAll();
+            Models.Video.ProfileSessionState.deleteAll();
         } catch (Exception e) {
             loggingService.addLog("Warning: Could not reset session states: " + e.getMessage());
         }
         VideoHistory.deleteAll();
         try {
-            Models.VideoGenre.deleteAll();
+            Models.Video.VideoGenre.deleteAll();
         } catch (Exception e) {
             loggingService.addLog("Warning: Could not clear video genres: " + e.getMessage());
         }
         try {
-            Models.SubtitleTrack.deleteAll();
+            Models.Video.SubtitleTrack.deleteAll();
         } catch (Exception ignored) {}
         try {
-            Models.AudioTrack.deleteAll();
+            Models.Video.AudioTrack.deleteAll();
         } catch (Exception ignored) {}
         try {
-            Models.CollectionEntry.deleteAll();
+            Models.Video.CollectionEntry.deleteAll();
         } catch (Exception ignored) {}
         Video.deleteAll();
         try {
-            Models.Series.deleteAll();
+            Models.Video.Series.deleteAll();
         } catch (Exception ignored) {}
         MediaFile.deleteAll();
         ScanState.deleteAll();
@@ -490,11 +490,11 @@ public class VideoImportService {
     protected void deleteVideoWithRelations(Video video) {
         Long videoId = video.id;
 
-        Models.VideoState.delete("video.id", videoId);
-        Models.VideoGenre.delete("video.id", videoId);
-        Models.SubtitleTrack.delete("video.id", videoId);
-        Models.AudioTrack.delete("video.id", videoId);
-        Models.CollectionEntry.delete("video.id", videoId);
+        Models.Video.VideoState.delete("video.id", videoId);
+        Models.Video.VideoGenre.delete("video.id", videoId);
+        Models.Video.SubtitleTrack.delete("video.id", videoId);
+        Models.Video.AudioTrack.delete("video.id", videoId);
+        Models.Video.CollectionEntry.delete("video.id", videoId);
 
         // Delete VideoHistory referencing this media file before deleting MediaFile (FK constraint)
         MediaFile mf = MediaFile.find("path", video.path).firstResult();

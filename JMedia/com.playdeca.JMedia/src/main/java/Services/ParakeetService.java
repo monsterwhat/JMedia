@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Video;
-import Models.SubtitleTrack;
+import Models.Video.Video;
+import Models.Video.SubtitleTrack;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.BufferedReader;

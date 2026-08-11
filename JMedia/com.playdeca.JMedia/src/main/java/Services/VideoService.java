@@ -1,17 +1,17 @@
 package Services;
 
-import Models.Video;
-import Models.MediaFile;
+import Models.Video.Video;
+import Models.Video.MediaFile;
 import Models.DTOs.TvShowDTO;
 import Services.SmartNamingService;
-import Models.Genre;
-import Models.VideoGenre;
-import Models.SubtitleTrack;
-import Models.Profile;
-import Models.UserSubtitlePreferences;
-import Models.AudioTrack;
-import Models.ProfileSessionState;
-import Models.VideoState;
+import Models.Video.Genre;
+import Models.Video.VideoGenre;
+import Models.Video.SubtitleTrack;
+import Models.Settings.Profile;
+import Models.Video.UserSubtitlePreferences;
+import Models.Video.AudioTrack;
+import Models.Video.ProfileSessionState;
+import Models.Video.VideoState;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -35,7 +35,7 @@ public class VideoService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(VideoService.class);
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "video")
     private EntityManager em;
 
     @Inject
@@ -542,7 +542,7 @@ public class VideoService {
             return "";
         }
         try {
-            Models.Series series = Models.Series.find("title", seriesTitle).firstResult();
+            Models.Video.Series series = Models.Video.Series.find("title", seriesTitle).firstResult();
             if (series != null) {
                 String synopsis = series.description != null ? series.description : series.overview;
                 if (synopsis != null && !synopsis.isBlank()) {
@@ -627,7 +627,7 @@ public class VideoService {
         List<Video> episodeResults = new ArrayList<>();
         // Use MEMBER OF for @ElementCollection
         String seriesQuery = "SELECT s FROM Series s WHERE :genreName MEMBER OF s.genres";
-        List<Models.Series> seriesWithGenre = em.createQuery(seriesQuery, Models.Series.class)
+        List<Models.Video.Series> seriesWithGenre = em.createQuery(seriesQuery, Models.Video.Series.class)
             .setParameter("genreName", genreName)
             .getResultList();
 
@@ -920,7 +920,7 @@ public class VideoService {
     }
 
     @Transactional
-    public void updateAudioTracks(Long videoId, List<Models.AudioTrack> tracks) {
+    public void updateAudioTracks(Long videoId, List<Models.Video.AudioTrack> tracks) {
         Video video = Video.findById(videoId);
         if (video != null) {
             // Clear existing audio tracks
@@ -932,7 +932,7 @@ public class VideoService {
 
             // Add new tracks
             if (tracks != null) {
-                for (Models.AudioTrack track : tracks) {
+                for (Models.Video.AudioTrack track : tracks) {
                     track.video = video;
                     video.audioTracks.add(track);
                 }
@@ -1083,16 +1083,16 @@ public class VideoService {
         if (tvShows.size() > 20) tvShows = tvShows.subList(0, 20);
 
         // --- Cache and enrich Series entities for TV shows ---
-        Map<String, Models.Series> seriesCache = new HashMap<>();
+        Map<String, Models.Video.Series> seriesCache = new HashMap<>();
         for (Video v : tvShows) {
             try {
                 String seriesTitle = v.seriesTitle;
                 if (seriesTitle == null || seriesTitle.isBlank()) continue;
                 String cacheKey = seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
                 if (seriesCache.containsKey(cacheKey)) continue;
-                Models.Series series = v.series;
+                Models.Video.Series series = v.series;
                 if (series == null) {
-                    series = Models.Series.find("title", seriesTitle).firstResult();
+                    series = Models.Video.Series.find("title", seriesTitle).firstResult();
                 }
                 if (series != null && series.id != null) {
                     videoMetadataService.enrichSeriesTextMetadataAsync(series.id);
@@ -1104,8 +1104,8 @@ public class VideoService {
         }
 
         // Bulk-load every Series once so per-card rendering never queries the DB (N+1)
-        Map<String, Models.Series> allSeriesByTitle = new HashMap<>();
-        for (Models.Series s : Models.Series.<Models.Series>listAll()) {
+        Map<String, Models.Video.Series> allSeriesByTitle = new HashMap<>();
+        for (Models.Video.Series s : Models.Video.Series.<Models.Video.Series>listAll()) {
             if (s.title == null || s.title.isBlank()) continue;
             String sKey = s.title.toLowerCase().replaceAll("[^a-z0-9]", "");
             if (!sKey.isEmpty()) allSeriesByTitle.putIfAbsent(sKey, s);
@@ -1123,7 +1123,7 @@ public class VideoService {
             else if ("episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
                 try {
                     String trendingKey = v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
-                    Models.Series series = allSeriesByTitle.get(trendingKey);
+                    Models.Video.Series series = allSeriesByTitle.get(trendingKey);
                     if (series != null) {
                         rating = series.tmdbRating != null ? series.tmdbRating : (series.imdbRating != null ? series.imdbRating : 0.0);
                     }
@@ -1138,7 +1138,7 @@ public class VideoService {
             if (existingRating <= 0 && existing != null && "episode".equalsIgnoreCase(existing.type) && existing.seriesTitle != null) {
                 try {
                     String exKey = existing.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
-                    Models.Series exSeries = allSeriesByTitle.get(exKey);
+                    Models.Video.Series exSeries = allSeriesByTitle.get(exKey);
                     if (exSeries != null) {
                         existingRating = exSeries.tmdbRating != null ? exSeries.tmdbRating : (exSeries.imdbRating != null ? exSeries.imdbRating : 0.0);
                     }
@@ -1155,14 +1155,14 @@ public class VideoService {
             else if (a.tmdbRating != null) ra = a.tmdbRating;
             else if ("episode".equalsIgnoreCase(a.type) && a.seriesTitle != null) {
                 String k = a.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
-                Models.Series s = seriesCache.get(k);
+                Models.Video.Series s = seriesCache.get(k);
                 if (s != null) ra = s.tmdbRating != null ? s.tmdbRating : (s.imdbRating != null ? s.imdbRating : 0.0);
             }
             if (b.imdbRating != null) rb = b.imdbRating;
             else if (b.tmdbRating != null) rb = b.tmdbRating;
             else if ("episode".equalsIgnoreCase(b.type) && b.seriesTitle != null) {
                 String k = b.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
-                Models.Series s = seriesCache.get(k);
+                Models.Video.Series s = seriesCache.get(k);
                 if (s != null) rb = s.tmdbRating != null ? s.tmdbRating : (s.imdbRating != null ? s.imdbRating : 0.0);
             }
             return Double.compare(rb, ra);
@@ -1242,7 +1242,7 @@ public class VideoService {
         Map<String, List<Video>> tvGenreMap = new LinkedHashMap<>();
         for (Video v : tvShows) {
             String cacheKey = v.seriesTitle != null ? v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "") : null;
-            Models.Series series = cacheKey != null ? seriesCache.get(cacheKey) : null;
+            Models.Video.Series series = cacheKey != null ? seriesCache.get(cacheKey) : null;
             List<String> genres = (series != null && series.genres != null && !series.genres.isEmpty())
                 ? series.genres
                 : ((v.series != null && v.series.genres != null && !v.series.genres.isEmpty())
@@ -1321,7 +1321,7 @@ public class VideoService {
         public final List<Video> movies;
         public final List<Video> episodes;
         public final List<Video> tvShows;
-        public final Map<String, Models.Series> allSeriesByTitle;
+        public final Map<String, Models.Video.Series> allSeriesByTitle;
         public final List<Video> trending;
         public final List<Video> recentlyUpdated;
         public final List<Video> recentlyAddedMovies;
@@ -1331,7 +1331,7 @@ public class VideoService {
         public final List<Map<String, Object>> heroItemsList;
 
         public CinemaHomeData(List<Video> movies, List<Video> episodes, List<Video> tvShows,
-                              Map<String, Models.Series> allSeriesByTitle, List<Video> trending,
+                              Map<String, Models.Video.Series> allSeriesByTitle, List<Video> trending,
                               List<Video> recentlyUpdated, List<Video> recentlyAddedMovies,
                               List<Map.Entry<String, List<Video>>> movieGenreEntries,
                               List<Video> recentlyAddedShows,
@@ -1378,7 +1378,7 @@ public class VideoService {
         Double tmdbRating = v.tmdbRating != null && v.tmdbRating > 0 ? v.tmdbRating : null;
         Integer releaseYear = v.releaseYear;
         if ("episode".equalsIgnoreCase(v.type)) {
-            Models.Series series = resolveCinemaSeries(v);
+            Models.Video.Series series = resolveCinemaSeries(v);
             if (series != null) {
                 if (imdbRating == null && series.imdbRating != null && series.imdbRating > 0) {
                     imdbRating = series.imdbRating;
@@ -1405,7 +1405,7 @@ public class VideoService {
      * Looks up the Series via the video's relationship first, then by title.
      */
     private String resolveCinemaSeriesSynopsis(Video v) {
-        Models.Series series = resolveCinemaSeries(v);
+        Models.Video.Series series = resolveCinemaSeries(v);
         if (series != null) {
             String synopsis = series.description != null ? series.description : series.overview;
             if (synopsis != null && !synopsis.isBlank()) {
@@ -1419,14 +1419,14 @@ public class VideoService {
      * Resolves the Series entity for an episode, or null when unavailable.
      * Looks up the Series via the video's relationship first, then by title.
      */
-    private Models.Series resolveCinemaSeries(Video v) {
+    private Models.Video.Series resolveCinemaSeries(Video v) {
         if (v == null || !"episode".equalsIgnoreCase(v.type) || v.seriesTitle == null || v.seriesTitle.isBlank()) {
             return null;
         }
         try {
-            Models.Series series = v.series;
+            Models.Video.Series series = v.series;
             if (series == null) {
-                series = Models.Series.find("title", v.seriesTitle).firstResult();
+                series = Models.Video.Series.find("title", v.seriesTitle).firstResult();
             }
             return series;
         } catch (Exception e) {
@@ -1453,8 +1453,21 @@ public class VideoService {
         Video item = find(videoId);
         if (item == null) return null;
 
-        // Resume-at-start is intentionally disabled: playback always begins at 0:00.
+        // Per-profile resume time from VideoState (mirrors VideoAPI.getVideoMetadata).
         double resumeTime = 0;
+        try {
+            Models.Video.VideoState progress = videoStateService.getOrCreate(item);
+            if (progress != null && progress.currentTime > 0) {
+                resumeTime = progress.currentTime;
+            } else if (progress != null && progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
+                resumeTime = progress.watchProgress * item.getDurationSeconds();
+            }
+            if (resumeTime > 0 && item.getDurationSeconds() > 0 && (resumeTime / item.getDurationSeconds()) >= 0.95) {
+                resumeTime = 0.0;
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Could not load resumeTime for video {}: {}", videoId, e.getMessage());
+        }
 
         Video nextEpisode = findNextEpisode(item);
         Video prevEpisode = findPreviousEpisode(item);
@@ -1473,7 +1486,7 @@ public class VideoService {
         String conversionStatus = null;
 
         // Load settings (auto-skip + default player)
-        Models.Settings settings = settingsService.getOrCreateSettings();
+        Models.Settings.Settings settings = settingsService.getOrCreateSettings();
         boolean autoSkipIntro = settings.getAutoSkipIntro();
         boolean autoSkipRecap = settings.getAutoSkipRecap();
         boolean autoSkipOutro = settings.getAutoSkipOutro();
@@ -1487,12 +1500,12 @@ public class VideoService {
         buildInfoSection(infoSection, item);
 
         if (collectionId != null) {
-            Models.MediaCollection coll = collectionService.getCollection(collectionId);
+            Models.Video.MediaCollection coll = collectionService.getCollection(collectionId);
             if (coll != null) {
                 carouselTitle = coll.name;
-                List<Models.CollectionEntry> entries = collectionService.getEntries(collectionId);
+                List<Models.Video.CollectionEntry> entries = collectionService.getEntries(collectionId);
                 int idx = 0;
-                for (Models.CollectionEntry entry : entries) {
+                for (Models.Video.CollectionEntry entry : entries) {
                     Map<String, Object> ci = new LinkedHashMap<>();
                     if (entry.video != null) {
                         ci.put("id", entry.video.id);
@@ -1600,7 +1613,7 @@ public class VideoService {
         info.put("runtimeMins", item.runtimeMins);
 
         boolean isEpisode = item.series != null && "episode".equalsIgnoreCase(item.type);
-        Models.Series s = isEpisode ? item.series : null;
+        Models.Video.Series s = isEpisode ? item.series : null;
 
         info.put("mpaaRating", (s != null && s.mpaaRating != null) ? s.mpaaRating : item.mpaaRating != null ? item.mpaaRating : "");
         info.put("overview", (s != null && s.overview != null && !s.overview.isBlank()) ? s.overview
@@ -1699,7 +1712,7 @@ public class VideoService {
     // ========== IMPORT AND CREATION ==========
 
     @Transactional
-    public Video createVideoFromMediaFile(Models.MediaFile mediaFile) {
+    public Video createVideoFromMediaFile(Models.Video.MediaFile mediaFile) {
         Video video = new Video();
         
         // Core identification
@@ -1842,14 +1855,14 @@ public class VideoService {
         List<Video> episodes = findEpisodesForSeries(seriesTitle);
         for (Video v : episodes) {
             // Delete dependent records before deleting video to avoid FK violations
-            Models.VideoHistory.delete("mediaFile.path = ?1", v.path);
+            Models.Video.VideoHistory.delete("mediaFile.path = ?1", v.path);
             MediaFile mf = MediaFile.find("path", v.path).firstResult();
             if (mf != null) {
                 mf.delete();
             }
-            Models.CollectionEntry.delete("video.id = ?1", v.id);
-            Models.VideoState.delete("video.id = ?1", v.id);
-            Models.VideoGenre.delete("video.id = ?1", v.id);
+            Models.Video.CollectionEntry.delete("video.id = ?1", v.id);
+            Models.Video.VideoState.delete("video.id = ?1", v.id);
+            Models.Video.VideoGenre.delete("video.id = ?1", v.id);
             v.delete();
         }
         LOGGER.info("Force reloaded all episodes and media files for series: {}", seriesTitle);
@@ -2068,7 +2081,7 @@ public class VideoService {
 
     // ========== UTILITY METHODS ==========
 
-    private String detectVideoType(Models.MediaFile mediaFile) {
+    private String detectVideoType(Models.Video.MediaFile mediaFile) {
         // Simple type detection based on naming and metadata
         String filename = extractFilenameFromPath(mediaFile.path);
         String pathLower = mediaFile.path.toLowerCase();
@@ -2133,7 +2146,7 @@ public class VideoService {
         }
     }
 
-    private String detectQuality(Models.MediaFile mediaFile) {
+    private String detectQuality(Models.Video.MediaFile mediaFile) {
         if (mediaFile.width == 0 || mediaFile.height == 0) return "Unknown";
         
         String resolution = calculateDisplayResolution(mediaFile.width + "x" + mediaFile.height);
@@ -2302,26 +2315,26 @@ public class VideoService {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) return List.of();
 
-        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true AND h.profile = :profile";
+        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true AND h.profileId = :profileId";
         if (search != null && !search.trim().isEmpty()) {
             hql += " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
         }
         hql += " ORDER BY h.playedAt DESC";
 
-        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
-        query.setParameter("profile", activeProfile);
+        TypedQuery<Models.Video.VideoHistory> query = em.createQuery(hql, Models.Video.VideoHistory.class);
+        query.setParameter("profileId", activeProfile.id);
         if (search != null && !search.trim().isEmpty()) {
             query.setParameter("s", "%" + search.toLowerCase() + "%");
         }
 
-        List<Models.VideoHistory> history = query.getResultList();
+        List<Models.Video.VideoHistory> history = query.getResultList();
 
         java.util.Set<String> seenPaths = new java.util.HashSet<>();
-        List<Models.Video> videos = new ArrayList<>();
+        List<Models.Video.Video> videos = new ArrayList<>();
 
-        for (Models.VideoHistory h : history) {
+        for (Models.Video.VideoHistory h : history) {
             if (h.mediaFile != null && seenPaths.add(h.mediaFile.path)) {
-                Models.Video v = Video.find("path", h.mediaFile.path).firstResult();
+                Models.Video.Video v = Video.find("path", h.mediaFile.path).firstResult();
                 if (v != null) videos.add(v);
             }
             if (videos.size() >= limit) break;
@@ -2344,7 +2357,7 @@ public class VideoService {
         }
     }
     
-    public record VideoHistoryEntry(Video video, Models.VideoHistory history, Models.Profile profile) {}
+    public record VideoHistoryEntry(Video video, Models.Video.VideoHistory history, Long profileId) {}
     
     @Transactional
     public List<VideoHistoryEntry> findAllHistory(String search, int limit) {
@@ -2354,20 +2367,20 @@ public class VideoService {
         }
         hql += " ORDER BY vh.playedAt DESC";
         
-        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        TypedQuery<Models.Video.VideoHistory> query = em.createQuery(hql, Models.Video.VideoHistory.class);
         if (search != null && !search.trim().isEmpty()) {
             query.setParameter("s", "%" + search.toLowerCase() + "%");
         }
         query.setMaxResults(limit);
         
-        List<Models.VideoHistory> historyList = query.getResultList();
+        List<Models.Video.VideoHistory> historyList = query.getResultList();
         List<VideoHistoryEntry> entries = new ArrayList<>();
         
-        for (Models.VideoHistory vh : historyList) {
+        for (Models.Video.VideoHistory vh : historyList) {
             if (vh.mediaFile != null) {
                 Video video = Video.find("path", vh.mediaFile.path).firstResult();
                 if (video != null) {
-                    entries.add(new VideoHistoryEntry(video, vh, vh.profile));
+                    entries.add(new VideoHistoryEntry(video, vh, vh.profileId));
                 }
             }
         }
@@ -2379,23 +2392,23 @@ public class VideoService {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) return new PaginatedVideos(List.of(), 0);
 
-        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true AND h.profile = :profile";
+        String hql = "SELECT h FROM VideoHistory h JOIN h.mediaFile mf JOIN Video v ON v.path = mf.path WHERE v.isActive = true AND h.profileId = :profileId";
         if (search != null && !search.trim().isEmpty()) {
             hql += " AND (LOWER(v.title) LIKE :s OR LOWER(v.seriesTitle) LIKE :s OR LOWER(v.episodeTitle) LIKE :s OR LOWER(v.description) LIKE :s)";
         }
         hql += " ORDER BY h.playedAt DESC";
 
-        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
-        query.setParameter("profile", activeProfile);
+        TypedQuery<Models.Video.VideoHistory> query = em.createQuery(hql, Models.Video.VideoHistory.class);
+        query.setParameter("profileId", activeProfile.id);
         if (search != null && !search.trim().isEmpty()) {
             query.setParameter("s", "%" + search.toLowerCase() + "%");
         }
 
-        List<Models.VideoHistory> allHistory = query.getResultList();
+        List<Models.Video.VideoHistory> allHistory = query.getResultList();
 
         java.util.Set<String> seenPaths = new java.util.HashSet<>();
         List<Video> allVideos = new ArrayList<>();
-        for (Models.VideoHistory h : allHistory) {
+        for (Models.Video.VideoHistory h : allHistory) {
             if (h.mediaFile != null && seenPaths.add(h.mediaFile.path)) {
                 Video v = Video.find("path", h.mediaFile.path).firstResult();
                 if (v != null) allVideos.add(v);
@@ -2457,20 +2470,20 @@ public class VideoService {
         }
         long totalCount = countQ.getSingleResult();
 
-        TypedQuery<Models.VideoHistory> query = em.createQuery(hql, Models.VideoHistory.class);
+        TypedQuery<Models.Video.VideoHistory> query = em.createQuery(hql, Models.Video.VideoHistory.class);
         if (search != null && !search.trim().isEmpty()) {
             query.setParameter("s", "%" + search.toLowerCase() + "%");
         }
         query.setFirstResult((page - 1) * limit);
         query.setMaxResults(limit);
 
-        List<Models.VideoHistory> historyList = query.getResultList();
+        List<Models.Video.VideoHistory> historyList = query.getResultList();
         List<VideoHistoryEntry> entries = new ArrayList<>();
-        for (Models.VideoHistory vh : historyList) {
+        for (Models.Video.VideoHistory vh : historyList) {
             if (vh.mediaFile != null) {
                 Video video = Video.find("path", vh.mediaFile.path).firstResult();
                 if (video != null) {
-                    entries.add(new VideoHistoryEntry(video, vh, vh.profile));
+                    entries.add(new VideoHistoryEntry(video, vh, vh.profileId));
                 }
             }
         }

@@ -1,8 +1,8 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Models.Series;
-import Models.Video;
+import Models.Video.Series;
+import Models.Video.Video;
 import Services.AuthService;
 import Services.SeriesService;
 import Services.ThumbnailService;

@@ -10,7 +10,7 @@ import jakarta.ws.rs.core.UriInfo;
 import Services.SessionService;
 import Services.RateLimitService;
 import Services.SettingsService;
-import Models.Settings;
+import Models.Settings.Settings;
 import Utils.IpResolutionUtils;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.inject.Inject;

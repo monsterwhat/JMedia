@@ -1,16 +1,15 @@
-package Models;
+package Models.Music;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.Transient;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
@@ -22,9 +21,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = false)
 public class PlaybackState extends PanacheEntity {
 
-    @OneToOne
-    @JoinColumn(name = "profile_id", referencedColumnName = "id")
-    private Profile profile;
+    @Column(name = "profile_id", unique = true)
+    private Long profileId;
 
     private boolean playing;
     private Long currentSongId;
@@ -81,7 +79,7 @@ public class PlaybackState extends PanacheEntity {
     private Integer originalCrossfadeDuration = 0;
 
     // DJ Mode settings (persisted per-profile). @JsonIgnore keeps them out of
-    // WebSocket/state-sync payloads — read/write only via REST dj-settings endpoints.
+    // WebSocket/state-sync payloads â€” read/write only via REST dj-settings endpoints.
     @JsonIgnore
     @ElementCollection(fetch = FetchType.EAGER)
     private List<String> djGenrePool = new ArrayList<>();
@@ -97,6 +95,17 @@ public class PlaybackState extends PanacheEntity {
     private Integer djBpmMax = 0;
     @JsonIgnore
     private Integer djMaxConsecutiveByArtist = 0; // 0 = unlimited, else max songs per artist in a row
+    @JsonIgnore
+    private Integer djSkipsBeforeGenreChange = 1; // 0 = disabled (never switch genre on skip), N>=1 = switch genre on Nth consecutive skip
+    @JsonIgnore
+    private Integer djYearMin = 0; // 0 = no lower bound; songs without year data are excluded when a bound is set
+    @JsonIgnore
+    private Integer djYearMax = 0; // 0 = no upper bound
+
+    // Runtime-only counter of consecutive skips for the genre-change threshold (not persisted, not synced)
+    @JsonIgnore
+    @Transient
+    private int djGenreSkipCount = 0;
 
     // DJ Mode transition planning (beat-aligned cross-song transitions)
     private Long djNextSongId;           // The next song to transition into

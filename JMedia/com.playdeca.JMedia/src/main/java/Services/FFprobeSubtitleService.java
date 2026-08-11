@@ -1,7 +1,7 @@
 package Services;
 
-import Models.SubtitleTrack;
-import Models.Video;
+import Models.Video.SubtitleTrack;
+import Models.Video.Video;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-import Models.Settings;
+import Models.Settings.Settings;
 
 /**
  * Service for extracting subtitle information using FFprobe and extracting tracks with FFmpeg

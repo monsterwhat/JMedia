@@ -1,8 +1,8 @@
 package Services;
 
 import Controllers.PlaybackController;
-import Models.Song;
-import Models.SongAnalysis;
+import Models.Music.Song;
+import Models.Music.SongAnalysis;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -55,7 +55,7 @@ public class AnalysisWorker {
     @Inject
     PlaybackController playbackController;
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     EntityManager em;
 
     @Scheduled(every = "10s")

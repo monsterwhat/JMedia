@@ -1,4 +1,4 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
@@ -18,8 +18,8 @@ public class AudioTrack extends PanacheEntity {
     
     // Language & Display
     public String languageCode; // ISO 639-2: "eng", "fre", "spa"
-    public String languageName; // "English", "Français", "Español"
-    public String displayName; // "English", "Español (Commentary)", etc.
+    public String languageName; // "English", "FranÃ§ais", "EspaÃ±ol"
+    public String displayName; // "English", "EspaÃ±ol (Commentary)", etc.
     
     // Track Properties
     public boolean isDefault;     // Default track for this video

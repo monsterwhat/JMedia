@@ -1,7 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Models.Profile;
+import Models.Settings.Profile;
 import Services.AuthService;
 import Services.CollectionService;
 import Services.SettingsService;
@@ -49,8 +49,8 @@ public class CollectionApi {
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
         boolean isAdmin = authService.isAdmin(headers);
         Profile activeProfile = settingsService.getActiveProfile();
-        if (c.profile != null && !c.isPublic && !isAdmin
-                && (activeProfile == null || !activeProfile.equals(c.profile))) {
+        if (c.profileId != null && !c.isPublic && !isAdmin
+                && (activeProfile == null || !activeProfile.id.equals(c.profileId))) {
             return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
         }
         return Response.ok(ApiResponse.success(c)).build();
@@ -90,7 +90,8 @@ public class CollectionApi {
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 
-        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        Profile activeProfile = settingsService.getActiveProfile();
+        boolean isOwner = c.profileId != null && activeProfile != null && c.profileId.equals(activeProfile.id);
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
@@ -110,7 +111,8 @@ public class CollectionApi {
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 
-        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        Profile activeProfile = settingsService.getActiveProfile();
+        boolean isOwner = c.profileId != null && activeProfile != null && c.profileId.equals(activeProfile.id);
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
@@ -141,7 +143,8 @@ public class CollectionApi {
         if (c == null)
             return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 
-        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        Profile activeProfile = settingsService.getActiveProfile();
+        boolean isOwner = c.profileId != null && activeProfile != null && c.profileId.equals(activeProfile.id);
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
@@ -175,12 +178,14 @@ public class CollectionApi {
                                 @FormParam("orderIndex") Integer orderIndex,
                                 @FormParam("notes") String notes) {
         boolean isAdmin = authService.isAdmin(headers);
-        Models.CollectionEntry foundEntry = Models.CollectionEntry.findById(entryId);
+        Models.Video.CollectionEntry foundEntry = Models.Video.CollectionEntry.findById(entryId);
         if (foundEntry == null)
             return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
 
-        boolean isOwner = foundEntry.collection.profile != null
-            && foundEntry.collection.profile.equals(settingsService.getActiveProfile());
+        Profile activeProfile = settingsService.getActiveProfile();
+        boolean isOwner = foundEntry.collection.profileId != null
+            && activeProfile != null
+            && foundEntry.collection.profileId.equals(activeProfile.id);
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
@@ -194,12 +199,14 @@ public class CollectionApi {
     public Response removeEntry(@Context HttpHeaders headers,
                                 @PathParam("entryId") Long entryId) {
         boolean isAdmin = authService.isAdmin(headers);
-        Models.CollectionEntry foundEntry = Models.CollectionEntry.findById(entryId);
+        Models.Video.CollectionEntry foundEntry = Models.Video.CollectionEntry.findById(entryId);
         if (foundEntry == null)
             return Response.status(404).entity(ApiResponse.error("Entry not found")).build();
 
-        boolean isOwner = foundEntry.collection.profile != null
-            && foundEntry.collection.profile.equals(settingsService.getActiveProfile());
+        Profile activeProfile = settingsService.getActiveProfile();
+        boolean isOwner = foundEntry.collection.profileId != null
+            && activeProfile != null
+            && foundEntry.collection.profileId.equals(activeProfile.id);
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 
@@ -219,7 +226,8 @@ public class CollectionApi {
         var c = collectionService.getCollection(id);
         if (c == null) return Response.status(404).entity(ApiResponse.error("Collection not found")).build();
 
-        boolean isOwner = c.profile != null && c.profile.equals(settingsService.getActiveProfile());
+        Profile activeProfile = settingsService.getActiveProfile();
+        boolean isOwner = c.profileId != null && activeProfile != null && c.profileId.equals(activeProfile.id);
         if (!isAdmin && !isOwner)
             return Response.status(403).entity(ApiResponse.error("Access denied")).build();
 

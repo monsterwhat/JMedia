@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Session;
-import Models.User;
+import Models.Settings.Session;
+import Models.Settings.User;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.core.HttpHeaders;

@@ -2,9 +2,9 @@ package API.Rest;
 
 import API.ApiResponse;
 import Controllers.PlaybackController;
-import Models.Playlist;
-import Models.Profile;
-import Models.Song; 
+import Models.Music.Playlist;
+import Models.Settings.Profile;
+import Models.Music.Song; 
 import Services.SongService;
 import Services.SettingsService;
 import jakarta.inject.Inject;

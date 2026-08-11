@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Settings;
-import Models.Song;
+import Models.Settings.Settings;
+import Models.Music.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -49,7 +49,7 @@ public class MusicEnrichmentService {
     @Inject
     SettingsService settingsService;
     
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     EntityManager em;
 
     public record MusicBrainzResult(String mbid, String genre) {}

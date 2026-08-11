@@ -1,8 +1,8 @@
 package API.Rest;
 
-import Models.LiveChannel;
-import Models.M3uPlaylist;
-import Models.Profile;
+import Models.Video.LiveChannel;
+import Models.Video.M3uPlaylist;
+import Models.Settings.Profile;
 import Models.DTOs.M3uImportRequest;
 import Models.DTOs.M3uImportResponse;
 import Services.M3uParserService;
@@ -94,7 +94,7 @@ public class M3uImportApi {
     public Response listPlaylists(@QueryParam("profileId") Long profileId) {
         if (profileId == null) profileId = 1L;
 
-        List<M3uPlaylist> playlists = M3uPlaylist.find("profile.id = ?1 order by createdAt desc", profileId).list();
+        List<M3uPlaylist> playlists = M3uPlaylist.find("profileId = ?1 order by createdAt desc", profileId).list();
         ArrayNode arr = mapper.createArrayNode();
         for (M3uPlaylist p : playlists) {
             ObjectNode node = mapper.createObjectNode();
@@ -168,7 +168,7 @@ public class M3uImportApi {
         paramList.add(profileId);
         int idx = 1;
 
-        StringBuilder whereClause = new StringBuilder("profile.id = ?1");
+        StringBuilder whereClause = new StringBuilder("profileId = ?1");
 
         if (playlistId != null) {
             whereClause.append(" and playlist.id = ?").append(++idx);
@@ -297,7 +297,7 @@ public class M3uImportApi {
         if (profileId == null) profileId = 1L;
 
         List<String> groups = LiveChannel.find(
-                "select distinct groupTitle from LiveChannel where profile.id = ?1 and groupTitle is not null order by groupTitle",
+                "select distinct groupTitle from LiveChannel where profileId = ?1 and groupTitle is not null order by groupTitle",
                 profileId
         ).project(String.class).list();
 
@@ -305,7 +305,7 @@ public class M3uImportApi {
         for (String group : groups) {
             ObjectNode node = mapper.createObjectNode();
             node.put("name", group);
-            long count = LiveChannel.count("profile.id = ?1 and groupTitle = ?2", profileId, group);
+            long count = LiveChannel.count("profileId = ?1 and groupTitle = ?2", profileId, group);
             node.put("count", count);
             arr.add(node);
         }

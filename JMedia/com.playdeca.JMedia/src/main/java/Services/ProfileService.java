@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Profile;
+import Models.Settings.Profile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.util.List;

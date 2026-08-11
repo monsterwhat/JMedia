@@ -1,8 +1,9 @@
 package Services;
 
-import Models.MediaFile;
-import Models.Profile;
-import Models.VideoHistory;
+import Models.Video.MediaFile;
+import Models.Settings.Profile;
+import Models.Video.VideoHistory;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -19,6 +20,7 @@ public class VideoHistoryService {
     private static final Logger LOGGER = Logger.getLogger(VideoHistoryService.class.getName());
 
     @Inject
+    @PersistenceUnit("video")
     EntityManager em;
     
     @Inject
@@ -47,8 +49,8 @@ public class VideoHistoryService {
         // Deduplication: check if there's a recent history record (within 5 minutes) for the same mediaFile and profile
         LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
         VideoHistory existingHistory = VideoHistory.find(
-            "mediaFile = ?1 AND profile = ?2 AND playedAt >= ?3",
-            mediaFile, activeProfile, fiveMinutesAgo
+            "mediaFile = ?1 AND profileId = ?2 AND playedAt >= ?3",
+            mediaFile, activeProfile.id, fiveMinutesAgo
         ).firstResult();
 
         if (existingHistory != null) {
@@ -61,7 +63,7 @@ public class VideoHistoryService {
         VideoHistory history = new VideoHistory();
         history.mediaFile = mediaFile;
         history.playedAt = LocalDateTime.now();
-        history.profile = activeProfile;
+        history.profileId = activeProfile.id;
         history.persist();
     }
 
@@ -72,7 +74,7 @@ public class VideoHistoryService {
     public void addFromVideoId(Long videoId) {
         if (videoId == null) return;
         
-        Models.Video video = Models.Video.findById(videoId);
+        Models.Video.Video video = Models.Video.Video.findById(videoId);
         if (video == null) {
             LOGGER.warning("Cannot record history: Video not found for ID " + videoId);
             return;
@@ -97,8 +99,8 @@ public class VideoHistoryService {
         } else {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return;
-            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.profile = :profile")
-                    .setParameter("profile", activeProfile)
+            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.profileId = :profileId")
+                    .setParameter("profileId", activeProfile.id)
                     .executeUpdate();
         }
     }
@@ -115,9 +117,9 @@ public class VideoHistoryService {
         } else {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return;
-            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.mediaFile.id = :mediaFileId AND vh.profile = :profile")
+            em.createQuery("DELETE FROM VideoHistory vh WHERE vh.mediaFile.id = :mediaFileId AND vh.profileId = :profileId")
                     .setParameter("mediaFileId", mediaFileId)
-                    .setParameter("profile", activeProfile)
+                    .setParameter("profileId", activeProfile.id)
                     .executeUpdate();
         }
     }
@@ -126,8 +128,8 @@ public class VideoHistoryService {
     public List<VideoHistory> getHistory(int page, int pageSize) {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) return List.of();
-        return em.createQuery("SELECT vh FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", VideoHistory.class)
-                .setParameter("profile", activeProfile)
+        return em.createQuery("SELECT vh FROM VideoHistory vh WHERE vh.profileId = :profileId ORDER BY vh.playedAt DESC", VideoHistory.class)
+                .setParameter("profileId", activeProfile.id)
                 .setFirstResult((page - 1) * pageSize)
                 .setMaxResults(pageSize)
                 .getResultList();
@@ -137,8 +139,8 @@ public class VideoHistoryService {
     public List<Long> getRecentlyPlayedVideoIds(int count) {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) return List.of();
-        return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh WHERE vh.profile = :profile ORDER BY vh.playedAt DESC", Long.class)
-                .setParameter("profile", activeProfile)
+        return em.createQuery("SELECT vh.mediaFile.id FROM VideoHistory vh WHERE vh.profileId = :profileId ORDER BY vh.playedAt DESC", Long.class)
+                .setParameter("profileId", activeProfile.id)
                 .setMaxResults(count)
                 .getResultList();
     }
@@ -154,10 +156,10 @@ public class VideoHistoryService {
         return em.createQuery(
             "SELECT vh.mediaFile.id " +
             "FROM VideoHistory vh " +
-            "WHERE vh.profile = :profile AND vh.playedAt >= :cutoff " +
+            "WHERE vh.profileId = :profileId AND vh.playedAt >= :cutoff " +
             "GROUP BY vh.mediaFile.id " +
             "ORDER BY COUNT(vh) DESC", Long.class)
-                .setParameter("profile", activeProfile)
+                .setParameter("profileId", activeProfile.id)
                 .setParameter("cutoff", cutoff)
                 .setMaxResults(count)
                 .getResultList();
@@ -176,9 +178,9 @@ public class VideoHistoryService {
         List<Object[]> results = em.createQuery(
             "SELECT vh.mediaFile.id, COUNT(vh) as playCount " +
             "FROM VideoHistory vh " +
-            "WHERE vh.profile = :profile AND vh.playedAt >= :cutoff AND vh.mediaFile.id IN :videoIds " +
+            "WHERE vh.profileId = :profileId AND vh.playedAt >= :cutoff AND vh.mediaFile.id IN :videoIds " +
             "GROUP BY vh.mediaFile.id", Object[].class)
-                .setParameter("profile", activeProfile)
+                .setParameter("profileId", activeProfile.id)
                 .setParameter("cutoff", cutoff)
                 .setParameter("videoIds", videoIds)
                 .getResultList();

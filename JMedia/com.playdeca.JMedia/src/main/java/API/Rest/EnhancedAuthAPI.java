@@ -1,8 +1,8 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Models.Session;
-import Models.User;
+import Models.Settings.Session;
+import Models.Settings.User;
 import Services.AuthService;
 import Services.SessionService;
 import Services.RateLimitService;

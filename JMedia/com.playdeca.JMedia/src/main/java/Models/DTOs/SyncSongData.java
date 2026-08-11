@@ -1,7 +1,7 @@
 package Models.DTOs;
 
-import Models.Song;
-import Models.SongAnalysis;
+import Models.Music.Song;
+import Models.Music.SongAnalysis;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;

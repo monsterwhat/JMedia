@@ -1,8 +1,8 @@
 package Services;
 
-import Models.Song;
-import Models.SongAnalysis;
-import Models.SongAnalysis.BeatInfo;
+import Models.Music.Song;
+import Models.Music.SongAnalysis;
+import Models.Music.SongAnalysis.BeatInfo;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

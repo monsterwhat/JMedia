@@ -1,6 +1,6 @@
 package API.Rest;
 
-import Models.Profile;
+import Models.Settings.Profile;
 import Services.AuthService;
 import Services.CollectionService;
 import Services.SettingsService;
@@ -56,7 +56,7 @@ public class CollectionUiApi {
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         boolean hasMore = page < totalPages;
         int nextPage = page + 1;
-        List<Models.MediaCollection> collections = collectionService.findPaginatedCollections(page, limit, activeProfile, isAdmin);
+        List<Models.Video.MediaCollection> collections = collectionService.findPaginatedCollections(page, limit, activeProfile, isAdmin);
 
         return collectionListContent
                 .data("collections", collections)
@@ -80,7 +80,7 @@ public class CollectionUiApi {
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         boolean hasMore = page < totalPages;
         int nextPage = page + 1;
-        List<Models.MediaCollection> collections = collectionService.findPaginatedCollections(page, limit, activeProfile, isAdmin);
+        List<Models.Video.MediaCollection> collections = collectionService.findPaginatedCollections(page, limit, activeProfile, isAdmin);
 
         return collectionItemsFragment
                 .data("collections", collections)

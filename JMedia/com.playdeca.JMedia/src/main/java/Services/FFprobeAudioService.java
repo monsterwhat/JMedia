@@ -1,7 +1,7 @@
 package Services;
 
-import Models.AudioTrack;
-import Models.Video;
+import Models.Video.AudioTrack;
+import Models.Video.Video;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;

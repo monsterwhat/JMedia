@@ -1,7 +1,7 @@
 package Services;
 
 import Models.GitHubRelease;
-import Models.Settings;
+import Models.Settings.Settings;
 import Utils.VersionComparator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

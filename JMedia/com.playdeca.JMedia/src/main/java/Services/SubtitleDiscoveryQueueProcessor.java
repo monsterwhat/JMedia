@@ -7,8 +7,8 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import Models.Video;
-import Models.SubtitleTrack;
+import Models.Video.Video;
+import Models.Video.SubtitleTrack;
 
 import java.nio.file.Path;
 import java.util.List;

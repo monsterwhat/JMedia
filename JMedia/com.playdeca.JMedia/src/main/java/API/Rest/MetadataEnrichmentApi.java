@@ -1,7 +1,7 @@
 package API.Rest;
 
 import Controllers.ImportController;
-import Models.Song;
+import Models.Music.Song;
 import Services.FreeMetadataService;
 import Services.MusicEnrichmentService;
 import Services.SongService;

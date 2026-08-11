@@ -1,7 +1,7 @@
 package Services;
 
 import API.WS.LogSocket;
-import Models.LiveChannel;
+import Models.Video.LiveChannel;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

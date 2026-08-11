@@ -1,8 +1,8 @@
 package Services;
 
-import Models.Profile;
-import Models.Video;
-import Models.VideoState;
+import Models.Settings.Profile;
+import Models.Video.Video;
+import Models.Video.VideoState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -22,10 +22,10 @@ public class VideoStateService {
             return null;
         }
 
-        VideoState state = VideoState.find("profile = ?1 AND video = ?2", activeProfile, video).firstResult();
+        VideoState state = VideoState.find("profileId = ?1 AND video = ?2", activeProfile.id, video).firstResult();
         if (state == null) {
             state = new VideoState();
-            state.profile = activeProfile;
+            state.profileId = activeProfile.id;
             state.video = video;
             state.persist();
         }
@@ -39,7 +39,7 @@ public class VideoStateService {
             return Collections.emptyMap();
         }
 
-        List<VideoState> existing = VideoState.list("profile = ?1 AND video IN ?2", activeProfile, videos);
+        List<VideoState> existing = VideoState.list("profileId = ?1 AND video IN ?2", activeProfile.id, videos);
         Map<Long, VideoState> result = new HashMap<>();
         for (VideoState vs : existing) {
             result.put(vs.video.id, vs);
@@ -48,7 +48,7 @@ public class VideoStateService {
         for (Video video : videos) {
             if (!result.containsKey(video.id)) {
                 VideoState newState = new VideoState();
-                newState.profile = activeProfile;
+                newState.profileId = activeProfile.id;
                 newState.video = video;
                 newState.persist();
                 result.put(video.id, newState);
@@ -84,7 +84,7 @@ public class VideoStateService {
             return List.of();
         }
 
-        return VideoState.list("profile = ?1 AND watchProgress > 0 AND watchProgress < 0.95 ORDER BY lastUpdated DESC", activeProfile);
+        return VideoState.list("profileId = ?1 AND watchProgress > 0 AND watchProgress < 0.95 ORDER BY lastUpdated DESC", activeProfile.id);
     }
 
     /**
@@ -116,7 +116,7 @@ public class VideoStateService {
         }
 
         for (Video target : targets) {
-            VideoState state = VideoState.find("profile = ?1 AND video = ?2", activeProfile, target).firstResult();
+            VideoState state = VideoState.find("profileId = ?1 AND video = ?2", activeProfile.id, target).firstResult();
             if (state == null) continue;
             boolean hasProgress = (state.watchProgress != null && state.watchProgress > 0)
                     || state.currentTime > 0
@@ -133,7 +133,7 @@ public class VideoStateService {
     @Transactional
     public void deleteForProfile(Profile profile) {
         if (profile != null) {
-            VideoState.delete("profile = ?1", profile);
+            VideoState.delete("profileId = ?1", profile.id);
         }
     }
 }

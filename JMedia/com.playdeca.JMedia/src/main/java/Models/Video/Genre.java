@@ -1,4 +1,4 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;

@@ -1,7 +1,7 @@
 package Services;
 
-import Models.AudioTrack;
-import Models.Video;
+import Models.Video.AudioTrack;
+import Models.Video.Video;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -32,7 +32,7 @@ public class MediaAnalysisService {
     @Inject
     FFprobeAudioService audioService;
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "video")
     EntityManager entityManager;
 
     @Transactional
@@ -53,7 +53,7 @@ public class MediaAnalysisService {
         }
     }
 
-    public void analyze(Models.MediaFile mediaFile) {
+    public void analyze(Models.Video.MediaFile mediaFile) {
         if (mediaFile == null || mediaFile.path == null) return;
         
         if (mediaFile.mediaHash == null) {
@@ -104,7 +104,7 @@ public class MediaAnalysisService {
         }
     }
 
-    private void populateMediaFileMetadata(Models.MediaFile mediaFile, JsonNode root) {
+    private void populateMediaFileMetadata(Models.Video.MediaFile mediaFile, JsonNode root) {
         JsonNode format = root.path("format");
         if (format.has("duration")) {
             mediaFile.durationSeconds = (int) format.get("duration").asDouble();

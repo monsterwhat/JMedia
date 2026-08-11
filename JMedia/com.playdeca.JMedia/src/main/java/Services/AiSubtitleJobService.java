@@ -1,7 +1,7 @@
 package Services;
 
-import Models.SubtitleTrack;
-import Models.Video;
+import Models.Video.SubtitleTrack;
+import Models.Video.Video;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;

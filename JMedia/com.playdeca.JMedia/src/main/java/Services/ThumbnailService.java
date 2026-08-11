@@ -1,9 +1,10 @@
 package Services;
 
-import Models.Series;
-import Models.Video;
+import Models.Video.Series;
+import Models.Video.Video;
 import Services.Thumbnail.ThumbnailJob;
 import Services.Thumbnail.ThumbnailProcessingStatus;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -55,6 +56,7 @@ public class ThumbnailService {
     private final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
 
     @Inject
+    @PersistenceUnit("video")
     EntityManager entityManager;
 
     @Inject

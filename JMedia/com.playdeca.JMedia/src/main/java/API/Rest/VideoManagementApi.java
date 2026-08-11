@@ -6,7 +6,7 @@ import Services.SettingsService;
 import Services.VideoConversionService;
 import Services.VideoMetadataService;
 import Services.MetadataEnrichmentWorker;
-import Models.Video;
+import Models.Video.Video;
 import Models.DTOs.TvShowDTO;
 import Models.DTOs.VerificationPreview;
 import io.quarkus.qute.Template;
@@ -199,7 +199,7 @@ public class VideoManagementApi {
         LOG.info("Forcing rescan for series '{}' in {} directories", seriesTitle, parentDirs.size());
         int totalCreated = 0;
         for (java.nio.file.Path dir : parentDirs) {
-            List<Models.Video> videos = videoImportService.scanAndCreate(dir, true);
+            List<Models.Video.Video> videos = videoImportService.scanAndCreate(dir, true);
             totalCreated += videos.size();
         }
 
@@ -246,7 +246,7 @@ public class VideoManagementApi {
         // Re-scan directories to import only current files
         int totalCreated = 0;
         for (java.nio.file.Path dir : parentDirs) {
-            List<Models.Video> videos = videoImportService.scanAndCreate(dir, true);
+            List<Models.Video.Video> videos = videoImportService.scanAndCreate(dir, true);
             totalCreated += videos.size();
         }
 

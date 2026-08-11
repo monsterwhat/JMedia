@@ -7,7 +7,7 @@ import jakarta.ws.rs.container.ContainerResponseFilter;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.ext.Provider;
-import Models.Session;
+import Models.Settings.Session;
 import Services.SettingsService;
 import org.jboss.logging.Logger;
 

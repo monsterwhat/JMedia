@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import jakarta.annotation.PreDestroy;
 import java.nio.file.Files;
-import Models.Settings;
+import Models.Settings.Settings;
 
 @ApplicationScoped
 public class DownloadService {

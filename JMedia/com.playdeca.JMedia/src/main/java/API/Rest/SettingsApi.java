@@ -2,7 +2,7 @@ package API.Rest;
 
 import API.ApiResponse;
 import Controllers.SettingsController;
-import Models.Settings;
+import Models.Settings.Settings;
 import Models.DTOs.ImportInstallationStatus;
 import Services.AuthService;
 import Services.PlaybackHistoryService;
@@ -100,10 +100,10 @@ public class SettingsApi {
     }
 
     private boolean checkProfileOwnerOrAdmin(HttpHeaders headers, Long profileId) {
-        Models.User user = authService.getCurrentUser(headers);
+        Models.Settings.User user = authService.getCurrentUser(headers);
         if (user == null) return false;
         if ("admin".equals(user.getGroupName())) return true;
-        Models.Profile profile = profileService.findById(profileId);
+        Models.Settings.Profile profile = profileService.findById(profileId);
         return profile != null && profile.userId != null && profile.userId.equals(user.id);
     }
 
@@ -158,7 +158,7 @@ public class SettingsApi {
     @Path("/{profileId}/sidebar-position")
     public Response getSidebarPosition(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!checkProfileOwnerOrAdmin(headers, profileId)) return Response.status(Response.Status.FORBIDDEN).build();
-        Models.Profile profile = profileService.findById(profileId);
+        Models.Settings.Profile profile = profileService.findById(profileId);
         if (profile == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Profile not found")).build();
         }
@@ -671,8 +671,8 @@ public class SettingsApi {
         
         String dirPath = null;
         if (directoryId != null) {
-            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
-            if (dir != null && dir.enabled && dir.mediaType == Models.MediaDirectory.MediaType.MUSIC) {
+            Models.Settings.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            if (dir != null && dir.enabled && dir.mediaType == Models.Settings.MediaDirectory.MediaType.MUSIC) {
                 dirPath = dir.path;
             }
         }
@@ -693,8 +693,8 @@ public class SettingsApi {
         
         String dirPath = null;
         if (directoryId != null) {
-            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
-            if (dir != null && dir.enabled && dir.mediaType == Models.MediaDirectory.MediaType.VIDEO) {
+            Models.Settings.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            if (dir != null && dir.enabled && dir.mediaType == Models.Settings.MediaDirectory.MediaType.VIDEO) {
                 dirPath = dir.path;
             }
         }
@@ -745,7 +745,7 @@ public class SettingsApi {
         try {
             String dirPath = null;
             if (directoryId != null) {
-                Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+                Models.Settings.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
                 if (dir != null) dirPath = dir.path;
             }
             songService.clearSongsByDirectory(dirPath);
@@ -765,7 +765,7 @@ public class SettingsApi {
         
         String dirPath = null;
         if (directoryId != null) {
-            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            Models.Settings.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
             if (dir != null) dirPath = dir.path;
         }
         
@@ -785,7 +785,7 @@ public class SettingsApi {
         
         String dirPath = null;
         if (directoryId != null) {
-            Models.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
+            Models.Settings.MediaDirectory dir = mediaDirectoryService.findById(directoryId);
             if (dir != null) dirPath = dir.path;
         }
         
@@ -906,7 +906,7 @@ public class SettingsApi {
     @Path("/{profileId}/directories")
     public Response listDirectories(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
-        List<Models.MediaDirectory> dirs = mediaDirectoryService.listAll();
+        List<Models.Settings.MediaDirectory> dirs = mediaDirectoryService.listAll();
         return Response.ok(ApiResponse.success(dirs)).build();
     }
 
@@ -924,11 +924,11 @@ public class SettingsApi {
             if (!mediaDirectoryService.validatePath(path)) {
                 return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid directory path")).build();
             }
-            Models.MediaDirectory.MediaType type = Models.MediaDirectory.MediaType.VIDEO;
+            Models.Settings.MediaDirectory.MediaType type = Models.Settings.MediaDirectory.MediaType.VIDEO;
             if (typeStr != null && "MUSIC".equalsIgnoreCase(typeStr)) {
-                type = Models.MediaDirectory.MediaType.MUSIC;
+                type = Models.Settings.MediaDirectory.MediaType.MUSIC;
             }
-            Models.MediaDirectory dir = mediaDirectoryService.addDirectory(path, type);
+            Models.Settings.MediaDirectory dir = mediaDirectoryService.addDirectory(path, type);
             return Response.ok(ApiResponse.success(dir)).build();
         } catch (Exception e) {
             LOGGER.error("Error adding directory", e);
@@ -954,7 +954,7 @@ public class SettingsApi {
         if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
         Boolean enabled = data.get("enabled");
         if (enabled == null) enabled = true;
-        Models.MediaDirectory dir = mediaDirectoryService.updateEnabled(id, enabled);
+        Models.Settings.MediaDirectory dir = mediaDirectoryService.updateEnabled(id, enabled);
         if (dir == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Directory not found")).build();
         }

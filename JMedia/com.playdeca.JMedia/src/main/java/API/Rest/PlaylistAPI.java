@@ -1,7 +1,7 @@
 package API.Rest;
 
-import Models.LiveChannel;
-import Models.User;
+import Models.Video.LiveChannel;
+import Models.Settings.User;
 import Services.AuthService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;

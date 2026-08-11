@@ -1,6 +1,6 @@
 package Controllers;
 
-import Models.Settings;
+import Models.Settings.Settings;
 import Services.SettingsService;
 import Services.ImportService;
 import jakarta.enterprise.context.ApplicationScoped;

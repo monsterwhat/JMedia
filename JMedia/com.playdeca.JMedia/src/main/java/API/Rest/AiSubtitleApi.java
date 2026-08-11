@@ -1,7 +1,7 @@
 package API.Rest;
 
-import Models.SubtitleTrack;
-import Models.Video;
+import Models.Video.SubtitleTrack;
+import Models.Video.Video;
 import Services.AiSubtitleJobService;
 import Services.AiSubtitleJobService.AiSubtitleJob;
 import Services.VideoService;

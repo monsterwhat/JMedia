@@ -1,4 +1,4 @@
-package Models;
+package Models.Settings;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.Entity;

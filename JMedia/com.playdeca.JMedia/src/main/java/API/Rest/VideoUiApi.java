@@ -7,11 +7,11 @@ import Services.VideoHistoryService;
 import Services.VideoStateService;
 import Services.CollectionWatchProgressService;
 import Services.GenreService;
-import Models.Video;
-import Models.VideoHistory;
-import Models.Profile;
-import Models.VideoState;
-import Models.CollectionWatchProgress;
+import Models.Video.Video;
+import Models.Video.VideoHistory;
+import Models.Settings.Profile;
+import Models.Video.VideoState;
+import Models.Video.CollectionWatchProgress;
 import Services.VideoSuggestionService;
 import Services.ExternalVideoService;
 import io.quarkus.qute.Template;
@@ -137,11 +137,11 @@ public class VideoUiApi {
     @Blocking
     public String getHeroFragment() {
         try {
-            List<Models.Video> allVideos = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
+            List<Models.Video.Video> allVideos = Models.Video.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
                 .range(0, 99).list();
             LOG.info("Hero fragment: Total videos found: " + allVideos.size());
             
-            List<Models.Video> featured = allVideos.stream()
+            List<Models.Video.Video> featured = allVideos.stream()
                     .filter(v -> "movie".equalsIgnoreCase(v.type))
                     .sorted((v1, v2) -> (v1.description != null ? 0 : 1) - (v2.description != null ? 0 : 1))
                     .limit(5)
@@ -171,7 +171,7 @@ public class VideoUiApi {
             Map<String, Object> carouselData = getCarouselData();
             
             // Print debug info like the original class
-            System.out.println("DEBUG: Total videos found: " + Models.Video.count("isActive", true));
+            System.out.println("DEBUG: Total videos found: " + Models.Video.Video.count("isActive", true));
             System.out.println("DEBUG: Movies: " + ((List<?>)carouselData.get("movies")).size());
             System.out.println("DEBUG: New releases: " + ((List<?>)carouselData.get("newReleases")).size());
             System.out.println("DEBUG: Trending videos: " + ((List<?>)carouselData.get("trending")).size());
@@ -179,7 +179,7 @@ public class VideoUiApi {
 
             StringBuilder html = new StringBuilder("<div class='carousels-container' style='padding: 2rem 0;'>");
             
-            List<Models.Video> continueWatching = (List<Models.Video>) carouselData.get("continueWatching");
+            List<Models.Video.Video> continueWatching = (List<Models.Video.Video>) carouselData.get("continueWatching");
             if (!continueWatching.isEmpty()) {
                 html.append(createSimpleCarouselHTML("Continue Watching", continueWatching, "pi pi-replay", "#fdcb6e", "RESUME", "continue-watching-carousel"));
             }
@@ -194,15 +194,15 @@ public class VideoUiApi {
             
             // Build Recently Updated carousel — merge regular and external entries sorted by date
             {
-                List<Models.Video> newReleases = (List<Models.Video>) carouselData.get("newReleases");
-                List<Models.ExternalVideo> externalVideos = Models.ExternalVideo.list("order by lastUpdated desc");
+                List<Models.Video.Video> newReleases = (List<Models.Video.Video>) carouselData.get("newReleases");
+                List<Models.Video.ExternalVideo> externalVideos = Models.Video.ExternalVideo.list("order by lastUpdated desc");
                 // Build list of (html, timestamp) pairs
                 List<Object[]> cardEntries = new ArrayList<>();
-                for (Models.Video v : newReleases) {
+                for (Models.Video.Video v : newReleases) {
                     java.time.LocalDateTime ts = v.dateAdded != null ? v.dateAdded : java.time.LocalDateTime.MIN;
                     cardEntries.add(new Object[]{createSimpleCardHTML(v), ts});
                 }
-                for (Models.ExternalVideo ev : externalVideos) {
+                for (Models.Video.ExternalVideo ev : externalVideos) {
                     java.time.LocalDateTime ts = ev.lastUpdated != null ? ev.lastUpdated : java.time.LocalDateTime.MIN;
                     cardEntries.add(new Object[]{createExternalCardHTML(ev), ts});
                 }
@@ -232,13 +232,13 @@ public class VideoUiApi {
                 html.append(carouselHtml.toString());
             }
 
-            List<Models.Video> trending = (List<Models.Video>) carouselData.get("trending");
+            List<Models.Video.Video> trending = (List<Models.Video.Video>) carouselData.get("trending");
             if (!trending.isEmpty()) {
                 html.append(createSimpleCarouselHTML("Trending Now", trending, "pi pi-fire", "#ffa502", "TRENDING", "trending-carousel"));
             }
             
-            html.append(createSimpleCarouselHTML("Movies", (List<Models.Video>) carouselData.get("movies"), "pi pi-video", "#5f27cd", "MOVIES", "movies-carousel"));
-            html.append(createSimpleCarouselHTML("TV Shows", (List<Models.Video>) carouselData.get("tvShows"), "pi pi-desktop", "#00d2d3", "SERIES", "tv-shows-carousel"));
+            html.append(createSimpleCarouselHTML("Movies", (List<Models.Video.Video>) carouselData.get("movies"), "pi pi-video", "#5f27cd", "MOVIES", "movies-carousel"));
+            html.append(createSimpleCarouselHTML("TV Shows", (List<Models.Video.Video>) carouselData.get("tvShows"), "pi pi-desktop", "#00d2d3", "SERIES", "tv-shows-carousel"));
             
             html.append("</div>");
             return html.toString();
@@ -264,16 +264,16 @@ public class VideoUiApi {
             // VideoService.getCinemaHomeData(). Everything below is lazy-safe HTML
             // assembly from fully-initialized detached data.
             VideoService.CinemaHomeData data = videoService.getCinemaHomeData();
-            List<Models.Video> movies = data.movies;
-            List<Models.Video> episodes = data.episodes;
-            List<Models.Video> tvShows = data.tvShows;
-            Map<String, Models.Series> allSeriesByTitle = data.allSeriesByTitle;
-            List<Models.Video> trending = data.trending;
-            List<Models.Video> dedupedUpdates = data.recentlyUpdated;
-            List<Models.Video> recentlyAddedMovies = data.recentlyAddedMovies;
-            List<Map.Entry<String, List<Models.Video>>> movieGenreEntries = data.movieGenreEntries;
-            List<Models.Video> recentlyAddedShows = data.recentlyAddedShows;
-            List<Map.Entry<String, List<Models.Video>>> tvGenreEntries = data.tvGenreEntries;
+            List<Models.Video.Video> movies = data.movies;
+            List<Models.Video.Video> episodes = data.episodes;
+            List<Models.Video.Video> tvShows = data.tvShows;
+            Map<String, Models.Video.Series> allSeriesByTitle = data.allSeriesByTitle;
+            List<Models.Video.Video> trending = data.trending;
+            List<Models.Video.Video> dedupedUpdates = data.recentlyUpdated;
+            List<Models.Video.Video> recentlyAddedMovies = data.recentlyAddedMovies;
+            List<Map.Entry<String, List<Models.Video.Video>>> movieGenreEntries = data.movieGenreEntries;
+            List<Models.Video.Video> recentlyAddedShows = data.recentlyAddedShows;
+            List<Map.Entry<String, List<Models.Video.Video>>> tvGenreEntries = data.tvGenreEntries;
             List<Map<String, Object>> heroItemsList = data.heroItemsList;
 
             // ----- BUILD HTML -----
@@ -295,7 +295,7 @@ public class VideoUiApi {
             }
 
             // Movies
-            List<Models.Video> moviesSlice = movies.size() > 20 ? movies.subList(0, 20) : movies;
+            List<Models.Video.Video> moviesSlice = movies.size() > 20 ? movies.subList(0, 20) : movies;
             if (!moviesSlice.isEmpty()) {
                 html.append(createCinemaCarouselSection("Movies", "movies-carousel", "movies", moviesSlice, true, allSeriesByTitle));
             }
@@ -311,11 +311,11 @@ public class VideoUiApi {
             }
 
             // Movie Genre Rows
-            for (Map.Entry<String, List<Models.Video>> e : movieGenreEntries) {
+            for (Map.Entry<String, List<Models.Video.Video>> e : movieGenreEntries) {
                 String genre = e.getKey();
                 String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
                 String cid = "movies-genre-" + slug + "-carousel";
-                List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
+                List<Models.Video.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
                 html.append(createCinemaCarouselSection(genre, cid, "movies", genreVids, false, allSeriesByTitle));
             }
 
@@ -325,11 +325,11 @@ public class VideoUiApi {
             }
 
             // TV Show Genre Rows
-            for (Map.Entry<String, List<Models.Video>> e : tvGenreEntries) {
+            for (Map.Entry<String, List<Models.Video.Video>> e : tvGenreEntries) {
                 String genre = e.getKey();
                 String slug = genre.toLowerCase().replaceAll("[^a-z0-9]+", "-");
                 String cid = "tvshows-genre-" + slug + "-carousel";
-                List<Models.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
+                List<Models.Video.Video> genreVids = e.getValue().size() > 20 ? e.getValue().subList(0, 20) : e.getValue();
                 html.append(createCinemaCarouselSection(genre, cid, "shows", genreVids, false, allSeriesByTitle));
             }
 
@@ -346,14 +346,14 @@ public class VideoUiApi {
     /**
      * Creates a cinema-styled card (matching createCardHTML in cinema-mode.js).
      */
-    private String createCinemaCardHTML(Models.Video item, Map<String, Models.Series> seriesByTitle) {
+    private String createCinemaCardHTML(Models.Video.Video item, Map<String, Models.Video.Series> seriesByTitle) {
         boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type) && item.seriesTitle != null;
         String title = isEpisode ? item.seriesTitle
             : (item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled"));
         String clickAction = isEpisode ? "openSeriesDetailFromCard" : "openDetailsFromCard";
 
         // Episode videos carry no rating/year of their own (fields default to 0.0) — resolve the series for fallbacks
-        Models.Series series = null;
+        Models.Video.Series series = null;
         if (isEpisode && item.seriesTitle != null && seriesByTitle != null) {
             String seriesKey = item.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
             series = seriesByTitle.get(seriesKey);
@@ -427,7 +427,7 @@ public class VideoUiApi {
     /**
      * Creates a continue-watching card with progress bar.
      */
-    private String createCinemaCWCardHTML(Models.Video item) {
+    private String createCinemaCWCardHTML(Models.Video.Video item) {
         String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Untitled");
         boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type);
         String meta;
@@ -473,7 +473,7 @@ public class VideoUiApi {
     /**
      * Creates a cinema-styled carousel section with header and arrows.
      */
-    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video> items, boolean isMainSection, Map<String, Models.Series> seriesByTitle) {
+    private String createCinemaCarouselSection(String title, String carouselId, String category, List<Models.Video.Video> items, boolean isMainSection, Map<String, Models.Video.Series> seriesByTitle) {
         if (items == null || items.isEmpty()) return "";
         StringBuilder html = new StringBuilder();
         html.append("<section class=\"cinema-section\" data-category=\"").append(escapeHtml(category)).append("\">");
@@ -494,7 +494,7 @@ public class VideoUiApi {
         html.append("<div class=\"cinema-carousel-wrapper\">");
         html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-left\" data-carousel=\"").append(carouselId).append("\"><i class=\"fa-solid fa-chevron-left\"></i></button>");
         html.append("<div class=\"cinema-carousel scrollbar-hide\" id=\"").append(carouselId).append("\">");
-        for (Models.Video item : items) {
+        for (Models.Video.Video item : items) {
             html.append(createCinemaCardHTML(item, seriesByTitle));
         }
         html.append("</div>");
@@ -506,7 +506,7 @@ public class VideoUiApi {
     /**
      * Creates a continue-watching section with progress-bar cards.
      */
-    private String createCinemaCWSection(List<Models.Video> items) {
+    private String createCinemaCWSection(List<Models.Video.Video> items) {
         if (items == null || items.isEmpty()) return "";
         StringBuilder html = new StringBuilder();
         html.append("<section class=\"cinema-section\" data-category=\"home\">");
@@ -516,7 +516,7 @@ public class VideoUiApi {
         html.append("<div class=\"cinema-carousel-wrapper\">");
         html.append("<button class=\"cinema-carousel-arrow cinema-carousel-arrow-left\" data-carousel=\"continue-watching-carousel\"><i class=\"fa-solid fa-chevron-left\"></i></button>");
         html.append("<div class=\"cinema-carousel scrollbar-hide\" id=\"continue-watching-carousel\">");
-        for (Models.Video item : items) {
+        for (Models.Video.Video item : items) {
             html.append(createCinemaCWCardHTML(item));
         }
         html.append("</div>");
@@ -546,22 +546,22 @@ public class VideoUiApi {
 
         VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
 
-        List<Models.ExternalVideo> externalMovies;
+        List<Models.Video.ExternalVideo> externalMovies;
         if (search != null && !search.trim().isEmpty()) {
             String s = "%" + search.toLowerCase() + "%";
-            externalMovies = Models.ExternalVideo.list("entryType = ?1 and LOWER(title) like ?2",
+            externalMovies = Models.Video.ExternalVideo.list("entryType = ?1 and LOWER(title) like ?2",
                     Models.ExistingVideo.MOVIE, s);
         } else {
-            externalMovies = Models.ExternalVideo.list("entryType = ?1", Models.ExistingVideo.MOVIE);
+            externalMovies = Models.Video.ExternalVideo.list("entryType = ?1", Models.ExistingVideo.MOVIE);
         }
 
         long totalItems = paginatedVideos.totalCount + externalMovies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
 
         // Enrich movies with per-profile progress (batch)
-        Map<Long, Models.VideoState> movieStates = videoStateService.getOrCreateBatch(paginatedVideos.videos);
-        for (Models.Video movie : paginatedVideos.videos) {
-            Models.VideoState vs = movieStates.get(movie.id);
+        Map<Long, Models.Video.VideoState> movieStates = videoStateService.getOrCreateBatch(paginatedVideos.videos);
+        for (Models.Video.Video movie : paginatedVideos.videos) {
+            Models.Video.VideoState vs = movieStates.get(movie.id);
             if (vs != null) {
                 movie.watchProgress = vs.watchProgress;
                 movie.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
@@ -601,13 +601,13 @@ public class VideoUiApi {
 
         VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
 
-        List<Models.ExternalVideo> externalMovies;
+        List<Models.Video.ExternalVideo> externalMovies;
         if (search != null && !search.trim().isEmpty()) {
             String s = "%" + search.toLowerCase() + "%";
-            externalMovies = Models.ExternalVideo.list("entryType = ?1 and LOWER(title) like ?2",
+            externalMovies = Models.Video.ExternalVideo.list("entryType = ?1 and LOWER(title) like ?2",
                     Models.ExistingVideo.MOVIE, s);
         } else {
-            externalMovies = Models.ExternalVideo.list("entryType = ?1", Models.ExistingVideo.MOVIE);
+            externalMovies = Models.Video.ExternalVideo.list("entryType = ?1", Models.ExistingVideo.MOVIE);
         }
 
         long totalItems = paginatedVideos.totalCount + externalMovies.size();
@@ -616,9 +616,9 @@ public class VideoUiApi {
         int nextPage = page + 1;
 
         // Enrich movies with per-profile progress (batch)
-        Map<Long, Models.VideoState> movieStates = videoStateService.getOrCreateBatch(paginatedVideos.videos);
-        for (Models.Video movie : paginatedVideos.videos) {
-            Models.VideoState vs = movieStates.get(movie.id);
+        Map<Long, Models.Video.VideoState> movieStates = videoStateService.getOrCreateBatch(paginatedVideos.videos);
+        for (Models.Video.Video movie : paginatedVideos.videos) {
+            Models.Video.VideoState vs = movieStates.get(movie.id);
             if (vs != null) {
                 movie.watchProgress = vs.watchProgress;
                 movie.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
@@ -664,9 +664,9 @@ public class VideoUiApi {
         int totalItems = (int) paginatedSeries.totalCount;
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         
-        List<Models.Video> allEpisodes = videoService.findEpisodes();
+        List<Models.Video.Video> allEpisodes = videoService.findEpisodes();
         if (allEpisodes.isEmpty()) {
-            allEpisodes = Models.Video.<Models.Video>listAll().stream()
+            allEpisodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
                     .collect(Collectors.toList());
         }
@@ -674,7 +674,7 @@ public class VideoUiApi {
         List<SeriesTitleEntry> entries = new ArrayList<>();
         for (String title : paginatedSeries.titles) {
             final String currentTitle = title;
-            Models.Video sample = allEpisodes.stream()
+            Models.Video.Video sample = allEpisodes.stream()
                     .filter(v -> currentTitle.equalsIgnoreCase(v.seriesTitle))
                     .findFirst().orElse(null);
             
@@ -706,17 +706,17 @@ public class VideoUiApi {
 
         // Compute per-show watch progress using batch state loading
         Map<String, SeriesProgress> showProgress = new HashMap<>();
-        Map<String, List<Models.Video>> episodesBySeries = allEpisodes.stream()
+        Map<String, List<Models.Video.Video>> episodesBySeries = allEpisodes.stream()
                 .filter(v -> v.seriesTitle != null)
                 .collect(Collectors.groupingBy(v -> v.seriesTitle.toLowerCase()));
-        Map<Long, Models.VideoState> allStates = videoStateService.getOrCreateBatch(allEpisodes);
+        Map<Long, Models.Video.VideoState> allStates = videoStateService.getOrCreateBatch(allEpisodes);
         for (SeriesTitleEntry entry : entries) {
             String key = entry.rawTitle().toLowerCase();
-            List<Models.Video> seriesEps = episodesBySeries.getOrDefault(key, Collections.emptyList());
+            List<Models.Video.Video> seriesEps = episodesBySeries.getOrDefault(key, Collections.emptyList());
             int total = seriesEps.size();
             int watched = 0;
-            for (Models.Video ep : seriesEps) {
-                Models.VideoState vs = allStates.get(ep.id);
+            for (Models.Video.Video ep : seriesEps) {
+                Models.Video.VideoState vs = allStates.get(ep.id);
                 if (vs != null && Boolean.TRUE.equals(vs.watched)) {
                     watched++;
                 }
@@ -763,9 +763,9 @@ public class VideoUiApi {
         boolean hasMore = page < totalPages;
         int nextPage = page + 1;
 
-        List<Models.Video> allEpisodes = videoService.findEpisodes();
+        List<Models.Video.Video> allEpisodes = videoService.findEpisodes();
         if (allEpisodes.isEmpty()) {
-            allEpisodes = Models.Video.<Models.Video>listAll().stream()
+            allEpisodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode"))
                     .collect(Collectors.toList());
         }
@@ -773,7 +773,7 @@ public class VideoUiApi {
         List<SeriesTitleEntry> entries = new ArrayList<>();
         for (String title : paginatedSeries.titles) {
             final String currentTitle = title;
-            Models.Video sample = allEpisodes.stream()
+            Models.Video.Video sample = allEpisodes.stream()
                     .filter(v -> currentTitle.equalsIgnoreCase(v.seriesTitle))
                     .findFirst().orElse(null);
 
@@ -805,17 +805,17 @@ public class VideoUiApi {
 
         // Compute per-show watch progress
         Map<String, SeriesProgress> showProgress = new HashMap<>();
-        Map<String, List<Models.Video>> episodesBySeries = allEpisodes.stream()
+        Map<String, List<Models.Video.Video>> episodesBySeries = allEpisodes.stream()
                 .filter(v -> v.seriesTitle != null)
                 .collect(Collectors.groupingBy(v -> v.seriesTitle.toLowerCase()));
-        Map<Long, Models.VideoState> allStates = videoStateService.getOrCreateBatch(allEpisodes);
+        Map<Long, Models.Video.VideoState> allStates = videoStateService.getOrCreateBatch(allEpisodes);
         for (SeriesTitleEntry entry : entries) {
             String key = entry.rawTitle().toLowerCase();
-            List<Models.Video> seriesEps = episodesBySeries.getOrDefault(key, Collections.emptyList());
+            List<Models.Video.Video> seriesEps = episodesBySeries.getOrDefault(key, Collections.emptyList());
             int total = seriesEps.size();
             int watched = 0;
-            for (Models.Video ep : seriesEps) {
-                Models.VideoState vs = allStates.get(ep.id);
+            for (Models.Video.Video ep : seriesEps) {
+                Models.Video.VideoState vs = allStates.get(ep.id);
                 if (vs != null && Boolean.TRUE.equals(vs.watched)) {
                     watched++;
                 }
@@ -842,11 +842,11 @@ public class VideoUiApi {
         try {
             // Path parameters are often not decoded automatically in all JAX-RS configurations
             String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
-            List<Models.Video> seriesEpisodes = videoService.findEpisodesForSeries(decodedTitle);
+            List<Models.Video.Video> seriesEpisodes = videoService.findEpisodesForSeries(decodedTitle);
             
             // Case-insensitive fallback
             if (seriesEpisodes.isEmpty()) {
-                seriesEpisodes = Models.Video.<Models.Video>listAll().stream()
+                seriesEpisodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
                             decodedTitle.equalsIgnoreCase(v.seriesTitle))
                     .collect(Collectors.toList());
@@ -855,7 +855,7 @@ public class VideoUiApi {
             // Fire-and-forget background enrichment for the series (case-insensitive lookup)
             if (decodedTitle != null && !decodedTitle.isBlank()) {
                 try {
-                    Models.Series series = Models.Series.find("lower(title) = lower(?1)", decodedTitle).firstResult();
+                    Models.Video.Series series = Models.Video.Series.find("lower(title) = lower(?1)", decodedTitle).firstResult();
                     if (series != null && series.id != null) {
                         videoMetadataService.enrichSeriesTextMetadataAsync(series.id);
                     }
@@ -869,18 +869,18 @@ public class VideoUiApi {
             // Season-anchored specials (e.g. S10X01 -> season=10, episode=0, contentType="special")
             // are grouped into the extras section so they don't inflate the season card
             // count or appear in the regular episode list.
-            List<Models.Video> normalEpisodes = seriesEpisodes.stream()
+            List<Models.Video.Video> normalEpisodes = seriesEpisodes.stream()
                     .filter(v -> v.seasonNumber != null
                             && (v.contentType == null || "episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
-            List<Models.Video> noSeasonEpisodes = seriesEpisodes.stream()
+            List<Models.Video.Video> noSeasonEpisodes = seriesEpisodes.stream()
                     .filter(v -> v.seasonNumber == null
                             || (v.contentType != null && !"episode".equalsIgnoreCase(v.contentType)))
                     .collect(Collectors.toList());
 
             // Group by (seasonNumber, seasonSuffix) — Season 2 and Season 2 OVA are separate cards
-            Map<String, List<Models.Video>> seasonGroups = new LinkedHashMap<>();
-            for (Models.Video ep : normalEpisodes) {
+            Map<String, List<Models.Video.Video>> seasonGroups = new LinkedHashMap<>();
+            for (Models.Video.Video ep : normalEpisodes) {
                 String key = ep.seasonNumber + "|" + (ep.seasonSuffix != null ? ep.seasonSuffix : "");
                 seasonGroups.computeIfAbsent(key, k -> new ArrayList<>()).add(ep);
             }
@@ -893,15 +893,15 @@ public class VideoUiApi {
                     .collect(Collectors.toList());
 
             // Batch load video states for all normal episodes
-            Map<Long, Models.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
+            Map<Long, Models.Video.VideoState> seasonStates = videoStateService.getOrCreateBatch(normalEpisodes);
 
             List<SeasonEntry> seasons = new ArrayList<>();
             for (String key : sortedKeys) {
                 String[] parts = key.split("\\|", 2);
                 int sn = Integer.parseInt(parts[0]);
                 String ss = parts[1].isEmpty() ? null : parts[1];
-                List<Models.Video> group = seasonGroups.get(key);
-                Models.Video sample = group.get(0);
+                List<Models.Video.Video> group = seasonGroups.get(key);
+                Models.Video.Video sample = group.get(0);
 
                 String displayName;
                 if (sn == 0) {
@@ -915,9 +915,9 @@ public class VideoUiApi {
                 // Compute progress for THIS group only
                 int total = 0;
                 int watched = 0;
-                for (Models.Video ep : group) {
+                for (Models.Video.Video ep : group) {
                     total++;
-                    Models.VideoState vs = seasonStates.get(ep.id);
+                    Models.Video.VideoState vs = seasonStates.get(ep.id);
                     if (vs != null && Boolean.TRUE.equals(vs.watched)) {
                         watched++;
                     }
@@ -937,15 +937,15 @@ public class VideoUiApi {
             seasons.sort(Comparator.comparingInt(SeasonEntry::seasonNumber));
 
             // Group null-season episodes by contentType
-            Map<String, List<Models.Video>> extrasContentTypes = noSeasonEpisodes.stream()
+            Map<String, List<Models.Video.Video>> extrasContentTypes = noSeasonEpisodes.stream()
                     .collect(Collectors.groupingBy(v -> v.contentType != null ? v.contentType : "other"));
 
-            Models.Video sampleVideo = seriesEpisodes.isEmpty() ? null : seriesEpisodes.get(0);
+            Models.Video.Video sampleVideo = seriesEpisodes.isEmpty() ? null : seriesEpisodes.get(0);
             
             // Find the last played video (or first one)
-            Models.Video lastPlayedVideo = seriesEpisodes.stream()
+            Models.Video.Video lastPlayedVideo = seriesEpisodes.stream()
                     .filter(v -> v.lastWatched != null)
-                    .sorted(Comparator.comparing(v -> ((Models.Video)v).lastWatched).reversed())
+                    .sorted(Comparator.comparing(v -> ((Models.Video.Video)v).lastWatched).reversed())
                     .findFirst()
                     .orElse(sampleVideo);
 
@@ -998,11 +998,11 @@ public class VideoUiApi {
             String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
             LOG.info("Loading episodes for series: {}, season: {}", decodedTitle, seasonNumber);
             
-            List<Models.Video> episodes = videoService.findEpisodesForSeason(decodedTitle, seasonNumber);
+            List<Models.Video.Video> episodes = videoService.findEpisodesForSeason(decodedTitle, seasonNumber);
             
             // Fallback for case-insensitivity or null season numbers (mapped to season 1)
             if (episodes.isEmpty()) {
-                episodes = Models.Video.<Models.Video>listAll().stream()
+                episodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode") && 
                             decodedTitle.equalsIgnoreCase(v.seriesTitle) && 
                             (seasonNumber.equals(v.seasonNumber)) &&
@@ -1013,9 +1013,9 @@ public class VideoUiApi {
             }
 
             // Enrich episodes with per-profile progress (batch)
-            Map<Long, Models.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
-            for (Models.Video ep : episodes) {
-                Models.VideoState vs = epStates.get(ep.id);
+            Map<Long, Models.Video.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video.Video ep : episodes) {
+                Models.Video.VideoState vs = epStates.get(ep.id);
                 if (vs != null) {
                     ep.watchProgress = vs.watchProgress;
                     ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
@@ -1034,7 +1034,7 @@ public class VideoUiApi {
                 folderEntries.add(entry);
             }
 
-            List<Models.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(decodedTitle, seasonNumber);
+            List<Models.Video.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(decodedTitle, seasonNumber);
 
             return episodeListContent
                     .data("seriesTitle", decodedTitle)
@@ -1063,12 +1063,12 @@ public class VideoUiApi {
             String decodedFolder = java.net.URLDecoder.decode(folderName, StandardCharsets.UTF_8);
             LOG.info("Loading episodes for series: {}, season: {}, folder: {}", decodedTitle, seasonNumber, decodedFolder);
             
-            List<Models.Video> episodes = videoService.findEpisodesForSeasonAndFolder(decodedTitle, seasonNumber, decodedFolder);
+            List<Models.Video.Video> episodes = videoService.findEpisodesForSeasonAndFolder(decodedTitle, seasonNumber, decodedFolder);
 
             // Enrich episodes with per-profile progress (batch)
-            Map<Long, Models.VideoState> folderEpStates = videoStateService.getOrCreateBatch(episodes);
-            for (Models.Video ep : episodes) {
-                Models.VideoState vs = folderEpStates.get(ep.id);
+            Map<Long, Models.Video.VideoState> folderEpStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video.Video ep : episodes) {
+                Models.Video.VideoState vs = folderEpStates.get(ep.id);
                 if (vs != null) {
                     ep.watchProgress = vs.watchProgress;
                     ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
@@ -1101,12 +1101,12 @@ public class VideoUiApi {
             String decodedContentType = java.net.URLDecoder.decode(contentType, StandardCharsets.UTF_8);
             LOG.info("Loading extras episodes for series: {}, contentType: {}", decodedTitle, decodedContentType);
 
-            List<Models.Video> episodes = videoService.findEpisodesForContentType(decodedTitle, decodedContentType);
+            List<Models.Video.Video> episodes = videoService.findEpisodesForContentType(decodedTitle, decodedContentType);
 
             // Enrich with progress (batch)
-            Map<Long, Models.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
-            for (Models.Video ep : episodes) {
-                Models.VideoState vs = epStates.get(ep.id);
+            Map<Long, Models.Video.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video.Video ep : episodes) {
+                Models.Video.VideoState vs = epStates.get(ep.id);
                 if (vs != null) {
                     ep.watchProgress = vs.watchProgress;
                     ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
@@ -1115,8 +1115,8 @@ public class VideoUiApi {
             }
 
             // Group episodes by folder for organized display
-            Map<String, List<Models.Video>> folderGroups = new LinkedHashMap<>();
-            for (Models.Video ep : episodes) {
+            Map<String, List<Models.Video.Video>> folderGroups = new LinkedHashMap<>();
+            for (Models.Video.Video ep : episodes) {
                 String folder = (ep.folder != null && !ep.folder.isEmpty()) ? ep.folder : "Other";
                 folderGroups.computeIfAbsent(folder, k -> new ArrayList<>()).add(ep);
             }
@@ -1146,24 +1146,24 @@ public class VideoUiApi {
         VideoService.PaginatedVideos paginated = videoService.findHistoryPaginated(search, page, limit);
         
         // Enrich history videos with per-profile progress
-        for (Models.Video video : paginated.videos) {
-            Models.VideoState vs = videoStateService.getOrCreate(video);
+        for (Models.Video.Video video : paginated.videos) {
+            Models.Video.VideoState vs = videoStateService.getOrCreate(video);
             if (vs != null && vs.watchProgress != null && vs.watchProgress > 0) {
                 video.watchProgress = vs.watchProgress;
                 video.watchProgressPercent = (int) Math.round(vs.watchProgress * 100);
             }
         }
         
-        List<Models.ExternalVideo> externalHistoryRaw;
+        List<Models.Video.ExternalVideo> externalHistoryRaw;
         if (search != null && !search.trim().isEmpty()) {
             String s = search.toLowerCase();
-            externalHistoryRaw = Models.ExternalVideo.<Models.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1 or LOWER(description) like ?1)",
+            externalHistoryRaw = Models.Video.ExternalVideo.<Models.Video.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1 or LOWER(description) like ?1)",
                     "%" + s + "%").stream().limit(limit).collect(java.util.stream.Collectors.toList());
         } else {
-            externalHistoryRaw = Models.ExternalVideo.list("watchProgress > 0 order by lastUpdated desc");
+            externalHistoryRaw = Models.Video.ExternalVideo.list("watchProgress > 0 order by lastUpdated desc");
         }
         List<Map<String, Object>> externalHistory = new java.util.ArrayList<>();
-        for (Models.ExternalVideo ev : externalHistoryRaw) {
+        for (Models.Video.ExternalVideo ev : externalHistoryRaw) {
             Map<String, Object> m = new java.util.HashMap<>();
             m.put("id", ev.id);
             m.put("title", ev.title);
@@ -1200,24 +1200,24 @@ public class VideoUiApi {
             @QueryParam("search") String search) {
         VideoService.PaginatedVideos paginated = videoService.findHistoryPaginated(search, page, limit);
         
-        for (Models.Video video : paginated.videos) {
-            Models.VideoState vs = videoStateService.getOrCreate(video);
+        for (Models.Video.Video video : paginated.videos) {
+            Models.Video.VideoState vs = videoStateService.getOrCreate(video);
             if (vs != null && vs.watchProgress != null && vs.watchProgress > 0) {
                 video.watchProgress = vs.watchProgress;
                 video.watchProgressPercent = (int) Math.round(vs.watchProgress * 100);
             }
         }
         
-        List<Models.ExternalVideo> externalHistoryRaw;
+        List<Models.Video.ExternalVideo> externalHistoryRaw;
         if (search != null && !search.trim().isEmpty()) {
             String s = search.toLowerCase();
-            externalHistoryRaw = Models.ExternalVideo.<Models.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1 or LOWER(description) like ?1)",
+            externalHistoryRaw = Models.Video.ExternalVideo.<Models.Video.ExternalVideo>list("watchProgress > 0 and (LOWER(title) like ?1 or LOWER(seriesTitle) like ?1 or LOWER(episodeTitle) like ?1 or LOWER(description) like ?1)",
                     "%" + s + "%").stream().limit(limit).collect(java.util.stream.Collectors.toList());
         } else {
-            externalHistoryRaw = Models.ExternalVideo.list("watchProgress > 0 order by lastUpdated desc");
+            externalHistoryRaw = Models.Video.ExternalVideo.list("watchProgress > 0 order by lastUpdated desc");
         }
         List<Map<String, Object>> externalHistory = new java.util.ArrayList<>();
-        for (Models.ExternalVideo ev : externalHistoryRaw) {
+        for (Models.Video.ExternalVideo ev : externalHistoryRaw) {
             Map<String, Object> m = new java.util.HashMap<>();
             m.put("id", ev.id);
             m.put("title", ev.title);
@@ -1263,7 +1263,7 @@ public class VideoUiApi {
                 .data("nextPage", nextPage)
                 .data("hasMore", hasMore)
                 .data("search", search)
-                .data("getProfileInitials", (java.util.function.Function<String, String>) this::getProfileInitials)
+                .data("getProfileInitials", (java.util.function.Function<Long, String>) this::getProfileInitials)
                 .data("formatDateTime", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")))
                 .data("formatDateTimeISO", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.atOffset(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME))
                 .render();
@@ -1287,7 +1287,7 @@ public class VideoUiApi {
                 .data("nextPage", nextPage)
                 .data("hasMore", hasMore)
                 .data("search", search)
-                .data("getProfileInitials", (java.util.function.Function<String, String>) this::getProfileInitials)
+                .data("getProfileInitials", (java.util.function.Function<Long, String>) this::getProfileInitials)
                 .data("formatDateTime", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")))
                 .data("formatDateTimeISO", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.atOffset(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME))
                 .render();
@@ -1316,10 +1316,10 @@ public class VideoUiApi {
     @Path("/admin-suggestions-fragment")
     @Blocking
     public String getAdminSuggestionsFragment() {
-        List<Models.VideoSuggestion> suggestions = videoSuggestionService.findAll();
+        List<Models.Video.VideoSuggestion> suggestions = videoSuggestionService.findAll();
         return adminSuggestionsFragment
                 .data("suggestions", suggestions)
-                .data("getProfileInitials", (java.util.function.Function<String, String>) this::getProfileInitials)
+                .data("getProfileInitials", (java.util.function.Function<Long, String>) this::getProfileInitials)
                 .data("formatDateTime", (java.util.function.Function<java.time.LocalDateTime, String>) dt -> dt == null ? "" : dt.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")))
                 .render();
     }
@@ -1389,7 +1389,7 @@ public class VideoUiApi {
     @Path("/details-fragment/{videoId}")
     @Blocking
     public String getDetailsFragment(@PathParam("videoId") Long videoId) {
-        Models.Video item = videoService.find(videoId);
+        Models.Video.Video item = videoService.find(videoId);
         if (item == null) return "<div class='notification is-danger'>Video not found</div>";
         
         return detailsFragment
@@ -1412,7 +1412,7 @@ public class VideoUiApi {
         VideoService.PlaybackData data = videoService.getPlaybackData(videoId, collectionId, userAgent);
         if (data == null) return "<div class='notification is-warning'>No video available for playback</div>";
 
-        Models.Video item = data.item;
+        Models.Video.Video item = data.item;
 
         // On-demand IntroDB enrichment: async, fire-and-forget, never blocks the fragment response
         if (item != null && "episode".equalsIgnoreCase(item.type) && item.introStart == null) {
@@ -1422,7 +1422,7 @@ public class VideoUiApi {
                     io.quarkus.arc.ManagedContext requestContext = io.quarkus.arc.Arc.container().requestContext();
                     if (!requestContext.isActive()) requestContext.activate();
                     try {
-                        Models.Video v = videoService.findById(vid);
+                        Models.Video.Video v = videoService.findById(vid);
                         if (v != null && "episode".equalsIgnoreCase(v.type) && v.introStart == null) {
                             videoMetadataService.enrichVideoWithIntroData(v);
                         }
@@ -1474,7 +1474,7 @@ public class VideoUiApi {
 
     // ==================== HELPERS ====================
 
-    private String createSimpleCardHTML(Models.Video item) {
+    private String createSimpleCardHTML(Models.Video.Video item) {
         String title = item.title != null ? item.title : (item.seriesTitle != null ? item.seriesTitle : "Unknown");
         boolean isEpisode = item.type != null && "episode".equalsIgnoreCase(item.type);
         String dataAttrs = isEpisode && item.seriesTitle != null
@@ -1491,7 +1491,7 @@ public class VideoUiApi {
 
         // Progress bar HTML - get per-profile watch progress
         String progressBar = "";
-        Models.VideoState progress = videoStateService.getOrCreate(item);
+        Models.Video.VideoState progress = videoStateService.getOrCreate(item);
         if (progress != null && progress.watchProgress != null && progress.watchProgress > 0) {
             int progressPercent = (int)(progress.watchProgress * 100);
             progressBar = "<div class='card-progress-container'><div class='card-progress-bar' style='width: " + progressPercent + "%%'></div></div>";
@@ -1507,7 +1507,7 @@ public class VideoUiApi {
         );
     }
 
-    private String createExternalCardHTML(Models.ExternalVideo ev) {
+    private String createExternalCardHTML(Models.Video.ExternalVideo ev) {
         String title = ev.title != null ? escapeHtml(ev.title) : "External";
         boolean isEpisode = ev.entryType == Models.ExistingVideo.EPISODE;
         String meta = isEpisode
@@ -1516,7 +1516,7 @@ public class VideoUiApi {
         // Try to use the series thumbnail for external episodes
         Long thumbnailId = null;
         if (isEpisode && ev.seriesTitle != null && !ev.seriesTitle.isBlank()) {
-            Models.Video sample = Models.Video.find("type = ?1 and seriesTitle = ?2 and isActive = ?3",
+            Models.Video.Video sample = Models.Video.Video.find("type = ?1 and seriesTitle = ?2 and isActive = ?3",
                     "episode", ev.seriesTitle, true).firstResult();
             if (sample != null) thumbnailId = sample.id;
         }
@@ -1541,7 +1541,7 @@ public class VideoUiApi {
                "<div class='card-content'><div class='card-title'>" + title + "</div><div class='card-meta'>" + escapeHtml(meta) + "</div></div></div>";
     }
 
-    private String createSimpleCarouselHTML(String title, List<Models.Video> items, String iconClass, String iconColor, String badge, String carouselId) {
+    private String createSimpleCarouselHTML(String title, List<Models.Video.Video> items, String iconClass, String iconColor, String badge, String carouselId) {
         if (items == null || items.isEmpty()) return "";
         StringBuilder html = new StringBuilder("<div class='streaming-carousel-section'>");
         
@@ -1565,7 +1565,7 @@ public class VideoUiApi {
         // Container for items
         html.append("<div class='carousel-container'>");
         html.append("<div class='streaming-carousel' id='").append(carouselId).append("'>");
-        for (Models.Video item : items) html.append(createSimpleCardHTML(item));
+        for (Models.Video.Video item : items) html.append(createSimpleCardHTML(item));
         html.append("</div></div></div>");
         return html.toString();
     }
@@ -1593,7 +1593,7 @@ public class VideoUiApi {
             if (p.lastVideoId != null) thumbnailId = p.lastVideoId;
             if (thumbnailId == null && p.collection.coverVideoId != null) thumbnailId = p.collection.coverVideoId;
             if (thumbnailId == null) {
-                Models.CollectionEntry sample = Models.CollectionEntry.find("collection = ?1 order by orderIndex", p.collection).firstResult();
+                Models.Video.CollectionEntry sample = Models.Video.CollectionEntry.find("collection = ?1 order by orderIndex", p.collection).firstResult();
                 if (sample != null && sample.video != null) thumbnailId = sample.video.id;
             }
             String imgTag = thumbnailId != null
@@ -1615,18 +1615,18 @@ public class VideoUiApi {
     }
 
     private Map<String, Object> getCarouselData() {
-        List<Models.Video> movies = Models.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
+        List<Models.Video.Video> movies = Models.Video.Video.find("isActive = ?1 and type = ?2 order by dateAdded desc", true, "movie")
             .range(0, 99).list();
-        List<Models.Video> episodes = Models.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
+        List<Models.Video.Video> episodes = Models.Video.Video.find("isActive = ?1 and type = ?2 and seriesTitle is not null order by dateAdded desc", true, "episode")
             .list();
         Map<String, Object> data = new HashMap<>();
         
         // Continue Watching - based on per-profile VideoState progress
         java.util.Set<String> seenContinue = new java.util.HashSet<>();
-        List<Models.Video> continueWatching = new java.util.ArrayList<>();
+        List<Models.Video.Video> continueWatching = new java.util.ArrayList<>();
         
-        List<Models.VideoState> inProgress = videoStateService.getInProgressVideos();
-        for (Models.VideoState vs : inProgress) {
+        List<Models.Video.VideoState> inProgress = videoStateService.getInProgressVideos();
+        for (Models.Video.VideoState vs : inProgress) {
             if (vs.video != null && vs.video.isActive) {
                 String key = getDedupeKey(vs.video);
                 if (seenContinue.add(key)) {
@@ -1640,7 +1640,7 @@ public class VideoUiApi {
         data.put("continueWatching", continueWatching);
         
         // New releases - dedupe by show/movie to avoid multiple episodes of same show
-        List<Models.Video> allNewReleases = new ArrayList<>();
+        List<Models.Video.Video> allNewReleases = new ArrayList<>();
         allNewReleases.addAll(movies);
         allNewReleases.addAll(episodes);
         java.util.Set<String> seenNewReleases = new java.util.HashSet<>();
@@ -1665,7 +1665,7 @@ public class VideoUiApi {
             .limit(20).collect(Collectors.toList()));
         
         // Trending - dedupe by show/movie
-        List<Models.Video> allTrending = new ArrayList<>();
+        List<Models.Video.Video> allTrending = new ArrayList<>();
         allTrending.addAll(movies);
         allTrending.addAll(episodes);
         java.util.Set<String> seenTrending = new java.util.HashSet<>();
@@ -1679,7 +1679,7 @@ public class VideoUiApi {
         return data;
     }
     
-    private String getDedupeKey(Models.Video v) {
+    private String getDedupeKey(Models.Video.Video v) {
         if (v.type != null && "episode".equalsIgnoreCase(v.type) && v.seriesTitle != null) {
             return "show:" + v.seriesTitle.toLowerCase().replaceAll("[^a-z0-9]", "");
         }
@@ -1723,7 +1723,10 @@ public class VideoUiApi {
         }
     }
     
-    private String getProfileInitials(String name) {
+    private String getProfileInitials(Long profileId) {
+        if (profileId == null) return "?";
+        Profile profile = Profile.findById(profileId);
+        String name = profile != null ? profile.name : null;
         if (name == null || name.isEmpty()) return "?";
         String[] parts = name.trim().split("\\s+");
         if (parts.length == 1) return parts[0].substring(0, Math.min(2, parts[0].length())).toUpperCase();
@@ -1739,7 +1742,7 @@ public class VideoUiApi {
             return "<div class='notification is-warning'>No channel specified</div>";
         }
 
-        Models.LiveChannel channel = Models.LiveChannel.findById(channelId);
+        Models.Video.LiveChannel channel = Models.Video.LiveChannel.findById(channelId);
         if (channel == null) {
             return "<div class='notification is-warning'>Channel not found</div>";
         }
@@ -1752,7 +1755,7 @@ public class VideoUiApi {
 
         String defaultPlayer = "simple";
         try {
-            Models.Settings settings = settingsService.getOrCreateSettings();
+            Models.Settings.Settings settings = settingsService.getOrCreateSettings();
             if (settings.getDefaultPlayer() != null && !settings.getDefaultPlayer().isBlank()) {
                 defaultPlayer = settings.getDefaultPlayer();
             }
@@ -1782,7 +1785,7 @@ public class VideoUiApi {
     @Path("/now-playing-carousel")
     @Blocking
     public String nowPlayingCarousel(@QueryParam("videoId") Long videoId) {
-        Models.Video item = videoService.find(videoId);
+        Models.Video.Video item = videoService.find(videoId);
         if (item == null) return "";
         List<Map<String, Object>> carouselItems = new ArrayList<>();
         String carouselTitle = "";
@@ -1824,11 +1827,11 @@ public class VideoUiApi {
     public String getSeriesEpisodesJSON(@PathParam("seriesTitle") String seriesTitle) {
         try {
             String decodedTitle = java.net.URLDecoder.decode(seriesTitle, StandardCharsets.UTF_8);
-            List<Models.Video> episodes = videoService.findEpisodesForSeries(decodedTitle);
+            List<Models.Video.Video> episodes = videoService.findEpisodesForSeries(decodedTitle);
 
             // Fallback for case-insensitivity
             if (episodes.isEmpty()) {
-                episodes = Models.Video.<Models.Video>listAll().stream()
+                episodes = Models.Video.Video.<Models.Video.Video>listAll().stream()
                     .filter(v -> v.type != null && v.type.equalsIgnoreCase("episode")
                             && decodedTitle.equalsIgnoreCase(v.seriesTitle))
                     .sorted(Comparator.comparingInt(v -> v.episodeNumber != null ? v.episodeNumber : 0))
@@ -1836,9 +1839,9 @@ public class VideoUiApi {
             }
 
             // Enrich with progress (batch)
-            Map<Long, Models.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
-            for (Models.Video ep : episodes) {
-                Models.VideoState vs = epStates.get(ep.id);
+            Map<Long, Models.Video.VideoState> epStates = videoStateService.getOrCreateBatch(episodes);
+            for (Models.Video.Video ep : episodes) {
+                Models.Video.VideoState vs = epStates.get(ep.id);
                 if (vs != null) {
                     ep.watchProgress = vs.watchProgress;
                     ep.watchProgressPercent = vs.watchProgress != null ? (int) Math.round(vs.watchProgress * 100) : 0;
@@ -1853,7 +1856,7 @@ public class VideoUiApi {
 
             // Build lightweight list — include series.id so JS can fetch full Series entity
             List<Map<String, Object>> result = new ArrayList<>();
-            for (Models.Video v : episodes) {
+            for (Models.Video.Video v : episodes) {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", v.id);
                 item.put("title", v.title);

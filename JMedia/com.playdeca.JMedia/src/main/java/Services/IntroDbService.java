@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Settings;
+import Models.Settings.Settings;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;

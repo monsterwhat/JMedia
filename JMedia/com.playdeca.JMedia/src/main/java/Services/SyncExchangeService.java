@@ -1,10 +1,10 @@
 package Services;
 
-import Models.MediaCollection;
-import Models.Song;
-import Models.SongAnalysis;
-import Models.SubtitleTrack;
-import Models.Video;
+import Models.Video.MediaCollection;
+import Models.Music.Song;
+import Models.Music.SongAnalysis;
+import Models.Video.SubtitleTrack;
+import Models.Video.Video;
 import Models.DTOs.SyncCollectionData;
 import Models.DTOs.SyncExchangeRequest;
 import Models.DTOs.SyncExchangeResponse;
@@ -25,8 +25,11 @@ public class SyncExchangeService {
 
     private static final Logger LOGGER = Logger.getLogger(SyncExchangeService.class.getName());
 
-    @PersistenceContext
-    EntityManager em;
+    @PersistenceContext(unitName = "music")
+    EntityManager musicEm;
+
+    @PersistenceContext(unitName = "video")
+    EntityManager videoEm;
 
     /**
      * Owns the full transactional exchange: validates the request (null -> empty
@@ -58,7 +61,8 @@ public class SyncExchangeService {
             processCollectionExchange(request.collections, response);
         }
 
-        em.flush();
+        musicEm.flush();
+        videoEm.flush();
         return response;
     }
 
@@ -82,7 +86,7 @@ public class SyncExchangeService {
                     if (remoteSong.updatedAt != null && localSong.getUpdatedAt() != null
                             && remoteSong.updatedAt.isAfter(localSong.getUpdatedAt())) {
                         updateSongFromSyncData(localSong, remoteSong);
-                        em.merge(localSong);
+                        musicEm.merge(localSong);
                         if (response.updatedIds != null) {
                             response.updatedIds.add(remoteSong.musicbrainzId);
                         }
@@ -122,7 +126,7 @@ public class SyncExchangeService {
                 if (remoteVideo.dateModified != null && localVideo.dateModified != null
                         && remoteVideo.dateModified.isAfter(localVideo.dateModified)) {
                     remoteVideo.applyTo(localVideo);
-                    em.merge(localVideo);
+                    videoEm.merge(localVideo);
                     if (response.updatedIds != null) {
                         response.updatedIds.add(String.valueOf(remoteVideo.videoId));
                     }
@@ -160,7 +164,7 @@ public class SyncExchangeService {
                 if (remoteCollection.isPublic != null) localCollection.isPublic = remoteCollection.isPublic;
                 if (remoteCollection.coverVideoId != null) localCollection.coverVideoId = remoteCollection.coverVideoId;
                 localCollection.sortOrder = remoteCollection.sortOrder;
-                em.merge(localCollection);
+                videoEm.merge(localCollection);
                 if (response.updatedIds != null) {
                     response.updatedIds.add(String.valueOf(remoteCollection.collectionId));
                 }
@@ -188,7 +192,7 @@ public class SyncExchangeService {
                 }
 
                 remoteTrack.applyTo(localTrack);
-                em.merge(localTrack);
+                videoEm.merge(localTrack);
                 if (response.updatedIds != null) {
                     response.updatedIds.add(String.valueOf(remoteTrack.trackId));
                 }

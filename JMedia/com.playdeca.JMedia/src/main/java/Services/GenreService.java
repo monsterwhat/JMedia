@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Genre;
+import Models.Video.Genre;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.util.List;

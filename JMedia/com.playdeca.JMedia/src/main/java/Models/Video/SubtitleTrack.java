@@ -1,4 +1,4 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
@@ -20,8 +20,8 @@ public class SubtitleTrack extends PanacheEntity {
     
     // Language & Display
     public String languageCode; // ISO 639-2: "eng", "fre", "spa"
-    public String languageName; // "English", "Français", "Español"
-    public String displayName; // "English", "Français (Forced)", "English SDH"
+    public String languageName; // "English", "FranÃ§ais", "EspaÃ±ol"
+    public String displayName; // "English", "FranÃ§ais (Forced)", "English SDH"
     
     // Track Properties
     public boolean isForced;      // Forced display subtitles

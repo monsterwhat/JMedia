@@ -1,8 +1,9 @@
 package Services;
 
-import Models.CollectionWatchProgress;
-import Models.MediaCollection;
-import Models.Profile;
+import Models.Video.CollectionWatchProgress;
+import Models.Video.MediaCollection;
+import Models.Settings.Profile;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -17,6 +18,7 @@ public class CollectionWatchProgressService {
     SettingsService settingsService;
 
     @Inject
+    @PersistenceUnit("video")
     EntityManager em;
 
     @Transactional
@@ -25,11 +27,11 @@ public class CollectionWatchProgressService {
         if (activeProfile == null || collection == null) return null;
 
         CollectionWatchProgress p = CollectionWatchProgress.find(
-            "profile = ?1 AND collection = ?2", activeProfile, collection
+            "profileId = ?1 AND collection = ?2", activeProfile.id, collection
         ).firstResult();
         if (p == null) {
             p = new CollectionWatchProgress();
-            p.profile = activeProfile;
+            p.profileId = activeProfile.id;
             p.collection = collection;
             p.persist();
         }
@@ -40,7 +42,7 @@ public class CollectionWatchProgressService {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null || collection == null) return null;
         return CollectionWatchProgress.find(
-            "profile = ?1 AND collection = ?2", activeProfile, collection
+            "profileId = ?1 AND collection = ?2", activeProfile.id, collection
         ).firstResult();
     }
 
@@ -63,7 +65,7 @@ public class CollectionWatchProgressService {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null) return List.of();
         return CollectionWatchProgress.list(
-            "profile = ?1 AND progress > 0 AND progress < 1.0 ORDER BY lastUpdated DESC", activeProfile
+            "profileId = ?1 AND progress > 0 AND progress < 1.0 ORDER BY lastUpdated DESC", activeProfile.id
         );
     }
 
@@ -83,13 +85,13 @@ public class CollectionWatchProgressService {
     public void delete(MediaCollection collection) {
         Profile activeProfile = settingsService.getActiveProfile();
         if (activeProfile == null || collection == null) return;
-        CollectionWatchProgress.delete("profile = ?1 AND collection = ?2", activeProfile, collection);
+        CollectionWatchProgress.delete("profileId = ?1 AND collection = ?2", activeProfile.id, collection);
     }
 
     @Transactional
     public void deleteForProfile(Profile profile) {
         if (profile != null) {
-            CollectionWatchProgress.delete("profile = ?1", profile);
+            CollectionWatchProgress.delete("profileId = ?1", profile.id);
         }
     }
 }

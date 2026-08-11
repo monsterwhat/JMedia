@@ -1,7 +1,7 @@
 package Models.DTOs;
 
 import lombok.Data;
-import Models.Settings;
+import Models.Settings.Settings;
 
 @Data
 public class ImportSettingsDTO {

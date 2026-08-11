@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Video;
+import Models.Video.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
@@ -43,7 +43,7 @@ public class MetadataEnrichmentWorker {
     @ConfigProperty(name = "metadata.enrichment.retry.cooldown.minutes", defaultValue = "30")
     int retryCooldownMinutes;
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "video")
     EntityManager em;
 
     private final Semaphore guard = new Semaphore(1);

@@ -1,6 +1,6 @@
 package API.Rest;
 
-import Models.Song;
+import Models.Music.Song;
 import Services.SongService;
 import Services.MetadataWriteService;
 import Controllers.SettingsController;
@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 @Produces(MediaType.APPLICATION_JSON) // Default to JSON for a REST API
 public class SongAPI {
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     EntityManager em;
     
     @Inject

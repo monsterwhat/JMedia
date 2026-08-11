@@ -1,9 +1,9 @@
 package Services;
 
-import Models.Video;
-import Models.SubtitleTrack;
+import Models.Video.Video;
+import Models.Video.SubtitleTrack;
 import Models.DTOs.SubtitleSearchResult;
-import Models.Settings;
+import Models.Settings.Settings;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

@@ -1,8 +1,8 @@
 package Services;
 
-import Models.Playlist;
-import Models.Profile;
-import Models.Song;
+import Models.Music.Playlist;
+import Models.Settings.Profile;
+import Models.Music.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -15,7 +15,7 @@ import java.util.List;
 @ApplicationScoped
 public class PlaylistService {
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     private EntityManager em;
 
     @Inject
@@ -33,15 +33,16 @@ public class PlaylistService {
     public void save(Playlist playlist) {
         if (playlist.id == null) { // New playlist
             Profile activeProfile = settingsService.getActiveProfile();
-            playlist.setProfile(activeProfile);
+            playlist.setProfileId(activeProfile != null ? activeProfile.id : null);
             // All playlists are global by default - both user-created and imported
             playlist.setIsGlobal(true);
             em.persist(playlist);
         } else {
             Playlist existingPlaylist = em.find(Playlist.class, playlist.id);
+            Profile activeProfile = settingsService.getActiveProfile();
             if (isMainProfileActive() || 
                 (existingPlaylist != null && (
-                    existingPlaylist.getProfile().equals(settingsService.getActiveProfile()) || 
+                    (activeProfile != null && existingPlaylist.getProfileId() != null && existingPlaylist.getProfileId().equals(activeProfile.id)) || 
                     Boolean.TRUE.equals(existingPlaylist.getIsGlobal())
                 ))) {
                 em.merge(playlist);
@@ -53,9 +54,10 @@ public class PlaylistService {
     public void delete(Playlist playlist) {
         if (playlist != null) {
             // Main profile can delete any playlist. Other profiles can only delete their own (not global).
+            Profile activeProfile = settingsService.getActiveProfile();
             if (isMainProfileActive() || 
-                (playlist.getProfile() != null && 
-                 playlist.getProfile().equals(settingsService.getActiveProfile()) && 
+                (playlist.getProfileId() != null && 
+                 activeProfile != null && playlist.getProfileId().equals(activeProfile.id) && 
                  !Boolean.TRUE.equals(playlist.getIsGlobal()))) {
                 Playlist managed = em.contains(playlist) ? playlist : em.merge(playlist);
 
@@ -89,8 +91,8 @@ public class PlaylistService {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return List.of();
             
-            List<Playlist> playlists = em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
-                    .setParameter("profile", activeProfile)
+            List<Playlist> playlists = em.createQuery("SELECT p FROM Playlist p WHERE p.profileId = :profileId OR p.isGlobal = true", Playlist.class)
+                    .setParameter("profileId", activeProfile.id)
                     .getResultList();
             
             List<Long> hiddenIds = activeProfile.getHiddenPlaylistIds();
@@ -112,8 +114,8 @@ public class PlaylistService {
         try {
             if (profile == null) return List.of();
             
-            List<Playlist> playlists = em.createQuery("SELECT p FROM Playlist p WHERE p.profile = :profile OR p.isGlobal = true", Playlist.class)
-                    .setParameter("profile", profile)
+            List<Playlist> playlists = em.createQuery("SELECT p FROM Playlist p WHERE p.profileId = :profileId OR p.isGlobal = true", Playlist.class)
+                    .setParameter("profileId", profile.id)
                     .getResultList();
             
             List<Long> hiddenIds = profile.getHiddenPlaylistIds();
@@ -235,7 +237,7 @@ public class PlaylistService {
             Profile activeProfile = settingsService.getActiveProfile();
             if (isMainProfileActive() || 
                 (playlist != null && (
-                    (playlist.getProfile() != null && playlist.getProfile().equals(activeProfile)) || 
+                    (playlist.getProfileId() != null && activeProfile != null && playlist.getProfileId().equals(activeProfile.id)) || 
                     Boolean.TRUE.equals(playlist.getIsGlobal())
                 ))) {
                 return playlist;
@@ -274,9 +276,9 @@ public class PlaylistService {
                         .setMaxResults(1)
                         .getSingleResult();
             } else {
-                return em.createQuery("SELECT p FROM Playlist p WHERE p.name = :name AND (p.profile = :profile OR p.isGlobal = true)", Playlist.class)
+                return em.createQuery("SELECT p FROM Playlist p WHERE p.name = :name AND (p.profileId = :profileId OR p.isGlobal = true)", Playlist.class)
                         .setParameter("name", name)
-                        .setParameter("profile", activeProfile)
+                        .setParameter("profileId", activeProfile.id)
                         .setMaxResults(1)
                         .getSingleResult();
             }
@@ -343,9 +345,10 @@ public class PlaylistService {
                 .executeUpdate();
         } else {
             List<Playlist> playlists = findAll(); // This gets user's playlists + global playlists
+            Profile activeProfile = settingsService.getActiveProfile();
             for (Playlist playlist : playlists) {
                 // Only remove from user's own playlists, not global ones
-                if (playlist.getProfile() != null && playlist.getProfile().equals(settingsService.getActiveProfile())) {
+                if (activeProfile != null && playlist.getProfileId() != null && playlist.getProfileId().equals(activeProfile.id)) {
                     playlist.getSongs().removeIf(song -> song.id.equals(songId));
                     em.merge(playlist);
                 }
@@ -393,7 +396,7 @@ public class PlaylistService {
             Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) return new PaginatedPlaylists(List.of(), 0);
 
-            StringBuilder where = new StringBuilder("WHERE (p.profile = :profile OR p.isGlobal = true)");
+            StringBuilder where = new StringBuilder("WHERE (p.profileId = :profileId OR p.isGlobal = true)");
             if (search != null && !search.isBlank()) {
                 where.append(" AND LOWER(p.name) LIKE :search");
             }
@@ -401,7 +404,7 @@ public class PlaylistService {
             // Count
             String countQ = "SELECT COUNT(p) FROM Playlist p " + where;
             var countQuery = em.createQuery(countQ, Long.class)
-                    .setParameter("profile", activeProfile);
+                    .setParameter("profileId", activeProfile.id);
             if (search != null && !search.isBlank()) {
                 countQuery.setParameter("search", "%" + search.toLowerCase() + "%");
             }
@@ -410,7 +413,7 @@ public class PlaylistService {
             // Fetch page
             String dataQ = "SELECT p.id, p.name, SIZE(p.songs) FROM Playlist p " + where + " ORDER BY LOWER(p.name)";
             var dataQuery = em.createQuery(dataQ, Object[].class)
-                    .setParameter("profile", activeProfile)
+                    .setParameter("profileId", activeProfile.id)
                     .setFirstResult((page - 1) * limit)
                     .setMaxResults(limit);
             if (search != null && !search.isBlank()) {

@@ -1,6 +1,6 @@
 package Models.DTOs;
 
-import Models.Playlist;
+import Models.Music.Playlist;
 import lombok.Data;
 import java.util.List;
 

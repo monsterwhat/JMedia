@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Profile;
-import Models.Song;
+import Models.Settings.Profile;
+import Models.Music.Song;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.persistence.EntityManager;
@@ -23,7 +23,7 @@ public class SongService {
 
     private static final Logger LOGGER = Logger.getLogger(SongService.class.getName());
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     private EntityManager em;
 
     @Inject

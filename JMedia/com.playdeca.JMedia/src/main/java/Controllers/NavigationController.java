@@ -49,6 +49,12 @@ public class NavigationController {
     }
     
     @GET
+    @Path("/music-dock")
+    public Response serveMusicDock() {
+        return servePage("music-dock.html", "Music dock page (SPA)");
+    }
+    
+    @GET
     @Path("/setup")
     public Response serveSetup() {
         return servePage("setup.html", "Setup page");

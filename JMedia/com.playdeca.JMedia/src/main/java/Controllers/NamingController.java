@@ -1,11 +1,11 @@
 package Controllers;
 
-import Models.Video;
+import Models.Video.Video;
 import Services.SmartNamingService;
 import Services.UnifiedVideoEntityCreationService;
 import Services.VideoService;
 import Services.VideoImportService;
-import Models.MediaFile;
+import Models.Video.MediaFile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;

@@ -1,7 +1,7 @@
 package Services;
 
-import Models.PlaybackState;
-import Models.Profile;
+import Models.Music.PlaybackState;
+import Models.Settings.Profile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -13,7 +13,7 @@ import java.util.ArrayList;
 @ApplicationScoped
 public class PlaybackStateService {
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     private EntityManager em;
 
     @Inject
@@ -30,11 +30,11 @@ public class PlaybackStateService {
         }
 
         // Try to find the state first
-        PlaybackState state = PlaybackState.find("profile", profile).firstResult();
+        PlaybackState state = PlaybackState.find("profileId", profile.id).firstResult();
 
         if (state == null) {
             // If not found, create a new one
-            state = createDefaultState(profile);
+            state = createDefaultState(profile.id);
             try {
                 // Persist the new state. This might throw an exception if another thread
                 // has already created it for the same profile (race condition).
@@ -43,7 +43,7 @@ public class PlaybackStateService {
                 // If it failed due to a unique constraint violation, it means another thread
                 // created it. Fetch the existing one.
                 if (e.getCause() instanceof org.hibernate.exception.ConstraintViolationException) {
-                    state = PlaybackState.find("profile", profile).firstResult();
+                    state = PlaybackState.find("profileId", profile.id).firstResult();
                     if (state == null) {
                         // This should not happen, but as a fallback, throw an error.
                         throw new IllegalStateException("Failed to create or retrieve PlaybackState for profile: " + profile.name, e);
@@ -56,9 +56,9 @@ public class PlaybackStateService {
         return state;
     }
 
-private PlaybackState createDefaultState(Profile profile) {
+private PlaybackState createDefaultState(Long profileId) {
         PlaybackState state = new PlaybackState();
-        state.setProfile(profile);
+        state.setProfileId(profileId);
         state.setVolume(0.8f);
         state.setCue(new ArrayList<>());
         state.setLastSongs(new ArrayList<>());
@@ -116,8 +116,8 @@ existingState.setRepeatMode(newState.getRepeatMode());
     @Transactional
     public synchronized void resetState(Long profileId) {
         PlaybackState state = getOrCreateState(profileId);
-        Profile profile = state.getProfile(); // preserve the profile
-        PlaybackState defaultState = createDefaultState(profile);
+        // preserve the profileId (the state itself keeps it)
+        PlaybackState defaultState = createDefaultState(profileId);
         
         // copy default values to the managed entity
         state.setPlaying(defaultState.isPlaying());

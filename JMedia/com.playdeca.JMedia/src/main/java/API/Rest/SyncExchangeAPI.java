@@ -1,7 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Models.Settings;
+import Models.Settings.Settings;
 import Models.DTOs.SyncExchangeRequest;
 import Models.DTOs.SyncExchangeResponse;
 import Services.SettingsService;

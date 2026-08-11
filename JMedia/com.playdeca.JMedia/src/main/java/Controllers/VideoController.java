@@ -1,12 +1,12 @@
 package Controllers;
 
 import API.WS.VideoSocket;
-import Models.Profile;
-import Models.ProfileSessionState;
-import Models.Settings;
-import Models.Video;
-import Models.VideoHistory;
-import Models.VideoState;
+import Models.Settings.Profile;
+import Models.Video.ProfileSessionState;
+import Models.Settings.Settings;
+import Models.Video.Video;
+import Models.Video.VideoHistory;
+import Models.Video.VideoState;
 import Services.ProfileSessionStateService;
 import Services.SettingsService;
 import Services.VideoHistoryService;
@@ -115,7 +115,7 @@ public class VideoController {
         if (state != null) return state;
 
         if (activePlayingProfileId != null) {
-            state = ProfileSessionState.find("profile.id", activePlayingProfileId).firstResult();
+            state = profileSessionStateService.findByProfileId(activePlayingProfileId);
             if (state != null) return state;
         }
 
@@ -132,10 +132,10 @@ public class VideoController {
 
         profileSessionStateService.save(newState);
 
-        if (newState.playing && newState.profile != null) {
-            activePlayingProfileId = newState.profile.id;
-        } else if (!newState.playing && newState.profile != null && activePlayingProfileId != null
-                && activePlayingProfileId.equals(newState.profile.id)) {
+        if (newState.playing && newState.profileId != null) {
+            activePlayingProfileId = newState.profileId;
+        } else if (!newState.playing && newState.profileId != null && activePlayingProfileId != null
+                && activePlayingProfileId.equals(newState.profileId)) {
             activePlayingProfileId = null;
         }
 
@@ -144,22 +144,22 @@ public class VideoController {
         }
     }
 
-    @jakarta.transaction.Transactional
     public synchronized void reportClientState(Long profileId, Long videoId, boolean playing, double currentTime) {
         if (videoId == null) return;
         ProfileSessionState st;
         // Pause must land on the row the 300ms tick broadcasts, or the timer never stops and keeps force-playing.
+        // Reads go through the service: a @Transactional here would open a JTA tx on the WebSocket
+        // common-pool thread (VideoSocket dispatches via CompletableFuture.runAsync), enlist BOTH
+        // persistence units, and hold the tx while this synchronized body waits on the monitor -
+        // concurrent WS messages then overlap transactions and Agroal rolls back a stale connection
+        // ("Enlisted connection used without active transaction"). Each service call is a short
+        // single-PU transaction instead.
         if (activePlayingProfileId != null) {
-            st = ProfileSessionState.find("profile.id", activePlayingProfileId).firstResult();
+            st = profileSessionStateService.findByProfileId(activePlayingProfileId);
             if (st == null) st = getState();
         } else if (profileId != null) {
-            Profile profile = Profile.findById(profileId);
-            if (profile != null) {
-                st = ProfileSessionState.find("profile", profile).firstResult();
-                if (st == null) { st = new ProfileSessionState(); st.profile = profile; }
-            } else {
-                st = getState();
-            }
+            st = profileSessionStateService.findByProfileId(profileId);
+            if (st == null) st = getState();
         } else {
             st = getState();
         }
@@ -310,15 +310,15 @@ public class VideoController {
     }
     
     public List<Video> getVideos() {
-        return Models.Video.listAll();
+        return Models.Video.Video.listAll();
     }
 
     public List<Video> getVideos(int page, int limit) {
-        return Models.Video.findAll().page(page - 1, limit).list();
+        return Models.Video.Video.findAll().page(page - 1, limit).list();
     }
 
     public Video findVideo(Long id) {
-        return Models.Video.findById(id);
+        return Models.Video.Video.findById(id);
     }
     
     public synchronized void changeVolume(float level) {
@@ -398,7 +398,7 @@ public class VideoController {
         List<Long> pageOfIds = cueIds.subList(fromIndex, toIndex);
         List<Video> videos = new ArrayList<>();
         for (Long id : pageOfIds) {
-            Video video = Models.Video.findById(id);
+            Video video = Models.Video.Video.findById(id);
             if (video != null) {
                 videos.add(video);
             }

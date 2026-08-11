@@ -1,6 +1,7 @@
 package Services;
 
-import Models.EpgEntry;
+import Models.Video.EpgEntry;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -28,6 +29,7 @@ public class EpgService {
     private static final int BATCH_SIZE = 500;
 
     @Inject
+    @PersistenceUnit("video")
     EntityManager em;
 
     @Transactional

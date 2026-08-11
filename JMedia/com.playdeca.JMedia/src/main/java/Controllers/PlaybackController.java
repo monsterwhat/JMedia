@@ -2,12 +2,12 @@ package Controllers;
 
 import API.WS.MusicSocket;
 import Models.DTOs.DjSettingsDTO;
-import Models.PlaybackHistory;
-import Models.PlaybackState;
-import Models.Playlist;
-import Models.Profile;
-import Models.Settings;
-import Models.Song;
+import Models.Music.PlaybackHistory;
+import Models.Music.PlaybackState;
+import Models.Music.Playlist;
+import Models.Settings.Profile;
+import Models.Settings.Settings;
+import Models.Music.Song;
 import Services.AudioAnalysisService;
 import Services.DjTransitionService;
 import Services.DjTransitionService.DjTransition;
@@ -1062,6 +1062,9 @@ public class PlaybackController {
         dto.setBpmMin(st.getDjBpmMin() != null ? st.getDjBpmMin() : 0);
         dto.setBpmMax(st.getDjBpmMax() != null ? st.getDjBpmMax() : 0);
         dto.setMaxConsecutiveByArtist(st.getDjMaxConsecutiveByArtist() != null ? st.getDjMaxConsecutiveByArtist() : 0);
+        dto.setSkipsBeforeGenreChange(st.getDjSkipsBeforeGenreChange() != null ? st.getDjSkipsBeforeGenreChange() : 1);
+        dto.setYearMin(st.getDjYearMin() != null ? st.getDjYearMin() : 0);
+        dto.setYearMax(st.getDjYearMax() != null ? st.getDjYearMax() : 0);
         dto.setEnabled(Boolean.TRUE.equals(st.getDjModeActive()));
         return dto;
     }
@@ -1076,6 +1079,9 @@ public class PlaybackController {
         Integer oldBpmMin = st.getDjBpmMin();
         Integer oldBpmMax = st.getDjBpmMax();
         Integer oldMaxConsecutiveByArtist = st.getDjMaxConsecutiveByArtist();
+        Integer oldSkipsBeforeGenreChange = st.getDjSkipsBeforeGenreChange();
+        Integer oldYearMin = st.getDjYearMin();
+        Integer oldYearMax = st.getDjYearMax();
         st.setDjGenrePool(dto.getGenrePool() != null ? new ArrayList<>(dto.getGenrePool()) : new ArrayList<>());
         int songsPerGenre = dto.getSongsPerGenre() != null ? dto.getSongsPerGenre() : 0;
         st.setDjSongsPerGenre(Math.max(0, Math.min(10, songsPerGenre)));
@@ -1095,6 +1101,15 @@ public class PlaybackController {
         st.setDjBpmMax(bpmMax);
         int maxConsecutiveByArtist = dto.getMaxConsecutiveByArtist() != null ? dto.getMaxConsecutiveByArtist() : 0;
         st.setDjMaxConsecutiveByArtist(Math.max(0, Math.min(10, maxConsecutiveByArtist)));
+        int skipsBeforeGenreChange = dto.getSkipsBeforeGenreChange() != null ? dto.getSkipsBeforeGenreChange() : 1;
+        st.setDjSkipsBeforeGenreChange(Math.max(0, Math.min(10, skipsBeforeGenreChange)));
+        int yearMin = dto.getYearMin() != null ? Math.max(0, dto.getYearMin()) : 0;
+        int yearMax = dto.getYearMax() != null ? Math.max(0, dto.getYearMax()) : 0;
+        if (yearMin > yearMax && yearMax > 0) {
+            yearMax = yearMin;
+        }
+        st.setDjYearMin(yearMin);
+        st.setDjYearMax(yearMax);
 
         // Force-persist immediately so settings survive reloads
         playbackPersistenceController.persist(profileId, st, true);
@@ -1107,10 +1122,17 @@ public class PlaybackController {
         boolean bpmBoundsChanged = !java.util.Objects.equals(oldBpmMin, st.getDjBpmMin())
                 || !java.util.Objects.equals(oldBpmMax, st.getDjBpmMax());
         boolean maxConsecutiveByArtistChanged = !java.util.Objects.equals(oldMaxConsecutiveByArtist, st.getDjMaxConsecutiveByArtist());
-        if (Boolean.TRUE.equals(st.getDjModeActive()) && (poolChanged || songsPerGenreChanged || bpmBoundsChanged || maxConsecutiveByArtistChanged)) {
+        boolean yearBoundsChanged = !java.util.Objects.equals(oldYearMin, st.getDjYearMin())
+                || !java.util.Objects.equals(oldYearMax, st.getDjYearMax());
+        boolean skipsThresholdChanged = !java.util.Objects.equals(oldSkipsBeforeGenreChange, st.getDjSkipsBeforeGenreChange());
+        if (Boolean.TRUE.equals(st.getDjModeActive()) && (poolChanged || songsPerGenreChanged || bpmBoundsChanged
+                || maxConsecutiveByArtistChanged || yearBoundsChanged)) {
             clearDjTransitionPlan(st);
             playbackQueueController.initSmartShuffle(st, profileId);
             planNextDjTransition(st, profileId);
+        }
+        if (skipsThresholdChanged) {
+            st.setDjGenreSkipCount(0);
         }
 
         updateState(profileId, st, true);

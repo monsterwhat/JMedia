@@ -1,4 +1,4 @@
-package Models;
+package Models.Music;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;

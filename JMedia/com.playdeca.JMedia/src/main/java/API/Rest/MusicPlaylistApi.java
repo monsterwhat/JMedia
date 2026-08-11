@@ -4,9 +4,9 @@ import API.ApiResponse;
 import Controllers.PlaybackController;
 import Models.DTOs.TextPlaylistRequest;
 import Models.DTOs.TextPlaylistResponse;
-import Models.Playlist;
-import Models.Profile;
-import Models.Song;
+import Models.Music.Playlist;
+import Models.Settings.Profile;
+import Models.Music.Song;
 import Services.PlaylistService;
 import Services.ProfileService;
 import Services.SongService;
@@ -92,7 +92,7 @@ public class MusicPlaylistApi {
                             .entity(ApiResponse.error("Profile not found"))
                             .build();
                 }
-                playlist.setProfile(profile);
+                playlist.setProfileId(profile.id);
             }
 
             playbackController.createPlaylist(playlist);
@@ -306,7 +306,7 @@ public class MusicPlaylistApi {
             Playlist playlist = new Playlist();
             playlist.setName(request.getPlaylistName());
             playlist.setDescription(request.getDescription());
-            playlist.setProfile(profile);
+            playlist.setProfileId(profile.id);
             playlist.setIsGlobal(false); // User-specific playlist
             playlist.setSongs(new ArrayList<>());
 

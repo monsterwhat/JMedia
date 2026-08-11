@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Video;
+import Models.Video.Video;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.annotation.PostConstruct;
 import jakarta.transaction.Transactional;

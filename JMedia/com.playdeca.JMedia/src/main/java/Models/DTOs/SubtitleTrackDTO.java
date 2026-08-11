@@ -1,6 +1,6 @@
 package Models.DTOs;
 
-import Models.SubtitleTrack;
+import Models.Video.SubtitleTrack;
 
 public class SubtitleTrackDTO {
     public Long id;

@@ -1,5 +1,6 @@
-package Models;
+package Models.Video;
 
+import Models.ExistingVideo;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
@@ -14,9 +15,8 @@ import java.time.LocalDateTime;
         })
 public class ExternalVideo extends PanacheEntity {
 
-    @ManyToOne
-    @JoinColumn(name = "profile_id")
-    public Profile profile;
+    @Column(name = "profile_id")
+    public Long profileId;
 
     @Column(length = 2048)
     public String url;

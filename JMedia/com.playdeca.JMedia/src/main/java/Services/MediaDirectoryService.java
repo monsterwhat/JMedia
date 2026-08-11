@@ -1,7 +1,7 @@
 package Services;
 
-import Models.MediaDirectory;
-import Models.MediaDirectory.MediaType;
+import Models.Settings.MediaDirectory;
+import Models.Settings.MediaDirectory.MediaType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.persistence.EntityManager;

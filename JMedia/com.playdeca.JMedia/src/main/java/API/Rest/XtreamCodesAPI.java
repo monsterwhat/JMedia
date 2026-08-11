@@ -1,9 +1,9 @@
 package API.Rest;
 
-import Models.User;
-import Models.Video;
-import Models.LiveChannel;
-import Models.M3uPlaylist;
+import Models.Settings.User;
+import Models.Video.Video;
+import Models.Video.LiveChannel;
+import Models.Video.M3uPlaylist;
 import Models.Xtream.*;
 import Services.AuthService;
 import Services.VideoService;
@@ -180,7 +180,7 @@ public class XtreamCodesAPI {
         
         String vodCategoryId = "0";
         if (v.genres != null && !v.genres.isEmpty()) {
-            Models.Genre g = Models.Genre.find("LOWER(name) = ?1", v.genres.get(0).toLowerCase()).firstResult();
+            Models.Video.Genre g = Models.Video.Genre.find("LOWER(name) = ?1", v.genres.get(0).toLowerCase()).firstResult();
             if (g != null) vodCategoryId = g.id.toString();
         }
 
@@ -422,7 +422,7 @@ public class XtreamCodesAPI {
         java.util.Map<String, Object> info = new java.util.HashMap<>();
         Video first = seriesEpisodes.get(0);
         boolean hasSeries = first.series != null;
-        Models.Series s = hasSeries ? first.series : null;
+        Models.Video.Series s = hasSeries ? first.series : null;
         info.put("name", first.seriesTitle);
         info.put("cover", getImageUrl(first));
         info.put("cover_big", getImageUrl(first));
@@ -521,7 +521,7 @@ public class XtreamCodesAPI {
 
     private Response getVodCategories() {
         // Map genres to categories
-        List<Models.Genre> genres = Models.Genre.list("isActive = true");
+        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
         List<XtreamCategory> categories = genres.stream()
                 .map(g -> new XtreamCategory(g.id.toString(), g.name))
                 .collect(Collectors.toList());
@@ -532,7 +532,7 @@ public class XtreamCodesAPI {
         List<Video> videos;
         if (catId != null && !catId.equals("0")) {
             // Find genre name from ID
-            Models.Genre genre = Models.Genre.findById(Long.parseLong(catId));
+            Models.Video.Genre genre = Models.Video.Genre.findById(Long.parseLong(catId));
             if (genre != null) {
                 videos = videoService.findByGenre(genre.name.toLowerCase(), 1, 1000);
             } else {
@@ -556,7 +556,7 @@ public class XtreamCodesAPI {
             s.containerExtension = "mp4";
             // Map the first genre ID if available
             if (v.genres != null && !v.genres.isEmpty()) {
-                Models.Genre g = Models.Genre.find("LOWER(name) = ?1", v.genres.get(0).toLowerCase()).firstResult();
+                Models.Video.Genre g = Models.Video.Genre.find("LOWER(name) = ?1", v.genres.get(0).toLowerCase()).firstResult();
                 s.categoryId = g != null ? g.id.toString() : "0";
             } else {
                 s.categoryId = "0";
@@ -574,13 +574,13 @@ public class XtreamCodesAPI {
     private Response getLiveCategories() {
         List<XtreamCategory> categories = new ArrayList<>();
 
-        List<Models.M3uPlaylist> playlists = Models.M3uPlaylist.list("isActive = true");
-        for (Models.M3uPlaylist pl : playlists) {
+        List<Models.Video.M3uPlaylist> playlists = Models.Video.M3uPlaylist.list("isActive = true");
+        for (Models.Video.M3uPlaylist pl : playlists) {
             String name = pl.name != null ? pl.name : "Unknown Playlist";
             categories.add(new XtreamCategory(String.valueOf(pl.id), name));
         }
 
-        for (Models.M3uPlaylist pl : playlists) {
+        for (Models.Video.M3uPlaylist pl : playlists) {
             String parentCategoryId = String.valueOf(pl.id);
             List<LiveChannel> channels = LiveChannel.find("playlist.id = ?1", pl.id).list();
             java.util.Set<String> seenGroups = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -692,7 +692,7 @@ public class XtreamCodesAPI {
         }
         
         int limit = (epgLimit != null && epgLimit > 0) ? epgLimit : 4;
-        List<Models.EpgEntry> entries = epgService.findUpcoming(epgId, limit);
+        List<Models.Video.EpgEntry> entries = epgService.findUpcoming(epgId, limit);
         if (entries.isEmpty()) {
             entries = epgService.findCurrentPrograms().stream()
                 .filter(e -> epgId.equals(e.epgChannelId))
@@ -713,15 +713,15 @@ public class XtreamCodesAPI {
             return Response.ok(java.util.Map.of("epg_listings", new ArrayList<>())).build();
         }
         
-        List<Models.EpgEntry> entries = epgService.findAllForChannel(epgId);
+        List<Models.Video.EpgEntry> entries = epgService.findAllForChannel(epgId);
         return Response.ok(buildEpgResponse(entries, streamId, true)).build();
     }
 
-    private java.util.Map<String, Object> buildEpgResponse(List<Models.EpgEntry> entries, Long streamId, boolean setNowPlaying) {
+    private java.util.Map<String, Object> buildEpgResponse(List<Models.Video.EpgEntry> entries, Long streamId, boolean setNowPlaying) {
         java.time.format.DateTimeFormatter dtFmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         java.util.List<java.util.Map<String, Object>> epgList = new java.util.ArrayList<>();
         int i = 0;
-        for (Models.EpgEntry entry : entries) {
+        for (Models.Video.EpgEntry entry : entries) {
             i++;
             java.util.Map<String, Object> epg = new java.util.HashMap<>();
             epg.put("id", String.valueOf(entry.id));
@@ -766,7 +766,7 @@ public class XtreamCodesAPI {
                     entry.getKey(), Math.abs(entry.getKey().hashCode()), entry.getValue().size(),
                     first.tmdbId, first.posterPath, imageUrl);
             boolean hasSeries = first.series != null;
-            Models.Series ser = hasSeries ? first.series : null;
+            Models.Video.Series ser = hasSeries ? first.series : null;
             XtreamSeries xs = new XtreamSeries();
             xs.num = num++;
             xs.name = entry.getKey();
@@ -781,7 +781,7 @@ public class XtreamCodesAPI {
             List<String> seriesGenres = (ser != null && ser.genres != null && !ser.genres.isEmpty())
                 ? ser.genres : first.genres;
             if (seriesGenres != null && !seriesGenres.isEmpty()) {
-                Models.Genre g = Models.Genre.find("LOWER(name) = ?1", seriesGenres.get(0).toLowerCase()).firstResult();
+                Models.Video.Genre g = Models.Video.Genre.find("LOWER(name) = ?1", seriesGenres.get(0).toLowerCase()).firstResult();
                 xs.categoryId = g != null ? g.id.toString() : "0";
             } else {
                 xs.categoryId = "0";

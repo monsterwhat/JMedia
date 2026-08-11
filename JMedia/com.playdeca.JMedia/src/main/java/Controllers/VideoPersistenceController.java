@@ -1,6 +1,6 @@
 package Controllers;
 
-import Models.ProfileSessionState;
+import Models.Video.ProfileSessionState;
 import Services.ProfileSessionStateService;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;

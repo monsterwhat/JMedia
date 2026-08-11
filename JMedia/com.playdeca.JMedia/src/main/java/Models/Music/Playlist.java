@@ -1,4 +1,4 @@
-package Models;
+package Models.Music;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
@@ -22,9 +22,8 @@ public class Playlist extends PanacheEntity {
     @Column(length = 2048)
     public String originalLink; // Store original playlist link from import
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "profile_id")
-    private Profile profile;
+    @Column(name = "profile_id")
+    private Long profileId;
     
     public Boolean isGlobal = true; // Global playlists accessible to all profiles
 
@@ -50,9 +49,5 @@ public class Playlist extends PanacheEntity {
     // Setter for containsSong
     public void setContainsSong(boolean containsSong) {
         this.containsSong = containsSong;
-    }
-
-    public void setProfile(Profile profile) {
-        this.profile = profile;
     }
 }

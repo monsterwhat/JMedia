@@ -2,7 +2,7 @@ package Services;
 
 import API.WS.ImportStatusSocket;
 import Models.DTOs.ImportInstallationStatus;
-import Models.Settings;
+import Models.Settings.Settings;
 import Services.Platform.PlatformOperations;
 import Services.Platform.PlatformOperationsFactory;
 import jakarta.enterprise.context.ApplicationScoped;

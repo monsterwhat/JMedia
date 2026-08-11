@@ -1,4 +1,4 @@
-package Models;
+package Models.Settings;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -1,6 +1,6 @@
 package Utils;
 
-import Models.Video;
+import Models.Video.Video;
 import java.text.Normalizer;
 import java.util.regex.Pattern;
 

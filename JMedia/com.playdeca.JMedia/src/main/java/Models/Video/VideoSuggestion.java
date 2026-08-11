@@ -1,15 +1,15 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.ManyToOne;
 import java.time.LocalDateTime;
 
 @Entity
 public class VideoSuggestion extends PanacheEntity {
 
-    @ManyToOne
-    public Profile profile;
+    @Column(name = "profile_id")
+    public Long profileId;
 
     public String content;
 
@@ -18,8 +18,8 @@ public class VideoSuggestion extends PanacheEntity {
     public VideoSuggestion() {
     }
 
-    public VideoSuggestion(Profile profile, String content) {
-        this.profile = profile;
+    public VideoSuggestion(Long profileId, String content) {
+        this.profileId = profileId;
         this.content = content;
         this.createdAt = LocalDateTime.now();
     }

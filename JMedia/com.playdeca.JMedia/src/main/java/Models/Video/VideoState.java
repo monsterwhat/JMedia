@@ -1,4 +1,4 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
@@ -8,9 +8,8 @@ import java.time.LocalDateTime;
 @Table(name = "video_progress", uniqueConstraints = @UniqueConstraint(columnNames = {"profile_id", "video_id"}))
 public class VideoState extends PanacheEntity {
 
-    @ManyToOne
-    @JoinColumn(name = "profile_id")
-    public Profile profile;
+    @Column(name = "profile_id")
+    public Long profileId;
 
     @ManyToOne
     @JoinColumn(name = "video_id")

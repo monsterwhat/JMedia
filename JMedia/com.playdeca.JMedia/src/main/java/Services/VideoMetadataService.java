@@ -1,9 +1,9 @@
 package Services;
 
-import Models.Series;
-import Models.Settings;
-import Models.SubtitleTrack;
-import Models.Video;
+import Models.Video.Series;
+import Models.Settings.Settings;
+import Models.Video.SubtitleTrack;
+import Models.Video.Video;
 import Utils.MediaPathResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -209,11 +209,11 @@ public class VideoMetadataService {
     }
 
     @jakarta.transaction.Transactional
-    public void enrichVideoWithIntroData(Models.Video video) {
+    public void enrichVideoWithIntroData(Models.Video.Video video) {
         if (video == null || !"episode".equalsIgnoreCase(video.type)) return;
         
         // Ensure we are working with a managed entity
-        final Models.Video managedVideo = Models.Video.findById(video.id);
+        final Models.Video.Video managedVideo = Models.Video.Video.findById(video.id);
         if (managedVideo == null) return;
 
         // 1. Ensure we have Show IMDb ID (Required for IntroDB TV lookups)
@@ -256,7 +256,7 @@ public class VideoMetadataService {
     /**
      * Helper to find a Series IMDb ID using the free IMDb Dev API.
      */
-    private String findSeriesImdbId(Models.Video video) {
+    private String findSeriesImdbId(Models.Video.Video video) {
         String searchTitle = "episode".equalsIgnoreCase(video.type) ? video.seriesTitle : video.title;
         if (searchTitle == null || searchTitle.isBlank()) return null;
         
@@ -348,11 +348,11 @@ public class VideoMetadataService {
     }
 
     @jakarta.transaction.Transactional
-    public void fetchAndEnrichMetadata(Models.Video video) {
+    public void fetchAndEnrichMetadata(Models.Video.Video video) {
         if (video == null) return;
         
         // Ensure we are working with a managed entity to avoid LazyInitializationException
-        video = Models.Video.findById(video.id);
+        video = Models.Video.Video.findById(video.id);
         if (video == null) return;
 
         String tmdbKey = getApiKey();
@@ -394,7 +394,7 @@ public class VideoMetadataService {
                         fullPath = java.nio.file.Paths.get(videoLibraryPath, video.path).toString();
                     }
 
-                    List<Models.AudioTrack> audioTracks = audioService.extractAudioTracks(video, fullPath);
+                    List<Models.Video.AudioTrack> audioTracks = audioService.extractAudioTracks(video, fullPath);
                     if (audioTracks != null && !audioTracks.isEmpty()) {
                         videoService.updateAudioTracks(video.id, audioTracks);
                     }
@@ -653,7 +653,7 @@ public class VideoMetadataService {
 
     }
 
-    private void enrichWithImdbDevMetadata(Models.Video video) {
+    private void enrichWithImdbDevMetadata(Models.Video.Video video) {
         Settings settings = settingsService.getOrCreateSettings();
         if (!Boolean.TRUE.equals(settings.getImdbDevEnabled())) {
             LOG.info("IMDb Dev disabled in settings, skipping IMDb Dev enrichment");
@@ -915,7 +915,7 @@ public class VideoMetadataService {
         } catch (Exception e) { LOG.warn("IMDb Dev Company Credits failed: {}", e.getMessage()); }
     }
 
-    private void enrichWithOmdbMetadata(Models.Video video, String apiKey) {
+    private void enrichWithOmdbMetadata(Models.Video.Video video, String apiKey) {
         Settings settings = settingsService.getOrCreateSettings();
         if (!Boolean.TRUE.equals(settings.getOmdbEnabled())) {
             LOG.info("OMDb disabled in settings, skipping OMDb enrichment");

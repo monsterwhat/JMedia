@@ -1,6 +1,7 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.ManyToOne;
 import java.time.LocalDateTime;
@@ -11,8 +12,8 @@ public class VideoHistory extends PanacheEntity {
     @ManyToOne
     public MediaFile mediaFile;
 
-    @ManyToOne
-    public Profile profile;
+    @Column(name = "profile_id")
+    public Long profileId;
 
     public LocalDateTime playedAt;
 

@@ -1,9 +1,9 @@
 package Services;
 
 import Models.DTOs.M3uImportResponse;
-import Models.LiveChannel;
-import Models.M3uPlaylist;
-import Models.Profile;
+import Models.Video.LiveChannel;
+import Models.Video.M3uPlaylist;
+import Models.Settings.Profile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
@@ -39,7 +39,7 @@ public class M3uService {
 
         // Create playlist entity
         M3uPlaylist playlist = new M3uPlaylist();
-        playlist.profile = profile;
+        playlist.profileId = profile.id;
         playlist.url = url;
         playlist.name = name != null ? name : "Imported Playlist";
         playlist.type = type;
@@ -50,7 +50,7 @@ public class M3uService {
         playlist.persist();
 
         // Import channels
-        return importEntries(playlist, profile, entries);
+        return importEntries(playlist, profile.id, entries);
     }
 
     @Transactional
@@ -147,11 +147,11 @@ public class M3uService {
         playlist.lastRefreshed = LocalDateTime.now();
         playlist.persist();
 
-        return importEntries(playlist, playlist.profile, entries);
+        return importEntries(playlist, playlist.profileId, entries);
     }
 
     @Transactional
-    public M3uImportResponse importEntries(M3uPlaylist playlist, Profile profile,
+    public M3uImportResponse importEntries(M3uPlaylist playlist, Long profileId,
             List<M3uParserService.M3uEntry> entries) {
         M3uImportResponse response = new M3uImportResponse();
         response.playlistId = playlist.id;
@@ -170,7 +170,7 @@ public class M3uService {
                 }
 
                 LiveChannel channel = new LiveChannel();
-                channel.profile = profile;
+                channel.profileId = profileId;
                 channel.playlist = playlist;
                 channel.name = entry.name;
                 channel.streamUrl = entry.streamUrl;

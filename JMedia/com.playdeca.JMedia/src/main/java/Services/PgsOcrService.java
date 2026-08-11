@@ -1,6 +1,6 @@
 package Services;
 
-import Models.SubtitleTrack;
+import Models.Video.SubtitleTrack;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;

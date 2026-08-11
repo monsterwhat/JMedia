@@ -1,7 +1,8 @@
 package Services;
 
-import Models.Video;
+import Models.Video.Video;
 import Utils.MediaPathResolver;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -30,6 +31,7 @@ public class VideoStoryboardService {
     private static final int TOTAL_TILES = COLUMNS * ROWS;
 
     @Inject
+    @PersistenceUnit("video")
     EntityManager entityManager;
 
     @Inject
@@ -222,7 +224,7 @@ public class VideoStoryboardService {
             Path tempPath = outputPath.resolveSibling(outputPath.getFileName().toString() + ".tmp");
 
             String hwDecoder = null;
-            Models.Settings settings = settingsService.getOrCreateSettings();
+            Models.Settings.Settings settings = settingsService.getOrCreateSettings();
             if (settings.getHardwareAccelerationEnabled() != null ? settings.getHardwareAccelerationEnabled() : true) {
                 hwDecoder = discoveryService.getHardwareDecoder(video.videoCodec);
             }

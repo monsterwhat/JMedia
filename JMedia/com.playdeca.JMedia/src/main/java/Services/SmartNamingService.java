@@ -1,6 +1,6 @@
 package Services;
 
-import Models.MediaFile;
+import Models.Video.MediaFile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;

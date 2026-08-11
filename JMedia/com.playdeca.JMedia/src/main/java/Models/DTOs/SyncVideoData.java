@@ -1,7 +1,7 @@
 package Models.DTOs;
 
-import Models.Series;
-import Models.Video;
+import Models.Video.Series;
+import Models.Video.Video;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;

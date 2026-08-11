@@ -1,6 +1,6 @@
 package Controllers;
 
-import Models.PlaybackState;
+import Models.Music.PlaybackState;
 import Services.PlaybackStateService;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;

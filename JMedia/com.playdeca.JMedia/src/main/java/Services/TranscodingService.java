@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Settings;
-import Models.Video;
+import Models.Settings.Settings;
+import Models.Video.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -336,7 +336,7 @@ public class TranscodingService {
 
     private boolean isHardwareAccelerationEnabled() {
         try {
-            Models.Settings settings = settingsService.getOrCreateSettings();
+            Models.Settings.Settings settings = settingsService.getOrCreateSettings();
             return settings.getHardwareAccelerationEnabled() != null ? settings.getHardwareAccelerationEnabled() : true;
         } catch (Exception e) {
             LOG.debug("Could not read hardware acceleration setting, defaulting to enabled: {}", e.getMessage());

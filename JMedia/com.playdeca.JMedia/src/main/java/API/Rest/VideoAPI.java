@@ -24,7 +24,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.core.MediaType;
-import Models.Video;
+import Models.Video.Video;
 import jakarta.ws.rs.core.Response;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
@@ -178,7 +178,7 @@ public class VideoAPI {
             LOG.warn("Could not enrich text metadata for video {}: {}", videoId, e.getMessage());
         }
 
-        Models.Video video = Models.Video.findById(videoId);
+        Models.Video.Video video = Models.Video.Video.findById(videoId);
         if (video != null && video.series != null) {
             try {
                 videoMetadataService.ensureSeriesTextMetadata(video.series.id);
@@ -186,7 +186,7 @@ public class VideoAPI {
                 LOG.warn("Could not enrich series text metadata for video {}: {}", videoId, e.getMessage());
             }
             // Re-load video so the DTO picks up any Series-level changes
-            video = Models.Video.findById(videoId);
+            video = Models.Video.Video.findById(videoId);
         }
 
         if (video == null) {
@@ -202,7 +202,7 @@ public class VideoAPI {
         }
         // Populate per-profile resume time from VideoState
         try {
-            Models.VideoState progress = videoStateService.getOrCreate(video);
+            Models.Video.VideoState progress = videoStateService.getOrCreate(video);
             if (progress != null && progress.currentTime > 0) {
                 dto.resumeTime = progress.currentTime;
             } else if (progress != null && progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
@@ -226,7 +226,7 @@ public class VideoAPI {
         }
 
         try {
-            Models.Video video = Models.Video.findById(videoId);
+            Models.Video.Video video = Models.Video.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
@@ -346,7 +346,7 @@ public class VideoAPI {
      */
     private Response serveImageFromThumbnails(Long videoId, String imageType, String fallbackType) {
         try {
-            Models.Video video = Models.Video.findById(videoId);
+            Models.Video.Video video = Models.Video.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }
@@ -540,7 +540,7 @@ public class VideoAPI {
     @Produces(MediaType.APPLICATION_JSON)
     public Response toggleWatchlist(@PathParam("videoId") Long videoId) {
         try {
-            Models.Video video = Models.Video.findById(videoId);
+            Models.Video.Video video = Models.Video.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("Video not found"))
@@ -578,7 +578,7 @@ public class VideoAPI {
             for (String idStr : idArray) {
                 try {
                     Long videoId = Long.parseLong(idStr.trim());
-                    Models.Video video = Models.Video.findById(videoId);
+                    Models.Video.Video video = Models.Video.Video.findById(videoId);
 
                     if (video != null) {
                         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
@@ -675,7 +675,7 @@ public class VideoAPI {
         // — must run BEFORE findById so the path resolves to the converted file.
         videoConversionService.finalizePendingIfIdle(videoId);
 
-        Models.Video video = Models.Video.findById(videoId);
+        Models.Video.Video video = Models.Video.Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -782,7 +782,7 @@ public class VideoAPI {
         return streamRemuxedMKV(video, videoFile, startSeconds, userAgent, rangeHeader, audioTrackIndex, qualityHeight, traceId, transcodeNeeded);
     }
 
-    private Response streamRemuxedMKV(Models.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, boolean transcodeNeeded) {
+    private Response streamRemuxedMKV(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, boolean transcodeNeeded) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKV: videoId={} start={}s", traceId, videoId, startSeconds);
 
@@ -907,7 +907,7 @@ public class VideoAPI {
         return streamRemuxedMKVDirect(video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, traceId);
     }
 
-    private Response streamRemuxedMKVDirect(Models.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId) {
+    private Response streamRemuxedMKVDirect(Models.Video.Video video, File videoFile, double startSeconds, String userAgent, int audioTrackIndex, int qualityHeight, String traceId) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamRemuxedMKVDirect: videoId={} start={}s", traceId, videoId, startSeconds);
         // Create (or reuse) the growing segment file + sidecar; the transcode writes into it.
@@ -933,7 +933,7 @@ public class VideoAPI {
                 .build();
     }
 
-    private Response streamFromSegment(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
+    private Response streamFromSegment(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                        String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize,
                                        long baseOffset, double segmentStart) {
         final Long videoId = video.id;
@@ -1212,8 +1212,7 @@ public class VideoAPI {
             } else {
                 // Use the current browser-visible total so every response has a real (if growing)
                 // total, but never below the requested end so the range stays satisfiable.
-                long floorTotal = baseOffset == 0 ? estimatedFinalSize : 0;
-                long reportedSize = Math.max(floorTotal, Math.max(currentBrowserTotal, finalEnd + 1));
+                long reportedSize = Math.max(currentBrowserTotal, finalEnd + 1);
                 responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + Math.min(finalEnd, reportedSize - 1) + "/" + reportedSize);
             }
         }
@@ -1225,7 +1224,7 @@ public class VideoAPI {
         return responseBuilder.build();
     }
 
-    private Response streamFromTempFile(Models.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
+    private Response streamFromTempFile(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
         return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize, 0, startSeconds);
     }
@@ -1364,7 +1363,7 @@ public class VideoAPI {
     @GET
     @Path("/{videoId}/audio-tracks")
     public Response getAudioTracks(@PathParam("videoId") Long videoId) {
-        List<Models.AudioTrack> tracks = videoService.getAudioTracks(videoId);
+        List<Models.Video.AudioTrack> tracks = videoService.getAudioTracks(videoId);
         if (tracks == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
         }
@@ -1398,7 +1397,7 @@ public class VideoAPI {
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting per-video library scan ({}): {}", scanModeDesc, videoLibraryPath);
 
-                    List<Models.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), forceFullScan);
+                    List<Models.Video.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), forceFullScan);
 
                     LOG.info("Scan and create completed. Created {} videos.", videos.size());
                     
@@ -1439,7 +1438,7 @@ public class VideoAPI {
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath != null && !videoLibraryPath.isBlank()) {
                     LOG.info("Starting video metadata reload: {}", videoLibraryPath);
-                    List<Models.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), true);
+                    List<Models.Video.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), true);
 
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
                     executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
@@ -1496,7 +1495,7 @@ public class VideoAPI {
             return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("Invalid video ID")).build();
         }
 
-        Models.Video video = Models.Video.findById(videoId);
+        Models.Video.Video video = Models.Video.Video.findById(videoId);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
         }
@@ -1591,7 +1590,7 @@ public class VideoAPI {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
-            Models.Video video = Models.Video.findById(videoId);
+            Models.Video.Video video = Models.Video.Video.findById(videoId);
             if (video == null) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Video not found")).build();
             }
@@ -1603,7 +1602,7 @@ public class VideoAPI {
                     java.nio.file.Path vPath = Paths.get(video.path);
                     java.nio.file.Path videoPath = vPath.isAbsolute() ? vPath : Paths.get(videoLibraryPath, video.path);
                     
-                    Models.Video result = videoImportService.scanSingleFile(videoPath);
+                    Models.Video.Video result = videoImportService.scanSingleFile(videoPath);
                     if (result != null) {
                         videoMetadataService.fetchAndEnrichMetadata(result);
                     }
@@ -1628,7 +1627,7 @@ public class VideoAPI {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
-            List<Models.Video> existingEpisodes = videoService.findEpisodesForSeries(seriesTitle);
+            List<Models.Video.Video> existingEpisodes = videoService.findEpisodesForSeries(seriesTitle);
             if (existingEpisodes.isEmpty()) {
                 return Response.status(Response.Status.NOT_FOUND).entity(ApiResponse.error("Series not found")).build();
             }
@@ -1647,18 +1646,18 @@ public class VideoAPI {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    List<Models.Video> discovered = videoImportService.scan(fullSeriesFolder, false, true);
+                    List<Models.Video.Video> discovered = videoImportService.scan(fullSeriesFolder, false, true);
                     Set<String> discoveredPaths = discovered.stream()
                         .map(v -> v.path)
                         .collect(Collectors.toSet());
                     
-                    for (Models.Video episode : existingEpisodes) {
+                    for (Models.Video.Video episode : existingEpisodes) {
                         if (!discoveredPaths.contains(episode.path)) {
                             episode.delete();
                         }
                     }
                     
-                    for (Models.Video video : discovered) {
+                    for (Models.Video.Video video : discovered) {
                         try {
                             videoMetadataService.fetchAndEnrichMetadata(video);
                         } catch (Exception e) {
@@ -1685,7 +1684,7 @@ public class VideoAPI {
             return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
         }
         try {
-            List<Models.Video> existingEpisodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
+            List<Models.Video.Video> existingEpisodes = videoService.findEpisodesForSeason(seriesTitle, seasonNumber);
             
             String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
             java.nio.file.Path seasonFolderPath = videoService.getSeasonFolderPath(seriesTitle, seasonNumber);
@@ -1704,18 +1703,18 @@ public class VideoAPI {
                 ManagedContext requestContext = Arc.container().requestContext();
                 if (!requestContext.isActive()) requestContext.activate();
                 try {
-                    List<Models.Video> discovered = videoImportService.scan(fullSeasonFolder, false, true);
+                    List<Models.Video.Video> discovered = videoImportService.scan(fullSeasonFolder, false, true);
                     Set<String> discoveredPaths = discovered.stream()
                         .map(v -> v.path)
                         .collect(Collectors.toSet());
                     
-                    for (Models.Video episode : existingEpisodes) {
+                    for (Models.Video.Video episode : existingEpisodes) {
                         if (!discoveredPaths.contains(episode.path)) {
                             episode.delete();
                         }
                     }
                     
-                    for (Models.Video video : discovered) {
+                    for (Models.Video.Video video : discovered) {
                         try {
                             videoMetadataService.fetchAndEnrichMetadata(video);
                         } catch (Exception e) {
@@ -1744,7 +1743,7 @@ public class VideoAPI {
             ManagedContext requestContext = Arc.container().requestContext();
             if (!requestContext.isActive()) requestContext.activate();
             try {
-                Models.Video video = Models.Video.findById(videoId);
+                Models.Video.Video video = Models.Video.Video.findById(videoId);
                 if (video == null || video.path == null) return;
                 String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
                 if (videoLibraryPath == null) return;
@@ -1766,16 +1765,16 @@ public class VideoAPI {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllVideos(@QueryParam("mediaType") String mediaType,
                                 @QueryParam("seriesId") Long seriesId) {
-        List<Models.Video> videos;
+        List<Models.Video.Video> videos;
         if (seriesId != null) {
-            Models.Series series = Models.Series.findById(seriesId);
+            Models.Video.Series series = Models.Video.Series.findById(seriesId);
             if (series == null) {
                 return Response.status(Response.Status.NOT_FOUND)
                         .entity(ApiResponse.error("Series not found")).build();
             }
-            videos = Models.Video.<Models.Video>find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series).list();
+            videos = Models.Video.Video.<Models.Video.Video>find("series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series).list();
         } else {
-            videos = Models.Video.listAll();
+            videos = Models.Video.Video.listAll();
         }
         return Response.ok(videos).build();
     }
@@ -1786,12 +1785,12 @@ public class VideoAPI {
     public Response getVideosBySeries(@PathParam("seriesId") Long seriesId,
                                       @QueryParam("page") @DefaultValue("0") int page,
                                       @QueryParam("size") @DefaultValue("50") int size) {
-        Models.Series series = Models.Series.findById(seriesId);
+        Models.Video.Series series = Models.Video.Series.findById(seriesId);
         if (series == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(ApiResponse.error("Series not found")).build();
         }
-        List<Models.Video> episodes = Models.Video.<Models.Video>find(
+        List<Models.Video.Video> episodes = Models.Video.Video.<Models.Video.Video>find(
                 "series = ?1 AND (contentType IS NULL OR contentType = 'episode') ORDER BY seasonNumber ASC, episodeNumber ASC", series)
                 .page(io.quarkus.panache.common.Page.of(page, size))
                 .list();
@@ -1810,11 +1809,11 @@ public class VideoAPI {
     public Response getVideosByContentType(@PathParam("contentType") String contentType,
                                             @QueryParam("page") @DefaultValue("0") int page,
                                             @QueryParam("size") @DefaultValue("50") int size) {
-        List<Models.Video> videos = Models.Video.<Models.Video>find(
+        List<Models.Video.Video> videos = Models.Video.Video.<Models.Video.Video>find(
                 "contentType = ?1 ORDER BY title ASC", contentType)
                 .page(io.quarkus.panache.common.Page.of(page, size))
                 .list();
-        long total = Models.Video.<Models.Video>count("contentType = ?1", contentType);
+        long total = Models.Video.Video.<Models.Video.Video>count("contentType = ?1", contentType);
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("contentType", contentType);
         result.put("videos", videos);
@@ -1829,13 +1828,13 @@ public class VideoAPI {
     @Path("/continue-watching")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getContinueWatching() {
-        List<Models.VideoState> inProgress = videoStateService.getInProgressVideos();
+        List<Models.Video.VideoState> inProgress = videoStateService.getInProgressVideos();
         List<ContinueWatchingDTO> dtos = new ArrayList<>();
         Set<Long> enrichedSeries = new HashSet<>();
         // Dedup by seriesTitle: only keep the latest episode per series.
         // inProgress is sorted by lastUpdated DESC, so the first encounter per series is the latest.
         Set<String> seenSeriesForContinue = new HashSet<>();
-        for (Models.VideoState vs : inProgress) {
+        for (Models.Video.VideoState vs : inProgress) {
             if (vs.video == null) continue;
             if ("episode".equals(vs.video.type) && vs.video.seriesTitle != null && !vs.video.seriesTitle.isBlank()) {
                 String seriesKey = vs.video.seriesTitle.toLowerCase(Locale.ROOT).trim();
@@ -1863,7 +1862,7 @@ public class VideoAPI {
                 }
             }
             // Re-fetch video to get enriched values
-            Models.Video enriched = Models.Video.findById(vs.video.id);
+            Models.Video.Video enriched = Models.Video.Video.findById(vs.video.id);
             ContinueWatchingDTO dto = new ContinueWatchingDTO();
             dto.id = enriched.id;
             dto.title = enriched.title;
@@ -1895,7 +1894,7 @@ public class VideoAPI {
     @Path("/shows")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllSeriesTitles() {
-        List<String> seriesTitles = Models.Video.<Models.Video>list("type = ?1", "episode")
+        List<String> seriesTitles = Models.Video.Video.<Models.Video.Video>list("type = ?1", "episode")
                 .stream()
                 .map(v -> v.seriesTitle)
                 .filter(title -> title != null && !title.isBlank())
@@ -1917,7 +1916,7 @@ public class VideoAPI {
     @Path("/shows/{seriesTitle}/seasons")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getSeasonsForSeries(@PathParam("seriesTitle") String seriesTitle) {
-        List<Integer> seasonNumbers = Models.Video.<Models.Video>list("type = ?1 and seriesTitle = ?2", "episode", seriesTitle)
+        List<Integer> seasonNumbers = Models.Video.Video.<Models.Video.Video>list("type = ?1 and seriesTitle = ?2", "episode", seriesTitle)
                 .stream()
                 .map(v -> v.seasonNumber)
                 .distinct()
@@ -1940,10 +1939,10 @@ public class VideoAPI {
     public Response getEpisodesForSeason(
             @PathParam("seriesTitle") String seriesTitle,
             @PathParam("seasonNumber") Integer seasonNumber) {
-        List<Models.Video> episodes = Models.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", "episode", seriesTitle, seasonNumber);
-        List<Models.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(seriesTitle, seasonNumber);
+        List<Models.Video.Video> episodes = Models.Video.Video.list("type = ?1 and seriesTitle = ?2 and seasonNumber = ?3", "episode", seriesTitle, seasonNumber);
+        List<Models.Video.ExternalVideo> externalEpisodes = externalVideoService.findBySeriesAndSeason(seriesTitle, seasonNumber);
         com.fasterxml.jackson.databind.node.ArrayNode epArr = mapper.createArrayNode();
-        for (Models.Video v : episodes) {
+        for (Models.Video.Video v : episodes) {
             com.fasterxml.jackson.databind.node.ObjectNode o = mapper.createObjectNode();
             o.put("id", v.id);
             o.put("episodeNumber", v.episodeNumber != null ? v.episodeNumber : 0);
@@ -1953,7 +1952,7 @@ public class VideoAPI {
             epArr.add(o);
         }
         com.fasterxml.jackson.databind.node.ArrayNode extArr = mapper.createArrayNode();
-        for (Models.ExternalVideo ev : externalEpisodes) {
+        for (Models.Video.ExternalVideo ev : externalEpisodes) {
             com.fasterxml.jackson.databind.node.ObjectNode o = mapper.createObjectNode();
             o.put("id", ev.id);
             o.put("episodeNumber", ev.episodeNumber != null ? ev.episodeNumber : 0);
@@ -1974,8 +1973,8 @@ public class VideoAPI {
     public Response getAllMovies(
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("50") int limit) {
-        List<Models.Video> movies = Models.Video.<Models.Video>list("type = ?1", "movie");
-        List<Models.ExternalVideo> externalMovies = externalVideoService.findAllMovies();
+        List<Models.Video.Video> movies = Models.Video.Video.<Models.Video.Video>list("type = ?1", "movie");
+        List<Models.Video.ExternalVideo> externalMovies = externalVideoService.findAllMovies();
         long totalItems = movies.size() + externalMovies.size();
         int totalPages = (int) Math.ceil((double) totalItems / limit);
         PaginatedMovieResponse response = new PaginatedMovieResponse((List<Object>) (Object) movies, page, limit, totalItems, totalPages);
@@ -1989,7 +1988,7 @@ public class VideoAPI {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getAllGenres() {
         try {
-            List<Models.Genre> genres = Models.Genre.list("isActive = true ORDER BY sortOrder, name");
+            List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true ORDER BY sortOrder, name");
             return Response.ok(ApiResponse.success(genres)).build();
         } catch (Exception e) {
             LOG.error("Error getting genres", e);
@@ -2006,7 +2005,7 @@ public class VideoAPI {
             @QueryParam("limit") @DefaultValue("20") int limit,
             @QueryParam("userId") Long userId) {
         try {
-            List<Models.Video> videos = videoService.findByGenre(genreSlug, page, limit);
+            List<Models.Video.Video> videos = videoService.findByGenre(genreSlug, page, limit);
             if (userId != null) {
                 videos = videoService.personalizeVideoRecommendations(videos, userId);
             }
@@ -2032,7 +2031,7 @@ public class VideoAPI {
             if (genreSlugs == null || genreSlugs.isEmpty()) {
                 return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("At least one genre required")).build();
             }
-            List<Models.Video> videos = videoService.findByMultipleGenres(genreSlugs, page, limit);
+            List<Models.Video.Video> videos = videoService.findByMultipleGenres(genreSlugs, page, limit);
             if (userId != null) {
                 videos = videoService.personalizeVideoRecommendations(videos, userId);
             }
@@ -2057,7 +2056,7 @@ public class VideoAPI {
             if (userId == null) {
                 return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error("userId required")).build();
             }
-            List<Models.Video> recommendations = videoService.findRecommendedByGenre(genreSlug, userId);
+            List<Models.Video.Video> recommendations = videoService.findRecommendedByGenre(genreSlug, userId);
             if (recommendations.size() > limit) {
                 recommendations = recommendations.subList(0, limit);
             }
@@ -2075,7 +2074,7 @@ public class VideoAPI {
             @QueryParam("userId") Long userId,
             @QueryParam("itemsPerGenre") @DefaultValue("8") int itemsPerGenre) {
         try {
-            java.util.Map<String, List<Models.Video>> carousels = videoService.getAllGenreCarousels(userId, itemsPerGenre);
+            java.util.Map<String, List<Models.Video.Video>> carousels = videoService.getAllGenreCarousels(userId, itemsPerGenre);
             return Response.ok(ApiResponse.success(carousels)).build();
         } catch (Exception e) {
             LOG.error("Error getting genre carousels", e);
@@ -2092,7 +2091,7 @@ public class VideoAPI {
     @Blocking
     public Response toggleWatched(@PathParam("videoId") Long videoId) {
         try {
-            Models.Profile activeProfile = settingsService.getActiveProfile();
+            Models.Settings.Profile activeProfile = settingsService.getActiveProfile();
             if (activeProfile == null) {
                 return Response.status(Response.Status.UNAUTHORIZED)
                         .entity(ApiResponse.error("No active profile")).build();

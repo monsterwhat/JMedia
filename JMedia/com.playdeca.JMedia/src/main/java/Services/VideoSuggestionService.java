@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Profile;
-import Models.VideoSuggestion;
+import Models.Settings.Profile;
+import Models.Video.VideoSuggestion;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -19,7 +19,7 @@ public class VideoSuggestionService {
         if (profile == null || content == null || content.trim().isEmpty()) {
             return;
         }
-        VideoSuggestion suggestion = new VideoSuggestion(profile, content.trim());
+        VideoSuggestion suggestion = new VideoSuggestion(profile.id, content.trim());
         suggestion.persist();
     }
 
@@ -28,7 +28,7 @@ public class VideoSuggestionService {
     }
 
     public List<VideoSuggestion> findByProfile(Long profileId) {
-        return VideoSuggestion.list("profile.id = ?1 ORDER BY createdAt DESC", profileId);
+        return VideoSuggestion.list("profileId = ?1 ORDER BY createdAt DESC", profileId);
     }
 
     @Transactional

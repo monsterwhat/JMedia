@@ -1,7 +1,7 @@
 package API.Rest;
 
 import Models.ExistingVideo;
-import Models.ExternalVideo;
+import Models.Video.ExternalVideo;
 import Services.ExternalVideoService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

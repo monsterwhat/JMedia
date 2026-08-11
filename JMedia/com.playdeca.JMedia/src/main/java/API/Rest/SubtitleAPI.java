@@ -1,6 +1,10 @@
 package API.Rest;
 
-import Models.*;
+import Models.Video.AudioTrack;
+import Models.Video.SubtitleTrack;
+import Models.Settings.User;
+import Models.Video.UserSubtitlePreferences;
+import Models.Video.Video;
 import Models.DTOs.SubtitleSearchResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -577,7 +581,7 @@ public class SubtitleAPI {
             String appearance = (String) preference.get("subtitleAppearance");
             
             // Update user preferences
-            Models.UserSubtitlePreferences userPrefs = new Models.UserSubtitlePreferences();
+            Models.Video.UserSubtitlePreferences userPrefs = new Models.Video.UserSubtitlePreferences();
             userPrefs.userId = userId;
             userPrefs.preferredLanguage = languageCode;
             userPrefs.enableAutoSelection = enableAutoSelection;

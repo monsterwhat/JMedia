@@ -1,6 +1,6 @@
 package Services;
 
-import Models.LiveChannel;
+import Models.Video.LiveChannel;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 

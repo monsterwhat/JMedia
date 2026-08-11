@@ -1,6 +1,6 @@
 package Services;
 
-import Models.SubtitleTrack;
+import Models.Video.SubtitleTrack;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.io.*;
 import java.nio.charset.Charset;

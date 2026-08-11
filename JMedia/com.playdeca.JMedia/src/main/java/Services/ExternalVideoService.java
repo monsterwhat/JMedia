@@ -1,8 +1,8 @@
 package Services;
 
 import Models.ExistingVideo;
-import Models.ExternalVideo;
-import Models.Profile;
+import Models.Video.ExternalVideo;
+import Models.Settings.Profile;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -17,7 +17,7 @@ public class ExternalVideoService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public List<ExternalVideo> findByProfile(Long profileId) {
-        return ExternalVideo.find("profile.id = ?1 order by lastUpdated desc", profileId).list();
+        return ExternalVideo.find("profileId = ?1 order by lastUpdated desc", profileId).list();
     }
 
     public ExternalVideo findById(Long id) {
@@ -33,7 +33,7 @@ public class ExternalVideoService {
 
         String sourceType = detectSourceType(url);
         ExternalVideo ev = new ExternalVideo();
-        ev.profile = profile;
+        ev.profileId = profileId;
         ev.url = url;
         ev.title = title != null && !title.isBlank() ? title : url;
         ev.sourceType = sourceType;

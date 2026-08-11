@@ -1,8 +1,8 @@
 package Services;
 
-import Models.Genre;
-import Models.Video;
-import Models.VideoGenre;
+import Models.Video.Genre;
+import Models.Video.Video;
+import Models.Video.VideoGenre;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

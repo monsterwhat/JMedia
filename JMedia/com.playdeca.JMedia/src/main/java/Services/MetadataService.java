@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Song;
+import Models.Music.Song;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;

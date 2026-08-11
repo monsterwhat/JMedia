@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Profile;
-import Models.User;
+import Models.Settings.Profile;
+import Models.Settings.User;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;

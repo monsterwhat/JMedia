@@ -1,4 +1,4 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
@@ -9,9 +9,8 @@ import java.util.List;
 @Table(uniqueConstraints = @UniqueConstraint(columnNames = "profile_id"))
 public class ProfileSessionState extends PanacheEntity {
 
-    @ManyToOne
-    @JoinColumn(name = "profile_id")
-    public Profile profile;
+    @Column(name = "profile_id")
+    public Long profileId;
 
     public Long currentVideoId;
     public boolean playing;

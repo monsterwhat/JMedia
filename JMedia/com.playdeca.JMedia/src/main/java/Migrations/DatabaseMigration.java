@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class DatabaseMigration {
 
-    @PersistenceContext
+    @PersistenceContext(unitName = "video")
     EntityManager em;
 
     void onStart(@Observes StartupEvent event) {

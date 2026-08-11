@@ -2,8 +2,8 @@ package API.Rest;
 
 import API.ApiResponse;
 import Controllers.PlaybackController;
-import Models.Settings;
-import Models.Song;
+import Models.Settings.Settings;
+import Models.Music.Song;
 import Services.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;

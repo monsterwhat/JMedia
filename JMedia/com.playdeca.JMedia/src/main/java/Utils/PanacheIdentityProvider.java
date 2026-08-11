@@ -4,7 +4,7 @@
  */
 package Utils;
 
-import Models.User;
+import Models.Settings.User;
 import io.quarkus.security.identity.AuthenticationRequestContext;
 import io.quarkus.security.identity.IdentityProvider;
 import io.quarkus.security.identity.SecurityIdentity;

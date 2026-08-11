@@ -1,12 +1,13 @@
 package Services;
 
-import Models.CollectionEntry;
-import Models.ExternalVideo;
+import Models.Video.CollectionEntry;
+import Models.Video.ExternalVideo;
 import Models.ExistingVideo;
-import Models.MediaCollection;
-import Models.Profile;
-import Models.Series;
-import Models.Video;
+import Models.Video.MediaCollection;
+import Models.Settings.Profile;
+import Models.Video.Series;
+import Models.Video.Video;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import io.quarkus.panache.common.Page;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -24,6 +25,7 @@ import java.util.Map;
 public class CollectionService {
 
     @Inject
+    @PersistenceUnit("video")
     EntityManager em;
 
     @Inject
@@ -32,8 +34,8 @@ public class CollectionService {
     @Transactional
     public List<MediaCollection> listCollections(Profile activeProfile, boolean isAdmin) {
         if (isAdmin) return MediaCollection.listAll();
-        if (activeProfile == null) return MediaCollection.list("profile is null");
-        return MediaCollection.list("profile is null or isPublic = true or profile = ?1", activeProfile);
+        if (activeProfile == null) return MediaCollection.list("profileId is null");
+        return MediaCollection.list("profileId is null or isPublic = true or profileId = ?1", activeProfile.id);
     }
 
     @Transactional
@@ -44,11 +46,11 @@ public class CollectionService {
                     .list();
         }
         if (activeProfile == null) {
-            return MediaCollection.find("profile is null")
+            return MediaCollection.find("profileId is null")
                     .page(Page.of(page - 1, limit))
                     .list();
         }
-        return MediaCollection.find("profile is null or isPublic = true or profile = ?1", activeProfile)
+        return MediaCollection.find("profileId is null or isPublic = true or profileId = ?1", activeProfile.id)
                 .page(Page.of(page - 1, limit))
                 .list();
     }
@@ -56,8 +58,8 @@ public class CollectionService {
     @Transactional
     public long countCollections(Profile activeProfile, boolean isAdmin) {
         if (isAdmin) return MediaCollection.count();
-        if (activeProfile == null) return MediaCollection.count("profile is null");
-        return MediaCollection.count("profile is null or isPublic = true or profile = ?1", activeProfile);
+        if (activeProfile == null) return MediaCollection.count("profileId is null");
+        return MediaCollection.count("profileId is null or isPublic = true or profileId = ?1", activeProfile.id);
     }
 
     @Transactional
@@ -81,7 +83,7 @@ public class CollectionService {
         MediaCollection c = new MediaCollection();
         c.name = name;
         c.description = description;
-        c.profile = profile;
+        c.profileId = profile.id;
         c.isPublic = isPublic;
         c.sortOrder = 0;
         c.createdDate = LocalDateTime.now();
@@ -274,13 +276,13 @@ public class CollectionService {
     @Transactional
     public List<MediaCollection> findCollectionsForProfile(Profile profile) {
         if (profile == null) return List.of();
-        return MediaCollection.list("profile is null or isPublic = true or profile = ?1", profile);
+        return MediaCollection.list("profileId is null or isPublic = true or profileId = ?1", profile.id);
     }
 
     @Transactional
     public List<MediaCollection> findMyCollections(Profile profile) {
         if (profile == null) return List.of();
-        return MediaCollection.list("profile = ?1", profile);
+        return MediaCollection.list("profileId = ?1", profile.id);
     }
 
     @Transactional

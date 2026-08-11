@@ -1,6 +1,6 @@
 package Models.DTOs;
 
-import Models.Video;
+import Models.Video.Video;
 import java.util.List;
 import lombok.Data;
 

@@ -1,6 +1,6 @@
 package Services;
 
-import Models.Video;
+import Models.Video.Video;
 import Utils.FragmentedMp4Seeker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

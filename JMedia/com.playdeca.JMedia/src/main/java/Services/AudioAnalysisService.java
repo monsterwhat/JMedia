@@ -1,7 +1,7 @@
 package Services;
 
-import Models.Song;
-import Models.SongAnalysis;
+import Models.Music.Song;
+import Models.Music.SongAnalysis;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -36,7 +36,7 @@ public class AudioAnalysisService {
     @Inject
     SettingsService settingsService;
     
-    @PersistenceContext
+    @PersistenceContext(unitName = "music")
     EntityManager em;
     
     // Configuration
@@ -539,7 +539,7 @@ public class AudioAnalysisService {
         for (int i = 0; i < Math.min(lookahead, songIds.size()) && count < 3; i++) {
             Long songId = songIds.get(i);
             if (!isAnalyzed(songId)) {
-                Song song = Models.Song.findById(songId);
+                Song song = Models.Music.Song.findById(songId);
                 if (song != null) {
                     queueAnalysis(song);
                     count++;

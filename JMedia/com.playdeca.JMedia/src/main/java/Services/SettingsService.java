@@ -1,8 +1,8 @@
 package Services;
 
-import Models.Profile;
-import Models.Settings;
-import Models.SettingsLog;
+import Models.Settings.Profile;
+import Models.Settings.Settings;
+import Models.Settings.SettingsLog;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.persistence.EntityManager;
@@ -222,7 +222,7 @@ public class SettingsService {
     }
 
 // Public method combining both
-    @Transactional
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Settings getOrCreateSettings() {
         Settings settings = getSettingsOrNull();
         if (settings == null) {
@@ -283,7 +283,9 @@ public class SettingsService {
         CURRENT_USER_ID.remove();
     }
 
-    @Transactional
+    // NOT_SUPPORTED on purpose: settings-DB read called from inside video/music-DB
+    // transactions; REQUIRED would fail JTA enlistment. Returns a detached Profile.
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
     public Profile getActiveProfile() {
         Long userId = CURRENT_USER_ID.get();
         if (userId == null) {
@@ -292,7 +294,7 @@ public class SettingsService {
 return getActiveProfile(userId);
     }
 
-    @Transactional
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
     public Profile getActiveProfile(Long userId) {
         if (userId == null) {
             return getActiveProfile();
@@ -349,7 +351,7 @@ return getActiveProfile(userId);
             return getActiveProfile();
         }
         
-        Models.Session session = Models.Session.findBySessionId(sessionId);
+        Models.Settings.Session session = Models.Settings.Session.findBySessionId(sessionId);
         if (session == null || !session.active) {
             return getActiveProfile();
         }

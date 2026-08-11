@@ -2,7 +2,7 @@ package API.WS;
 
 import Controllers.DesktopController;
 import Controllers.PlaybackController;
-import Models.PlaybackState;
+import Models.Music.PlaybackState;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

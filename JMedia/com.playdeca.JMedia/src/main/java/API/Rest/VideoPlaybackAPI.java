@@ -1,9 +1,9 @@
 package API.Rest;
 
 import Controllers.VideoController;
-import Models.ProfileSessionState;
-import Models.Video;
-import Models.VideoState;
+import Models.Video.ProfileSessionState;
+import Models.Video.Video;
+import Models.Video.VideoState;
 import Services.VideoStateService;
 import Services.ProfileSessionStateService;
 import io.smallrye.common.annotation.Blocking;
@@ -73,7 +73,7 @@ public class VideoPlaybackAPI {
                     requestContext.activate();
                 }
                 try {
-                    Models.Video video = videoService.findById(videoId);
+                    Models.Video.Video video = videoService.findById(videoId);
                     if (video != null && "episode".equalsIgnoreCase(video.type)) {
                         // If intro data is missing, try to fetch it now
                         if (video.introStart == null) {
@@ -304,20 +304,20 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response getNextEpisode(@PathParam("videoId") Long videoId) {
         try {
-            Models.Video current = Models.Video.findById(videoId);
+            Models.Video.Video current = Models.Video.Video.findById(videoId);
             if (current == null || current.seriesTitle == null || current.episodeNumber == null) {
                 return Response.ok("{\"nextVideoId\":null}").build();
             }
 
             // Find next episode in the same series
-            Models.Video next = Models.Video.find(
+            Models.Video.Video next = Models.Video.Video.find(
                 "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber > ?3 and type = 'episode' and (folder is null or folder = '') order by episodeNumber asc",
                 current.seriesTitle, current.seasonNumber, current.episodeNumber
             ).firstResult();
 
             if (next == null && current.seasonNumber != null) {
                 // Try next season
-                next = Models.Video.find(
+                next = Models.Video.Video.find(
                     "seriesTitle = ?1 and seasonNumber > ?2 and type = 'episode' and (folder is null or folder = '') order by seasonNumber asc, episodeNumber asc",
                     current.seriesTitle, current.seasonNumber
                 ).firstResult();
@@ -334,20 +334,20 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response getPreviousEpisode(@PathParam("videoId") Long videoId) {
         try {
-            Models.Video current = Models.Video.findById(videoId);
+            Models.Video.Video current = Models.Video.Video.findById(videoId);
             if (current == null || current.seriesTitle == null || current.episodeNumber == null) {
                 return Response.ok("{\"previousVideoId\":null}").build();
             }
 
             // Find previous episode in the same series
-            Models.Video prev = Models.Video.find(
+            Models.Video.Video prev = Models.Video.Video.find(
                 "seriesTitle = ?1 and seasonNumber = ?2 and episodeNumber < ?3 and type = 'episode' and (folder is null or folder = '') order by episodeNumber desc",
                 current.seriesTitle, current.seasonNumber, current.episodeNumber
             ).firstResult();
 
             if (prev == null && current.seasonNumber != null && current.seasonNumber > 1) {
                 // Try previous season - get last episode
-                prev = Models.Video.find(
+                prev = Models.Video.Video.find(
                     "seriesTitle = ?1 and seasonNumber < ?2 and type = 'episode' and (folder is null or folder = '') order by seasonNumber desc, episodeNumber desc",
                     current.seriesTitle, current.seasonNumber
                 ).firstResult();
@@ -443,7 +443,7 @@ public class VideoPlaybackAPI {
             sb.append("{\"tracks\":[");
             boolean first = true;
             Long activeTrackId = null;
-            for (Models.SubtitleTrack track : video.subtitleTracks) {
+            for (Models.Video.SubtitleTrack track : video.subtitleTracks) {
                 if (!track.isActive) continue;
                 if (!first) sb.append(",");
                 first = false;
@@ -488,7 +488,7 @@ public class VideoPlaybackAPI {
             sb.append("{\"tracks\":[");
             boolean first = true;
             Long activeTrackId = null;
-            for (Models.AudioTrack track : video.audioTracks) {
+            for (Models.Video.AudioTrack track : video.audioTracks) {
                 if (!track.isActive) continue;
                 if (!first) sb.append(",");
                 first = false;

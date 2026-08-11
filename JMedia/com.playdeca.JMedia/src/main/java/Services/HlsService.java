@@ -1,7 +1,7 @@
 package Services;
 
-import Models.AudioTrack;
-import Models.Video;
+import Models.Video.AudioTrack;
+import Models.Video.Video;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;

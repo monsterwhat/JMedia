@@ -1,7 +1,7 @@
 package Models.DTOs;
 
-import Models.SubtitleTrack;
-import Models.Video;
+import Models.Video.SubtitleTrack;
+import Models.Video.Video;
 import java.util.ArrayList;
 import java.util.List;
 

@@ -1,4 +1,4 @@
-package Models;
+package Models.Video;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
@@ -14,9 +14,8 @@ import java.time.LocalDateTime;
 })
 public class MediaCollection extends PanacheEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "profile_id")
-    public Profile profile;
+    @Column(name = "profile_id")
+    public Long profileId;
 
     public Boolean isPublic = false;
 

@@ -1,8 +1,9 @@
 package Services;
 
-import Models.PlaybackHistory;
-import Models.Profile;
-import Models.Song;
+import Models.Music.PlaybackHistory;
+import Models.Settings.Profile;
+import Models.Music.Song;
+import io.quarkus.hibernate.orm.PersistenceUnit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -14,6 +15,7 @@ import jakarta.persistence.EntityManager;
 public class PlaybackHistoryService {
 
     @Inject
+    @PersistenceUnit("music")
     EntityManager em; 
     
     @Inject
@@ -33,8 +35,8 @@ public class PlaybackHistoryService {
         // Deduplication: check if there's a recent history record (within 5 minutes) for the same song and profile
         LocalDateTime fiveMinutesAgo = LocalDateTime.now().minusMinutes(5);
         PlaybackHistory existingHistory = PlaybackHistory.find(
-            "song = ?1 AND profile = ?2 AND playedAt >= ?3",
-            song, profile, fiveMinutesAgo
+            "song = ?1 AND profileId = ?2 AND playedAt >= ?3",
+            song, profileId, fiveMinutesAgo
         ).firstResult();
 
         if (existingHistory != null) {
@@ -48,7 +50,7 @@ public class PlaybackHistoryService {
         PlaybackHistory history = new PlaybackHistory();
         history.song = managedSong;
         history.playedAt = LocalDateTime.now();
-        history.profile = profile;
+        history.profileId = profileId;
         history.persist();
     }
 
@@ -58,8 +60,8 @@ public class PlaybackHistoryService {
         if (profile == null) {
             throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
-        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.profile = :profile")
-                .setParameter("profile", profile)
+        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.profileId = :profileId")
+                .setParameter("profileId", profileId)
                 .executeUpdate();
     }
 
@@ -77,9 +79,9 @@ public class PlaybackHistoryService {
         if (profile == null) {
             throw new IllegalArgumentException("Profile with ID " + profileId + " not found.");
         }
-        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId AND ph.profile = :profile")
+        em.createQuery("DELETE FROM PlaybackHistory ph WHERE ph.song.id = :songId AND ph.profileId = :profileId")
                 .setParameter("songId", songId)
-                .setParameter("profile", profile)
+                .setParameter("profileId", profileId)
                 .executeUpdate();
     }
 
@@ -105,14 +107,14 @@ public class PlaybackHistoryService {
             return List.of();
         }
         
-        String query = "SELECT ph FROM PlaybackHistory ph WHERE ph.profile = :profile";
+        String query = "SELECT ph FROM PlaybackHistory ph WHERE ph.profileId = :profileId";
         if (search != null && !search.isBlank()) {
             query += " AND (LOWER(ph.song.title) LIKE LOWER(:search) OR LOWER(ph.song.artist) LIKE LOWER(:search))";
         }
         query += " ORDER BY ph.playedAt DESC";
         
         var q = em.createQuery(query, PlaybackHistory.class)
-                .setParameter("profile", profile);
+                .setParameter("profileId", profileId);
         
         if (search != null && !search.isBlank()) {
             q.setParameter("search", "%" + search + "%");
@@ -129,8 +131,8 @@ public class PlaybackHistoryService {
         if (profile == null) {
             return List.of();
         }
-        return em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph WHERE ph.profile = :profile ORDER BY ph.playedAt DESC", Long.class)
-                .setParameter("profile", profile)
+        return em.createQuery("SELECT ph.song.id FROM PlaybackHistory ph WHERE ph.profileId = :profileId ORDER BY ph.playedAt DESC", Long.class)
+                .setParameter("profileId", profileId)
                 .setMaxResults(count)
                 .getResultList();
     }
@@ -147,13 +149,13 @@ public class PlaybackHistoryService {
             return 0;
         }
         
-        String query = "SELECT COUNT(ph) FROM PlaybackHistory ph WHERE ph.profile = :profile";
+        String query = "SELECT COUNT(ph) FROM PlaybackHistory ph WHERE ph.profileId = :profileId";
         if (search != null && !search.isBlank()) {
             query += " AND (LOWER(ph.song.title) LIKE LOWER(:search) OR LOWER(ph.song.artist) LIKE LOWER(:search))";
         }
         
         var q = em.createQuery(query, Long.class)
-                .setParameter("profile", profile);
+                .setParameter("profileId", profileId);
         
         if (search != null && !search.isBlank()) {
             q.setParameter("search", "%" + search + "%");

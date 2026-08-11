@@ -1,6 +1,6 @@
 package Models.DTOs;
 
-import Models.AudioTrack;
+import Models.Video.AudioTrack;
 
 public class AudioTrackDTO {
     public Long id;

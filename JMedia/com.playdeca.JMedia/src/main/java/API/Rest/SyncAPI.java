@@ -1,8 +1,8 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Models.SyncLog;
-import Models.SyncServer;
+import Models.Settings.SyncLog;
+import Models.Settings.SyncServer;
 import Services.RemoteJMediaClient;
 import Services.SettingsService;
 import Services.SyncServerService;
@@ -145,7 +145,7 @@ public class SyncAPI {
     @GET
     @Path("/settings")
     public Response getSyncSettings() {
-        Models.Settings settings = settingsService.getOrCreateSettings();
+        Models.Settings.Settings settings = settingsService.getOrCreateSettings();
         Map<String, Object> syncSettings = new HashMap<>();
         syncSettings.put("syncEnabled", settings.getSyncEnabled());
         syncSettings.put("syncSchedule", settings.getSyncSchedule());
@@ -162,7 +162,7 @@ public class SyncAPI {
     @PUT
     @Path("/settings")
     public Response updateSyncSettings(Map<String, Object> data) {
-        Models.Settings settings = settingsService.getOrCreateSettings();
+        Models.Settings.Settings settings = settingsService.getOrCreateSettings();
 
         if (data.containsKey("syncEnabled")) {
             settings.setSyncEnabled(((Boolean) data.get("syncEnabled")));
@@ -219,7 +219,7 @@ public class SyncAPI {
         }
         String newKey = "jm_" + sb;
 
-        Models.Settings settings = settingsService.getOrCreateSettings();
+        Models.Settings.Settings settings = settingsService.getOrCreateSettings();
         settings.setSyncApiKey(newKey);
         settingsService.save(settings);
 

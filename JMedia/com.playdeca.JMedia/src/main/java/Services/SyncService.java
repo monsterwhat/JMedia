@@ -1,6 +1,17 @@
 package Services;
 
-import Models.*;
+import Models.Video.CollectionEntry;
+import Models.Video.ExternalVideo;
+import Models.Video.Genre;
+import Models.Video.MediaCollection;
+import Models.Music.Playlist;
+import Models.Settings.Settings;
+import Models.Music.Song;
+import Models.Music.SongAnalysis;
+import Models.Video.SubtitleTrack;
+import Models.Settings.SyncLog;
+import Models.Settings.SyncServer;
+import Models.Video.Video;
 import Models.DTOs.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,6 +34,12 @@ public class SyncService {
 
     @PersistenceContext
     EntityManager em;
+
+    @PersistenceContext(unitName = "music")
+    EntityManager musicEm;
+
+    @PersistenceContext(unitName = "video")
+    EntityManager videoEm;
 
     @Inject
     RemoteJMediaClient remoteClient;
@@ -59,7 +76,9 @@ public class SyncService {
             return;
         }
         LOGGER.info("[Sync] Scheduled sync triggered");
-        syncAllServers("ALL", 0);
+        io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(
+            () -> syncAllServers("ALL", 0)
+        );
     }
 
     public boolean isSyncInProgress() {
@@ -615,7 +634,7 @@ public class SyncService {
                     continue;
                 }
                 populateSongFromSyncData(localSong, remoteSong);
-                em.merge(localSong);
+                musicEm.merge(localSong);
                 if (response.updatedIds != null) {
                     response.updatedIds.add(remoteSong.musicbrainzId);
                 }
@@ -644,7 +663,7 @@ public class SyncService {
                     continue;
                 }
                 remoteVideo.applyTo(localVideo);
-                em.merge(localVideo);
+                videoEm.merge(localVideo);
                 if (response.updatedIds != null) {
                     response.updatedIds.add(String.valueOf(remoteVideo.videoId));
                 }
@@ -673,7 +692,7 @@ public class SyncService {
                     }
                 }
                 remoteTrack.applyTo(localTrack);
-                em.merge(localTrack);
+                videoEm.merge(localTrack);
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "[Sync] Failed to apply subtitle update for id: "
                         + remoteTrack.trackId, e);

@@ -1,10 +1,10 @@
 package API.Rest;
 
 import Controllers.PlaybackController;
-import Models.PlaybackHistory;
-import Models.Playlist;
-import Models.Profile;
-import Models.Song;
+import Models.Music.PlaybackHistory;
+import Models.Music.Playlist;
+import Models.Settings.Profile;
+import Models.Music.Song;
 import Services.PlaylistService;
 import Services.ProfileService;
 import Services.SongService;
@@ -725,6 +725,8 @@ public class MusicUiApi {
                     .data("sortBy", sortBy)
                     .data("sortDirection", sortDirection)
                     .data("profileId", String.valueOf(profileId))
+                    .data("genre", "")
+                    .data("genreEncoded", "")
                     .render();
         } catch (Exception e) {
             System.out.println("Error: " + e.getLocalizedMessage());
@@ -738,7 +740,7 @@ public class MusicUiApi {
     }
 
     // Helper record to pass history entry and its index to the template
-    public record HistoryWithIndex(Models.PlaybackHistory history, int index) {
+    public record HistoryWithIndex(Models.Music.PlaybackHistory history, int index) {
 
     }
 

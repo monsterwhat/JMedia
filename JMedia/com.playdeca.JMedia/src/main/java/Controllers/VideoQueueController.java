@@ -1,9 +1,9 @@
 package Controllers;
 
-import Models.ProfileSessionState;
+import Models.Video.ProfileSessionState;
 import Services.VideoHistoryService;
 import Services.VideoService;
-import Models.Video;
+import Models.Video.Video;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
