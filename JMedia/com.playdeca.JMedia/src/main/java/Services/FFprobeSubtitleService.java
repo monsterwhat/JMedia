@@ -181,10 +181,18 @@ public class FFprobeSubtitleService {
      */
     @Transactional
     public String extractInternalSubtitleToVTT(SubtitleTrack track, double startOffset) throws IOException {
-        if (!track.isEmbedded || track.trackIndex == null || track.fullPath == null) {
+        if (!track.isEmbedded || track.trackIndex == null) {
             throw new IllegalArgumentException("Track is not an embedded subtitle track");
         }
-        
+
+        Video video = track.video;
+        if (video == null) {
+            video = Video.findById(track.video.id);
+        }
+        if (video == null || video.path == null) {
+            throw new IOException("Video not found for subtitle track " + track.id);
+        }
+
         // Check if this is an image-based subtitle that cannot be converted to WebVTT
         if (track.codec != null && IMAGE_BASED_CODECS.contains(track.codec)) {
             throw new IOException("Image-based subtitles (" + track.codec + ") cannot be converted to WebVTT. " +
@@ -197,21 +205,21 @@ public class FFprobeSubtitleService {
         }
 
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path baseFilePath = Paths.get(track.fullPath);
-        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.fullPath);
+        Path baseFilePath = Paths.get(video.path);
+        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, video.path);
 
-        // Extract full subtitle track WITHOUT seeking - preserve original timestamps
-        // Browser handles sync based on video.currentTime
+        if (!Files.exists(filePath)) {
+            throw new IOException("Video file not found: " + filePath);
+        }
+
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
         command.add("-v");
         command.add("quiet");
+        command.add("-copyts");
         command.add("-i");
         command.add(filePath.toAbsolutePath().toString());
-        
-        // Don't use -ss - return full track with original timestamps
-        // Browser will sync based on video.currentTime
-        
+
         command.addAll(List.of(
             "-map", "0:" + track.trackIndex,
             "-f", "webvtt",
@@ -220,6 +228,19 @@ public class FFprobeSubtitleService {
 
         ProcessBuilder pb = new ProcessBuilder(command);
         Process process = pb.start();
+
+        StringBuilder stderrBuffer = new StringBuilder();
+        Thread stderrDrain = new Thread(() -> {
+            try (BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                String line;
+                while ((line = errReader.readLine()) != null) {
+                    stderrBuffer.append(line).append("\n");
+                }
+            } catch (IOException ignored) {}
+        });
+        stderrDrain.setDaemon(true);
+        stderrDrain.start();
+
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
@@ -229,8 +250,9 @@ public class FFprobeSubtitleService {
         }
 
         try {
+            stderrDrain.join(5000);
             if (process.waitFor() != 0) {
-                throw new IOException("FFmpeg failed to extract subtitle track " + track.trackIndex);
+                throw new IOException("FFmpeg failed to extract subtitle track " + track.trackIndex + " (exit " + process.exitValue() + "): " + stderrBuffer);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -246,7 +268,7 @@ public class FFprobeSubtitleService {
      */
     @Transactional
     public String extractRawSubtitle(SubtitleTrack track) throws IOException {
-        if (!track.isEmbedded || track.trackIndex == null || track.fullPath == null) {
+        if (!track.isEmbedded || track.trackIndex == null) {
             throw new IllegalArgumentException("Track is not an embedded subtitle track");
         }
 
@@ -255,16 +277,27 @@ public class FFprobeSubtitleService {
             throw new IOException("Track codec is not ASS/SSA: " + codec);
         }
 
+        Video video = track.video;
+        if (video == null) {
+            video = Video.findById(track.video.id);
+        }
+        if (video == null || video.path == null) {
+            throw new IOException("Video not found for subtitle track " + track.id);
+        }
+
         String ffmpegPath = discoveryService.findFFmpegExecutable();
         if (ffmpegPath == null) {
             throw new IOException("FFmpeg not found");
         }
 
         String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path baseFilePath = Paths.get(track.fullPath);
-        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, track.fullPath);
+        Path baseFilePath = Paths.get(video.path);
+        Path filePath = baseFilePath.isAbsolute() ? baseFilePath : Paths.get(videoLibraryPath, video.path);
 
-        // Write to a temp .ass file, then read it back
+        if (!Files.exists(filePath)) {
+            throw new IOException("Video file not found: " + filePath);
+        }
+
         Path tempFile = Files.createTempFile("subs_", ".ass");
         try {
             List<String> command = new ArrayList<>();
@@ -272,6 +305,7 @@ public class FFprobeSubtitleService {
             command.add("-v");
             command.add("quiet");
             command.add("-y");
+            command.add("-copyts");
             command.add("-i");
             command.add(filePath.toAbsolutePath().toString());
             command.addAll(List.of(
@@ -281,17 +315,19 @@ public class FFprobeSubtitleService {
             ));
 
             ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
             Process process = pb.start();
 
-            try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+            StringBuilder processOutput = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
-                while ((line = errorReader.readLine()) != null) {
-                    LOGGER.debug("FFmpeg: {}", line);
+                while ((line = reader.readLine()) != null) {
+                    processOutput.append(line).append("\n");
                 }
             }
 
             if (process.waitFor() != 0) {
-                throw new IOException("FFmpeg failed to extract raw subtitle track " + track.trackIndex);
+                throw new IOException("FFmpeg failed to extract raw subtitle track " + track.trackIndex + " (exit " + process.exitValue() + "): " + processOutput);
             }
 
             return Files.readString(tempFile, java.nio.charset.StandardCharsets.UTF_8);
