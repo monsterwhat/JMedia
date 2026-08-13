@@ -24,12 +24,7 @@ public class AuthController {
     }
     
     private String generateLoginPage(UriInfo uriInfo) {
-        String redirectUrl = uriInfo.getRequestUri().getQuery();
-        if (redirectUrl != null && redirectUrl.startsWith("redirect=")) {
-            redirectUrl = redirectUrl.substring(9);
-        } else {
-            redirectUrl = "/";
-        }
+        String redirectUrl = sanitizeRedirect(uriInfo.getRequestUri().getQuery());
         
         return "<!DOCTYPE html>\n" +
                 "<html lang=\"en\">\n" +
@@ -163,5 +158,52 @@ public class AuthController {
                 "    </script>\n" +
                 "</body>\n" +
                 "</html>";
+    }
+
+    /**
+     * Validate the {@code redirect=} query parameter and return a safe target.
+     * <p>
+     * The redirect target must be a same-origin relative path: it must start with
+     * a single {@code /} (so {@code /setup}, {@code /video} are allowed), and must
+     * not start with {@code //} (protocol-relative URLs like {@code //evil.com}
+     * would otherwise be honored by {@code window.location.href}). Anything that
+     * fails validation falls back to {@code /}. The value is then URL-decoded and
+     * HTML-escaped before being interpolated into the login page.
+     */
+    private static String sanitizeRedirect(String query) {
+        String target = "/";
+        if (query != null && query.startsWith("redirect=")) {
+            String raw = query.substring("redirect=".length());
+            // Strip any further query params (e.g. redirect=/setup&foo=bar)
+            int amp = raw.indexOf('&');
+            if (amp >= 0) raw = raw.substring(0, amp);
+            try {
+                raw = java.net.URLDecoder.decode(raw, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException ignored) {
+                raw = "/";
+            }
+            // Must be a same-origin relative path: "/", "/foo", "/foo?bar". Reject protocol-relative ("//evil") and absolute URLs.
+            if (raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/\\")) {
+                target = raw;
+            }
+        }
+        return htmlEscape(target);
+    }
+
+    private static String htmlEscape(String s) {
+        if (s == null) return "";
+        StringBuilder out = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '&' -> out.append("&amp;");
+                case '<' -> out.append("&lt;");
+                case '>' -> out.append("&gt;");
+                case '"' -> out.append("&quot;");
+                case '\'' -> out.append("&#39;");
+                default -> out.append(c);
+            }
+        }
+        return out.toString();
     }
 }

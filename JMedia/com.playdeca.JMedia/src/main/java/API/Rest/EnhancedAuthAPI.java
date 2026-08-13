@@ -17,7 +17,9 @@ import jakarta.ws.rs.core.NewCookie;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.container.ContainerRequestContext;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 @Path("/api/auth")
@@ -38,6 +40,10 @@ public class EnhancedAuthAPI {
     
     @Inject
     Controllers.SetupController setupController;
+
+    @ConfigProperty(name = "jmedia.local-network-cidrs",
+            defaultValue = "192.168.100.0/24,10.50.0.0/24,127.0.0.1/32,::1/128")
+    List<String> localNetworkCidrs;
 
     @POST
     @Path("/login")
@@ -71,10 +77,8 @@ public class EnhancedAuthAPI {
             
             // Local network check for secure cookie bypass
             boolean isLocalNetwork = isLocalNetwork(ipAddress);
-            System.out.println("[DEBUG] Login from IP: " + ipAddress + ", isLocalNetwork: " + isLocalNetwork);
             
-            // Create secure session cookie (7 days = 604800 seconds)
-            // Skip secure flag on local network (192.168.100.*, 10.50.0.*)
+            // Skip Secure flag on local network (configured via jmedia.local-network-cidrs)
             NewCookie.Builder cookieBuilder = new NewCookie.Builder("JMEDIA_SESSION")
                     .value(session.sessionId)
                     .path("/")
@@ -251,10 +255,7 @@ public class EnhancedAuthAPI {
     }
     
     private boolean isLocalNetwork(String ipAddress) {
-        if (ipAddress == null) return false;
-        return ipAddress.startsWith("192.168.100.") || 
-               ipAddress.startsWith("10.50.0.") ||
-               ipAddress.equals("127.0.0.1");
+        return IpResolutionUtils.isInAnyCidr(ipAddress, localNetworkCidrs);
     }
     
     public static class LoginRequest {
