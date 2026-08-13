@@ -2,6 +2,7 @@ package Services;
 
 import Models.Settings.Settings;
 import Models.Video.Video;
+import Utils.FragmentedMp4Seeker;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -68,6 +69,12 @@ public class TranscodingService {
 
     private static final long TRANSCODE_IDLE_TTL_MS = 48 * 60 * 60 * 1000L;
     private static final long CACHE_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000L;
+    /* Poll interval + no-reader grace for the segment reader watchdog: a
+     * segment-backed transcode whose client disconnected keeps writing only
+     * while a reader is attached; after this long with zero readers it is
+     * stopped instead of transcoding an entire movie to EOF for nobody. */
+    private static final long READER_WATCHDOG_POLL_MS = 1000L;
+    private static final long SEGMENT_READER_KILL_GRACE_MS = 10 * 1000L;
     /* Default cap on complete (".done"-marked) cache files kept in the temp
      * dir, used when the maxCompleteCacheFiles setting is unset. Eviction is
      * LRU: mtime is refreshed on every cache serve, so the oldest files are
@@ -433,11 +440,11 @@ public class TranscodingService {
         if (decoderIsCuda && encoderIsNvenc) {
             return "scale_cuda=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsQsv && encoderIsQsv) {
-            return "scale_qsv=" + targetW + ":" + targetH;
+            return "scale_qsv=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsVaapi && encoderIsVaapi) {
-            return "scale_vaapi=" + targetW + ":" + targetH;
+            return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsAmf && encoderIsAmf) {
-            return "scale_amf=" + targetW + ":" + targetH;
+            return "scale_amf=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsVideoToolbox && encoderIsVideoToolbox) {
             // VideoToolbox doesn't have a dedicated scale filter, use software scale
             return "scale=" + targetW + ":" + targetH;
@@ -490,10 +497,10 @@ public class TranscodingService {
             return true;
         }
         String codec = video.videoCodec.toLowerCase(Locale.ROOT);
-        // Cache key versioned ("v3") so decisions made by the previous logic
-        // (v2: VP9/AV1 treated as playable on iOS) don't survive the fix
-        // within a running session.
-        String cacheKey = "v3|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
+        // Cache key versioned ("v4") so decisions made by the previous logic
+        // (v3: Firefox on Windows falsely whitelisted for HEVC) don't survive
+        // the fix within a running session.
+        String cacheKey = "v4|" + video.id + "|" + video.videoCodec + "|" + video.audioCodec + "|" + (userAgent != null ? userAgent.hashCode() : "null");
         
         Boolean cached = transcodeNeededCache.get(cacheKey);
         if (cached != null) {
@@ -512,16 +519,18 @@ public class TranscodingService {
             if (userAgent != null) {
                 String ua = userAgent.toLowerCase(Locale.ROOT);
 
-                if (ua.contains("windows")) {
-                    // Both Chromium (Chrome 107+) and Firefox (133+) on Windows
-                    // decode HEVC via the OS Microsoft HEVC Video Extension.
+                if (ua.contains("windows") && !ua.contains("firefox")) {
+                    // Chromium (Chrome 107+/Edge) on Windows decodes HEVC via the OS
+                    // Microsoft HEVC Video Extension. Firefox does NOT expose HEVC to
+                    // <video>/MSE even with the Extension installed — its
+                    // hasNativeHevcSupport() probe returns false — so it must transcode.
                     result = false;
                 } else if (ua.contains("macintosh") && (ua.contains("safari") || ua.contains("chrome"))) {
                     result = false;  // macOS native VideoToolbox
                 } else if (isIOSClient(userAgent)) {
                     result = false;  // iOS native VideoToolbox
                 } else {
-                    result = true;   // Linux/Android: HEVC support is inconsistent
+                    result = true;   // Firefox-on-Windows, Linux/Android: HEVC unreliable — transcode
                 }
             } else {
                 result = true;
@@ -869,6 +878,10 @@ public class TranscodingService {
                 if (videoEncoder.contains("amf")) {
                     command.add("-hwaccel_output_format"); command.add("amf");
                 }
+                GpuDetectionService.GpuInfo amfGpu = discoveryService.getBestAmfGpu();
+                if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
+                    command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
+                }
             } else if (hardwareDecoder.contains("d3d11va")) {
                 command.add("-hwaccel"); command.add("d3d11va");
                 if (videoEncoder != null && videoEncoder.contains("d3d11va")) {
@@ -937,6 +950,10 @@ public class TranscodingService {
                 if (videoEncoder.equals("libx264")) {
                     command.add("-pix_fmt"); command.add("yuv420p");
                     command.add("-tune"); command.add("zerolatency");
+                } else if (videoEncoder.contains("h264")) {
+                    // H.264 hardware encoders accept 8-bit only; force nv12 so
+                    // 10-bit sources (x265/AV1 Main10) convert deterministically.
+                    command.add("-pix_fmt"); command.add("nv12");
                 }
                 if (qualityHeight > 0) {
                     String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
@@ -977,10 +994,10 @@ public class TranscodingService {
         if (startSeconds >0) {
             command.add("-async"); command.add("1");
             command.add("-vsync"); command.add("vfr");
-            // NOTE: -output_ts_offset does NOT shift tfdt (verified inert on ffmpeg 8.x);
-            // segments therefore keep a 0-based relative timeline. The server converts
-            // video-absolute seek targets to relative before probing and shifts tfdt at
-            // concat time. Flag kept for compatibility; see FragmentedMp4Seeker callers.
+            // Inert for tfdt on ffmpeg 8.x: the offset is added to pkt->dts/pts
+            // in mux.c::write_packet BEFORE movenc, so it cancels inside
+            // mov_write_tfdt_tag's `cluster[0].dts - start_dts`. Kept to align
+            // mvhd/mdhd durations with the absolute seek position.
             command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
         }
 
@@ -990,7 +1007,12 @@ public class TranscodingService {
         command.add("-max_delay"); command.add("0");
         command.add("-muxdelay"); command.add("0");
 
-        String movflags = "frag_keyframe+empty_moov+default_base_moof";
+        // delay_moov (not empty_moov): with -ss + non-zero first dts, empty_moov
+        // freezes moov (incl. avcC) at header time before libx264 has emitted
+        // real SPS/PPS. The stale avcC makes Firefox's H264ChangeMonitor reject
+        // the first sample ("Invalid H264 content", NS_ERROR_DOM_MEDIA_FATAL_ERR).
+        // delay_moov writes moov at first-fragment flush so avcC always matches.
+        String movflags = "frag_keyframe+delay_moov+default_base_moof";
         
         command.add("-sn");
         command.add("-f"); command.add("mp4");
@@ -1057,25 +1079,40 @@ public class TranscodingService {
         errorLogger.start();
 
         boolean clientDisconnected = false;
+        boolean watchdogStarted = false;
         try (InputStream is = process.getInputStream()) {
             OutputStream fileOut = cacheFile != null ? Files.newOutputStream(cacheFile) : null;
             byte[] buffer = new byte[1024 * 1024];
             int read;
             while ((read = is.read(buffer)) != -1) {
                 try {
-                    output.write(buffer,0, read);
+                    if (!clientDisconnected) {
+                        output.write(buffer,0, read);
+                    }
                     if (fileOut != null) {
                         fileOut.write(buffer, 0, read);
                     }
                     processLastOutput.put(processKey, System.currentTimeMillis());
                 } catch (IOException e) {
-                    LOG.debug("Client disconnected for {}, killing ffmpeg", videoFile.getName());
+                    LOG.debug("Client disconnected for {}", videoFile.getName());
                     clientDisconnected = true;
-                    if (fileOut != null) {
-                        try { fileOut.close(); } catch (IOException ignored) {}
+                    if (cacheFile == null) {
+                        // Live stream (no segment to persist): kill ffmpeg.
+                        if (fileOut != null) {
+                            try { fileOut.close(); } catch (IOException ignored) {}
+                        }
+                        process.destroyForcibly();
+                        break;
                     }
-                    process.destroyForcibly();
-                    break;
+                    // Segment-backed: keep writing the segment and let the watchdog stop
+                    // the transcode once no reader is attached for a grace period. Never
+                    // kill on the disconnect itself — a concurrent request may already be
+                    // reading this segment (it registers as a reader at the top of
+                    // streamFromSegment), and killing would truncate it under them.
+                    if (!watchdogStarted) {
+                        watchdogStarted = true;
+                        startSegmentReaderWatchdog(cacheFile, process);
+                    }
                 }
             }
             if (fileOut != null) {
@@ -1122,6 +1159,7 @@ public class TranscodingService {
                             writeCompletedMarker(cacheFile);
                             segmentCacheService.completeSegment(cacheFile);
                         } else if (keepAsCompleteSegment) {
+                            trimPartialTrailingFragment(cacheFile);
                             LOG.debug("Killed transcode kept as complete segment (valid cache)");
                             writeCompletedMarker(cacheFile);
                             segmentCacheService.completeSegment(cacheFile);
@@ -1234,6 +1272,33 @@ public class TranscodingService {
     }
 
     /**
+     * Trim a half-written trailing moof+mdat from a cache file produced by a
+     * killed transcode (client disconnect / EPIPE / supersede). FFmpeg killed
+     * mid-write leaves a moof whose mdat isn't fully on disk, and serving that
+     * fragment makes Firefox reject the stream ("H264ChangeMonitor: Invalid
+     * H264 content") because the sample table points at missing mdat bytes.
+     * No-op for a complete file.
+     */
+    private void trimPartialTrailingFragment(Path cacheFile) {
+        if (cacheFile == null) return;
+        try {
+            if (!Files.exists(cacheFile)) return;
+            long completeLen = FragmentedMp4Seeker.completeLength(cacheFile);
+            long actualLen = Files.size(cacheFile);
+            if (completeLen < actualLen) {
+                LOG.info("Truncating segment {} from {}B to {}B (transcode was killed leaving a partial last fragment)",
+                        cacheFile.getFileName(), actualLen, completeLen);
+                try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(cacheFile.toFile(), "rw")) {
+                    raf.setLength(completeLen);
+                }
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to trim partial trailing fragment from {}: {}",
+                    cacheFile.getFileName(), e.getMessage());
+        }
+    }
+
+    /**
      * Blocks until the file exists and has at least neededBytes, or until a timeout or the process fails.
      * If transcodeKey params are provided, also checks whether the transcode has completed or failed
      * to fail fast instead of waiting the full timeout.
@@ -1257,6 +1322,12 @@ public class TranscodingService {
                 vanishedSince = 0;
                 long size = Files.size(file);
                 if (size >= neededBytes) {
+                    return;
+                }
+                // Marked complete (.done) => the file will never grow again (clean EOF
+                // or a killed-but-kept segment). Return below neededBytes so the caller
+                // serves what exists instead of spinning the 90s timeout into a 503.
+                if (isCacheFileComplete(file)) {
                     return;
                 }
                 if (key != null) {
@@ -1359,9 +1430,15 @@ public class TranscodingService {
      * Latest-seek-wins: destroy the stale process so its permit is released and
      * the new transcode never queues.
      */
-    public void releaseStaleTranscodesForVideo(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
+    public void releaseStaleTranscodesForVideo(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, java.nio.file.Path sourcePath) {
         java.util.Set<String> keys = videoProcessKeys.get(videoId);
         if (keys == null || keys.isEmpty()) return;
+        // Segment this request will actually be served from, if any. A seek that lands
+        // inside a growing segment must NOT kill that segment's writer: the request is
+        // served from it, and the writer is what keeps it growing past the seek point.
+        SegmentCacheService.SegmentCoverage coverage = sourcePath != null
+                ? segmentCacheService.findCoveringSegment(videoId, startSeconds, audioTrackIndex, qualityHeight, sourcePath)
+                : null;
         String keepProcessPrefix = getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight).getFileName().toString();
         for (String processKey : keys) {
             if (processKey.startsWith(keepProcessPrefix)) {
@@ -1377,6 +1454,16 @@ public class TranscodingService {
             if (segmentCacheService.getActiveReaderCount(segmentFile) > 0) {
                 LOG.debug("Skipping kill of superseded transcode {}, segment {} has active readers",
                         processKey, segmentFile != null ? segmentFile.getFileName() : "?");
+                continue;
+            }
+            // The reader-count guard above can't catch the seeking request itself (it has
+            // not acquired its reader yet), so also skip killing the writer of the exact
+            // segment this request will read — otherwise the segment freezes at the kill
+            // point and waitForFile spins to timeout while the player dies.
+            if (coverage != null && segmentFile != null
+                    && coverage.file.toAbsolutePath().normalize().equals(segmentFile.toAbsolutePath().normalize())) {
+                LOG.debug("Skipping kill of superseded transcode {}, segment {} covers new request start={}s",
+                        processKey, segmentFile.getFileName(), startSeconds);
                 continue;
             }
             supersededProcessKeys.add(processKey);
@@ -1428,6 +1515,43 @@ public class TranscodingService {
         }
     }
 
+    /**
+     * Watches a segment-backed transcode whose HTTP client disconnected. The transcode
+     * keeps writing the segment so any concurrently-reading request stays alive, but a
+     * transcode nobody reads anymore must not run to EOF for an entire movie: once the
+     * segment has had zero readers for the grace period the writer is stopped. When the
+     * reader (re)attaches, the kill is cancelled.
+     */
+    private void startSegmentReaderWatchdog(java.nio.file.Path segmentFile, Process process) {
+        Thread t = new Thread(() -> {
+            long emptySince = 0;
+            try {
+                while (true) {
+                    Thread.sleep(READER_WATCHDOG_POLL_MS);
+                    if (!process.isAlive()) {
+                        return; // writer finished on its own — nothing to do
+                    }
+                    if (segmentCacheService.getActiveReaderCount(segmentFile) > 0) {
+                        emptySince = 0;
+                        continue;
+                    }
+                    if (emptySince == 0) {
+                        emptySince = System.currentTimeMillis();
+                    } else if (System.currentTimeMillis() - emptySince > SEGMENT_READER_KILL_GRACE_MS) {
+                        LOG.info("Segment {} has had no readers for {}ms since client disconnect — stopping background transcode",
+                                 segmentFile.getFileName(), SEGMENT_READER_KILL_GRACE_MS);
+                        process.destroyForcibly();
+                        return;
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "segment-reader-watchdog");
+        t.setDaemon(true);
+        t.start();
+    }
+
     private void cleanupTranscode(ActiveTranscode at) {
         LOG.info("Cleaning up transcode for key {} (temp file: {})", at.key, at.tempFile);
         activeTranscodes.remove(at.key);
@@ -1436,6 +1560,13 @@ public class TranscodingService {
         }
         Path markerPath = completedMarkerPath(at.tempFile);
         try {
+            // A segment that completed (has its .done marker) is a valid cache file owned by
+            // SegmentCacheService — keep it, only drop the in-memory transcode entry. Only
+            // orphaned partial temp files (no marker) are deleted here.
+            if (Files.exists(markerPath)) {
+                LOG.debug("Keeping completed cache segment {} during transcode cleanup", at.tempFile.getFileName());
+                return;
+            }
             if (Files.exists(at.tempFile)) {
                 Files.delete(at.tempFile);
             }
@@ -1686,6 +1817,10 @@ public class TranscodingService {
                 if (videoEncoder.contains("amf")) {
                     command.add("-hwaccel_output_format"); command.add("amf");
                 }
+                GpuDetectionService.GpuInfo amfGpu = discoveryService.getBestAmfGpu();
+                if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
+                    command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
+                }
             } else if (hardwareDecoder.contains("d3d11va")) {
                 command.add("-hwaccel"); command.add("d3d11va");
                 if (videoEncoder != null && videoEncoder.contains("d3d11va")) {
@@ -1735,6 +1870,10 @@ public class TranscodingService {
             if (videoEncoder.equals("libx264")) {
                 command.add("-pix_fmt"); command.add("yuv420p");
                 command.add("-tune"); command.add("zerolatency");
+            } else if (videoEncoder.contains("h264")) {
+                // H.264 hardware encoders accept 8-bit only; force nv12 so
+                // 10-bit sources (x265/AV1 Main10) convert deterministically.
+                command.add("-pix_fmt"); command.add("nv12");
             }
             if (qualityHeight > 0) {
                 String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
@@ -1760,7 +1899,9 @@ public class TranscodingService {
         command.add("-t"); command.add(String.format(Locale.ROOT, "%.3f", gapDurationSeconds));
         command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", gapStartSeconds));
         command.add("-f"); command.add("mp4");
-        command.add("-movflags"); command.add("frag_keyframe+empty_moov+default_base_moof");
+        // delay_moov not empty_moov — see mainline remux command for rationale
+        // (Firefox H264ChangeMonitor rejects stale-avcC first samples on seek).
+        command.add("-movflags"); command.add("frag_keyframe+delay_moov+default_base_moof");
         command.add("-g"); command.add("48");
         command.add("-avoid_negative_ts"); command.add("make_zero");
         command.add("-ignore_unknown");

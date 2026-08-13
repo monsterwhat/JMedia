@@ -367,6 +367,10 @@ public class HlsService {
                     if (hwEncoder.contains("amf")) {
                         command.add("-hwaccel_output_format"); command.add("amf");
                     }
+                    GpuDetectionService.GpuInfo amfGpu = ffmpegDiscoveryService.getBestAmfGpu();
+                    if (amfGpu != null && amfGpu.deviceIndex() >= 0) {
+                        command.add("-hwaccel_device"); command.add(String.valueOf(amfGpu.deviceIndex()));
+                    }
                 } else if (hwDecoder.contains("d3d11va")) {
                     command.add("-hwaccel"); command.add("d3d11va");
                     if (hwEncoder != null && hwEncoder.contains("d3d11va")) {
@@ -446,6 +450,10 @@ public class HlsService {
             }
             if (hwEncoder.equals("libx264")) {
                 command.add("-pix_fmt"); command.add("yuv420p");
+            } else if (hwEncoder.contains("h264")) {
+                // H.264 hardware encoders accept 8-bit only; force nv12 so
+                // 10-bit sources (x265/AV1 Main10) convert deterministically.
+                command.add("-pix_fmt"); command.add("nv12");
             }
         } else {
             command.add("libx264");
@@ -798,13 +806,13 @@ public class HlsService {
 
         // Vendor-matched zero-copy pipelines
         if (decoderIsCuda && encoderIsNvenc) {
-            return "scale_cuda=" + targetW + ":" + targetH;
+            return "scale_cuda=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsQsv && encoderIsQsv) {
-            return "scale_qsv=" + targetW + ":" + targetH;
+            return "scale_qsv=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsVaapi && encoderIsVaapi) {
-            return "scale_vaapi=" + targetW + ":" + targetH;
+            return "scale_vaapi=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsAmf && encoderIsAmf) {
-            return "scale_amf=" + targetW + ":" + targetH;
+            return "scale_amf=" + targetW + ":" + targetH + ":format=nv12";
         } else if (decoderIsVideoToolbox && encoderIsVideoToolbox) {
             return "scale=" + targetW + ":" + targetH;
         }

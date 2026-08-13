@@ -284,6 +284,19 @@ public class SegmentCacheService {
                 sidecar.endSeconds = sidecar.startSeconds != null
                         ? sidecar.startSeconds + endSeconds : endSeconds;
             }
+            // Integrity gate: a segment whose ffprobe returns no streams is corrupt
+            // (FFmpeg can exit 0 with a truncated/empty moof+mdat). Without this
+            // gate the file is served on the next seek and Firefox rejects it
+            // with "Invalid H264 content" (NS_ERROR_DOM_MEDIA_FATAL_ERR).
+            ProbeParams integrity = probeParams(segmentFile);
+            if (integrity == null) {
+                LOG.warn("completeSegment: ffprobe rejected {} (corrupt/empty segment); discarding instead of marking COMPLETE",
+                        segmentFile);
+                deleteFileWithRetry(segmentFile);
+                deleteFileWithRetry(sidecarPath(segmentFile));
+                deleteFileWithRetry(doneMarkerPath(segmentFile));
+                return;
+            }
             sidecar.status = STATUS_COMPLETE;
             writeSidecar(segmentFile, sidecar);
             LOG.info("Completed segment {} (end={}s)", segmentFile.getFileName(), sidecar.endSeconds);
@@ -840,17 +853,49 @@ public class SegmentCacheService {
         }
 
         // Param gate: every constituent must share codec params with the first.
+        // A null probeParams means ffprobe couldn't extract a stream — the file is
+        // corrupt/empty and would be served as poison bytes ("Invalid H264 content"
+        // in Firefox). Delete it + sidecar + done marker so the next seek re-
+        // transcodes from scratch instead of replaying the corrupt segment.
         ProbeParams reference = probeParams(mergeSet.get(0).file);
         if (reference == null) {
-            LOG.warn("Cannot probe first segment of chain {}, skipping concat", absHash);
+            LOG.warn("Cannot probe first segment {} of chain {} — discarding poison segment",
+                    mergeSet.get(0).file, absHash);
+            deleteFileWithRetry(mergeSet.get(0).file);
+            deleteFileWithRetry(sidecarPath(mergeSet.get(0).file));
+            deleteFileWithRetry(doneMarkerPath(mergeSet.get(0).file));
             return;
         }
-        for (SegmentEntry entry : mergeSet) {
+        boolean removedAny = false;
+        java.util.Iterator<SegmentEntry> it = mergeSet.iterator();
+        while (it.hasNext()) {
+            SegmentEntry entry = it.next();
             ProbeParams params = probeParams(entry.file);
+            if (params == null) {
+                LOG.warn("Discarding corrupt segment {} (ffprobe returned no streams) from chain {} — was serving poison bytes",
+                        entry.file.getFileName(), absHash);
+                deleteFileWithRetry(entry.file);
+                deleteFileWithRetry(sidecarPath(entry.file));
+                deleteFileWithRetry(doneMarkerPath(entry.file));
+                it.remove();
+                removedAny = true;
+                continue;
+            }
             if (!paramsMatch(reference, params)) {
                 LOG.warn("Param mismatch in chain {} ({} vs {}), skipping concat (segments remain valid)",
                         absHash, reference, params);
                 return;
+            }
+        }
+        if (removedAny) {
+            if (mergeSet.size() < 2) {
+                return;
+            }
+            for (SegmentEntry entry : mergeSet) {
+                if (getActiveReaderCount(entry.file) > 0) {
+                    deferMerge(absHash);
+                    return;
+                }
             }
         }
 
@@ -970,6 +1015,7 @@ public class SegmentCacheService {
         }
         try (OutputStream out = Files.newOutputStream(outTemp)) {
             byte[] buffer = new byte[COPY_BUFFER_SIZE];
+            long outPos = 0;
             for (int i = 0; i < mergeSet.size(); i++) {
                 SegmentEntry entry = mergeSet.get(i);
                 long fileSize = Files.size(entry.file);
@@ -990,13 +1036,15 @@ public class SegmentCacheService {
                 long length = endOffset - startOffset;
                 if (i == 0 || trackTimescales == null) {
                     copyRange(entry.file, out, startOffset, length, buffer);
+                    outPos += length;
                 } else {
                     // Each segment past the first restarts its timeline at 0; shift its tfdt
                     // by the absolute start delta so merged lookups (target - firstStart)
-                    // resolve to the right fragments.
+                    // resolve to the right fragments. copyFragmentsShifted also rebases each
+                    // fragment's trun/tfhd offsets to the moof's new absolute position.
                     double deltaSeconds = entry.sidecar.startSeconds - firstStart;
-                    FragmentedMp4Seeker.copyFragmentsShifted(entry.file, startOffset, length,
-                            deltaSeconds, trackTimescales, out);
+                    outPos += FragmentedMp4Seeker.copyFragmentsShifted(entry.file, startOffset, length,
+                            deltaSeconds, trackTimescales, out, outPos);
                 }
             }
         }
