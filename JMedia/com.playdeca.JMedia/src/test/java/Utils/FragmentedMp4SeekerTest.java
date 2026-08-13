@@ -169,7 +169,7 @@ public class FragmentedMp4SeekerTest {
                 remaining -= n;
             }
             FragmentedMp4Seeker.copyFragmentsShifted(sampleFile, first,
-                    Files.size(sampleFile) - first, delta, timescales, out);
+                    Files.size(sampleFile) - first, delta, timescales, out, first);
         }
         for (double t : new double[]{0.5, 2.0, 5.0, 7.0}) {
             Long expected = FragmentedMp4Seeker.byteOffsetForTime(sampleFile, t);

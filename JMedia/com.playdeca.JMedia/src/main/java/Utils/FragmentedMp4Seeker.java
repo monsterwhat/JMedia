@@ -168,6 +168,38 @@ public final class FragmentedMp4Seeker {
     }
 
     /**
+     * Length of the file truncated just past the last fully-written top-level box.
+     *
+     * <p>Used to repair fMP4 cache files produced by transcodes killed mid-write
+     * (client disconnect, EPIPE, latest-seek-wins supersede): the trailing
+     * moof+mdat is frequently partial and serving it makes Firefox reject the
+     * stream ("H264ChangeMonitor: Invalid H264 content") because the sample
+     * table points at mdat bytes that aren't on disk. Returns the start offset
+     * of the first box whose declared size exceeds available bytes; truncating
+     * there leaves a chain of fully-intact fragments. Returns the file length
+     * when every box is whole.
+     */
+    public static long completeLength(Path file) throws IOException {
+        try (RandomAccess raf = new RandomAccess(file)) {
+            long fileLen = raf.length();
+            long pos = 0;
+            while (true) {
+                Box box = readTopBox(raf, pos);
+                if (box == null) {
+                    return pos;
+                }
+                if (box.size > 0 && pos + box.size > fileLen) {
+                    return pos;
+                }
+                if (box.size <= 0) {
+                    return fileLen;
+                }
+                pos += box.size;
+            }
+        }
+    }
+
+    /**
      * Byte offset of the first moof box in the file (end of the ftyp+moov header region).
      * Returns the file size when no moof box is present.
      */
@@ -254,39 +286,49 @@ public final class FragmentedMp4Seeker {
      * merged timeline monotonic. Non-moof boxes are copied verbatim; a version-0 tfdt
      * whose shifted value would overflow 32 bits is left untouched rather than corrupted.
      */
-    public static void copyFragmentsShifted(Path file, long offset, long length, double deltaSeconds,
+    public static long copyFragmentsShifted(Path file, long offset, long length, double deltaSeconds,
                                             Map<Integer, Integer> trackTimescales,
-                                            OutputStream out) throws IOException {
+                                            OutputStream out, long outStartPos) throws IOException {
         if (length <= 0) {
-            return;
+            return 0;
         }
         try (RandomAccess raf = new RandomAccess(file)) {
             long end = offset + length;
             long pos = offset;
+            long outPos = outStartPos;
             byte[] chunk = new byte[COPY_CHUNK_SIZE];
             while (pos < end) {
                 Box box = readTopBox(raf, pos);
                 if (box == null || box.size <= 0 || pos + box.size > end) {
                     copyRaw(raf, out, pos, end - pos, chunk);
-                    return;
+                    outPos += end - pos;
+                    break;
                 }
                 if ("moof".equals(box.type)) {
-                    writeMoofShifted(raf, box, deltaSeconds, trackTimescales, out, chunk);
+                    writeMoofShifted(raf, box, outPos, deltaSeconds, trackTimescales, out, chunk);
                 } else {
                     copyRaw(raf, out, pos, box.size, chunk);
                 }
                 pos += box.size;
+                outPos += box.size;
             }
+            return outPos - outStartPos;
         }
     }
 
     /**
      * Writes a moof (header + payload) to out, adding deltaTicks to every traf's tfdt
-     * baseMediaDecodeTime. Per-track delta ticks are derived from the timescale in
+     * baseMediaDecodeTime and rebasing each traf's data offsets to the moof's new
+     * absolute output position. Per-track delta ticks are derived from the timescale in
      * {@code trackTimescales}. Version-1 (64-bit) tfdt values are always shifted;
      * version-0 values are shifted only when the result fits in 32 bits.
+     * <p>Rebasing is required because fragments are byte-appended from independently
+     * transcoded segments: any tfhd {@code base_data_offset} (absolute) must point at the
+     * moof's new file position, and moofs without one must carry the {@code default-base-
+     * is-moof} flag so demuxers (Firefox's MoofParser in particular) treat trun offsets as
+     * relative to the moof rather than to a stale absolute base.
      */
-    private static void writeMoofShifted(RandomAccess raf, Box moof, double deltaSeconds,
+    private static void writeMoofShifted(RandomAccess raf, Box moof, long moofOutPos, double deltaSeconds,
                                          Map<Integer, Integer> trackTimescales,
                                          OutputStream out, byte[] chunk) throws IOException {
         byte[] payload = readPayload(raf, moof);
@@ -312,6 +354,20 @@ public final class FragmentedMp4Seeker {
                         TfhdInfo info = readTfhd(payload, sub);
                         if (info != null) {
                             trackId = info.trackId;
+                        }
+                        int tfhdFlags = (int) (u32(payload, sub.payloadOffset) & 0xFFFFFF);
+                        if ((tfhdFlags & 0x01) != 0) {
+                            // Absolute base_data_offset present: it pointed at some position
+                            // relative to the moof in the source file (typically the mdat).
+                            // The merged file preserves that moof-relative geometry, so keep
+                            // the delta and move the base to the moof's new absolute position.
+                            long origBase = i64(payload, sub.payloadOffset + 8);
+                            putI64(payload, sub.payloadOffset + 8, moofOutPos + (origBase - moof.offset));
+                        } else {
+                            // No explicit base: force default-base-is-moof (0x020000 in the
+                            // low 24-bit flags field) so the base is the moof position
+                            // wherever the moof lands in the merged file.
+                            putU32(payload, sub.payloadOffset, u32(payload, sub.payloadOffset) | 0x00020000L);
                         }
                     } else if ("tfdt".equals(sub.type)) {
                         if (sub.payloadLen >= 8) {
