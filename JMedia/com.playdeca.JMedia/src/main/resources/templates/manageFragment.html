@@ -79,6 +79,15 @@
                             <i class="pi pi-refresh"></i>
                         </button>
                         {/if}
+                        {#if video.type == 'movie' || video.type == 'short' || video.type == 'documentary'}
+                        <button class="button is-small is-danger is-rounded" title="Force reload (delete & re-import)"
+                                hx-post="/api/video/manage/movie/force-refresh"
+                                hx-vals='\{"videoId": {video.id}\}'
+                                hx-confirm="Delete this video and re-import it? This will remove current metadata and start fresh."
+                                hx-on::after-request="if(event.detail.successful) { window.Toast.success('Force reload completed!'); htmx.ajax('GET', '/api/video/manage', { target: '#spa-content', swap: 'innerHTML' }); }">
+                            <i class="pi pi-exclamation-triangle"></i>
+                        </button>
+                        {/if}
                     </div>
                 </div>
 
