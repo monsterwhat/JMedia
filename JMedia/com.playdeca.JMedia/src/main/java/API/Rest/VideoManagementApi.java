@@ -258,6 +258,48 @@ public class VideoManagementApi {
     }
 
     @POST
+    @Path("/movie/force-refresh")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response forceRefreshMovie(@FormParam("videoId") Long videoId) {
+        if (videoId == null) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("videoId is required").build();
+        }
+
+        Video movie = videoService.findById(videoId);
+        if (movie == null) {
+            return Response.status(Response.Status.NOT_FOUND).entity("Movie not found").build();
+        }
+
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("Video library path not configured").build();
+        }
+
+        java.nio.file.Path fullPath;
+        try {
+            fullPath = java.nio.file.Paths.get(movie.path);
+            if (!fullPath.isAbsolute()) {
+                fullPath = java.nio.file.Paths.get(videoLibraryPath, movie.path);
+            }
+        } catch (Exception e) {
+            LOG.error("Error determining parent path for video: " + movie.path, e);
+            return Response.status(Response.Status.BAD_REQUEST).entity("Could not resolve movie path").build();
+        }
+
+        java.nio.file.Path parentDir = fullPath.getParent();
+        if (parentDir == null) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("Could not determine movie directory").build();
+        }
+
+        videoService.forceReloadMovie(videoId);
+
+        List<Models.Video.Video> videos = videoImportService.scanAndCreate(parentDir, true);
+
+        return Response.ok("Force refresh completed. Re-imported " + videos.size() + " videos.").build();
+    }
+
+    @POST
     @Path("/series/refetch-images")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Blocking

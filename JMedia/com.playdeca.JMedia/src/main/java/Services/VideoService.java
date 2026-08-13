@@ -1803,6 +1803,26 @@ public class VideoService {
         LOGGER.info("Force reloaded all episodes and media files for series: {}", seriesTitle);
     }
 
+    @Transactional
+    public void forceReloadMovie(Long videoId) {
+        if (videoId == null) return;
+        Video video = Video.findById(videoId);
+        if (video == null) return;
+        // Delete dependent records before deleting video to avoid FK violations
+        Models.Video.VideoState.delete("video.id = ?1", videoId);
+        Models.Video.VideoGenre.delete("video.id = ?1", videoId);
+        Models.Video.SubtitleTrack.delete("video.id = ?1", videoId);
+        Models.Video.AudioTrack.delete("video.id = ?1", videoId);
+        Models.Video.CollectionEntry.delete("video.id = ?1", videoId);
+        Models.Video.VideoHistory.delete("mediaFile.path = ?1", video.path);
+        MediaFile mf = MediaFile.find("path", video.path).firstResult();
+        if (mf != null) {
+            mf.delete();
+        }
+        video.delete();
+        LOGGER.info("Force reloaded video {} and its media file: {}", videoId, video.path);
+    }
+
     /**
      * Clears manual override flags for a video, allowing future scans to update those fields
      */
