@@ -1,7 +1,7 @@
 /**
  * VideoWebSocketManager - WebSocket connection for video remote control.
  *
- * Connects to ws(s)://<host>/api/video/ws and dispatches incoming command messages
+ * Connects to ws(s)://<host>/api/video/ws/{profileId} and dispatches incoming command messages
  * to the registered onCommand callback. The server broadcasts commands as
  * { "type": "command", "payload": { "commandType": "...", "commandPayload": { ... } } }.
  * Player adapters normalize that shape themselves, so this manager forwards the raw message.
@@ -27,7 +27,9 @@
         var self = this;
         try {
             var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            var wsUrl = protocol + '//' + window.location.host + '/api/video/ws';
+            // Path param required by the server endpoint; default '1' for legacy callers.
+            var pid = this.profileId || '1';
+            var wsUrl = protocol + '//' + window.location.host + '/api/video/ws/' + encodeURIComponent(pid);
             console.log('[VideoWebSocketManager] Connecting to', wsUrl, 'profileId=', this.profileId);
             this.ws = new WebSocket(wsUrl);
             this.ws.onopen = function () {

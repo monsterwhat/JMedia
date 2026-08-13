@@ -27,10 +27,22 @@
 
         /**
          * Check if browser has native HEVC support
+         *
+         * IMPORTANT: MediaSource.isTypeSupported / canPlayType return a FALSE
+         * POSITIVE on Firefox (Gecko) — Firefox reports 'hev1'/'hvc1' as
+         * supported but its <video>/MSE H264 decoder cannot actually decode
+         * HEVC samples, so serving HEVC via copy yields NS_ERROR_DOM_MEDIA_FATAL
+         * ("Invalid H264 content"). Exclude Gecko explicitly; the backend
+         * (TranscodingService.isTranscodeNeededForWeb) makes the matching call
+         * and transcodes HEVC -> H.264 for Firefox. The probe is only trusted
+         * on Safari (VideoToolbox) and Chromium (OS HEVC Video Extension on Windows, built-in on macOS).
          */
         static hasNativeHevcSupport() {
+            var ua = (navigator.userAgent || '').toLowerCase();
+            if (ua.indexOf('firefox') !== -1 || ua.indexOf('gecko') !== -1) {
+                return false;
+            }
             const video = document.createElement('video');
-            // Check for HEVC support via MediaSource or video element
             return MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L93.B0"') ||
                    MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"') ||
                    video.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"') !== '' ||

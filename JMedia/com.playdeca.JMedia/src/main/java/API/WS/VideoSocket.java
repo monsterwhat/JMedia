@@ -13,11 +13,12 @@ import jakarta.websocket.OnError;
 import jakarta.websocket.OnMessage;
 import jakarta.websocket.OnOpen;
 import jakarta.websocket.Session;
+import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
-@ServerEndpoint("/api/video/ws") // Video WebSocket endpoint
+@ServerEndpoint("/api/video/ws/{profileId}") // Video WebSocket endpoint (per-profile isolation)
 @ApplicationScoped
 public class VideoSocket {
 
@@ -33,9 +34,14 @@ public class VideoSocket {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @OnOpen
-    public void onOpen(Session session) {
+    public void onOpen(Session session, @PathParam("profileId") Long profileId) {
         CompletableFuture.runAsync(() -> {
-            webSocketManager.addVideoSession(session); // Add to video sessions
+            // Bind this session to the profile so broadcasts route only to same-profile
+            // clients. The previous profile-blind addVideoSession(session) caused cross-
+            // profile state bleed: a state broadcast for profile 2 reached profile 1's
+            // tab, whose OPlayerAdapter then swapped sources ("Remote source swap -> 3753")
+            // because currentVideoId didn't match its own videoId.
+            webSocketManager.addVideoSession(session, profileId);
             sendCurrentState(session);
             viewSession.clientConnected(); // Still relevant for any client connection
         });
@@ -126,14 +132,23 @@ public class VideoSocket {
             ObjectNode message = mapper.createObjectNode();
             message.put("type", "state");
             message.set("payload", mapper.valueToTree(stateToBroadcast));
-            webSocketManager.broadcastToVideo(mapper.writeValueAsString(message));
+            // Per-profile isolation: route to the state's profile only. The previous
+            // global broadcastToVideo pushed every state change to every connected
+            // client, so profile 2's "now playing video 3753" reached profile 1's
+            // tab and triggered a Remote source swap.
+            Long pid = stateToBroadcast.profileId;
+            if (pid != null) {
+                webSocketManager.broadcastToProfile(pid, mapper.writeValueAsString(message));
+            } else {
+                webSocketManager.broadcastToVideo(mapper.writeValueAsString(message));
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     /**
-     * Broadcast a command to all connected video WebSocket clients.
+     * Broadcast a command to connected video WebSocket clients on the active profile.
      * Used by REST endpoints to trigger actions like subtitle/audio switching.
      * Sends message in format: {"type":"command","payload":{"commandType":"...","commandPayload":{...}}}
      */
@@ -145,7 +160,18 @@ public class VideoSocket {
             payload.put("commandType", commandType);
             payload.set("commandPayload", commandPayload);
             message.set("payload", payload);
-            webSocketManager.broadcastToVideo(mapper.writeValueAsString(message));
+            // Route to the active playing profile so commands issued by REST endpoints
+            // (toggle-play, next, previous, seek, select-subtitle, select-audio) only
+            // reach clients on the same profile — matches the per-profile broadcast
+            // isolation now applied to state broadcasts above.
+            ProfileSessionState currentState = videoController.getState();
+            Long pid = currentState != null ? currentState.profileId : null;
+            String json = mapper.writeValueAsString(message);
+            if (pid != null) {
+                webSocketManager.broadcastToProfile(pid, json);
+            } else {
+                webSocketManager.broadcastToVideo(json);
+            }
         } catch (Exception e) {
             System.err.println("[VideoSocket] Error broadcasting command: " + e.getMessage());
         }
