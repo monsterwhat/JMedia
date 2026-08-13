@@ -313,12 +313,13 @@ public class SubtitleAPI {
                 .map(Models.DTOs.SubtitleTrackDTO::new)
                 .collect(java.util.stream.Collectors.toList());
 
-            // Pre-warm OCR cache for PGS tracks in the background so playback never blocks
-            for (SubtitleTrack track : tracks) {
-                if (PgsOcrService.isPgsCodec(track.codec) || "pgs".equals(track.format)) {
-                    pgsOcrService.preload(track);
-                }
-            }
+            // PGS OCR is intentionally NOT pre-warmed here: this endpoint is hit on
+            // every playback / episode switch / subtitle reload, so preloading would
+            // spawn one tesseract per PGS cue on every fetch and pin the CPU against
+            // active video transcodes. OCR now runs lazily on first track selection
+            // (streamSubtitle -> getOrCreateWebVTT) or once at import time
+            // (SubtitleDiscoveryQueueProcessor), both gated by PgsOcrService against
+            // active transcoding.
 
             Map<String, Object> response = new HashMap<>();
             response.put("tracks", dtoTracks);

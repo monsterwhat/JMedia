@@ -57,8 +57,16 @@ public class PgsOcrService {
     @Inject
     SettingsService settingsService;
 
+    @Inject
+    TranscodingService transcodingService;
+
     private final ConcurrentHashMap<String, String> vttCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<String>> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> failedUntil = new ConcurrentHashMap<>();
+
+    private static final long OCR_FAILURE_COOLDOWN_MS = 30 * 60_000L;
+    private static final long TRANSCODE_DEFER_MS = 120_000L;
+    private volatile long deferStartedAt = 0;
 
     public static boolean isPgsCodec(String codec) {
         return codec != null && ("hdmv_pgs_subtitle".equals(codec) || "pgssub".equals(codec));
