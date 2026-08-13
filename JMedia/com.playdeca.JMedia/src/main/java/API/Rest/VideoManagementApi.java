@@ -1,6 +1,7 @@
 package API.Rest;
 
 import Services.VideoService;
+import Services.VideoQueryService;
 import Services.VideoImportService;
 import Services.SettingsService;
 import Services.VideoConversionService;
@@ -31,6 +32,9 @@ public class VideoManagementApi {
 
     @Inject
     VideoService videoService;
+
+    @Inject
+    VideoQueryService videoQueryService;
 
     @Inject
     VideoImportService videoImportService;
@@ -347,7 +351,7 @@ public class VideoManagementApi {
     @Path("/needs-attention")
     @Blocking
     public String getNeedsAttentionPanel() {
-        List<Video> problematic = videoService.findVideosNeedingAttention(100);
+        List<Video> problematic = videoQueryService.findVideosNeedingAttention(100);
         
         boolean workerRunning = metadataEnrichmentWorker.isRunning();
         int pendingFailures = metadataEnrichmentWorker.getPendingFailureCount();
@@ -425,7 +429,7 @@ public class VideoManagementApi {
     @Path("/verification")
     @Blocking
     public String getVerificationPanel() {
-        List<Video> candidates = videoService.findVideosForVerification(100);
+        List<Video> candidates = videoQueryService.findVideosForVerification(100);
         return verificationFragment
                 .data("videos", candidates)
                 .data("totalCount", candidates.size())

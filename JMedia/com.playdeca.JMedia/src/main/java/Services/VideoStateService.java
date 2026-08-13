@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Settings.Profile;
+import Models.Video.ProfileSessionState;
 import Models.Video.Video;
 import Models.Video.VideoState;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -8,12 +9,19 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.LocalDateTime;
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class VideoStateService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(VideoStateService.class);
+
     @Inject
     SettingsService settingsService;
+
+    @Inject
+    ProfileSessionStateService profileSessionStateService;
 
     @Transactional
     public VideoState getOrCreate(Video video) {
@@ -135,5 +143,50 @@ public class VideoStateService {
         if (profile != null) {
             VideoState.delete("profileId = ?1", profile.id);
         }
+    }
+
+    @Transactional
+    public Boolean toggleWatched(Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) return null;
+        VideoState state = getOrCreate(video);
+        if (state == null) return null;
+        state.watched = !Boolean.TRUE.equals(state.watched);
+        if (Boolean.TRUE.equals(state.watched)) {
+            state.watchProgress = 1.0;
+        } else {
+            state.watchProgress = 0.0;
+            state.currentTime = 0.0;
+        }
+        state.persist();
+        return Boolean.TRUE.equals(state.watched);
+    }
+
+    @Transactional
+    public Boolean removeFromContinueWatching(Long videoId) {
+        Video video = Video.findById(videoId);
+        if (video == null) return null;
+        removeFromContinueWatching(video);
+        return true;
+    }
+
+    @Transactional
+    public boolean reportProgress(Long videoId, double progressSeconds) {
+        Video video = Video.findById(videoId);
+        if (video != null) {
+            updateProgress(video, progressSeconds);
+        }
+
+        // Sync ProfileSessionState for real-time UI synchronization
+        try {
+            ProfileSessionState state = profileSessionStateService.getOrCreate();
+            if (state != null && videoId.equals(state.currentVideoId)) {
+                state.currentTime = progressSeconds;
+                profileSessionStateService.save(state);
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not sync ProfileSessionState for video {}: {}", videoId, e.getMessage());
+        }
+        return true;
     }
 }
