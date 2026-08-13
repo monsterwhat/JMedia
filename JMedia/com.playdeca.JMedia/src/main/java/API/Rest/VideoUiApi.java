@@ -1,12 +1,11 @@
 package API.Rest;
 
 import API.ApiResponse;
-import Controllers.VideoController;
 import Services.VideoService;
+import Services.VideoQueryService;
 import Services.VideoHistoryService;
 import Services.VideoStateService;
 import Services.CollectionWatchProgressService;
-import Services.GenreService;
 import Models.Video.Video;
 import Models.Video.VideoHistory;
 import Models.Settings.Profile;
@@ -39,13 +38,10 @@ public class VideoUiApi {
     private static final Logger LOG = LoggerFactory.getLogger(VideoUiApi.class);
 
     @Inject
-    private VideoController videoController;
-
-    @Inject
     VideoService videoService;
 
     @Inject
-    GenreService genreService;
+    VideoQueryService videoQueryService;
 
     @Inject
     private VideoHistoryService videoHistoryService;
@@ -170,13 +166,6 @@ public class VideoUiApi {
         try {
             Map<String, Object> carouselData = getCarouselData();
             
-            // Print debug info like the original class
-            System.out.println("DEBUG: Total videos found: " + Models.Video.Video.count("isActive", true));
-            System.out.println("DEBUG: Movies: " + ((List<?>)carouselData.get("movies")).size());
-            System.out.println("DEBUG: New releases: " + ((List<?>)carouselData.get("newReleases")).size());
-            System.out.println("DEBUG: Trending videos: " + ((List<?>)carouselData.get("trending")).size());
-            System.out.println("DEBUG: TV Shows: " + ((List<?>)carouselData.get("tvShows")).size());
-
             StringBuilder html = new StringBuilder("<div class='carousels-container' style='padding: 2rem 0;'>");
             
             List<Models.Video.Video> continueWatching = (List<Models.Video.Video>) carouselData.get("continueWatching");
@@ -544,7 +533,7 @@ public class VideoUiApi {
             @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
             @QueryParam("search") String search) {
 
-        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
+        VideoQueryService.PaginatedVideos paginatedVideos = videoQueryService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
 
         List<Models.Video.ExternalVideo> externalMovies;
         if (search != null && !search.trim().isEmpty()) {
@@ -599,7 +588,7 @@ public class VideoUiApi {
             @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
             @QueryParam("search") String search) {
 
-        VideoService.PaginatedVideos paginatedVideos = videoService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
+        VideoQueryService.PaginatedVideos paginatedVideos = videoQueryService.findPaginatedByMediaType("movie", page, limit, sortBy, sortDirection, search);
 
         List<Models.Video.ExternalVideo> externalMovies;
         if (search != null && !search.trim().isEmpty()) {
@@ -649,7 +638,7 @@ public class VideoUiApi {
 @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
             @QueryParam("search") String search) {
         
-        VideoService.PaginatedSeries paginatedSeries = videoService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection, search);
+        VideoQueryService.PaginatedSeries paginatedSeries = videoQueryService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection, search);
         
         if (paginatedSeries.titles.isEmpty()) {
             String emptyState = "<div class='library-header'><h1 class='library-title'>TV Shows</h1></div>";
@@ -752,7 +741,7 @@ public class VideoUiApi {
             @QueryParam("sortDirection") @DefaultValue("desc") String sortDirection,
             @QueryParam("search") String search) {
 
-        VideoService.PaginatedSeries paginatedSeries = videoService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection, search);
+        VideoQueryService.PaginatedSeries paginatedSeries = videoQueryService.findPaginatedSeriesTitles(page, limit, sortBy, sortDirection, search);
 
         if (paginatedSeries.titles.isEmpty()) {
             return "";
@@ -1143,7 +1132,7 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("search") String search) {
-        VideoService.PaginatedVideos paginated = videoService.findHistoryPaginated(search, page, limit);
+        VideoQueryService.PaginatedVideos paginated = videoQueryService.findHistoryPaginated(search, page, limit);
         
         // Enrich history videos with per-profile progress
         for (Models.Video.Video video : paginated.videos) {
@@ -1198,7 +1187,7 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("search") String search) {
-        VideoService.PaginatedVideos paginated = videoService.findHistoryPaginated(search, page, limit);
+        VideoQueryService.PaginatedVideos paginated = videoQueryService.findHistoryPaginated(search, page, limit);
         
         for (Models.Video.Video video : paginated.videos) {
             Models.Video.VideoState vs = videoStateService.getOrCreate(video);
@@ -1252,7 +1241,7 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("search") String search) {
-        VideoService.PaginatedHistoryEntries paginated = videoService.findAllHistoryPaginated(search, page, limit);
+        VideoQueryService.PaginatedHistoryEntries paginated = videoQueryService.findAllHistoryPaginated(search, page, limit);
         
         boolean hasMore = page * limit < paginated.totalCount;
         int nextPage = page + 1;
@@ -1276,7 +1265,7 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("search") String search) {
-        VideoService.PaginatedHistoryEntries paginated = videoService.findAllHistoryPaginated(search, page, limit);
+        VideoQueryService.PaginatedHistoryEntries paginated = videoQueryService.findAllHistoryPaginated(search, page, limit);
         
         boolean hasMore = page * limit < paginated.totalCount;
         int nextPage = page + 1;
@@ -1339,7 +1328,7 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("search") String search) {
-        VideoService.PaginatedVideos paginated = videoService.findWatchlistPaginated(search, page, limit);
+        VideoQueryService.PaginatedVideos paginated = videoQueryService.findWatchlistPaginated(search, page, limit);
         
         long totalItems = paginated.totalCount;
         int totalPages = (int) Math.ceil((double) totalItems / limit);
@@ -1362,7 +1351,7 @@ public class VideoUiApi {
             @QueryParam("page") @DefaultValue("1") int page,
             @QueryParam("limit") @DefaultValue("40") int limit,
             @QueryParam("search") String search) {
-        VideoService.PaginatedVideos paginated = videoService.findWatchlistPaginated(search, page, limit);
+        VideoQueryService.PaginatedVideos paginated = videoQueryService.findWatchlistPaginated(search, page, limit);
         
         long totalItems = paginated.totalCount;
         int totalPages = (int) Math.ceil((double) totalItems / limit);
