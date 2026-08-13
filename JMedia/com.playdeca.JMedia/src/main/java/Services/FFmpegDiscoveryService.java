@@ -419,6 +419,10 @@ public class FFmpegDiscoveryService {
         } else if (isAV1) {
             if (supportedDecoders.contains("av1_cuvid") && decoderIsUsable("av1_cuvid")) return "av1_cuvid";
             if (supportedDecoders.contains("av1_qsv") && decoderIsUsable("av1_qsv")) return "av1_qsv";
+            if (supportedDecoders.contains("av1_amf") && decoderIsUsable("av1_amf")) return "av1_amf";
+            if (supportedDecoders.contains("av1_d3d11va") && decoderIsUsable("av1_d3d11va")) return "av1_d3d11va";
+            if (supportedDecoders.contains("av1_dxva2") && decoderIsUsable("av1_dxva2")) return "av1_dxva2";
+            if (supportedDecoders.contains("av1_mf") && decoderIsUsable("av1_mf")) return "av1_mf";
             if (supportedDecoders.contains("av1_vaapi") && decoderIsUsable("av1_vaapi")) return "av1_vaapi";
         }
         return null;
