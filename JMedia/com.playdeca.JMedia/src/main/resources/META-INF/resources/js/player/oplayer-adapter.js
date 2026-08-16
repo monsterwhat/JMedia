@@ -1037,8 +1037,11 @@
                              * has started (element reports positions) and the WS has been up
                              * for a grace window — the connect-time snapshot and load echoes
                              * are server memory, not actions, and yanking to them is the
-                             * page-load/reconnect bounce. */
-                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
+                             * page-load/reconnect bounce. The phantom must also be AT or AHEAD
+                             * of the element's real position: a phantom behind it is stale
+                             * server memory (e.g. selectVideo reset to 0 while the element is
+                             * mid-play), and yanking backward to it is the seek/load bounce. */
+                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= (video.currentTime || 0) + _streamStartOffset && (!locked || converged)) {
                                 try {
                                     console.warn('[OPlayerAdapter] Drift-yank ' + (video.currentTime || 0).toFixed(2) + ' -> ' + relTarget.toFixed(2) + ' (phantom ' + state.currentTime.toFixed(2) + ', offset ' + _streamStartOffset + ')');
                                     video.currentTime = relTarget;
@@ -1577,12 +1580,15 @@
              * the segment cache serves a mid-segment seek from a byte offset inside a
              * segment whose relative timeline starts at 0 at its head, so the element
              * clock lands at relTarget = seek - segment.start, not 0. Sample the clock
-             * at load and derive the true content start so the subtitle ?start= shift
-             * matches the real timeline (fixes the small forward-seek desync). */
+             * at load and derive the true content start: correcting _streamStartOffset
+             * keeps every absolute mapping (seek targets, broadcasts, drift-sync) on
+             * the real timeline, and the subtitle ?start= shift matches it too
+             * (fixes the forward-seek desync past an already-converted segment). */
             video.addEventListener('loadeddata', function() {
                 var ct = video.currentTime || 0;
                 var base = Math.max(0, _streamStartOffset - ct);
-                if (Math.abs(base - _subtitleBaseOffset) > 0.1) {
+                if (Math.abs(base - _streamStartOffset) > 0.1 || Math.abs(base - _subtitleBaseOffset) > 0.1) {
+                    _streamStartOffset = base;
                     _subtitleBaseOffset = base;
                     _restoreSubtitlesAfterSeek();
                 }
@@ -1605,18 +1611,20 @@
             /* ---------- Restore playback position from saved progress ---------- */
             if (startTime > 0) {
                 var _seekDone = false;
-                video.addEventListener('loadedmetadata', function() {
-                    if (!_seekDone) {
+                var _restoreStartTime = function() {
+                    if (_seekDone) return;
+                    var target = Math.max(0, startTime - _streamStartOffset);
+                    /* Only seek when the element is actually behind the target: a
+                     * mid-segment coverage serve already lands the clock at relTarget
+                     * (segment-relative timeline), and seeking to the target there
+                     * would jump BACKWARD to the segment head. */
+                    if ((video.currentTime || 0) < target - 0.1) {
                         _seekDone = true;
-                        video.currentTime = Math.max(0, startTime - _streamStartOffset);
+                        video.currentTime = target;
                     }
-                });
-                video.addEventListener('canplay', function() {
-                    if (!_seekDone) {
-                        _seekDone = true;
-                        video.currentTime = Math.max(0, startTime - _streamStartOffset);
-                    }
-                });
+                };
+                video.addEventListener('loadedmetadata', _restoreStartTime);
+                video.addEventListener('canplay', _restoreStartTime);
             }
 
             /* ---------- Volume persistence with exponential curve (matching JMedia default player) ---------- */

@@ -236,7 +236,13 @@
          * seek natively via byte-range. */
         if (startTime > 0) {
             vjsPlayer.one('loadedmetadata', function() {
-                vjsPlayer.currentTime(Math.max(0, startTime - _streamStartOffset));
+                var target = Math.max(0, startTime - _streamStartOffset);
+                /* Mid-segment coverage serves already land at relTarget; only seek
+                 * when behind the target, else this would jump BACKWARD to the
+                 * segment head. */
+                if ((vjsPlayer.currentTime() || 0) < target - 0.1) {
+                    vjsPlayer.currentTime(target);
+                }
             });
         }
 
@@ -248,6 +254,18 @@
         vjsPlayer.on('loadedmetadata', function() {
             var d = _knownDuration();
             if (isFinite(d)) vjsPlayer.duration(d);
+        });
+
+        /* A mid-segment coverage serve lands the element clock at relTarget (segment
+         * timeline restarts at its head), not at the requested seek point — re-derive
+         * the true content start at load so seek/broadcast/drift math stays on the
+         * real timeline (mirrors the OPlayer adapter's loadeddata sampler). */
+        vjsPlayer.on('loadeddata', function() {
+            var ct = vjsPlayer.currentTime() || 0;
+            var base = Math.max(0, _streamStartOffset - ct);
+            if (Math.abs(base - _streamStartOffset) > 0.1) {
+                _streamStartOffset = base;
+            }
         });
 
         /* ---------- WebSocket state sync ---------- */
@@ -608,8 +626,11 @@
                              * has started (element reports positions) and the WS has been up
                              * for a grace window — the connect-time snapshot and load echoes
                              * are server memory, not actions, and yanking to them is the
-                             * page-load/reconnect bounce. */
-                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= _streamStartOffset && (!locked || converged)) {
+                             * page-load/reconnect bounce. The phantom must also be AT or AHEAD
+                             * of the element's real position: a phantom behind it is stale
+                             * server memory (e.g. selectVideo reset to 0 while the element is
+                             * mid-play), and yanking backward to it is the seek/load bounce. */
+                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= (videoEl.currentTime || 0) + _streamStartOffset && (!locked || converged)) {
                                 console.warn('[VideojsAdapter] Drift-yank ' + (videoEl.currentTime || 0).toFixed(2) + ' -> ' + relTarget.toFixed(2) + ' (phantom ' + state.currentTime.toFixed(2) + ', offset ' + _streamStartOffset + ')');
                                 videoEl.currentTime = relTarget;
                             }

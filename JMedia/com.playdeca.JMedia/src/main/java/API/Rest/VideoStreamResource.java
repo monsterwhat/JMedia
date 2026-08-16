@@ -34,6 +34,21 @@ public class VideoStreamResource {
     private static final Logger LOG = LoggerFactory.getLogger(VideoStreamResource.class);
     private static final int DEFAULT_QUALITY_HEIGHT = 720;
 
+    // Zombie writer recovery: a segment's writer that stays registered as active
+    // but whose file stops growing for this long is hung or died without cleanup.
+    // The stream kills it and restarts the transcode, which resume-appends.
+    private static final long ZOMBIE_NO_GROWTH_MS = 20_000;
+    // Delay before the zombie-restart transcode launches, letting the killed
+    // writer's finally trim the partial tail before the resume path re-opens
+    // the file for append.
+    private static final long ZOMBIE_RESTART_SETTLE_MS = 750;
+    // How long to keep waiting for a fragment after its writer has unregistered
+    // (killed as a zombie, swept, or died) before giving up. Covers the
+    // zombie-restart window: kill -> settle -> relaunch -> first write. Longer than
+    // ZOMBIE_RESTART_SETTLE_MS so a legitimately restarting writer isn't abandoned;
+    // much shorter than the 30s wait deadline so a truly dead writer fails fast.
+    private static final long WRITER_GONE_GRACE_MS = 5_000;
+
     // Suppress per-range-request spam: log hot-path stream events once per session.
     private static final long STREAM_SESSION_GAP_MS = 120_000;
     private static final int STREAM_LOG_MAX_ENTRIES = 4096;
@@ -359,7 +374,7 @@ public class VideoStreamResource {
                 } catch (IOException e) {
                     LOG.debug("Failed to refresh mtime of segment {}: {}", coverage.file, e.getMessage());
                 }
-                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize, off, coverage.startSeconds);
+                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds);
             }
         }
 
@@ -394,29 +409,16 @@ public class VideoStreamResource {
         // a raw growing pipe (empty_moov + default_base_moof, no write-ahead): a moof is read
         // before its mdat has been written, so sample ranges are garbage -> "Invalid H264 content".
         // Chrome tolerates the raw pipe; Firefox does not, so the first request must not stream it.
-        final java.nio.file.Path fCacheFile = cacheFile;
-        Thread transcodeThread = new Thread(() -> {
-            try {
-                transcodingService.streamRemuxedMKV(video, videoFile, startSeconds, userAgent,
-                        java.io.OutputStream.nullOutputStream(), audioTrackIndex, qualityHeight, fCacheFile);
-            } catch (IOException e) {
-                if (!isClientDisconnect(e)) {
-                    LOG.error("Background transcode for video {} failed: {}", videoId, e.getMessage());
-                }
-            } finally {
-                transcodingService.releaseTranscode(videoId, startSeconds, audioTrackIndex, qualityHeight, false);
-            }
-        }, "direct-transcode-" + videoId);
-        transcodeThread.setDaemon(true);
-        transcodeThread.start();
-
         final long estimatedFinalSize = (long) (videoFile.length() * 1.10);
-        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize, 0L, startSeconds);
+        launchSegmentWriter("direct-transcode-" + videoId, null, null,
+                video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile);
+
+        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds);
     }
 
     private Response streamFromSegment(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
-                                       String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize,
-                                       long baseOffset, double segmentStart) {
+                                       String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String userAgent,
+                                       long estimatedFinalSize, long baseOffset, double segmentStart) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromSegment: videoId={} start={}s segmentStart={}s baseOffset={} range={}", traceId, videoId, startSeconds, segmentStart, baseOffset, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
@@ -474,6 +476,11 @@ public class VideoStreamResource {
 
         long start = 0;
         long end = browserTotal - 1;
+        // An open-ended range (bytes=N- or bytes=N): the client asks for everything
+        // from N onward. On a growing segment this enables continuous streaming past
+        // the current safe total (see growStream), instead of clamping to today's
+        // bytes and forcing a per-fragment re-request loop.
+        boolean openEndedRange = false;
 
         if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
             try {
@@ -488,7 +495,17 @@ public class VideoStreamResource {
                     if (parts.length > 1 && !parts[1].trim().isEmpty()) {
                         end = Long.parseLong(parts[1].trim());
                     } else {
-                        end = browserTotal - 1;
+                        openEndedRange = true;
+                        // Open-ended (bytes=N- or bytes=N): on a still-growing segment
+                        // extend the end to the stable estimated size so the response
+                        // can flow past today's bytes; a completed segment's end is its
+                        // actual total. If the estimate cannot cover the start, fall back
+                        // to the current total (a later continuation will re-sync).
+                        if (transcodingService.isCacheFileComplete(tempFile) || estimatedFinalSize <= start) {
+                            end = browserTotal - 1;
+                        } else {
+                            end = estimatedFinalSize - 1;
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -592,6 +609,12 @@ public class VideoStreamResource {
         }
 
         boolean transcodeFinished = transcodingService.isCacheFileComplete(tempFile);
+        // Open-ended range on a still-growing segment: stream continuously past the
+        // current safe total (up to the stable estimated size), chunked — no
+        // Content-Length — so the client's continuation stays on one connection
+        // instead of re-requesting every fragment. Requires the estimate to cover
+        // the requested start; otherwise it degrades to the bounded convention.
+        boolean growStream = openEndedRange && !transcodeFinished && estimatedFinalSize > start;
         long currentFileSize;
         try {
             if (transcodeFinished) {
@@ -604,6 +627,10 @@ public class VideoStreamResource {
                 // fragment containing the requested byte to be complete, then clamp to it.
                 long startFileByte = baseOffset + Math.max(0, start - initLen);
                 long deadline = System.currentTimeMillis() + 30_000L;
+                long writerGoneSince = 0;
+                long noGrowthSince = 0;
+                long lastComplete = -1;
+                boolean restartPending = false;
                 long complete;
                 while (true) {
                     complete = FragmentedMp4Seeker.completeLength(tempFile);
@@ -612,6 +639,52 @@ public class VideoStreamResource {
                     }
                     if (System.currentTimeMillis() > deadline) {
                         throw new IOException("Timeout waiting for fragment containing byte " + startFileByte);
+                    }
+                    boolean beingWritten = transcodingService.isCacheBeingWritten(tempFile);
+                    if (beingWritten) {
+                        // The writer (original or restart) is registered and working again.
+                        writerGoneSince = 0;
+                        restartPending = false;
+                        // Track growth so a stalled zombie is killed + restarted
+                        // (mirroring the streaming loop) instead of burning the deadline.
+                        if (complete > lastComplete) {
+                            lastComplete = complete;
+                            noGrowthSince = 0;
+                        } else if (noGrowthSince == 0) {
+                            noGrowthSince = System.currentTimeMillis();
+                        } else if (System.currentTimeMillis() - noGrowthSince > ZOMBIE_NO_GROWTH_MS) {
+                            LOG.warn("Segment writer for video {} stalled (no growth for {}ms) while waiting for fragment — killing zombie and restarting transcode (segmentStart={}s)",
+                                     videoId, ZOMBIE_NO_GROWTH_MS, segmentStart);
+                            int killed = transcodingService.zombieKillWriters(tempFile);
+                            if (killed > 0) {
+                                // Only the killer restarts; concurrent detectors skip.
+                                // The relaunch blocks on a permit + ffmpeg startup, so
+                                // disarm the writer-gone fail-fast until it registers.
+                                restartPending = true;
+                                launchSegmentWriter("zombie-restart-" + videoId,
+                                        () -> Thread.sleep(ZOMBIE_RESTART_SETTLE_MS),
+                                        null,
+                                        video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight,
+                                        tempFile);
+                            }
+                            noGrowthSince = 0;
+                        }
+                    } else {
+                        // Writer unregistered (killed as zombie, swept, or died). If our
+                        // own restart is pending, keep waiting for it to register (the
+                        // 30s deadline still bounds the wait). Otherwise the fragment
+                        // will never complete — tolerate a brief restart window, then
+                        // fail fast instead of burning the whole deadline.
+                        noGrowthSince = 0;
+                        lastComplete = complete;
+                        if (!restartPending) {
+                            if (writerGoneSince == 0) {
+                                writerGoneSince = System.currentTimeMillis();
+                            } else if (System.currentTimeMillis() - writerGoneSince > WRITER_GONE_GRACE_MS) {
+                                throw new IOException("Writer gone for segment " + tempFile.getFileName()
+                                        + ", fragment containing byte " + startFileByte + " will never complete");
+                            }
+                        }
                     }
                     try {
                         Thread.sleep(100);
@@ -657,7 +730,15 @@ public class VideoStreamResource {
                     byte[] buffer = new byte[65536];
                     // For range requests, send exactly the requested range.
                     // For non-range (segment still growing), send until the writer finishes.
-                    long remaining = (rangeHeader != null || transcodeFinished) ? contentLength : Long.MAX_VALUE;
+                    // For growStream (open-ended range on a growing segment), send past the
+                    // current safe total up to the stable estimated size so the client's
+                    // continuation stays on this connection until the writer finishes.
+                    long remaining;
+                    if (growStream) {
+                        remaining = Math.max(0, estimatedFinalSize - finalStart);
+                    } else {
+                        remaining = (rangeHeader != null || transcodeFinished) ? contentLength : Long.MAX_VALUE;
+                    }
 
                     // Region 1: init segment prefix (browser bytes [0, finalInitLen) == file bytes).
                     // Only served when the request starts inside it; the moov is written first, so
@@ -682,14 +763,44 @@ public class VideoStreamResource {
                     long payloadStart = Math.max(finalStart, finalInitLen);
                     if (remaining > 0 && payloadStart <= finalEnd) {
                         raf.seek(finalBaseOffset + (payloadStart - finalInitLen));
+                        // Zombie recovery state: restartGeneration guards restartInFlight so a stale
+                        // restart thread can never cancel a successor's wait window.
+                        java.util.concurrent.atomic.AtomicBoolean restartInFlight = new java.util.concurrent.atomic.AtomicBoolean(false);
+                        java.util.concurrent.atomic.AtomicInteger restartGeneration = new java.util.concurrent.atomic.AtomicInteger();
+                        long noGrowthSince = 0;
                         while (remaining > 0) {
                             int readSize = (remaining == Long.MAX_VALUE) ? buffer.length : (int) Math.min(buffer.length, remaining);
                             int read = raf.read(buffer, 0, readSize);
                             if (read == -1) {
                                 // Check if the segment's writer is done — no more data will come.
-                                if (transcodingService.isCacheFileComplete(tempFile) || !transcodingService.isCacheBeingWritten(tempFile)) {
+                                boolean cacheComplete = transcodingService.isCacheFileComplete(tempFile);
+                                boolean beingWritten = transcodingService.isCacheBeingWritten(tempFile);
+                                if (cacheComplete || (!beingWritten && !restartInFlight.get())) {
                                     LOG.debug("Segment writer finished or abandoned, stopping stream for video {}", videoId);
                                     break;
+                                }
+                                if (!beingWritten) {
+                                    // Restart in flight but its writer has not registered yet — keep waiting.
+                                    noGrowthSince = 0;
+                                } else if (noGrowthSince == 0) {
+                                    noGrowthSince = System.currentTimeMillis();
+                                } else if (System.currentTimeMillis() - noGrowthSince > ZOMBIE_NO_GROWTH_MS) {
+                                    // Writer registered but the segment has not grown for the threshold:
+                                    // hung or died without cleanup. Kill it (keeping the file for a resume)
+                                    // and relaunch — runFFmpegWithPermit's resume detection appends into
+                                    // this same file, so the client stream continues seamlessly.
+                                    LOG.warn("Segment writer for video {} stalled (no growth for {}ms) — killing zombie and restarting transcode (segmentStart={}s)",
+                                             videoId, ZOMBIE_NO_GROWTH_MS, segmentStart);
+                                    int killed = transcodingService.zombieKillWriters(tempFile);
+                                    if (killed > 0) {
+                                        // Only the killer restarts; concurrent detectors skip,
+                                        // so one zombie never spawns two restarts.
+                                        int generation = restartGeneration.incrementAndGet();
+                                        restartInFlight.set(true);
+                                        restartSegmentWriter(video, videoFile, tempFile, segmentStart, userAgent,
+                                                audioTrackIndex, qualityHeight, restartInFlight, restartGeneration, generation);
+                                    }
+                                    noGrowthSince = 0;
                                 }
                                 try {
                                     Thread.sleep(200);
@@ -700,6 +811,7 @@ public class VideoStreamResource {
                                 continue;
                             }
                             output.write(buffer, 0, read);
+                            noGrowthSince = 0;
                             if (remaining != Long.MAX_VALUE) remaining -= read;
                         }
                     }
@@ -727,7 +839,10 @@ public class VideoStreamResource {
                 .header("Access-Control-Allow-Origin", "*");
 
         boolean isRangeRequest = rangeHeader != null;
-        if (transcodeFinished || isRangeRequest) {
+        // growStream has no settled length (open-ended range on a still-growing segment)
+        // and streams chunked until the estimate is exhausted — omit Content-Length so
+        // the client reads until EOF instead of failing on a premature size.
+        if (transcodeFinished || (isRangeRequest && !growStream)) {
             responseBuilder.header("Content-Length", contentLength);
         }
 
@@ -756,9 +871,82 @@ public class VideoStreamResource {
         return responseBuilder.build();
     }
 
+    /**
+     * Launches the segment-writing transcode on a shared daemon thread. Used by the
+     * initial direct transcode, the streaming-loop zombie restart, and the wait-loop
+     * relaunch — all three need the same lifecycle: an optional pre-transcode action
+     * (settle delay), the remux into the segment file, error handling that tolerates
+     * client disconnects, an optional post-transcode action (generation guard), and a
+     * guaranteed releaseTranscode. Runs on a daemon thread because the launch can
+     * block on a transcode permit and FFmpeg startup, which must never stall the
+     * streaming loop. Pre/post actions may throw checked exceptions (e.g. the settle
+     * sleep); an interrupted pre-action skips the transcode and still runs cleanup.
+     */
+    @FunctionalInterface
+    private interface SegmentWriterAction {
+        void run() throws Exception;
+    }
+
+    private void launchSegmentWriter(String threadName, SegmentWriterAction preLaunch, SegmentWriterAction postLaunch,
+                                     Models.Video.Video video, File videoFile, double segmentStart, String userAgent,
+                                     int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) {
+        final Long videoId = video.id;
+        Thread writerThread = new Thread(() -> {
+            try {
+                if (preLaunch != null) {
+                    preLaunch.run();
+                }
+                transcodingService.streamRemuxedMKV(video, videoFile, segmentStart, userAgent,
+                        java.io.OutputStream.nullOutputStream(), audioTrackIndex, qualityHeight, cacheFile);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException e) {
+                if (!isClientDisconnect(e)) {
+                    LOG.error("Background transcode for video {} failed: {}", videoId, e.getMessage());
+                }
+            } catch (Exception e) {
+                LOG.error("Segment writer for video {} aborted before transcode: {}", videoId, e.getMessage());
+            } finally {
+                if (postLaunch != null) {
+                    try {
+                        postLaunch.run();
+                    } catch (Exception e) {
+                        LOG.warn("Segment writer cleanup for video {} failed: {}", videoId, e.getMessage());
+                    }
+                }
+                transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+            }
+        }, threadName);
+        writerThread.setDaemon(true);
+        writerThread.start();
+    }
+
+    /**
+     * Relaunches the transcode for a segment whose writer was killed as a zombie
+     * (registered as active but no longer growing the file). Reuses the original
+     * userAgent so codec decisions (transcode vs remux, hvc1 tagging) match what the
+     * segment already contains. The settle delay before the resume transcode lets the
+     * killed writer's finally trim the partial tail; the resume path then appends into
+     * this same file, so the client stream continues seamlessly. Clears restartInFlight
+     * only when no newer restart was spawned (generation guard).
+     */
+    private void restartSegmentWriter(Models.Video.Video video, File videoFile, java.nio.file.Path cacheFile,
+                                      double segmentStart, String userAgent, int audioTrackIndex, int qualityHeight,
+                                      java.util.concurrent.atomic.AtomicBoolean restartInFlight,
+                                      java.util.concurrent.atomic.AtomicInteger restartGeneration, int generation) {
+        launchSegmentWriter("zombie-restart-" + video.id,
+                () -> Thread.sleep(ZOMBIE_RESTART_SETTLE_MS),
+                () -> {
+                    if (restartGeneration.get() == generation) {
+                        restartInFlight.set(false);
+                    }
+                },
+                video, videoFile, segmentStart, userAgent, audioTrackIndex, qualityHeight, cacheFile);
+    }
+
     private Response streamFromTempFile(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
-        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, estimatedFinalSize, 0, startSeconds);
+        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds);
     }
 
     /**

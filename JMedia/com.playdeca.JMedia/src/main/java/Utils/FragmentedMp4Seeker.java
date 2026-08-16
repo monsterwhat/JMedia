@@ -128,6 +128,64 @@ public final class FragmentedMp4Seeker {
     }
 
     /**
+     * Resume point of a partially-written fMP4 file, derived from its last COMPLETE
+     * fragment. Returns null when the file has no parseable moov, no fragments at
+     * all, or no intact fragment (e.g. only a partial first moof) — in every such
+     * case the file is not resumable and the encoder must start fresh.
+     *
+     * <p>Resume contract: callers reusing a cache file must first
+     * {@link #completeLength(Path)}-truncate so a partial trailing moof is dropped,
+     * then seek the encoder to {@code FragmentInfo.endTimeSeconds()} — the end of
+     * the written timeline computed as (decodeTime + duration) / timescale of the
+     * last intact fragment. Per-track tfdt shifting of appended fragments is done
+     * by {@link #copyFragmentsShifted(Path, long, long, double, Map, OutputStream, long)}
+     * (and its {@code writeMoofShifted} helper) using the delta in seconds, so
+     * only the video track's identity/timescale is needed here; other tracks'
+     * timescales come from {@link #readTrackTimescales(Path)}.
+     */
+    public static FragmentInfo lastFragmentInfo(Path file) throws IOException {
+        try (RandomAccess raf = new RandomAccess(file)) {
+            TrackInfo track = readVideoTrack(raf);
+            if (track == null) {
+                return null;
+            }
+            long first = firstFragmentOffset(raf);
+            if (first < 0) {
+                return null;
+            }
+            long pos = first;
+            long lastDecodeTime = -1;
+            long lastDuration = -1;
+            int fragmentCount = 0;
+            while (true) {
+                Box box = readTopBox(raf, pos);
+                if (box == null) {
+                    break;
+                }
+                if ("moof".equals(box.type)) {
+                    Fragment frag = readFragment(raf, box, track.trackId);
+                    if (frag != null) {
+                        lastDecodeTime = frag.decodeTime;
+                        lastDuration = frag.duration;
+                        fragmentCount++;
+                    }
+                }
+                if (box.size <= 0) {
+                    break;
+                }
+                pos += box.size;
+            }
+            if (lastDecodeTime < 0) {
+                return null;
+            }
+            long endTicks = lastDecodeTime + Math.max(lastDuration, 0L);
+            return new FragmentInfo(track.trackId, track.timescale,
+                    lastDecodeTime, Math.max(lastDuration, 0L),
+                    endTicks / (double) track.timescale, fragmentCount);
+        }
+    }
+
+    /**
      * Byte length of the file truncated at the first moof whose tfdt decode time is &gt;= target.
      * Keeps [0, that moof's offset) — the header region plus every earlier moof (and their mdat
      * payloads). When no moof qualifies (all fragments start before the target, or the file is
@@ -947,6 +1005,17 @@ public final class FragmentedMp4Seeker {
         }
     }
 
+    /**
+     * Resume point of a resumable fMP4 file (see {@link #lastFragmentInfo(Path)}).
+     * {@code trackId}/{@code timescale} identify the video track; {@code decodeTime}
+     * and {@code duration} are the last complete fragment's tfdt and length in
+     * timescale ticks; {@code endTimeSeconds} is the end of the written timeline
+     * in seconds; {@code fragmentCount} is the number of intact fragments parsed.
+     */
+    public record FragmentInfo(int trackId, int timescale, long decodeTime, long duration,
+                               double endTimeSeconds, int fragmentCount) {
+    }
+
     private static final class MediaInfo {
         final int timescale;
         final boolean video;
@@ -1015,6 +1084,260 @@ public final class FragmentedMp4Seeker {
             this.payloadOffset = payloadOffset;
             this.payloadLen = payloadLen;
             assert size >= headerLen;
+        }
+    }
+
+    /**
+     * Stream-side appender that concatenates an ffmpeg-produced fragmented MP4 stream
+     * onto an existing fragment chain (resume mode). It drops the duplicate init
+     * (ftyp/moov and anything before the first moof), shifts every appended fragment's
+     * per-track tfdt by a fixed delta so the merged timeline stays monotonic, and
+     * rebases each moof's data offsets to its new absolute output position. Non-moof
+     * boxes (mdat, free, ...) pass through verbatim.
+     *
+     * <p>The caller feeds ffmpeg stdout chunks via {@link #write(byte[],int,int)} and
+     * calls {@link #finish()} once the stream ends. A moof still partial at EOF is
+     * dropped (nothing was emitted for it); a partial trailing mdat has already been
+     * streamed through and must be trimmed by the caller's {@code completeLength}
+     * repair. A malformed header or an absurdly large moof degrades to verbatim
+     * passthrough rather than corrupting or buffering without bound.
+     */
+    public static final class FragmentAppender {
+        private final OutputStream out;
+        private final double deltaSeconds;
+        private final Map<Integer, Integer> trackTimescales;
+
+        /** Box-header accumulation (8 bytes, or 16 for largesize). */
+        private final byte[] header = new byte[16];
+        private int headerLen = 0;
+        private String boxType = null;
+        private long boxSize = -1;
+        private long payloadRemaining = 0;
+
+        /** Buffer of the moof currently being accumulated. */
+        private byte[] moofData = null;
+        private int moofLen = 0;
+        private long moofOutPos = 0;    // moof's absolute position in the output file
+        private long moofStreamPos = 0; // moof's start position in the input stream
+
+        private boolean inInit = true;
+        private boolean degraded = false;
+        private long streamPos = 0;
+        private long outPos = 0;
+
+        public FragmentAppender(OutputStream out, double deltaSeconds, Map<Integer, Integer> trackTimescales) {
+            this.out = out;
+            this.deltaSeconds = deltaSeconds;
+            this.trackTimescales = trackTimescales;
+        }
+
+        public void write(byte[] buf, int off, int len) throws IOException {
+            if (len <= 0) {
+                return;
+            }
+            if (degraded) {
+                out.write(buf, off, len);
+                outPos += len;
+                return;
+            }
+            int pos = off;
+            int end = off + len;
+            while (pos < end) {
+                if (boxSize < 0) {
+                    int take = Math.min(16 - headerLen, end - pos);
+                    System.arraycopy(buf, pos, header, headerLen, take);
+                    headerLen += take;
+                    pos += take;
+                    if (headerLen < 8) {
+                        continue;
+                    }
+                    long size = u32(header, 0);
+                    String type = new String(header, 4, 4, StandardCharsets.ISO_8859_1);
+                    int hlen = 8;
+                    if (size == 1L) {
+                        if (headerLen < 16) {
+                            continue; // wait for the largesize field
+                        }
+                        size = u64(header, 8);
+                        hlen = 16;
+                    } else if (size == 0L) {
+                        size = Long.MAX_VALUE; // box extends to EOF
+                    }
+                    if (size < hlen) {
+                        // Malformed header: stop parsing, stream the remainder verbatim.
+                        degraded = true;
+                        out.write(buf, pos, end - pos);
+                        outPos += end - pos;
+                        return;
+                    }
+                    streamPos += hlen;
+                    boxType = type;
+                    boxSize = size;
+                    payloadRemaining = size - hlen;
+                    if ("moof".equals(boxType)) {
+                        inInit = false;
+                        int cap = (int) Math.min(payloadRemaining, 1 << 16);
+                        moofData = new byte[Math.max(cap, 16)];
+                        moofLen = 0;
+                        moofOutPos = outPos;
+                        moofStreamPos = streamPos - hlen;
+                        System.arraycopy(header, 0, moofData, 0, hlen);
+                        moofLen = hlen;
+                        if (payloadRemaining == 0) {
+                            writeBufferedMoof();
+                            resetBox();
+                        }
+                    } else if (inInit) {
+                        // Duplicate init box (ftyp/moov/free before the first moof): drop.
+                        moofData = null;
+                    } else {
+                        // Fragment-phase non-moof box: emit the header, stream the payload.
+                        out.write(header, 0, hlen);
+                        outPos += hlen;
+                        moofData = null;
+                    }
+                    continue;
+                }
+                int take = (int) Math.min(payloadRemaining, (long) (end - pos));
+                if (moofData != null) {
+                    if (moofLen + take > moofData.length) {
+                        if (moofLen + take > MAX_CONTAINER_PAYLOAD) {
+                            // Absurdly large moof: stream buffered + remainder verbatim.
+                            degraded = true;
+                            out.write(moofData, 0, moofLen);
+                            outPos += moofLen;
+                            out.write(buf, pos, end - pos);
+                            outPos += end - pos;
+                            return;
+                        }
+                        int newCap = moofData.length;
+                        while (newCap < moofLen + take) {
+                            newCap <<= 1;
+                        }
+                        moofData = java.util.Arrays.copyOf(moofData, newCap);
+                    }
+                    System.arraycopy(buf, pos, moofData, moofLen, take);
+                    moofLen += take;
+                } else if (boxType != null && !inInit) {
+                    out.write(buf, pos, take);
+                    outPos += take;
+                }
+                payloadRemaining -= take;
+                pos += take;
+                streamPos += take;
+                if (payloadRemaining == 0) {
+                    if (moofData != null) {
+                        writeBufferedMoof();
+                    }
+                    resetBox();
+                }
+            }
+        }
+
+        /** Emits the fully-buffered moof, transformed, and accounts for its output size. */
+        private void writeBufferedMoof() throws IOException {
+            transformMoof();
+            outPos += moofLen;
+        }
+
+        /**
+         * Flushes the stream tail: a fully-buffered moof is written; a partial moof is
+         * dropped (nothing was emitted for it). A partial trailing mdat was already
+         * streamed through and is repaired later by the caller's completeLength trim.
+         */
+        public void finish() throws IOException {
+            if (degraded) {
+                return;
+            }
+            if (moofData != null && payloadRemaining == 0) {
+                writeBufferedMoof();
+            }
+            resetBox();
+        }
+
+        private void resetBox() {
+            headerLen = 0;
+            boxType = null;
+            boxSize = -1;
+            payloadRemaining = 0;
+            moofData = null;
+            moofLen = 0;
+        }
+
+        /**
+         * Shifts every traf's tfdt by deltaSeconds (per-track timescale) and rebases
+         * data offsets to the moof's absolute output position, then writes the moof.
+         * Mirrors {@link #writeMoofShifted} for an in-memory buffer.
+         */
+        private void transformMoof() throws IOException {
+            int limit = moofLen;
+            int pos = 0;
+            while (true) {
+                MemBox box = memBox(moofData, limit, pos);
+                if (box == null) {
+                    break;
+                }
+                if ("traf".equals(box.type)) {
+                    int trafEnd = box.payloadOffset + box.payloadLen;
+                    int q = box.payloadOffset;
+                    Integer trackId = null;
+                    Integer tfdtVersion = null;
+                    int tfdtFieldOffset = -1;
+                    while (true) {
+                        MemBox sub = memBox(moofData, trafEnd, q);
+                        if (sub == null) {
+                            break;
+                        }
+                        if ("tfhd".equals(sub.type)) {
+                            TfhdInfo info = readTfhd(moofData, sub);
+                            if (info != null) {
+                                trackId = info.trackId;
+                            }
+                            int tfhdFlags = (int) (u32(moofData, sub.payloadOffset) & 0xFFFFFF);
+                            if ((tfhdFlags & 0x01) != 0) {
+                                // Absolute base_data_offset: keep the moof-relative geometry
+                                // and move the base to this moof's new absolute position.
+                                long origBase = i64(moofData, sub.payloadOffset + 8);
+                                putI64(moofData, sub.payloadOffset + 8, moofOutPos + (origBase - moofStreamPos));
+                            } else {
+                                // No explicit base: force default-base-is-moof so the base
+                                // tracks the moof wherever it lands in the merged file.
+                                putU32(moofData, sub.payloadOffset, u32(moofData, sub.payloadOffset) | 0x00020000L);
+                            }
+                        } else if ("tfdt".equals(sub.type)) {
+                            if (sub.payloadLen >= 8) {
+                                tfdtVersion = moofData[sub.payloadOffset] & 0xff;
+                                tfdtFieldOffset = sub.payloadOffset + 4;
+                            }
+                        }
+                        if (sub.size <= 0) {
+                            break;
+                        }
+                        q += (int) sub.size;
+                    }
+                    if (trackId != null && tfdtFieldOffset >= 0 && tfdtVersion != null && deltaSeconds != 0.0) {
+                        Integer timescale = trackTimescales.get(trackId);
+                        if (timescale != null && timescale > 0) {
+                            long deltaTicks = Math.round(deltaSeconds * timescale);
+                            if (deltaTicks != 0) {
+                                if (tfdtVersion == 1) {
+                                    putI64(moofData, tfdtFieldOffset, i64(moofData, tfdtFieldOffset) + deltaTicks);
+                                } else {
+                                    long shifted = u32(moofData, tfdtFieldOffset) + deltaTicks;
+                                    if (shifted <= 0xFFFFFFFFL) {
+                                        putU32(moofData, tfdtFieldOffset, shifted);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (box.size <= 0) {
+                    break;
+                }
+                pos += (int) box.size;
+            }
+            out.write(moofData, 0, moofLen);
         }
     }
 }

@@ -3528,9 +3528,10 @@ async function initSubtitleSearchSidebar() {
     if (tracks.length === 0) {
       var container = getPlayerContainer();
       var input = document.getElementById('subtitleSearchQuery');
+      // Pre-fill the search box only; do NOT auto-open the sidebar — its full-screen
+      // backdrop would sit above the player topbar and swallow clicks on the episode
+      // list toggle. The sidebar opens on demand via the subtitle button.
       if (input && container && container.dataset.title) input.value = container.dataset.title;
-      openSubtitleSearchSidebar();
-      runSubtitleSearch();
     }
   } catch (e) { /* network hiccup — leave button-only access */ }
 }

@@ -66,6 +66,10 @@ public class TranscodingService {
      *  latest-seek-wins supersede (releaseStaleTranscodesForVideo). Their partial
      *  output is KEPT as a complete cache segment — see runFFmpeg completion. */
     private final java.util.Set<String> supersededProcessKeys = ConcurrentHashMap.newKeySet();
+    /** Process keys killed as zombies by {@link #zombieKillWriters}: their completion
+     *  handler must keep the segment file (trimmed, without a .done marker) so the
+     *  restart transcode can resume-append into it. A plain kill deletes the file. */
+    private final java.util.Set<String> zombieRestartProcessKeys = ConcurrentHashMap.newKeySet();
 
     private static final long TRANSCODE_IDLE_TTL_MS = 48 * 60 * 60 * 1000L;
     private static final long CACHE_FILE_TTL_MS = 7 * 24 * 60 * 60 * 1000L;
@@ -812,6 +816,39 @@ public class TranscodingService {
                                     boolean needsVideoTranscode, boolean canCopyAudio, boolean needsAppleHvc1Tag,
                                     boolean useHardware, OutputStream output, StringBuilder errorOutput,
                                     int audioTrackIndex, int qualityHeight, java.nio.file.Path cacheFile) throws IOException {
+        // Skip-restart guard: a cache file that already carries its .done marker is a
+        // complete, servable segment. Restarting the transcode would truncate (or
+        // append-into) a finished segment that streamFromSegment is serving — the request
+        // is satisfied by the existing file. Normalize the sidecar (startSegment may have
+        // just rewritten it as GROWING) and exit as a clean no-op (permit is released by
+        // the caller's finally).
+        if (cacheFile != null && isCacheFileComplete(cacheFile)) {
+            LOG.info("Skipping transcode restart for {}: segment already complete", cacheFile.getFileName());
+            segmentCacheService.completeSegment(cacheFile);
+            return 0;
+        }
+
+        // Resume detection: a non-empty cache file with at least one intact fragment
+        // means a previous transcode for this segment position was killed or superseded
+        // mid-write (client disconnect / EPIPE / latest-seek-wins / zombie restart).
+        // Reuse the file instead of truncating: trim the half-written tail, seek the
+        // encoder past the existing timeline, and have the pump append the new fragments
+        // with their per-track tfdt shifted so the merged file stays one continuous
+        // timeline. A file with no intact fragment is garbage — fall through and
+        // truncate it with a fresh open (resumingSegment stays false).
+        boolean resumingSegment = false;
+        double resumeDeltaSeconds = 0.0;
+        Map<Integer, Integer> resumeTrackTimescales = Map.of();
+        if (cacheFile != null && Files.exists(cacheFile) && Files.size(cacheFile) > 0) {
+            FragmentedMp4Seeker.FragmentInfo resumeInfo = FragmentedMp4Seeker.lastFragmentInfo(cacheFile);
+            if (resumeInfo != null) {
+                resumingSegment = true;
+                resumeDeltaSeconds = resumeInfo.endTimeSeconds();
+                resumeTrackTimescales = FragmentedMp4Seeker.readTrackTimescales(cacheFile);
+                trimPartialTrailingFragment(cacheFile);
+            }
+        }
+
         String hardwareEncoder = useHardware ? discoveryService.detectHardwareEncoder() : "libx264";
         String hardwareDecoder = useHardware ? discoveryService.getHardwareDecoder(video.videoCodec) : null;
         
@@ -900,9 +937,14 @@ public class TranscodingService {
         // after -i produces a PTS gap (video starts at the keyframe before the
         // seek point while audio starts exactly at the seek point), causing the
         // browser to freeze the first video frame while audio continues playing.
-        if (startSeconds > 0) {
+        // When resuming, seek past the already-written fragment span so the CONTENT (not
+        // just the timestamps) picks up where the killed transcode stopped. The transcode
+        // key and segment identity keep the segment's base startSeconds — a resume is
+        // still the same segment position.
+        double seekSeconds = resumingSegment ? startSeconds + resumeDeltaSeconds : startSeconds;
+        if (seekSeconds > 0) {
             command.add("-ss");
-            command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
+            command.add(String.format(Locale.ROOT, "%.3f", seekSeconds));
         }
         command.add("-i"); command.add(videoFile.getAbsolutePath());
 
@@ -991,14 +1033,14 @@ public class TranscodingService {
             }
         }
 
-        if (startSeconds >0) {
+        if (seekSeconds > 0) {
             command.add("-async"); command.add("1");
             command.add("-vsync"); command.add("vfr");
             // Inert for tfdt on ffmpeg 8.x: the offset is added to pkt->dts/pts
             // in mux.c::write_packet BEFORE movenc, so it cancels inside
             // mov_write_tfdt_tag's `cluster[0].dts - start_dts`. Kept to align
             // mvhd/mdhd durations with the absolute seek position.
-            command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", startSeconds));
+            command.add("-output_ts_offset"); command.add(String.format(Locale.ROOT, "%.3f", seekSeconds));
         }
 
         // Low-latency streaming: flush output immediately, skip input buffering, discard corrupt data
@@ -1080,8 +1122,27 @@ public class TranscodingService {
 
         boolean clientDisconnected = false;
         boolean watchdogStarted = false;
+        OutputStream fileOut;
+        if (cacheFile == null) {
+            fileOut = null;
+        } else if (resumingSegment) {
+            // Resume-aware open: APPEND to the existing fragment chain — never truncate a
+            // segment whose earlier fragments readers may be serving right now. The hoisted
+            // resume detection already trimmed the partial trailing box left by the kill.
+            LOG.info("Resuming transcode into existing segment {} ({} bytes, continuing at +{:.3f}s)",
+                     cacheFile.getFileName(), Files.size(cacheFile), resumeDeltaSeconds);
+            fileOut = Files.newOutputStream(cacheFile,
+                    java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
+        } else {
+            fileOut = Files.newOutputStream(cacheFile);
+        }
+        // ffmpeg restarts with a fresh init (ftyp/moov) and a 0-based timeline; the appender
+        // drops the duplicate init and shifts each appended fragment's per-track tfdt by
+        // resumeDeltaSeconds so the merged file stays one continuous, monotonic timeline.
+        FragmentedMp4Seeker.FragmentAppender resumeAppender = (fileOut != null && resumingSegment)
+                ? new FragmentedMp4Seeker.FragmentAppender(fileOut, resumeDeltaSeconds, resumeTrackTimescales)
+                : null;
         try (InputStream is = process.getInputStream()) {
-            OutputStream fileOut = cacheFile != null ? Files.newOutputStream(cacheFile) : null;
             byte[] buffer = new byte[1024 * 1024];
             int read;
             while ((read = is.read(buffer)) != -1) {
@@ -1089,7 +1150,9 @@ public class TranscodingService {
                     if (!clientDisconnected) {
                         output.write(buffer,0, read);
                     }
-                    if (fileOut != null) {
+                    if (resumeAppender != null) {
+                        resumeAppender.write(buffer, 0, read);
+                    } else if (fileOut != null) {
                         fileOut.write(buffer, 0, read);
                     }
                     processLastOutput.put(processKey, System.currentTimeMillis());
@@ -1115,6 +1178,9 @@ public class TranscodingService {
                     }
                 }
             }
+            if (resumeAppender != null) {
+                resumeAppender.finish();
+            }
             if (fileOut != null) {
                 try { fileOut.close(); } catch (IOException ignored) {}
             }
@@ -1134,6 +1200,7 @@ public class TranscodingService {
             try {
                 int code = process.waitFor();
                 boolean superseded = processKey != null && supersededProcessKeys.contains(processKey);
+                boolean zombieKilled = processKey != null && zombieRestartProcessKeys.contains(processKey);
                 try {
                     if (clientDisconnected) {
                         LOG.debug("Client disconnected, killed ffmpeg for {}", videoFile.getName());
@@ -1141,6 +1208,8 @@ public class TranscodingService {
                         LOG.debug("FFmpeg pipe closed (client disconnected) for {}", videoFile.getName());
                     } else if (superseded) {
                         LOG.debug("Superseded transcode {} killed by latest-seek-wins for {}", processKey, videoFile.getName());
+                    } else if (zombieKilled) {
+                        LOG.debug("Zombie writer {} killed by streaming loop for {}", processKey, videoFile.getName());
                     } else {
                         String errors = errorOutput.toString();
                         if (!errors.isEmpty()) {
@@ -1158,6 +1227,14 @@ public class TranscodingService {
                         if (code == 0) {
                             writeCompletedMarker(cacheFile);
                             segmentCacheService.completeSegment(cacheFile);
+                        } else if (zombieKilled) {
+                            // Zombie restart: the streaming loop killed this hung writer and is
+                            // relaunching the transcode, which resume-appends into the same file.
+                            // Trim the partial tail but do NOT write the .done marker — a marker
+                            // would make the resume path bail out as "segment already complete".
+                            trimPartialTrailingFragment(cacheFile);
+                            LOG.info("Zombie writer {} killed; segment {} kept for resume (no completion marker)",
+                                     processKey, cacheFile.getFileName());
                         } else if (keepAsCompleteSegment) {
                             trimPartialTrailingFragment(cacheFile);
                             LOG.debug("Killed transcode kept as complete segment (valid cache)");
@@ -1173,7 +1250,7 @@ public class TranscodingService {
                             at.lastAccessed = System.currentTimeMillis();
                             if (code == 0) {
                                 at.completed = true;
-                            } else if (!clientDisconnected && code != EPIPE && !superseded) {
+                            } else if (!clientDisconnected && code != EPIPE && !superseded && !zombieKilled) {
                                 at.failed = true;
                             }
                         }
@@ -1181,6 +1258,7 @@ public class TranscodingService {
                     return clientDisconnected ? EPIPE : code;
                 } finally {
                     supersededProcessKeys.remove(processKey);
+                    zombieRestartProcessKeys.remove(processKey);
                 }
             } catch (InterruptedException e) {
                 if (process.isAlive()) {
@@ -1255,6 +1333,49 @@ public class TranscodingService {
         if (cacheFile == null) return false;
         String prefix = cacheFile.getFileName().toString() + "-";
         return activeProcesses.keySet().stream().anyMatch(k -> k.startsWith(prefix));
+    }
+
+    /**
+     * Kills and unregisters every writer process registered for {@code cacheFile}
+     * that has stopped producing data — a "zombie": the activeProcesses entry makes
+     * {@link #isCacheBeingWritten} report it as active, but the process is hung or
+     * died without cleanup and the segment file has stopped growing. Affected
+     * writers' completion handlers are flagged so their finally keeps the segment
+     * for a resume instead of deleting it, and skips the .done marker (which would
+     * make the resume path bail as "segment already complete"). Callers then
+     * restart the transcode — runFFmpegWithPermit's resume detection appends the
+     * new fragments into the same file. Returns the number of writers unregistered.
+     */
+    public int zombieKillWriters(Path cacheFile) {
+        if (cacheFile == null) return 0;
+        String prefix = cacheFile.getFileName().toString() + "-";
+        int killed = 0;
+        for (String processKey : activeProcesses.keySet()) {
+            if (!processKey.startsWith(prefix)) continue;
+            Process proc = activeProcesses.get(processKey);
+            if (proc == null) continue;
+            zombieRestartProcessKeys.add(processKey);
+            killed++;
+            if (proc.isAlive()) {
+                LOG.warn("Killing zombie writer {} (segment {} stopped growing)", processKey, cacheFile.getFileName());
+                proc.destroyForcibly();
+            }
+            try {
+                // Reap before returning so the restart (which appends into the same
+                // file) cannot race the killed writer's still-open handle.
+                proc.waitFor(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            activeProcesses.remove(processKey);
+            processLastOutput.remove(processKey);
+            supersededProcessKeys.remove(processKey);
+        }
+        // The killed writer's finally trims too, but trim here as well so the
+        // restart thread (which sleeps a settle delay before launching) sees a
+        // clean tail to append after.
+        trimPartialTrailingFragment(cacheFile);
+        return killed;
     }
 
     public boolean deleteCacheFile(Path cacheFile) {
