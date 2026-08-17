@@ -143,12 +143,60 @@ public class VideoExternalAPI {
         }
 
         try {
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            // T1 SSRF: validate scheme before any connection
+            java.net.URL initialUrl = new java.net.URL(url);
+            String protocol = initialUrl.getProtocol();
+            if (!"http".equalsIgnoreCase(protocol) && !"https".equalsIgnoreCase(protocol)) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity("Only http/https URLs are allowed").build();
+            }
+            // T1 SSRF: reject any resolved address that is private/internal
+            if (isUnsafeAddress(initialUrl.getHost())) {
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("Target address is not allowed").build();
+            }
+
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) initialUrl.openConnection();
+            conn.setInstanceFollowRedirects(false); // manual redirect loop for SSRF re-validation on each hop
+            conn.setConnectTimeout(10000); // T7: 10 s connect timeout
+            conn.setReadTimeout(30000); // T7: 30 s read timeout
             conn.setRequestProperty("User-Agent", userAgent != null ? userAgent : "Mozilla/5.0");
-            conn.setRequestProperty("Referer", new java.net.URL(url).getProtocol() + "://" + new java.net.URL(url).getHost());
+            conn.setRequestProperty("Referer", protocol + "://" + initialUrl.getHost());
             if (range != null) conn.setRequestProperty("Range", range);
-            conn.setInstanceFollowRedirects(true);
             conn.connect();
+
+            // T1 SSRF DNS-rebind guard: manual redirect following (max 3 hops) with IP re-validation
+            int redirectCount = 0;
+            java.net.URL currentUrl = initialUrl;
+            while (redirectCount < 3) {
+                int sc = conn.getResponseCode();
+                if (sc < 300 || sc >= 400) break;
+                String location = conn.getHeaderField("Location");
+                if (location == null || location.isBlank()) break;
+                java.net.URL nextUrl = new java.net.URL(currentUrl, location);
+                String nextProto = nextUrl.getProtocol();
+                if (!"http".equalsIgnoreCase(nextProto) && !"https".equalsIgnoreCase(nextProto)) {
+                    conn.disconnect();
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity("Redirect to non-http(s) URL not allowed").build();
+                }
+                if (isUnsafeAddress(nextUrl.getHost())) {
+                    conn.disconnect();
+                    return Response.status(Response.Status.FORBIDDEN)
+                            .entity("Redirect to internal/private address not allowed").build();
+                }
+                conn.disconnect();
+                conn = (java.net.HttpURLConnection) nextUrl.openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(10000); // T7: apply timeouts to redirect hops too
+                conn.setReadTimeout(30000);
+                conn.setRequestProperty("User-Agent", userAgent != null ? userAgent : "Mozilla/5.0");
+                conn.setRequestProperty("Referer", nextProto + "://" + nextUrl.getHost());
+                if (range != null) conn.setRequestProperty("Range", range);
+                conn.connect();
+                currentUrl = nextUrl;
+                redirectCount++;
+            }
 
             int status = conn.getResponseCode();
             String contentType = conn.getContentType();
@@ -210,10 +258,30 @@ public class VideoExternalAPI {
 
             rb.entity(inputStream);
             return rb.build();
+        } catch (java.net.SocketTimeoutException e) {
+            return Response.status(504)
+                    .entity("Upstream timeout: " + e.getMessage()).build();
         } catch (Exception e) {
             return Response.status(Response.Status.BAD_GATEWAY)
                     .entity("Proxy error: " + e.getMessage()).build();
         }
+    }
+
+    // SSRF guard: returns true if hostname resolves to any non-public address
+    private boolean isUnsafeAddress(String host) {
+        try {
+            java.net.InetAddress[] addrs = java.net.InetAddress.getAllByName(host);
+            for (java.net.InetAddress addr : addrs) {
+                if (addr.isLoopbackAddress() || addr.isLinkLocalAddress()
+                        || addr.isSiteLocalAddress() || addr.isAnyLocalAddress()
+                        || addr.isMulticastAddress()) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            return true; // DNS resolution failure — reject
+        }
+        return false;
     }
 
     @GET
