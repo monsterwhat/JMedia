@@ -457,9 +457,13 @@ public class VideoImportService {
 
     @Transactional
     public int pruneMissingByType(String type) {
-        loggingService.addLog("Pruning missing " + type + " entries...");
-        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        Path libPath = videoLibraryPath != null ? Paths.get(videoLibraryPath) : null;
+        return pruneMissingByType(type, null);
+    }
+
+    @Transactional
+    public int pruneMissingByType(String type, Path libraryPath) {
+        LOGGER.info("Pruning missing {} entries...", type);
+        Path libPath = libraryPath != null ? libraryPath : null;
 
         List<Video> videos = Video.list("type", type);
         int prunedCount = 0;
@@ -482,7 +486,7 @@ public class VideoImportService {
             }
         }
 
-        loggingService.addLog("Pruned " + prunedCount + " missing " + type + " entries.");
+        LOGGER.info("Pruned {} missing {} entries.", prunedCount, type);
         return prunedCount;
     }
 

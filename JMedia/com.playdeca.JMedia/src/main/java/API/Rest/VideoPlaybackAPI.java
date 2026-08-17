@@ -206,16 +206,16 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/progress")
     @Blocking
-    public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing) {
+    public Response reportProgress(@QueryParam("videoId") Long videoId, @QueryParam("time") double seconds, @QueryParam("playing") boolean playing, @QueryParam("profileId") Long profileId) {
         try {
             if (videoId != null) {
                 Video video = Video.findById(videoId);
                 if (video != null) {
                     // Update per-profile progress (no global Video writes)
-                    videoStateService.updateProgress(video, seconds);
+                    videoStateService.updateProgress(video, seconds, profileId);
 
                     // Update current session state if this video is active
-                    ProfileSessionState currentState = videoController.getState();
+                    ProfileSessionState currentState = profileId != null ? videoController.getState(profileId) : videoController.getState();
                     if (videoId.equals(currentState.currentVideoId)) {
                         // Skip session-state sync when the report is stale relative to a
                         // recent command — only the DB progress is updated in that case.

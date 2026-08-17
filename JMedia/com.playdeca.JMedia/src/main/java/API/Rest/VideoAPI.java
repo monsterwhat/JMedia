@@ -603,6 +603,82 @@ public class VideoAPI {
     }
 
     @POST
+    @Path("/scan/movies")
+    public Response scanMovies(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
+            return Response.ok(ApiResponse.success("Video library path not configured, skipping movies scan.")).build();
+        }
+
+        final String libPath = videoLibraryPath;
+        executor.submit(() -> {
+            ManagedContext requestContext = Arc.container().requestContext();
+            if (!requestContext.isActive()) {
+                requestContext.activate();
+            }
+
+            try {
+                LOG.info("Starting movies scan (prune + find new): {}", libPath);
+                int pruned = videoImportService.pruneMissingByType("movie", Paths.get(libPath));
+                LOG.info("Pruned {} missing movies", pruned);
+                List<Models.Video.Video> videos = videoImportService.scanAndCreate(Paths.get(libPath), false);
+                LOG.info("Movies scan completed. Created {} videos.", videos.size());
+                executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
+            } catch (Exception e) {
+                LOG.error("Error during movies scan: {}", e.getMessage(), e);
+            } finally {
+                if (requestContext.isActive()) {
+                    requestContext.deactivate();
+                }
+            }
+        });
+
+        return Response.ok(ApiResponse.success("Movies scan started (prune missing, find new).")).build();
+    }
+
+    @POST
+    @Path("/scan/tvshows")
+    public Response scanTvShows(@Context jakarta.ws.rs.core.HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
+
+        String videoLibraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        if (videoLibraryPath == null || videoLibraryPath.isBlank()) {
+            return Response.ok(ApiResponse.success("Video library path not configured, skipping TV shows scan.")).build();
+        }
+
+        final String libPath = videoLibraryPath;
+        executor.submit(() -> {
+            ManagedContext requestContext = Arc.container().requestContext();
+            if (!requestContext.isActive()) {
+                requestContext.activate();
+            }
+
+            try {
+                LOG.info("Starting TV shows scan (prune + find new): {}", libPath);
+                int pruned = videoImportService.pruneMissingByType("episode", Paths.get(libPath));
+                LOG.info("Pruned {} missing episodes", pruned);
+                List<Models.Video.Video> videos = videoImportService.scanAndCreate(Paths.get(libPath), false);
+                LOG.info("TV shows scan completed. Created {} videos.", videos.size());
+                executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
+            } catch (Exception e) {
+                LOG.error("Error during TV shows scan: {}", e.getMessage(), e);
+            } finally {
+                if (requestContext.isActive()) {
+                    requestContext.deactivate();
+                }
+            }
+        });
+
+        return Response.ok(ApiResponse.success("TV shows scan started (prune missing, find new).")).build();
+    }
+
+    @POST
     @Path("/reload-metadata")
     public Response reloadVideoMetadata(@Context jakarta.ws.rs.core.HttpHeaders headers) {
         if (!authService.isAdmin(headers)) {

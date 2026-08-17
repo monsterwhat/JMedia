@@ -68,7 +68,12 @@ public class VideoStateService {
 
     @Transactional
     public void updateProgress(Video video, double currentTimeSeconds) {
-        Profile activeProfile = settingsService.getActiveProfile();
+        updateProgress(video, currentTimeSeconds, null);
+    }
+
+    @Transactional
+    public void updateProgress(Video video, double currentTimeSeconds, Long profileId) {
+        Profile activeProfile = profileId != null ? settingsService.getActiveProfile(profileId) : settingsService.getActiveProfile();
         if (activeProfile == null || video == null) {
             return;
         }

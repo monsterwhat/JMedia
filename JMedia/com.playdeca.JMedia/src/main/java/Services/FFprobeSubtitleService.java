@@ -93,19 +93,20 @@ public class FFprobeSubtitleService {
             JsonNode streams = root.path("streams");
             
             if (streams.isArray()) {
+                int subtitleNum = 1;
                 for (JsonNode stream : streams) {
                     String codecType = stream.path("codec_type").asText();
                     if ("subtitle".equals(codecType)) {
-                        SubtitleTrack track = parseSubtitleStream(stream, video);
+                        SubtitleTrack track = parseSubtitleStream(stream, video, subtitleNum);
                         if (track != null) {
                             subtitleTracks.add(track);
                         }
+                        subtitleNum++;
                     }
                 }
             }
             
             process.waitFor();
-            LOGGER.info("Extracted {} subtitle tracks from {}", subtitleTracks.size(), videoPath);
             
         } catch (IOException | InterruptedException e) {
             LOGGER.error("Error extracting subtitles with FFprobe", e);
@@ -114,7 +115,7 @@ public class FFprobeSubtitleService {
         return subtitleTracks;
     }
     
-    private SubtitleTrack parseSubtitleStream(JsonNode stream, Video video) {
+    private SubtitleTrack parseSubtitleStream(JsonNode stream, Video video, int subtitleNum) {
         String codec = stream.path("codec_name").asText();
         int index = stream.path("index").asInt();
         
@@ -145,12 +146,19 @@ public class FFprobeSubtitleService {
         JsonNode tags = stream.path("tags");
         String langCode = tags.path("language").asText("und");
         track.languageCode = langCode;
-        track.languageName = LANGUAGE_MAP.getOrDefault(langCode, langCode.toUpperCase());
+        String title = tags.path("title").asText("");
+
+        if ("und".equals(langCode) || langCode.isBlank()) {
+            track.languageName = !title.isEmpty() ? title : "Track " + subtitleNum;
+        } else {
+            track.languageName = LANGUAGE_MAP.getOrDefault(langCode, langCode.toUpperCase());
+        }
         
         // Extract title or use language as display name
-        String title = tags.path("title").asText("");
         if (title.isEmpty()) {
             track.displayName = track.languageName;
+        } else if ("und".equals(langCode) || langCode.isBlank()) {
+            track.displayName = title;
         } else {
             track.displayName = String.format("%s - %s", track.languageName, title);
         }
@@ -216,7 +224,6 @@ public class FFprobeSubtitleService {
         command.add(ffmpegPath);
         command.add("-v");
         command.add("quiet");
-        command.add("-copyts");
         command.add("-i");
         command.add(filePath.toAbsolutePath().toString());
 
@@ -305,7 +312,6 @@ public class FFprobeSubtitleService {
             command.add("-v");
             command.add("quiet");
             command.add("-y");
-            command.add("-copyts");
             command.add("-i");
             command.add(filePath.toAbsolutePath().toString());
             command.addAll(List.of(

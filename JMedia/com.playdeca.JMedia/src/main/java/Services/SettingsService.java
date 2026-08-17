@@ -5,8 +5,6 @@ import Models.Settings.Settings;
 import Models.Settings.SettingsLog;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,9 +23,6 @@ public class SettingsService {
     private static final Logger LOGGER = Logger.getLogger(SettingsService.class.getName());
     
     private static final ThreadLocal<Long> CURRENT_USER_ID = new ThreadLocal<>();
-
-    @PersistenceContext
-    private EntityManager em;
 
     private static final int LOG_FLUSH_THRESHOLD = 20;
     private static final long LOG_FLUSH_INTERVAL_MS = 5000;
@@ -49,20 +44,19 @@ public class SettingsService {
 
     @Transactional
     public void save(Settings settings) {
-        if (settings.id == null || em.find(Settings.class, settings.id) == null) {
-            em.persist(settings);
+        if (settings.id == null || Settings.findById(settings.id) == null) {
+            settings.persist();
             cachedSettingsId = settings.id;
         } else {
-            em.merge(settings);
+            settings.persistAndFlush();
         }
     }
 
     @Transactional
     public void delete(Settings settings) {
         if (settings != null) {
-            Settings managed = em.contains(settings) ? settings : em.merge(settings);
-            em.remove(managed);
-            if (managed.id.equals(cachedSettingsId)) {
+            Settings.deleteById(settings.id);
+            if (settings.id.equals(cachedSettingsId)) {
                 cachedSettingsId = null;
             }
         }
@@ -70,13 +64,12 @@ public class SettingsService {
 
     @Transactional
     public Settings find(Long id) {
-        return em.find(Settings.class, id);
+        return Settings.findById(id);
     }
 
     @Transactional
     public List<Settings> findAll() {
-        return em.createQuery("SELECT s FROM Settings s", Settings.class)
-                .getResultList();
+        return Settings.findAll().list();
     }
 
     // ---------------- LOGS ----------------
@@ -119,7 +112,7 @@ public class SettingsService {
                 SettingsLog log = new SettingsLog();
                 log.setMessage(msg);
                 log.settingsId = settingsId;
-                em.persist(log);
+                log.persist();
             }
 
             logBuffer.clear();
@@ -130,9 +123,7 @@ public class SettingsService {
     public void clearLogs(Settings settings) {
         Long settingsId = settings != null ? settings.id : cachedSettingsId;
         if (settingsId != null) {
-            em.createQuery("DELETE FROM SettingsLog l WHERE l.settingsId = :sid")
-              .setParameter("sid", settingsId)
-              .executeUpdate();
+            SettingsLog.delete("settingsId = ?1", settingsId);
         }
     }
 
@@ -146,10 +137,7 @@ public class SettingsService {
             }
             
             if (settingsId != null) {
-                int deleted = em.createQuery("DELETE FROM SettingsLog l WHERE l.settingsId = :sid")
-                  .setParameter("sid", settingsId)
-                  .executeUpdate();
-                LOGGER.info("Cleared " + deleted + " old log entries");
+                SettingsLog.delete("settingsId = ?1", settingsId);
             }
         } catch (Exception e) {
             LOGGER.warning("Failed to clear old logs: " + e.getMessage());
@@ -159,10 +147,10 @@ public class SettingsService {
     @Transactional
     public void setLibraryPath(Settings settings, String path) {
         if (settings != null) {
-            Settings managed = em.find(Settings.class, settings.id);
+            Settings managed = Settings.findById(settings.id);
             if (managed != null) {
                 managed.setLibraryPath(path);
-                em.merge(managed);
+                managed.persist();
             }
         }
     }
@@ -171,7 +159,7 @@ public class SettingsService {
     @Transactional
     public Settings getSettingsOrNull() {
         if (cachedSettingsId != null) {
-            Settings settings = em.find(Settings.class, cachedSettingsId);
+            Settings settings = Settings.findById(cachedSettingsId);
             if (settings != null) {
                 return initializeDefaultFields(settings);
             }
@@ -234,17 +222,14 @@ public class SettingsService {
     // ------------------- GET ALL LOGS -------------------
     @Transactional
     public List<SettingsLog> getAllLogs() {
-        return em.createQuery("SELECT l FROM SettingsLog l ORDER BY l.timestamp ASC, l.id ASC", SettingsLog.class)
-                .getResultList();
+        return SettingsLog.findAll().list();
     }
 
     @Transactional
     public List<SettingsLog> getLogs(Settings settings) {
         Long settingsId = settings != null ? settings.id : cachedSettingsId;
         if (settingsId != null) {
-            return em.createQuery("SELECT l FROM SettingsLog l WHERE l.settingsId = :sid ORDER BY l.timestamp ASC, l.id ASC", SettingsLog.class)
-                    .setParameter("sid", settingsId)
-                    .getResultList();
+            return SettingsLog.list("settingsId = ?1 ORDER BY timestamp ASC, id ASC", settingsId);
         }
         return List.of();
     }
@@ -258,11 +243,10 @@ public class SettingsService {
         }
         
         if (settingsId != null) {
-            return em.createQuery("SELECT l.message FROM SettingsLog l WHERE l.settingsId = :sid ORDER BY l.timestamp DESC, l.id DESC", String.class)
-                    .setParameter("sid", settingsId)
-                    .setMaxResults(limit)
-                    .getResultList()
+            return SettingsLog.list("settingsId = ?1 ORDER BY timestamp DESC, id DESC", settingsId)
                     .stream()
+                    .limit(limit)
+                    .map(e -> ((SettingsLog) e).getMessage())
                     .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
                         java.util.Collections.reverse(list);
                         return list;
@@ -312,7 +296,7 @@ return getActiveProfile(userId);
             return userMainProfile;
         }
 
-        Profile activeProfile = em.find(Profile.class, activeProfileId);
+        Profile activeProfile = Profile.findById(activeProfileId);
 
         if (activeProfile != null && activeProfile.userId != null && activeProfile.userId.equals(userId)) {
             return activeProfile;
@@ -385,7 +369,7 @@ return getActiveProfile(userId);
 
         Settings settings = getOrCreateSettings();
         setActiveProfileIdForUser(settings, userId, profile.id);
-        em.merge(settings);
+        settings.persist();
     }
 
     private void setActiveProfileIdForUser(Settings settings, Long userId, Long profileId) {

@@ -45,7 +45,7 @@
                     body: JSON.stringify(body)
                 }).then(r => { if (!r.ok) console.warn('[SimplePlayer] External progress returned', r.status); }).catch(() => {});
             } else {
-                const url = `/api/video/playback/progress?videoId=${p.videoId}&time=${time}&playing=${playing}&device=${p.deviceToken}`;
+                const url = `/api/video/playback/progress?videoId=${p.videoId}&time=${time}&playing=${playing}&profileId=${p.profileId}`;
                 fetch(url, {
                     method: 'POST',
                     credentials: 'include',
