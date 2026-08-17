@@ -27,6 +27,7 @@ public class HlsService {
     private static final Logger LOG = LoggerFactory.getLogger(HlsService.class);
     private static final String VIDEO_VARIANT = "video_stream";
     private static final boolean USE_FMP4_HLS = true;
+    private static final int MAX_ACTIVE_SESSIONS = 8;
 
     private static class VariantConfig {
         final String name;
@@ -80,7 +81,11 @@ public class HlsService {
     @Transactional
     public HlsSession createSession(Long videoId, double startSeconds, Long profileId, Integer preferredAudioTrackIndex, Integer qualityHeight, String deviceToken) throws IOException {
         String safeDeviceToken = (deviceToken != null && !deviceToken.isBlank()) ? deviceToken : "unknown";
-        String sessionId = "vid-" + videoId + "-" + safeDeviceToken;
+        // Include profileId so different profiles never share a key; append a
+        // random nonce so two anonymous clients playing the same video cannot collide.
+        String profilePart = profileId != null ? String.valueOf(profileId) : "anon";
+        String nonce = UUID.randomUUID().toString().substring(0, 8);
+        String sessionId = "vid-" + videoId + "-" + safeDeviceToken + "-" + profilePart + "-" + nonce;
 
         // Destroy existing session before creating a new one to kill orphaned FFmpeg processes
         HlsSession existing = activeSessions.get(sessionId);
@@ -109,6 +114,22 @@ public class HlsService {
             LOG.info("HLS session created with preferred audio track index: {}", preferredAudioTrackIndex);
         }
         
+        // Evict oldest session if at capacity so a new request is never rejected
+        if (activeSessions.size() >= MAX_ACTIVE_SESSIONS) {
+            String oldestKey = null;
+            long oldestTime = Long.MAX_VALUE;
+            for (Map.Entry<String, HlsSession> e : activeSessions.entrySet()) {
+                if (e.getValue().createdAt < oldestTime) {
+                    oldestTime = e.getValue().createdAt;
+                    oldestKey = e.getKey();
+                }
+            }
+            if (oldestKey != null) {
+                LOG.info("Evicting oldest HLS session {} to make room (cap={})", oldestKey, MAX_ACTIVE_SESSIONS);
+                destroySession(oldestKey);
+            }
+        }
+
         activeSessions.put(sessionId, session);
         int qh = (qualityHeight != null && qualityHeight > 0) ? qualityHeight : 0;
         List<VariantConfig> variants = determineVariants(video, qh);
@@ -382,6 +403,16 @@ public class HlsService {
             }
         }
 
+        // True when decode frames stay on the device (-hwaccel_output_format matched
+        // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
+        // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
+        boolean hwFramesOnDevice = useHardware && hwDecoder != null
+                && ((hwDecoder.contains("cuvid") && hwEncoder.contains("nvenc"))
+                    || (hwDecoder.contains("qsv") && hwEncoder.contains("qsv"))
+                    || (hwDecoder.contains("vaapi") && hwEncoder.contains("vaapi"))
+                    || (hwDecoder.contains("amf") && hwEncoder.contains("amf"))
+                    || (hwDecoder.contains("d3d11va") && hwEncoder != null && hwEncoder.contains("d3d11va")));
+
         // Always start HLS encoding from the beginning of the file.
         // The player handles seeking to the correct position natively (via HLS seek).
         // Starting from an offset produces a sub-clip which causes bufferSeekOverHole errors
@@ -451,9 +482,20 @@ public class HlsService {
             if (hwEncoder.equals("libx264")) {
                 command.add("-pix_fmt"); command.add("yuv420p");
             } else if (hwEncoder.contains("h264")) {
-                // H.264 hardware encoders accept 8-bit only; force nv12 so
-                // 10-bit sources (x265/AV1 Main10) convert deterministically.
-                command.add("-pix_fmt"); command.add("nv12");
+                boolean addedGpuFmtFilter = false;
+                if (hwFramesOnDevice && buildScaleFilter(hwDecoder, hwEncoder, variant.height, session.video.resolution) == null) {
+                    String fmtFilter = buildFormatFilter(hwDecoder, hwEncoder, session.video.resolution);
+                    if (fmtFilter != null) {
+                        command.add("-vf"); command.add(fmtFilter);
+                        addedGpuFmtFilter = true;
+                    } else {
+                        command.add("-vf"); command.add("hwdownload");
+                        addedGpuFmtFilter = true;
+                    }
+                }
+                if (!addedGpuFmtFilter) {
+                    command.add("-pix_fmt"); command.add("nv12");
+                }
             }
         } else {
             command.add("libx264");
@@ -562,28 +604,6 @@ public class HlsService {
                             Thread.currentThread().interrupt();
                             break;
                         }
-                    if (currentProcess != null && currentProcess.isAlive()) {
-                        // Check for initial segment growth
-                        File[] segments = session.sessionDir.toFile().listFiles(
-                            (dir, name) -> name.startsWith(vName + "_") && (name.endsWith(".ts") || name.endsWith(".m4s"))
-                        );
-                        if (segments != null && segments.length > 0) {
-                            // Segment found - check for restart and discontinuity
-                            Integer currentSequence = parseSegmentNumber(segments[segments.length - 1].getName());
-                            Long lastRestartTime = session.lastRestartTimes.getOrDefault(vName, 0L);
-                            Integer lastSequence = session.lastMediaSequences.getOrDefault(vName, 0);
-
-                            if (currentSequence > 0 && currentSequence != lastSequence + 1) {
-                                // Sequence reset detected
-                                LOG.warn("Sequence reset detected for {}: last={}, current={}. Adding DISCONTINUITY.", vName, lastSequence, currentSequence);
-                                // This information isn't directly used in buildPartialPlaylist yet, needs integration
-                            }
-                            
-                            session.lastMediaSequences.put(vName, currentSequence);
-                            session.lastRestartTimes.put(vName, System.currentTimeMillis()); // Reset time on segment found
-                            break; // Encoder is alive and producing segments
-                        }
-                    }
                     }
 
                     // Fall back to software after the first hardware failure
@@ -592,24 +612,16 @@ public class HlsService {
                         currentUseHardware = false;
                     }
 
+                    // Clean old segments before restarting to prevent sequence overlap
+                    cleanVariantFiles(session, vName);
+
                     try {
                         currentProcess = startVariantEncoderProcess(session, variant, profileId, currentUseHardware);
                         session.addProcess(vName, currentProcess);
                         session.incrementRestartCount(vName);
                         LOG.info("Restarted HLS encoder {} ({})", vName, currentUseHardware ? "HW" : "SW");
 
-                        // Read output from the new process
-                        Process newProcess = currentProcess;
-                        new Thread(() -> {
-                            try (BufferedReader r = new BufferedReader(new InputStreamReader(newProcess.getInputStream()))) {
-                                String l;
-                                while ((l = r.readLine()) != null) {
-                                    LOG.debug("[ffmpeg {}] {}", vName, l);
-                                }
-                            } catch (IOException e) {
-                                LOG.warn("Error reading ffmpeg output: {}", e.getMessage());
-                            }
-                        }).start();
+                        // Monitor loop will read the new process's output on next iteration
                     } catch (IOException e) {
                         LOG.error("Failed to restart HLS encoder {}: {}", vName, e.getMessage());
                         break;
@@ -727,6 +739,16 @@ public class HlsService {
                         LOG.warn("Error reading ffmpeg output: {}", e.getMessage());
                     }
                 }).start();
+                new Thread(() -> {
+                    try {
+                        int exitCode = process.waitFor();
+                        if (exitCode != 0) {
+                            LOG.warn("Audio encoder for track {} exited with code {}", track.trackIndex, exitCode);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }, "audio-monitor-" + audioName).start();
                 LOG.info("Started audio stream {} for session {}", audioName, session.sessionId);
             } catch (Exception e) {
                 LOG.error("Failed to start audio stream for track {}", track.trackIndex, e);
@@ -832,6 +854,39 @@ public class HlsService {
 
         // Software decode path
         return "scale=" + targetW + ":" + targetH;
+    }
+
+    private String buildFormatFilter(String hardwareDecoder, String videoEncoder, String resolution) {
+        if (hardwareDecoder == null || videoEncoder == null) return null;
+
+        int w = 1920, h = 1080;
+        try {
+            if (resolution != null && resolution.contains("x")) {
+                String[] p = resolution.split("x");
+                w = Integer.parseInt(p[0]);
+                h = Integer.parseInt(p[1]);
+            }
+        } catch (Exception ignored) {}
+
+        boolean decoderIsCuda = hardwareDecoder.contains("cuvid");
+        boolean encoderIsNvenc = videoEncoder.contains("nvenc");
+        boolean decoderIsQsv = hardwareDecoder.contains("qsv");
+        boolean encoderIsQsv = videoEncoder.contains("qsv");
+        boolean decoderIsVaapi = hardwareDecoder.contains("vaapi");
+        boolean encoderIsVaapi = videoEncoder.contains("vaapi");
+        boolean decoderIsAmf = hardwareDecoder.contains("amf");
+        boolean encoderIsAmf = videoEncoder.contains("amf");
+
+        if (decoderIsCuda && encoderIsNvenc)
+            return "scale_cuda=" + w + ":" + h + ":format=nv12";
+        if (decoderIsQsv && encoderIsQsv)
+            return "scale_qsv=" + w + ":" + h + ":format=nv12";
+        if (decoderIsVaapi && encoderIsVaapi)
+            return "scale_vaapi=" + w + ":" + h + ":format=nv12";
+        if (decoderIsAmf && encoderIsAmf)
+            return "scale_amf=" + w + ":" + h + ":format=nv12";
+
+        return null;
     }
 
     private String deriveCodecsString(Video video) {
@@ -1206,7 +1261,7 @@ public class HlsService {
         }
     }
 
-    private static final long SESSION_IDLE_TTL_MS = 10 * 60 * 1000L; // 10 minutes
+    private static final long SESSION_IDLE_TTL_MS = 90 * 1000L; // 90s — fast teardown after client disconnect
     private final ScheduledExecutorService hwRetryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "hls-hw-retry");
         t.setDaemon(true);
@@ -1277,8 +1332,9 @@ public class HlsService {
         public final List<AudioTrack> audioTracks;
         public final Path sessionDir;
         public final double startSeconds;
+        public final long createdAt;
         public final List<String> audioPlaylistNames = new ArrayList<>();
-        public long lastAccessed;
+        public volatile long lastAccessed;
         private final Map<String, Process> processes = new ConcurrentHashMap<>();
         private final Map<String, Integer> restartAttempts = new ConcurrentHashMap<>();
         private final Map<String, Long> lastRestartTimes = new ConcurrentHashMap<>();
@@ -1296,6 +1352,7 @@ public class HlsService {
             audioTracks = tracks;
             sessionDir = d;
             startSeconds = s;
+            createdAt = System.currentTimeMillis();
             lastAccessed = System.currentTimeMillis();
         }
 
