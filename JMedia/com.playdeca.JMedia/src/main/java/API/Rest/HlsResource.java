@@ -69,8 +69,10 @@ public class HlsResource {
     @Path("/media/{sessionId}/{variant}/{segment}")
     @Produces("video/iso.segment")
     public Response getSegment(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant, @PathParam("segment") String segment) {
-        // Wait for segment to be available (up to 5s polling every 100ms)
-        long deadline = System.currentTimeMillis() + 15000;
+        // Sanitize segment name to prevent path traversal
+        segment = java.nio.file.Path.of(segment).getFileName().toString();
+        // Wait for segment to be available (up to 2s — hls.js retries 503 with backoff)
+        long deadline = System.currentTimeMillis() + 2000;
         java.nio.file.Path segmentPath = hlsService.getSegmentPath(sessionId, variant, segment);
         
         while (System.currentTimeMillis() < deadline) {
@@ -86,7 +88,7 @@ public class HlsResource {
             segmentPath = hlsService.getSegmentPath(sessionId, variant, segment);
         }
         
-        LOG.debug("Segment not ready after 15s: {}/{}/{}", sessionId, variant, segment);
+        LOG.debug("Segment not ready after 2s: {}/{}/{}", sessionId, variant, segment);
         return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
     }
 

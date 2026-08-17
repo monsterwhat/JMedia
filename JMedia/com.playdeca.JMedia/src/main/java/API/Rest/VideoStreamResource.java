@@ -61,6 +61,13 @@ public class VideoStreamResource {
     private static final long STREAM_FAILURE_TTL_MS = 5 * 60_000L;
     private static final Map<Long, StreamFailure> STREAM_FAILURES = new ConcurrentHashMap<>();
 
+    // D4: shared restart-in-flight flags keyed by tempFile name, so concurrent streaming
+    // requests for the same segment see each other's zombie-restart state. Without this,
+    // a per-request AtomicBoolean lets thread B break early when thread A's zombie-kill
+    // clears beingWritten — thread B never sees the restart in flight and truncates.
+    private static final ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean> RESTART_IN_FLIGHT = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> RESTART_GENERATION = new ConcurrentHashMap<>();
+
     /** A cached unreadable-file failure: expires, and is invalidated when the file changes. */
     private static final class StreamFailure {
         final long expiresAt;
@@ -374,7 +381,7 @@ public class VideoStreamResource {
                 } catch (IOException e) {
                     LOG.debug("Failed to refresh mtime of segment {}: {}", coverage.file, e.getMessage());
                 }
-                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds);
+                return streamFromSegment(video, videoFile, coverage.file, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, off, coverage.startSeconds, true);
             }
         }
 
@@ -410,15 +417,24 @@ public class VideoStreamResource {
         // before its mdat has been written, so sample ranges are garbage -> "Invalid H264 content".
         // Chrome tolerates the raw pipe; Firefox does not, so the first request must not stream it.
         final long estimatedFinalSize = (long) (videoFile.length() * 1.10);
-        launchSegmentWriter("direct-transcode-" + videoId, null, null,
-                video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile);
+        // Prevent dual-writer race: two concurrent requests for the same ?start= would both
+        // launch FFmpeg writers into the same cache file, interleaving moof+mdat and corrupting
+        // output. Skip the launch when a writer is already active for this exact cache file.
+        // Synchronize on the interned path string so the check-and-launch is atomic:
+        // two threads with the same cacheFile path cannot both see false and both launch.
+        synchronized (cacheFile.toString().intern()) {
+            if (!transcodingService.isCacheBeingWritten(cacheFile)) {
+                launchSegmentWriter("direct-transcode-" + videoId, null, null,
+                        video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile);
+            }
+        }
 
-        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds);
+        return streamFromSegment(video, videoFile, cacheFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, userAgent, estimatedFinalSize, 0L, startSeconds, false);
     }
 
     private Response streamFromSegment(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                        String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, String userAgent,
-                                       long estimatedFinalSize, long baseOffset, double segmentStart) {
+                                       long estimatedFinalSize, long baseOffset, double segmentStart, boolean isSegment) {
         final Long videoId = video.id;
         if (traceId != null && !traceId.isBlank()) LOG.info("[trace:{}] streamFromSegment: videoId={} start={}s segmentStart={}s baseOffset={} range={}", traceId, videoId, startSeconds, segmentStart, baseOffset, rangeHeader != null ? rangeHeader.substring(0, Math.min(50, rangeHeader.length())) : "none");
 
@@ -463,8 +479,21 @@ public class VideoStreamResource {
             try {
                 initLen = FragmentedMp4Seeker.firstFragmentOffset(tempFile);
             } catch (IOException e) {
-                LOG.warn("Cannot determine init segment length for {}: {}", tempFile.getFileName(), e.getMessage());
-                initLen = 0;
+                LOG.warn("Cannot determine init segment length for {} (attempt 1): {}", tempFile.getFileName(), e.getMessage());
+                // D6 fix: retry once — file may be in a transitional write state. If it still
+                // fails, refuse to serve corrupt data (bare moof without ftyp+moov causes
+                // Firefox NS_ERROR_DOM_MEDIA_METADATA_ERR). A clean 503 is better than a corrupt 206.
+                try {
+                    Thread.sleep(500);
+                    initLen = FragmentedMp4Seeker.firstFragmentOffset(tempFile);
+                } catch (IOException | InterruptedException e2) {
+                    LOG.error("Cannot read init segment for {} after retry — refusing to serve corrupt stream: {}",
+                              tempFile.getFileName(), e2 instanceof IOException ? e2.getMessage() : "interrupted");
+                    segmentCacheService.releaseReader(tempFile);
+                    return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                            .entity("Cannot read segment init data")
+                            .build();
+                }
             }
             if (initLen > baseOffset) {
                 // Seek landed inside the header region: prefixing [0, baseOffset) and serving from
@@ -549,13 +578,14 @@ public class VideoStreamResource {
         }
 
         String etag;
-        if (baseOffset == 0) {
-            // Non-segment (exact-key cache) case — keep the legacy ETag.
-            etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
-        } else {
-            // Segment-served ETag: segmentId + segment start, so a switch between
-            // segment-served and transcode-served invalidates browser range caches.
+        if (isSegment) {
+            // D3 fix: segment-served ETag uses the same formula as the probe path
+            // (probeCoverage.file.name + startSeconds) so the client sees one ETag
+            // for both the bytes=0-1 probe and the follow-up range request.
             etag = Integer.toHexString((tempFile.getFileName().toString() + "|" + String.format(java.util.Locale.ROOT, "%.3f", segmentStart)).hashCode());
+        } else {
+            // Non-segment (direct/legacy) path — keep the legacy ETag.
+            etag = Integer.toHexString((video.id + "|" + String.format(java.util.Locale.ROOT, "%.3f", startSeconds) + "|" + audioTrackIndex + "|" + qualityHeight).hashCode());
         }
 
         LOG.debug("Stream: range {}-{} (len={}) for video {} (etag={})", start, end, end - start + 1, videoId, etag);
@@ -572,7 +602,7 @@ public class VideoStreamResource {
             // segment physically grows to that byte, so playback stalls behind the
             // transcode ("won't play until it finishes"). A finished segment is served
             // whole, so waiting on `end` is then a no-op.
-            long targetByte = (xcodeFinished || start >= browserTotal) ? end : start;
+            long targetByte = xcodeFinished ? end : start;
             long waitTarget = (targetByte < initLen)
                     ? targetByte + 1
                     : baseOffset + (targetByte - initLen) + 1;
@@ -763,14 +793,31 @@ public class VideoStreamResource {
                     long payloadStart = Math.max(finalStart, finalInitLen);
                     if (remaining > 0 && payloadStart <= finalEnd) {
                         raf.seek(finalBaseOffset + (payloadStart - finalInitLen));
-                        // Zombie recovery state: restartGeneration guards restartInFlight so a stale
-                        // restart thread can never cancel a successor's wait window.
-                        java.util.concurrent.atomic.AtomicBoolean restartInFlight = new java.util.concurrent.atomic.AtomicBoolean(false);
-                        java.util.concurrent.atomic.AtomicInteger restartGeneration = new java.util.concurrent.atomic.AtomicInteger();
+                        // D4 fix: shared restart coordination across concurrent requests for the same
+                        // segment tempFile, so thread B sees thread A's restart-in-flight flag.
+                        String segmentKey = tempFile.getFileName().toString();
+                        java.util.concurrent.atomic.AtomicBoolean restartInFlight = RESTART_IN_FLIGHT.computeIfAbsent(segmentKey, k -> new java.util.concurrent.atomic.AtomicBoolean(false));
+                        java.util.concurrent.atomic.AtomicInteger restartGeneration = RESTART_GENERATION.computeIfAbsent(segmentKey, k -> new java.util.concurrent.atomic.AtomicInteger());
                         long noGrowthSince = 0;
                         while (remaining > 0) {
                             int readSize = (remaining == Long.MAX_VALUE) ? buffer.length : (int) Math.min(buffer.length, remaining);
-                            int read = raf.read(buffer, 0, readSize);
+                            // D1 fix: in growStream mode, cap readSize to the last complete
+                            // fragment boundary so the loop never serves partial moof+mdat bytes
+                            // that Firefox's MoofParser rejects as "Invalid H264 content".
+                            if (growStream) {
+                                long safeBoundary = FragmentedMp4Seeker.completeLength(tempFile);
+                                long safeRemaining = Math.max(0, safeBoundary - finalStart);
+                                long served = (estimatedFinalSize - finalStart) - remaining;
+                                long safeRead = Math.max(0, safeRemaining - served);
+                                readSize = (int) Math.min(readSize, safeRead);
+                            }
+                            int read;
+                            if (readSize > 0) {
+                                read = raf.read(buffer, 0, readSize);
+                            } else {
+                                // D1: all safe data served — simulate EOF to trigger wait/retry
+                                read = -1;
+                            }
                             if (read == -1) {
                                 // Check if the segment's writer is done — no more data will come.
                                 boolean cacheComplete = transcodingService.isCacheFileComplete(tempFile);
@@ -849,8 +896,11 @@ public class VideoStreamResource {
         if (isRangeRequest) {
             if (transcodeFinished) {
                 long responseEnd = Math.min(finalEnd, currentBrowserTotal - 1);
-                // Segment total = actual file bytes past baseOffset (NOT the inflated estimate).
-                long finishedTotal = currentBrowserTotal;
+                // D2 fix: total must never DECREASE from the growing phase (which reported
+                // at least estimatedFinalSize). Safari rejects streams whose Content-Range
+                // total changes between requests. Use the larger of the actual final size
+                // and the estimate the client already saw.
+                long finishedTotal = Math.max(currentBrowserTotal, estimatedFinalSize);
                 responseBuilder.header("Content-Range", "bytes " + finalStart + "-" + responseEnd + "/" + finishedTotal);
             } else {
                 // Report a STABLE total (the estimated final size) so Firefox's media cache
@@ -946,7 +996,7 @@ public class VideoStreamResource {
 
     private Response streamFromTempFile(Models.Video.Video video, File videoFile, java.nio.file.Path tempFile, double startSeconds,
                                         String rangeHeader, int audioTrackIndex, int qualityHeight, String traceId, long estimatedFinalSize) {
-        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds);
+        return streamFromSegment(video, videoFile, tempFile, startSeconds, rangeHeader, audioTrackIndex, qualityHeight, traceId, null, estimatedFinalSize, 0, startSeconds, false);
     }
 
     /**
@@ -1023,11 +1073,15 @@ public class VideoStreamResource {
                     }
                 }
 
-                // Validation
                 if (end >= fileLength) end = fileLength - 1;
                 if (start > end) {
-                    start = 0;
-                    end = fileLength - 1;
+                    return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            .header("Content-Range", "bytes */" + fileLength)
+                            .header("Content-Length", "0")
+                            .header("Accept-Ranges", "bytes")
+                            .header("Content-Type", getMimeType(videoFile.getName()))
+                            .header("Access-Control-Allow-Origin", "*")
+                            .build();
                 }
             } catch (Exception e) {
                 LOG.warn("Invalid Range header '{}': {}", rangeHeader, e.getMessage());
