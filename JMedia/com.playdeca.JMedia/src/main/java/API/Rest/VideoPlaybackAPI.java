@@ -46,12 +46,12 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/toggle")
     @Blocking
-    public Response togglePlay() {
+    public Response togglePlay(@QueryParam("profileId") Long profileId) {
         try {
             // togglePlay() already broadcasts the authoritative state (playing=true/false)
             // to every video WS session; a redundant broadcastCommand("toggle-play") would
             // make clients apply the state AND toggle again, net-undoing the pause/play.
-            videoController.togglePlay();
+            videoController.togglePlay(profileId);
             return Response.ok("{\"success\":true,\"message\":\"Playback toggled\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -62,9 +62,9 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/play/{videoId}")
     @Blocking
-    public Response playVideo(@PathParam("videoId") Long videoId, @QueryParam("startTime") Double startTime) {
+    public Response playVideo(@PathParam("videoId") Long videoId, @QueryParam("startTime") Double startTime, @QueryParam("profileId") Long profileId) {
         try {
-            videoController.selectVideo(videoId, startTime);
+            videoController.selectVideo(videoId, startTime, profileId);
             
             // Check if we need to enrich with IntroDB data on-demand
             executor.submit(() -> {
@@ -100,11 +100,11 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/play")
     @Blocking
-    public Response play() {
+    public Response play(@QueryParam("profileId") Long profileId) {
         try {
-            var currentState = profileSessionStateService.getOrCreate();
+            var currentState = profileId != null ? videoController.getState(profileId) : profileSessionStateService.getOrCreate();
             if (currentState != null && currentState.currentVideoId != null) {
-                videoController.togglePlay();
+                videoController.togglePlay(profileId);
                 return Response.ok("{\"success\":true,\"message\":\"Resumed playback\"}").build();
             } else {
                 return Response.status(Response.Status.BAD_REQUEST)
@@ -119,9 +119,9 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/pause")
     @Blocking
-    public Response pauseVideo() {
+    public Response pauseVideo(@QueryParam("profileId") Long profileId) {
         try {
-            videoController.togglePlay(); // toggle will pause if playing
+            videoController.togglePlay(profileId); // toggle will pause if playing
             return Response.ok("{\"success\":true,\"message\":\"Video paused\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -132,10 +132,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/next")
     @Blocking
-    public Response nextVideo() {
+    public Response nextVideo(@QueryParam("profileId") Long profileId) {
         try {
-            videoController.next();
-            videoSocket.broadcastCommand("next", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
+            videoController.next(profileId);
+            videoSocket.broadcastCommand("next", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(), profileId);
             return Response.ok("{\"success\":true,\"message\":\"Next video\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -146,10 +146,10 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/previous")
     @Blocking
-    public Response previousVideo() {
+    public Response previousVideo(@QueryParam("profileId") Long profileId) {
         try {
-            videoController.previous();
-            videoSocket.broadcastCommand("previous", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
+            videoController.previous(profileId);
+            videoSocket.broadcastCommand("previous", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(), profileId);
             return Response.ok("{\"success\":true,\"message\":\"Previous video\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -160,12 +160,12 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/seek/{seconds}")
     @Blocking
-    public Response seekTo(@PathParam("seconds") double seconds) {
+    public Response seekTo(@PathParam("seconds") double seconds, @QueryParam("profileId") Long profileId) {
         try {
-            videoController.setSeconds(seconds);
+            videoController.setSeconds(seconds, profileId);
             com.fasterxml.jackson.databind.node.ObjectNode seekPayload = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
             seekPayload.put("value", seconds);
-            videoSocket.broadcastCommand("seek", seekPayload);
+            videoSocket.broadcastCommand("seek", seekPayload, profileId);
             return Response.ok("{\"success\":true,\"message\":\"Seeked to " + seconds + " seconds\",\"position\":" + seconds + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -176,7 +176,7 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/volume/{level}")
     @Blocking
-    public Response setVolume(@PathParam("level") float level) {
+    public Response setVolume(@PathParam("level") float level, @QueryParam("profileId") Long profileId) {
         try {
             // Validate volume level (0.0 to 1.0)
             if (level < 0.0f || level > 1.0f) {
@@ -184,7 +184,7 @@ public class VideoPlaybackAPI {
                            .entity("{\"success\":false,\"error\":\"Volume level must be between 0.0 and 1.0\"}").build();
             }
             
-            videoController.changeVolume(level);
+            videoController.changeVolume(level, profileId);
             return Response.ok("{\"success\":true,\"message\":\"Volume set to " + (level * 100) + "%\",\"volume\":" + level + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
@@ -195,12 +195,12 @@ public class VideoPlaybackAPI {
     @POST
     @Path("/volume")
     @Blocking
-    public Response setVolumeFromQuery(@QueryParam("level") Float level) {
+    public Response setVolumeFromQuery(@QueryParam("level") Float level, @QueryParam("profileId") Long profileId) {
         if (level == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                        .entity("{\"success\":false,\"error\":\"Volume level parameter required\"}").build();
         }
-        return setVolume(level.floatValue());
+        return setVolume(level.floatValue(), profileId);
     }
 
     @POST
@@ -217,9 +217,13 @@ public class VideoPlaybackAPI {
                     // Update current session state if this video is active
                     ProfileSessionState currentState = videoController.getState();
                     if (videoId.equals(currentState.currentVideoId)) {
-                        currentState.currentTime = seconds;
-                        currentState.playing = playing;
-                        videoController.updateState(currentState, true);
+                        // Skip session-state sync when the report is stale relative to a
+                        // recent command — only the DB progress is updated in that case.
+                        if (!videoController.isReportStale(currentState, seconds)) {
+                            currentState.currentTime = seconds;
+                            currentState.playing = playing;
+                            videoController.updateState(currentState, true);
+                        }
                     }
                 }
             }
@@ -234,9 +238,11 @@ public class VideoPlaybackAPI {
     @GET
     @Path("/current")
     @Blocking
-    public Response getCurrentVideo() {
+    public Response getCurrentVideo(@QueryParam("profileId") Long profileId) {
         try {
-            var currentState = videoController.getState();
+            // The sidebar/remote controller pins its own profile via query param; the
+            // fallback keeps the user-context resolve for callers that omit it.
+            var currentState = profileId != null ? videoController.getState(profileId) : videoController.getState();
             if (currentState == null) {
                 return Response.ok("{\"success\":true,\"video\":null,\"message\":\"No current video\"}").build();
             }
