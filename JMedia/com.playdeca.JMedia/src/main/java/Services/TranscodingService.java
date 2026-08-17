@@ -105,6 +105,7 @@ public class TranscodingService {
         final String key;
         volatile Process process; // non-final so placeholder can be updated after FFmpeg starts
         final Path tempFile;
+        final String codecTag; // effective codec ("copy"/"hevc"/"hw-h264"/"sw-h264")
         final AtomicInteger refCount = new AtomicInteger(1);
         final StringBuilder errorOutput = new StringBuilder();
         volatile long lastAccessed = System.currentTimeMillis();
@@ -115,14 +116,16 @@ public class TranscodingService {
         volatile long lastFileGrowth = System.currentTimeMillis();
         volatile long lastFileSize = 0;
 
-        ActiveTranscode(String key, Process process, Path tempFile) {
+        ActiveTranscode(String key, Process process, Path tempFile, String codecTag) {
             this.key = key;
             this.process = process;
             this.tempFile = tempFile;
+            this.codecTag = codecTag;
         }
     }
 
     private final ConcurrentHashMap<String, ActiveTranscode> activeTranscodes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, String> videoCodecTags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Boolean> transcodeNeededCache = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "transcode-cleanup");
@@ -219,6 +222,7 @@ public class TranscodingService {
                              return false;
                          }
                      })
+                     .filter(p -> segmentCacheService.getActiveReaderCount(p) == 0)
                      .forEach(p -> {
                          try {
                              java.nio.file.Files.delete(p);
@@ -238,6 +242,7 @@ public class TranscodingService {
                 files.filter(p -> p.getFileName().toString().startsWith("cache-") && p.toString().endsWith(".mp4"))
                      .filter(p -> !java.nio.file.Files.exists(completedMarkerPath(p)))
                      .filter(p -> !isCacheBeingWritten(p))
+                     .filter(p -> segmentCacheService.getActiveReaderCount(p) == 0)
                      .filter(p -> {
                          try {
                              return java.nio.file.Files.getLastModifiedTime(p).toMillis() < partialCutoff;
@@ -271,6 +276,10 @@ public class TranscodingService {
                 int excess = completeCaches.size() - cap;
                 if (excess > 0) {
                     for (Path p : completeCaches.subList(0, excess)) {
+                        if (segmentCacheService.getActiveReaderCount(p) > 0) {
+                            LOG.debug("Skipping LRU eviction of active reader target: {}", p);
+                            continue;
+                        }
                         try {
                             java.nio.file.Files.delete(p);
                             java.nio.file.Files.deleteIfExists(completedMarkerPath(p));
@@ -320,6 +329,14 @@ public class TranscodingService {
         }
     }
 
+    /** Safe absolute hashCode — Math.abs returns negative when
+     *  hashCode == Integer.MIN_VALUE, producing cache file names like
+     *  cache--2147483648-... which break prefix matching. */
+    private static int safeAbsHash(String key) {
+        int h = key.hashCode();
+        return (h == Integer.MIN_VALUE) ? Integer.MAX_VALUE : Math.abs(h);
+    }
+
     /** File mtime in millis; Long.MAX_VALUE if unreadable, so a file we can't
      *  inspect is never the LRU-eviction victim. */
     private static long lastModifiedMillis(Path p) {
@@ -356,11 +373,12 @@ public class TranscodingService {
     }
 
     // Only codecs that EVERY browser (Chrome/Edge/Firefox/Safari incl. iOS)
-    // decodes inside MP4 are bit-copied. AC3/DTS/TrueHD/Opus are not decodable
-    // in <video> on at least one major platform (desktop Chrome/Firefox lack
-    // them entirely; iOS Safari lacks all four) — copying them would yield
-    // silent audio. They fall into the existing !canCopyAudio branch below and
-    // are transcoded to AAC 192k, which is cheap compared to a video encode.
+    // decodes inside MP4 are bit-copied. Opus is not decodable in <video> on
+    // at least one major platform (iOS Safari) — copying it would yield silent
+    // audio. AC3/DTS/TrueHD were historically unsupported in some browsers but
+    // modern Safari (17+) now plays FLAC-in-MP4; these codecs fall into the
+    // existing !canCopyAudio branch below and are transcoded to AAC 192k, which
+    // is cheap compared to a video encode.
     private static final java.util.Set<String> COPYABLE_AUDIO_CODECS = java.util.Set.of(
         "aac", "mp3", "flac"
     );
@@ -475,6 +493,52 @@ public class TranscodingService {
         return "scale=" + targetW + ":" + targetH;
     }
 
+    /**
+     * Builds a GPU format-conversion filter that outputs nv12 without using
+     * hwdownload. hwdownload + format=nv12 fails for 10-bit P010 sources
+     * because FFmpeg propagates format=nv12 backwards to hwdownload's output
+     * pad, but hwdownload can only output the native GPU surface format.
+     *
+     * Instead, use a vendor-matched scale filter with -2:-2 (no-op scale)
+     * and :format=nv12. Scale filters WITH explicit dimensions perform the
+     * format conversion entirely on the GPU, bypassing hwdownload.
+     *
+     * Returns null when no vendor-matched GPU filter is available (e.g.
+     * d3d11va/dxva2/videotoolbox) — callers fall back to hwdownload.
+     */
+    private String buildFormatFilter(String hardwareDecoder, String videoEncoder, String resolution) {
+        if (hardwareDecoder == null || videoEncoder == null) return null;
+
+        int w = 1920, h = 1080;
+        try {
+            if (resolution != null && resolution.contains("x")) {
+                String[] p = resolution.split("x");
+                w = Integer.parseInt(p[0]);
+                h = Integer.parseInt(p[1]);
+            }
+        } catch (Exception ignored) {}
+
+        boolean decoderIsCuda = hardwareDecoder.contains("cuvid");
+        boolean encoderIsNvenc = videoEncoder.contains("nvenc");
+        boolean decoderIsQsv = hardwareDecoder.contains("qsv");
+        boolean encoderIsQsv = videoEncoder.contains("qsv");
+        boolean decoderIsVaapi = hardwareDecoder.contains("vaapi");
+        boolean encoderIsVaapi = videoEncoder.contains("vaapi");
+        boolean decoderIsAmf = hardwareDecoder.contains("amf");
+        boolean encoderIsAmf = videoEncoder.contains("amf");
+
+        if (decoderIsCuda && encoderIsNvenc)
+            return "scale_cuda=" + w + ":" + h + ":format=nv12";
+        if (decoderIsQsv && encoderIsQsv)
+            return "scale_qsv=" + w + ":" + h + ":format=nv12";
+        if (decoderIsVaapi && encoderIsVaapi)
+            return "scale_vaapi=" + w + ":" + h + ":format=nv12";
+        if (decoderIsAmf && encoderIsAmf)
+            return "scale_amf=" + w + ":" + h + ":format=nv12";
+
+        return null;
+    }
+
     public boolean isIOSClient(String userAgent) {
         if (userAgent == null || userAgent.isBlank()) {
             return false;
@@ -541,7 +605,12 @@ public class TranscodingService {
             }
         } else if (codec.contains("vp9") || codec.contains("av1") || codec.contains("av01")) {
             // VP9/AV1 decode natively on desktop browsers, but iOS Safari has no
-            // VP9/AV1 decoder — an iPhone needs a transcoded H.264 stream.
+            // VP9/AV1 decoder — an iPhone/iPad needs a transcoded H.264 stream.
+            // iPad Safari in "Request Desktop Website" mode sends a Macintosh-style
+            // UA without "iPad"; when "iPad" IS present (mobile mode, third-party
+            // browsers) isIOSClient catches it. The desktop-mode case is
+            // indistinguishable from real macOS Safari in the UA and falls through
+            // to no-transcode.
             result = isIOSClient(userAgent);
         } else {
             result = true;
@@ -790,7 +859,9 @@ public class TranscodingService {
             LOG.warn("Transcode permit pool exhausted (available: {}), request for {} queued",
                      permit.availablePermits(), videoFile.getName());
             try {
-                permit.acquire();
+                if (!permit.tryAcquire(30, TimeUnit.SECONDS)) {
+                    throw new IOException("Timed out waiting for transcode permit after 30s for " + videoFile.getName());
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("Interrupted while waiting for transcode permit", e);
@@ -875,6 +946,22 @@ public class TranscodingService {
             videoEncoder = "copy";
         }
 
+        // Compute the effective output codec tag so different codec variants (HEVC vs H.264)
+        // get separate cache files, preventing cross-codec poisoning.
+        String effectiveCodecTag;
+        if ("copy".equals(videoEncoder)) {
+            if (needsAppleHvc1Tag && video.videoCodec != null
+                    && video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc")) {
+                effectiveCodecTag = "hevc";
+            } else {
+                effectiveCodecTag = "copy";
+            }
+        } else if (videoEncoder.contains("hevc")) {
+            effectiveCodecTag = "hevc";
+        } else {
+            effectiveCodecTag = "h264";
+        }
+
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
         
@@ -928,6 +1015,16 @@ public class TranscodingService {
                 command.add("-hwaccel"); command.add("dxva2");
             }
         }
+
+        // True when decode frames stay on the device (-hwaccel_output_format matched
+        // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
+        // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
+        boolean hwFramesOnDevice = useHardware && hardwareDecoder != null && needsVideoTranscode
+                && ((hardwareDecoder.contains("cuvid") && videoEncoder.contains("nvenc"))
+                    || (hardwareDecoder.contains("qsv") && videoEncoder.contains("qsv"))
+                    || (hardwareDecoder.contains("vaapi") && videoEncoder.contains("vaapi"))
+                    || (hardwareDecoder.contains("amf") && videoEncoder.contains("amf"))
+                    || (hardwareDecoder.contains("d3d11va") && videoEncoder != null && videoEncoder.contains("d3d11va")));
 
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
@@ -992,11 +1089,24 @@ public class TranscodingService {
                 if (videoEncoder.equals("libx264")) {
                     command.add("-pix_fmt"); command.add("yuv420p");
                     command.add("-tune"); command.add("zerolatency");
-                } else if (videoEncoder.contains("h264")) {
-                    // H.264 hardware encoders accept 8-bit only; force nv12 so
-                    // 10-bit sources (x265/AV1 Main10) convert deterministically.
+            } else if (videoEncoder.contains("h264")) {
+                // H.264 hardware encoders accept 8-bit only; force nv12 so
+                // 10-bit sources (x265/AV1 Main10) convert deterministically.
+                boolean addedGpuFmtFilter = false;
+                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution) == null) {
+                    String fmtFilter = buildFormatFilter(hardwareDecoder, videoEncoder, video.resolution);
+                    if (fmtFilter != null) {
+                        command.add("-vf"); command.add(fmtFilter);
+                        addedGpuFmtFilter = true;
+                    } else {
+                        command.add("-vf"); command.add("hwdownload");
+                        addedGpuFmtFilter = true;
+                    }
+                }
+                if (!addedGpuFmtFilter) {
                     command.add("-pix_fmt"); command.add("nv12");
                 }
+            }
                 if (qualityHeight > 0) {
                     String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
                     if (scaleFilter != null) {
@@ -1020,6 +1130,9 @@ public class TranscodingService {
         // (the selected track may have a different codec than the default track)
         if (needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio) {
             LOG.info("Transcoding audio for {} (selected track, ensuring AAC)", videoFile.getName());
+            // Intentional stereo downmix for universal web playback: <video> elements
+            // across all browsers expect stereo; multi-channel AAC would play silence
+            // or cause channel-mapping errors in most players.
             command.addAll(List.of(
                 "-c:a", "aac",
                 "-b:a", "192k",
@@ -1074,6 +1187,17 @@ public class TranscodingService {
 
         LOG.info("FFmpeg command for {} (AppleHvc1Tag={}): {}", videoFile.getName(), needsAppleHvc1Tag, String.join(" ", command));
 
+        // Probe the output stream after GPU detection (~6 s) but before launching
+        // FFmpeg.  If the client disconnected during detection, starting FFmpeg would
+        // waste a full transcode cycle that the watchdog can only kill after the
+        // segment reader grace period.  A flush on a closed socket throws immediately.
+        try {
+            output.flush();
+        } catch (IOException clientGone) {
+            LOG.debug("Client disconnected during GPU detection for {}, skipping FFmpeg launch", videoFile.getName());
+            return EPIPE;
+        }
+
         ProcessBuilder pb = new ProcessBuilder(command);
         Process process = pb.start();
         
@@ -1090,15 +1214,13 @@ public class TranscodingService {
                 ? buildTranscodeKey(video.id, startSeconds, audioTrackIndex, qualityHeight)
                 : null;
         if (transcodeKey != null) {
+            // Always create a fresh ActiveTranscode so each writer gets its own
+            // completed/failed state — the previous writer's terminal flags must
+            // never leak into the new writer's lifecycle (shared-object poisoning).
             activeTranscodes.compute(transcodeKey, (k, existing) -> {
-                if (existing == null) return new ActiveTranscode(transcodeKey, process, cacheFile);
-                // Retry/restart for the same key: point at the live process and clear
-                // terminal flags so waiters don't see stale completed/failed state.
-                existing.process = process;
-                existing.completed = false;
-                existing.failed = false;
-                return existing;
+                return new ActiveTranscode(transcodeKey, process, cacheFile, effectiveCodecTag);
             });
+            videoCodecTags.put(video.id, effectiveCodecTag);
         }
 
         Thread errorLogger = new Thread(() -> {
@@ -1122,6 +1244,14 @@ public class TranscodingService {
 
         boolean clientDisconnected = false;
         boolean watchdogStarted = false;
+        // Proactively start the segment reader watchdog for background writers
+        // (nullOutputStream) that never detect client disconnect. The watchdog's
+        // readerEverAttached guard ensures the kill countdown only begins after
+        // a reader has actually attached and detached.
+        if (cacheFile != null) {
+            watchdogStarted = true;
+            startSegmentReaderWatchdog(cacheFile, process);
+        }
         OutputStream fileOut;
         if (cacheFile == null) {
             fileOut = null;
@@ -1178,19 +1308,12 @@ public class TranscodingService {
                     }
                 }
             }
+        } finally {
             if (resumeAppender != null) {
-                resumeAppender.finish();
+                try { resumeAppender.finish(); } catch (IOException ignored) {}
             }
             if (fileOut != null) {
                 try { fileOut.close(); } catch (IOException ignored) {}
-            }
-        } finally {
-            activeProcesses.remove(processKey);
-            processLastOutput.remove(processKey);
-            java.util.Set<String> keys = videoProcessKeys.get(video.id);
-            if (keys != null) {
-                keys.remove(processKey);
-                if (keys.isEmpty()) videoProcessKeys.remove(video.id);
             }
             try {
                 errorLogger.join(5000);
@@ -1225,21 +1348,21 @@ public class TranscodingService {
                     boolean keepAsCompleteSegment = clientDisconnected || code == EPIPE || superseded;
                     if (cacheFile != null) {
                         if (code == 0) {
-                            writeCompletedMarker(cacheFile);
                             segmentCacheService.completeSegment(cacheFile);
+                            if (Files.exists(cacheFile)) {
+                                writeCompletedMarker(cacheFile);
+                            }
                         } else if (zombieKilled) {
-                            // Zombie restart: the streaming loop killed this hung writer and is
-                            // relaunching the transcode, which resume-appends into the same file.
-                            // Trim the partial tail but do NOT write the .done marker — a marker
-                            // would make the resume path bail out as "segment already complete".
                             trimPartialTrailingFragment(cacheFile);
                             LOG.info("Zombie writer {} killed; segment {} kept for resume (no completion marker)",
                                      processKey, cacheFile.getFileName());
                         } else if (keepAsCompleteSegment) {
                             trimPartialTrailingFragment(cacheFile);
                             LOG.debug("Killed transcode kept as complete segment (valid cache)");
-                            writeCompletedMarker(cacheFile);
                             segmentCacheService.completeSegment(cacheFile);
+                            if (Files.exists(cacheFile)) {
+                                writeCompletedMarker(cacheFile);
+                            }
                         } else {
                             deleteCacheFile(cacheFile);
                         }
@@ -1274,6 +1397,14 @@ public class TranscodingService {
                     }
                 }
                 return -1;
+            } finally {
+                activeProcesses.remove(processKey);
+                processLastOutput.remove(processKey);
+                java.util.Set<String> keys = videoProcessKeys.get(video.id);
+                if (keys != null) {
+                    keys.remove(processKey);
+                    if (keys.isEmpty()) videoProcessKeys.remove(video.id);
+                }
             }
         }
     }
@@ -1363,7 +1494,10 @@ public class TranscodingService {
             try {
                 // Reap before returning so the restart (which appends into the same
                 // file) cannot race the killed writer's still-open handle.
-                proc.waitFor(5, TimeUnit.SECONDS);
+                boolean reaped = proc.waitFor(5, TimeUnit.SECONDS);
+                if (!reaped) {
+                    LOG.warn("Zombie writer {} did not exit within 5 s of destroyForcibly; restart-append may race", processKey);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -1404,6 +1538,10 @@ public class TranscodingService {
         if (cacheFile == null) return;
         try {
             if (!Files.exists(cacheFile)) return;
+            if (segmentCacheService.getActiveReaderCount(cacheFile) > 0) {
+                LOG.debug("Skipping trim of {} — active readers present", cacheFile.getFileName());
+                return;
+            }
             long completeLen = FragmentedMp4Seeker.completeLength(cacheFile);
             long actualLen = Files.size(cacheFile);
             if (completeLen < actualLen) {
@@ -1646,6 +1784,7 @@ public class TranscodingService {
     private void startSegmentReaderWatchdog(java.nio.file.Path segmentFile, Process process) {
         Thread t = new Thread(() -> {
             long emptySince = 0;
+            boolean readerEverAttached = false;
             try {
                 while (true) {
                     Thread.sleep(READER_WATCHDOG_POLL_MS);
@@ -1654,12 +1793,20 @@ public class TranscodingService {
                     }
                     if (segmentCacheService.getActiveReaderCount(segmentFile) > 0) {
                         emptySince = 0;
+                        readerEverAttached = true;
+                        continue;
+                    }
+                    // Only start the kill countdown after a reader has attached and
+                    // then detached. Background writers that no one ever reads are
+                    // left alone — they finish naturally or are cleaned up by the
+                    // transcode idle TTL.
+                    if (!readerEverAttached) {
                         continue;
                     }
                     if (emptySince == 0) {
                         emptySince = System.currentTimeMillis();
                     } else if (System.currentTimeMillis() - emptySince > SEGMENT_READER_KILL_GRACE_MS) {
-                        LOG.info("Segment {} has had no readers for {}ms since client disconnect — stopping background transcode",
+                        LOG.info("Segment {} has had no readers for {}ms — stopping background transcode",
                                  segmentFile.getFileName(), SEGMENT_READER_KILL_GRACE_MS);
                         process.destroyForcibly();
                         return;
@@ -1702,11 +1849,15 @@ public class TranscodingService {
     // === End temp-file transcode management ===
 
     public java.nio.file.Path getCacheFilePath(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight) {
-        // Segment-aware naming, matching SegmentCacheService.segmentFileName:
-        // the hash is keyed on (videoId|audioTrackIndex|qualityHeight) only, so
-        // any seek position within a video shares one chain of segment files.
-        String key = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
-        int absHash = Math.abs(key.hashCode());
+        ActiveTranscode at = activeTranscodes.get(buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight));
+        String codecTag = (at != null && at.codecTag != null) ? at.codecTag : videoCodecTags.getOrDefault(videoId, "");
+        return getCacheFilePath(videoId, startSeconds, audioTrackIndex, qualityHeight, codecTag);
+    }
+
+    public java.nio.file.Path getCacheFilePath(Long videoId, double startSeconds, int audioTrackIndex, int qualityHeight, String codecTag) {
+        String baseKey = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
+        String hashInput = codecTag.isEmpty() ? baseKey : baseKey + "|" + codecTag;
+        int absHash = safeAbsHash(hashInput);
         String fileName = "cache-" + absHash + "-" + String.format(Locale.ROOT, "%.3f", startSeconds) + ".mp4";
         try {
             return getTempDir().resolve(fileName);
@@ -1860,8 +2011,15 @@ public class TranscodingService {
     /** Temp file name matching the segment naming scheme so a completed gap can
      *  be moved into the chain directly: cache-&lt;absHash(videoId|audio|quality)&gt;-&lt;%.3f gapStart&gt;.mp4.tmp. */
     private String gapTempFileName(Long videoId, int audioTrackIndex, int qualityHeight, double gapStartSeconds) {
-        String key = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
-        return "cache-" + Math.abs(key.hashCode()) + "-"
+        ActiveTranscode at = activeTranscodes.get(buildTranscodeKey(videoId, gapStartSeconds, audioTrackIndex, qualityHeight));
+        String codecTag = (at != null && at.codecTag != null) ? at.codecTag : videoCodecTags.getOrDefault(videoId, "");
+        return gapTempFileName(videoId, audioTrackIndex, qualityHeight, gapStartSeconds, codecTag);
+    }
+
+    private String gapTempFileName(Long videoId, int audioTrackIndex, int qualityHeight, double gapStartSeconds, String codecTag) {
+        String baseKey = videoId + "|" + audioTrackIndex + "|" + qualityHeight;
+        String hashInput = codecTag.isEmpty() ? baseKey : baseKey + "|" + codecTag;
+        return "cache-" + safeAbsHash(hashInput) + "-"
                 + String.format(Locale.ROOT, "%.3f", gapStartSeconds) + ".mp4.tmp";
     }
 
@@ -1952,6 +2110,16 @@ public class TranscodingService {
             }
         }
 
+        // True when decode frames stay on the device (-hwaccel_output_format matched
+        // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
+        // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
+        boolean hwFramesOnDevice = useHardware && hardwareDecoder != null && needsVideoTranscode
+                && ((hardwareDecoder.contains("cuvid") && videoEncoder.contains("nvenc"))
+                    || (hardwareDecoder.contains("qsv") && videoEncoder.contains("qsv"))
+                    || (hardwareDecoder.contains("vaapi") && videoEncoder.contains("vaapi"))
+                    || (hardwareDecoder.contains("amf") && videoEncoder.contains("amf"))
+                    || (hardwareDecoder.contains("d3d11va") && videoEncoder != null && videoEncoder.contains("d3d11va")));
+
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
         command.add("-stats");
@@ -1992,9 +2160,20 @@ public class TranscodingService {
                 command.add("-pix_fmt"); command.add("yuv420p");
                 command.add("-tune"); command.add("zerolatency");
             } else if (videoEncoder.contains("h264")) {
-                // H.264 hardware encoders accept 8-bit only; force nv12 so
-                // 10-bit sources (x265/AV1 Main10) convert deterministically.
-                command.add("-pix_fmt"); command.add("nv12");
+                boolean addedGpuFmtFilter = false;
+                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution) == null) {
+                    String fmtFilter = buildFormatFilter(hardwareDecoder, videoEncoder, video.resolution);
+                    if (fmtFilter != null) {
+                        command.add("-vf"); command.add(fmtFilter);
+                        addedGpuFmtFilter = true;
+                    } else {
+                        command.add("-vf"); command.add("hwdownload");
+                        addedGpuFmtFilter = true;
+                    }
+                }
+                if (!addedGpuFmtFilter) {
+                    command.add("-pix_fmt"); command.add("nv12");
+                }
             }
             if (qualityHeight > 0) {
                 String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, qualityHeight, video.resolution);
@@ -2008,6 +2187,8 @@ public class TranscodingService {
 
         boolean transcodeAudio = needsVideoTranscode || audioTrackIndex >= 0 || !canCopyAudio;
         if (transcodeAudio) {
+            // Intentional stereo downmix — matches the streaming pipeline for
+            // universal web <video> playback (see streamViaFFmpeg -ac 2 comment).
             command.addAll(List.of("-c:a", "aac", "-b:a", "192k", "-ac", "2"));
         } else {
             command.add("-c:a"); command.add("copy");
