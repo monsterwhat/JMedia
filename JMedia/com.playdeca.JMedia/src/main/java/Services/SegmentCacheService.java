@@ -283,6 +283,9 @@ public class SegmentCacheService {
                 // covers checks and gap detection compare like with like.
                 sidecar.endSeconds = sidecar.startSeconds != null
                         ? sidecar.startSeconds + endSeconds : endSeconds;
+            } else {
+                LOG.warn("completeSegment: endTimeSeconds returned 0 for {}; not marking COMPLETE", segmentFile);
+                return;
             }
             // Integrity gate: a segment whose ffprobe returns no streams is corrupt
             // (FFmpeg can exit 0 with a truncated/empty moof+mdat). Without this
@@ -292,9 +295,15 @@ public class SegmentCacheService {
             if (integrity == null) {
                 LOG.warn("completeSegment: ffprobe rejected {} (corrupt/empty segment); discarding instead of marking COMPLETE",
                         segmentFile);
-                deleteFileWithRetry(segmentFile);
-                deleteFileWithRetry(sidecarPath(segmentFile));
-                deleteFileWithRetry(doneMarkerPath(segmentFile));
+                // D24: do not delete while a reader holds the file open.
+                if (getActiveReaderCount(segmentFile) > 0) {
+                    LOG.warn("Corrupt segment {} has active readers; deferring deletion until readers release",
+                            segmentFile);
+                } else {
+                    deleteFileWithRetry(segmentFile);
+                    deleteFileWithRetry(sidecarPath(segmentFile));
+                    deleteFileWithRetry(doneMarkerPath(segmentFile));
+                }
                 return;
             }
             sidecar.status = STATUS_COMPLETE;
@@ -381,13 +390,13 @@ public class SegmentCacheService {
         if (segmentFile == null) {
             return;
         }
-        AtomicInteger counter = segmentReaders.get(segmentFile.toAbsolutePath().toString());
-        if (counter != null) {
-            int remaining = counter.decrementAndGet();
-            if (remaining <= 0) {
-                segmentReaders.remove(segmentFile.toAbsolutePath().toString(), counter);
+        segmentReaders.compute(segmentFile.toAbsolutePath().toString(), (k, counter) -> {
+            if (counter == null) {
+                return null;
             }
-        }
+            int remaining = counter.decrementAndGet();
+            return remaining <= 0 ? null : counter;
+        });
     }
 
     /** Number of active readers of a segment file. */
@@ -441,8 +450,15 @@ public class SegmentCacheService {
                     ReentrantLock lock = chainLock(absHash);
                     lock.lock();
                     try {
-                        LOG.info("Stale chain {} (source changed), purging from hourly sweep", absHash);
-                        purgeChainByHash(absHash);
+                        // D23: skip purge if any segment has active readers.
+                        boolean hasReaders = scanChain(absHash).stream()
+                                .anyMatch(e -> getActiveReaderCount(e.file) > 0);
+                        if (hasReaders) {
+                            LOG.info("Stale chain {} has active readers, deferring purge from sweep", absHash);
+                        } else {
+                            LOG.info("Stale chain {} (source changed), purging from hourly sweep", absHash);
+                            purgeChainByHash(absHash);
+                        }
                     } finally {
                         lock.unlock();
                     }
@@ -496,7 +512,10 @@ public class SegmentCacheService {
     }
 
     private int absHash(String key) {
-        return Math.abs(key.hashCode());
+        // D15: Math.abs returns negative for Integer.MIN_VALUE; use guarded
+        // expression matching TranscodingService's coordinated fix.
+        int h = key.hashCode();
+        return (h == Integer.MIN_VALUE) ? Integer.MAX_VALUE : Math.abs(h);
     }
 
     private String segmentFileName(int absHash, double startSeconds) {
@@ -609,7 +628,7 @@ public class SegmentCacheService {
             return true;
         }
         if (sourcePath == null) {
-            return false;
+            return true;
         }
         try {
             Path expected = resolveSourcePath(sidecar.sourcePath);
@@ -677,13 +696,34 @@ public class SegmentCacheService {
                     })
                     .collect(Collectors.toList());
             for (Path f : chainFiles) {
+                // D25: derive the .mp4 base path for the reader check.
+                // Reader tracking is keyed on the .mp4 file; associated files
+                // (.json, .done, .tmp) share the same reader guard.
+                String fname = f.getFileName().toString();
+                Path segFile = f;
+                if (!fname.endsWith(".mp4")) {
+                    String base = fname;
+                    if (base.endsWith(".json")) base = base.substring(0, base.length() - 5);
+                    else if (base.endsWith(".done")) base = base.substring(0, base.length() - 5);
+                    else if (base.endsWith(".tmp")) base = base.substring(0, base.length() - 4);
+                    segFile = f.resolveSibling(base);
+                }
+                if (getActiveReaderCount(segFile) > 0) {
+                    LOG.debug("Skipping purge of {} (active readers on segment)", f.getFileName());
+                    continue;
+                }
                 deleteFileWithRetry(f);
             }
         } catch (IOException e) {
             LOG.warn("Failed to list chain for purge {}: {}", absHash, e.getMessage());
         }
+        // D25: only remove reader entries for segments fully released.
         String readerPrefix = dir.toAbsolutePath().resolve(prefix).toString();
-        segmentReaders.keySet().removeIf(k -> k.startsWith(readerPrefix));
+        segmentReaders.keySet().removeIf(k -> {
+            if (!k.startsWith(readerPrefix)) return false;
+            AtomicInteger counter = segmentReaders.get(k);
+            return counter == null || counter.get() <= 0;
+        });
         lastGapFailure.remove(String.valueOf(absHash));
         mergeDeferCounts.remove(String.valueOf(absHash));
         LOG.info("Purged segment chain {}", absHash);
@@ -861,6 +901,13 @@ public class SegmentCacheService {
         if (reference == null) {
             LOG.warn("Cannot probe first segment {} of chain {} — discarding poison segment",
                     mergeSet.get(0).file, absHash);
+            // D26: do not delete a segment being read.
+            if (getActiveReaderCount(mergeSet.get(0).file) > 0) {
+                LOG.warn("Poison segment {} has active readers; deferring removal",
+                        mergeSet.get(0).file);
+                deferMerge(absHash);
+                return;
+            }
             deleteFileWithRetry(mergeSet.get(0).file);
             deleteFileWithRetry(sidecarPath(mergeSet.get(0).file));
             deleteFileWithRetry(doneMarkerPath(mergeSet.get(0).file));
@@ -874,6 +921,14 @@ public class SegmentCacheService {
             if (params == null) {
                 LOG.warn("Discarding corrupt segment {} (ffprobe returned no streams) from chain {} — was serving poison bytes",
                         entry.file.getFileName(), absHash);
+                // D26: do not delete a segment being read; skip in merge set only.
+                if (getActiveReaderCount(entry.file) > 0) {
+                    LOG.warn("Corrupt segment {} has active readers; removing from merge set without deleting",
+                            entry.file.getFileName());
+                    it.remove();
+                    removedAny = true;
+                    continue;
+                }
                 deleteFileWithRetry(entry.file);
                 deleteFileWithRetry(sidecarPath(entry.file));
                 deleteFileWithRetry(doneMarkerPath(entry.file));
