@@ -7,6 +7,8 @@
         }
 
         bind() {
+            if (this._bound) return; // F9: prevent double-registration on repeated calls
+            this._bound = true;
             const p = this.player;
 
             var _liveChannelId = p.container.dataset.liveChannelId;
@@ -167,7 +169,7 @@
                     p._waitingTimer = null;
                     p._waitingStart = 0;
                     if (p._destroyed) return;
-                    if (p._hasPlayedData && p.lastKnownGoodPosition > 0 && p.video.networkState !== HTMLMediaElement.NETWORK_LOADING) {
+                    if (p._hasPlayedData && p.lastKnownGoodPosition > 0 && (p.video.networkState !== HTMLMediaElement.NETWORK_LOADING || !p._lastProgressAt || (Date.now() - p._lastProgressAt > 65000))) {
                         if (p.utils.isIOS()) console.debug('[iOS-DEBUG] 60s waiting stall: currentTime=' + p.video.currentTime + ' _hasPlayedData=' + p._hasPlayedData + ' lastKnownGoodPosition=' + p.lastKnownGoodPosition + ' networkState=' + p.video.networkState + ' _streamFallbackCount=' + (p._streamFallbackCount || 0));
                         console.warn('[SimplePlayer] Mid-playback stall detected (>60s), retrying at position', p.lastKnownGoodPosition);
                         p.streamMgr.clearStreamErrorHandlers();
@@ -175,9 +177,14 @@
                         if (p._streamFallbackCount < p._maxStreamFallbacks) {
                             if (window.Toast) window.Toast.warning('Playback stalled - reconnecting... (' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + ')');
                             const pos = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
+                            // F2b: Direct files ignore ?start=, so reset offset to 0 for correct position reporting
+                            p.streamStartOffset = p.needsTranscode ? pos : 0;
+                            p.lastKnownGoodPosition = 0;
                             const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
                             const traceId = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${pos}${qualityParam}&trace=${traceId}`;
+                            p.video.src = p.needsTranscode
+                                ? `/api/video/stream/${p.videoId}.mp4?start=${pos}${qualityParam}&trace=${traceId}`
+                                : `/api/video/stream/${p.videoId}.mp4${qualityParam}&trace=${traceId}`;
                             p.video.load();
                             p.video.play().catch(() => {});
                         } else {
@@ -273,6 +280,7 @@
                     e.stopPropagation();
                     const speed = parseFloat(opt.dataset.speed);
                     p.video.playbackRate = speed;
+                    p.state.playbackRate = speed;
                     p.speedValue.innerText = speed.toFixed(1) + 'x';
                     p.container.querySelectorAll('.speed-option').forEach(o => o.classList.remove('active'));
                     opt.classList.add('active');
@@ -344,6 +352,11 @@
                     e.stopPropagation();
                     if (p._qualitySwitching) return;
                     p._qualitySwitching = true;
+                    // F1: Safety — reset the flag if the reload stalls or errors out
+                    var _resetQualityFlag = function() { p._qualitySwitching = false; };
+                    p.video.addEventListener('playing', _resetQualityFlag, { once: true });
+                    p.video.addEventListener('error', _resetQualityFlag, { once: true });
+                    setTimeout(_resetQualityFlag, 10000);
 
                     (async () => {
                         try {

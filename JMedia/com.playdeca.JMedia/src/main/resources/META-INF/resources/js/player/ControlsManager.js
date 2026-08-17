@@ -24,6 +24,7 @@
             const p = this.player;
             p.video.volume = Math.pow(p.state.volume, 2);
             p.video.muted = p.state.muted;
+            if (p.state.playbackRate && p.state.playbackRate !== 1) p.video.playbackRate = p.state.playbackRate;
             this.updateVolumeUI();
             if (p.totalDuration > 0) p.timeTotal.innerText = p.utils.formatTime(p.totalDuration);
 

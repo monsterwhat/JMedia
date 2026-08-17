@@ -8,6 +8,7 @@
 
         start() {
             const p = this.player;
+            if (p._prog) clearInterval(p._prog);
             p._prog = setInterval(() => {
                 if (!p.video.paused && p.video.currentTime > 0) {
                     const displayTime = Math.min(p.video.currentTime + (p.streamStartOffset || 0), p.totalDuration || Infinity);
@@ -15,9 +16,21 @@
                 }
             }, 5000);
 
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'hidden') this.saveNow();
-            });
+            if (!this._onVisibilityChange) {
+                this._onVisibilityChange = () => {
+                    if (document.visibilityState === 'hidden') this.saveNow();
+                };
+                document.addEventListener('visibilitychange', this._onVisibilityChange);
+            }
+        }
+
+        stop() {
+            const p = this.player;
+            if (p._prog) { clearInterval(p._prog); p._prog = null; }
+            if (this._onVisibilityChange) {
+                document.removeEventListener('visibilitychange', this._onVisibilityChange);
+                this._onVisibilityChange = null;
+            }
         }
 
         _reportProgress(time, playing) {

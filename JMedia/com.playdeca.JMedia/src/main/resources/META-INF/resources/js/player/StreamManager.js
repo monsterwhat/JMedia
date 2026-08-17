@@ -153,6 +153,13 @@
         initDirectStream(savedTime) {
             const p = this.player;
             const _traceId = () => `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+            /* Clear any previously painted frame (e.g. the previous video's last
+             * frame) so a frozen frame from an old movie cannot linger while the
+             * new source loads. No-op on initial load (fresh element, no src). */
+            try {
+                p.video.removeAttribute('src');
+                p.video.load();
+            } catch (e) {}
             if (p.needsTranscode && savedTime > 0) {
                 console.log('[SimplePlayer] Resuming from ' + savedTime + 's via server-side seek');
                 p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${savedTime}&trace=${_traceId()}`;
@@ -173,22 +180,28 @@
                 p._hideLoading();
             }, { once: true });
 
-            p.video.addEventListener('error', (e) => {
-                p._streamFallbackCount++;
-                console.error('[SimplePlayer] Direct stream error (fallback ' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + '):', p.video.error);
-                if (p._streamFallbackCount < p._maxStreamFallbacks) {
-                    p._showLoading('Stream error, retrying...');
-                    setTimeout(() => {
-                        const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
-                        const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
-                        p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}&trace=${_traceId()}`;
-                        p.video.load();
-                        p.video.play().catch(() => {});
-                    }, 1000);
-                } else {
-                    p._showLoading('Playback failed after ' + p._maxStreamFallbacks + ' attempts');
-                }
-            });
+            // Skip if caller (simple-player) manages its own persistent error handler — avoids double-counting the fallback budget.
+            if (!p._setupStreamErrorHandler) {
+                p._streamErrorHandler = (e) => {
+                    p._streamFallbackCount++;
+                    console.error('[SimplePlayer] Direct stream error (fallback ' + p._streamFallbackCount + '/' + p._maxStreamFallbacks + '):', p.video.error);
+                    if (p._streamFallbackCount < p._maxStreamFallbacks) {
+                        p._showLoading('Stream error, retrying...');
+                        setTimeout(() => {
+                            const currentTime = p.lastKnownGoodPosition + (p.streamStartOffset || 0);
+                            p.streamStartOffset = currentTime;
+                            p.lastKnownGoodPosition = 0;
+                            const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
+                            p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${currentTime}${qualityParam}&trace=${_traceId()}`;
+                            p.video.load();
+                            p.video.play().catch(() => {});
+                        }, 1000);
+                    } else {
+                        p._showLoading('Playback failed after ' + p._maxStreamFallbacks + ' attempts');
+                    }
+                };
+                p.video.addEventListener('error', p._streamErrorHandler);
+            }
 
             p.video.play().catch(e => {
                 console.log('[SimplePlayer] Play requires user gesture:', e);
@@ -248,6 +261,7 @@
                 maxLiveSyncPlaybackRate: 1.5
             });
             p._hlsInstance = hls;
+            p._hlsNetworkRetries = 0;
 
             p._showLoading('Loading live stream...');
             hls.loadSource(url);
@@ -268,7 +282,14 @@
                 if (!data.fatal) return;
                 console.error('[SimplePlayer] Fatal HLS error:', data.type, data.details);
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    hls.startLoad();
+                    p._hlsNetworkRetries = (p._hlsNetworkRetries || 0) + 1;
+                    if (p._hlsNetworkRetries < 3) {
+                        hls.startLoad();
+                    } else {
+                        p._showLoading('Playback error');
+                        hls.destroy();
+                        p._hlsInstance = null;
+                    }
                 } else {
                     p._showLoading('Playback error');
                 }
@@ -438,6 +459,8 @@
             // loadSubtitles re-clicks the saved track itself.
             p.video.addEventListener('loadedmetadata', () => {
                 if (!p._destroyed) p.loadSubtitles();
+                // F6: re-apply playbackRate after src+load reset
+                if (p.state.playbackRate && p.state.playbackRate !== 1) p.video.playbackRate = p.state.playbackRate;
             }, { once: true });
 
             p._hasPlayedData = false;
@@ -489,10 +512,10 @@
 
         clearStreamErrorHandlers() {
             const p = this.player;
-            [p._seekErrorHandler, p._setupStreamErrorHandler].forEach(h => {
+            [p._seekErrorHandler, p._setupStreamErrorHandler, p._streamErrorHandler].forEach(h => {
                 if (h) p.video.removeEventListener('error', h);
             });
-            p._seekErrorHandler = p._setupStreamErrorHandler = null;
+            p._seekErrorHandler = p._setupStreamErrorHandler = p._streamErrorHandler = null;
         }
 
         cleanupHls() {
@@ -509,12 +532,24 @@
             const p = this.player;
             console.log(`[SimplePlayer] Performing server-side seek to ${time}s`);
 
+            // F5: External/HLS streams — client-side seek only, never replace src with local transcode
+            if (p.externalUrl || p._hlsInstance) {
+                var relTime = Math.max(0, time - (p.streamStartOffset || 0));
+                if (p._hlsInstance) {
+                    p._hlsInstance.startLoad(time);
+                }
+                p.video.currentTime = relTime;
+                p.video.play().catch(function() {});
+                return;
+            }
+
             if (time >= p.streamStartOffset && p.video.src) {
                 const relativeTime = time - p.streamStartOffset;
                 const bufLen = p.video.buffered.length;
                 const bufferedEnd = bufLen > 0 ? p.video.buffered.end(bufLen - 1) : 0;
                 const inBuffer = p.video.readyState > 0 && relativeTime <= bufferedEnd;
-                if (inBuffer) {
+                // F1b: Quality-switching needs a real reload (client seek won't change quality)
+                if (inBuffer && !p._qualitySwitching) {
                     console.log(`[SimplePlayer] Client-side seek to ${time}s (relative ${relativeTime}s in buffer)`);
                     p.video.currentTime = relativeTime;
                     p.video.play().catch(e => console.log('[SimplePlayer] Play after seek requires gesture:', e));
@@ -585,6 +620,9 @@
             p.video.load();
 
             p.streamStartOffset = Math.max(0, time);
+            // F7: Reset stall-detection state (mirror switchAudioTrack)
+            p._hasPlayedData = false;
+            p.lastKnownGoodPosition = 0;
             const audioParam = p.currentAudioTrackIndex !== null ? `&audioTrack=${p.currentAudioTrackIndex}` : '';
             const qualityParam = p._preferredQuality > 0 ? `&quality=${p._preferredQuality}` : '';
             p.video.src = `/api/video/stream/${p.videoId}.mp4?start=${Math.max(0, time)}${audioParam}${qualityParam}&trace=${this._traceId()}`;
@@ -600,6 +638,10 @@
             p.video.addEventListener('playing', onSeekPlaying, { once: true });
             p.video.addEventListener('loadeddata', onSeekReady, { once: true });
             p.video.addEventListener('error', onSeekReady, { once: true });
+            // F6: src+load resets playbackRate to 1.0 per HTML spec — re-apply stored value
+            p.video.addEventListener('loadedmetadata', function() {
+                if (p.state.playbackRate && p.state.playbackRate !== 1) p.video.playbackRate = p.state.playbackRate;
+            }, { once: true });
         }
 
         async _preloadSubtitleTracks() {

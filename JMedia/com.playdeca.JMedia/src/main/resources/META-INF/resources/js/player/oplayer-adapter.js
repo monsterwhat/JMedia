@@ -57,7 +57,7 @@
          * same stream. Direct files are exempt: the backend serves them with
          * Cache-Control: no-cache (no media-cache resume) and resume is a native
          * post-load seek. */
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (!_isDirectFile ? '?start=' + Math.max(0, startTime) + '&trace=' + Date.now() : '')));
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (!_isDirectFile ? '?start=' + Math.max(0, startTime) + '&trace=' + _traceId() : '')));
 
         /* DB duration in seconds (data-duration is milliseconds, native-player
          * convention — same >5000 guard as StateManager) or NaN when unknown
@@ -92,6 +92,10 @@
             return url.indexOf('?') !== -1 ? url + '&' + param : url + '?' + param;
         }
 
+        function _traceId() {
+            return Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        }
+
         var player = null;
         var video = null;
         var _destroyed = false;
@@ -103,6 +107,7 @@
          * the element's own reports re-sync the phantom within one broadcast cycle. */
         var _wsConnectedAt = 0;
         var _yankEnabled = false;
+        var _lastProgressTime = 0;
 
         /* ---------- In-place source-swap hardening (per-instance, never global - B9) ----------
          * While a remote source swap is in progress, suppress stale broadcasts and the
@@ -209,7 +214,7 @@
         function _buildStreamUrl(startAbs, quality) {
             /* Direct-streamed files ignore ?start= (server has no start param on the
              * direct path), so never bake it — a native seek after load handles resume. */
-            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs) + '&trace=' + Date.now());
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs) + '&trace=' + _traceId());
             if (quality && quality > 0) url += (_isDirectFile ? '?' : '&') + 'quality=' + quality;
             return _withNativeHevc(url);
         }
@@ -451,6 +456,7 @@
             var url = _buildStreamUrl(absTarget, _currentQuality);
 
             try { video.pause(); } catch (e) {}
+            var _savedRate = video.playbackRate;
             video.src = "";
             try { video.load(); } catch (e) {}
 
@@ -492,9 +498,13 @@
                         _swapInProgress = false;
                         setTimeout(function() {
                             if (swapToken !== _swapToken) return;
-                            video.src = url;
-                            try { video.load(); } catch (e) {}
-                            try { video.play().catch(function() {}); } catch (e) {}
+                            // B4/D6: re-arm swap suppression for the retry load — mirror
+                            // videojs _performSwapLoad error handler (line 733).
+                                _swapInProgress = true;
+                                video.src = url;
+                                try { video.load(); } catch (e) {}
+                                try { video.playbackRate = _savedRate; } catch (e) {}
+                                try { video.play().catch(function() {}); } catch (e) {}
                         }, 1000);
                     } else {
                         console.error('[OPlayerAdapter] Server-seek source failed after 3 retries');
@@ -511,6 +521,7 @@
 
             video.src = url;
             try { video.load(); } catch (e) {}
+            try { video.playbackRate = _savedRate; } catch (e) {}
             try { video.play().catch(function() {}); } catch (e) {}
         }
 
@@ -817,9 +828,14 @@
                     var ctype = cmd.type;
                     if (_destroyed) return;
 
+                    // B3/D6: suppress broadcast echo — server-commanded play/pause/seek
+                    // must not trigger _broadcastState back to the server.
+                    var _prevApplying = _applyingServerState;
+                    _applyingServerState = true;
+
                     if (ctype === 'select-subtitle') {
                         var idx = cmd.payload && cmd.payload.index;
-                        if (idx == null) return;
+                        if (idx == null) { _applyingServerState = _prevApplying; return; }
 
                         if (idx === -1) {
                             _subtitleIdx = -1;
@@ -853,7 +869,7 @@
 
                     } else if (ctype === 'select-audio') {
                         var idx = cmd.payload && cmd.payload.index;
-                        if (idx == null) return;
+                        if (idx == null) { _applyingServerState = _prevApplying; return; }
 
                         var maxAttempts = 25;
                         var attempt = 0;
@@ -886,6 +902,7 @@
                             _serverSeekTo(t);
                         }
                     }
+                    _applyingServerState = _prevApplying;
                 },
                 onStateUpdate: function(state) {
                     if (!state || _destroyed || !video) return;
@@ -913,7 +930,7 @@
                         /* Direct-streamed files ignore ?start=: load without the param and
                          * restore the position with a native seek (loadeddata handler below). */
                         var startParam = (!_isDirectFile && startAbs > 0) ? 'start=' + startAbs + '&' : '';
-                        var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now());
+                        var url = _withNativeHevc('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + _traceId());
                         /* The new stream's timestamps restart at 0 relative to the baked
                          * ?start= param, so the element clock 0 == absolute startAbs.
                          * Direct-streamed files have no baked param: offset stays 0 and
@@ -922,6 +939,13 @@
                         _subtitleBaseOffset = _streamStartOffset;
 
                         function loadSwapSource() {
+                            /* Clear any previously painted frame (e.g. the previous
+                             * video's last frame) so a frozen frame from an old movie
+                             * cannot linger while the new source loads. */
+                            try {
+                                vEl.removeAttribute('src');
+                                vEl.load();
+                            } catch (e) {}
                             vEl.src = url;
                             try { vEl.load(); } catch (e) {}
                             /* Restore volume/mute from localStorage (mirror SimplePlayer swap) */
@@ -1041,12 +1065,17 @@
                              * of the element's real position: a phantom behind it is stale
                              * server memory (e.g. selectVideo reset to 0 while the element is
                              * mid-play), and yanking backward to it is the seek/load bounce. */
-                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= (video.currentTime || 0) + _streamStartOffset && (!locked || converged)) {
+                            /* F1: only yank when element is NOT paused and progress is fresh
+                             * (progressAge < 8s) — mirrors simple-player.js gate. Clear
+                             * _yankEnabled after the check so the flag can't stick across
+                             * pause/stall boundaries. */
+                            if (_yankEnabled && !video.paused && (Date.now() - _lastProgressTime) < 8000 && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= (video.currentTime || 0) + _streamStartOffset && (!locked || converged)) {
                                 try {
                                     console.warn('[OPlayerAdapter] Drift-yank ' + (video.currentTime || 0).toFixed(2) + ' -> ' + relTarget.toFixed(2) + ' (phantom ' + state.currentTime.toFixed(2) + ', offset ' + _streamStartOffset + ')');
                                     video.currentTime = relTarget;
                                 } catch (e) {}
                             }
+                            _yankEnabled = false;
                         }
                     } catch (e) {
                         console.error('[OplayerAdapter] onStateUpdate error', e);
@@ -1533,6 +1562,7 @@
              * reports it lags after a seek and the drift-sync yanks back every 3s. */
             video.addEventListener('timeupdate', function() {
                 _yankEnabled = true;
+                _lastProgressTime = Date.now();
                 _broadcastState();
                 _dismissErrorOverlay();
             });

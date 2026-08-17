@@ -39,7 +39,8 @@
                         st.duration].join('|');
             }
             try {
-                const res = await fetch('/api/video/playback/current');
+                const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+                const res = await fetch('/api/video/playback/current?profileId=' + encodeURIComponent(profileId));
                 const data = await res.json();
                 if (data.success) {
                     const newState = data.video;

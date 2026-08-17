@@ -37,6 +37,7 @@
          * the element's own reports re-sync the phantom within one broadcast cycle. */
         var _wsConnectedAt = 0;
         var _yankEnabled = false;
+        var _lastProgressTime = 0;
         // pid was previously scoped inside _initWebSocket only; _broadcastState referencing it threw a strict-mode ReferenceError
         var pid = profileId;
 
@@ -60,6 +61,10 @@
             return url.indexOf('?') !== -1 ? url + '&' + param : url + '?' + param;
         }
 
+        function _traceId() {
+            return Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        }
+
         /* ---------- Build stream URL ---------- */
         var startTime = parseFloat(container.dataset.startTime || '0');
         /* Direct-streamed files (no transcode AND no conversion) are served raw by the
@@ -72,7 +77,7 @@
          * on the URL and can resume a STALE response (bytes=<total>- -> 416) when the
          * same URL is loaded again — the page-load bounce. Direct-streamed files are
          * served no-cache with native byte-range resume, so they stay unbusted. */
-        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (!_isDirectFile ? '?start=' + Math.max(0, startTime) + '&trace=' + Date.now() : '')));
+        var streamUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (!_isDirectFile ? '?start=' + Math.max(0, startTime) + '&trace=' + _traceId() : '')));
         var streamType = streamUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
 
         /* Absolute stream time base: the server's ?start=N remux emits RELATIVE
@@ -98,7 +103,7 @@
         function _buildStreamUrl(startAbs, quality) {
             /* Direct-streamed files ignore ?start= (server has no start param on the
              * direct path), so never bake it — a native seek after load handles resume. */
-            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs) + '&trace=' + Date.now());
+            var url = '/api/video/stream/' + encodeURIComponent(videoId) + '.mp4' + (_isDirectFile ? '' : '?start=' + Math.max(0, startAbs) + '&trace=' + _traceId());
             if (quality && quality > 0) url += (_isDirectFile ? '?' : '&') + 'quality=' + quality;
             return _withNativeHevc(url);
         }
@@ -207,7 +212,9 @@
             _swapTimeout = setTimeout(function() { _endServerSeek(false); }, 10000);
 
             try { vjsPlayer.pause(); } catch (e) {}
+            var _savedRate = vjsPlayer.playbackRate();
             vjsPlayer.src({ src: url, type: newType });
+            try { vjsPlayer.playbackRate(_savedRate); } catch (e) {}
             try { vjsPlayer.play().catch(function() {}); } catch (e) {}
         }
 
@@ -223,6 +230,17 @@
             },
             sources: [{ src: streamUrl, type: streamType }]
         });
+
+        /* F4: Shadow currentTime() getter so the control bar displays absolute
+         * stream time (element time + offset) instead of raw element time on
+         * ?start= streams — mirrors OPlayer's currentTime property shadow. */
+        var _vjsOrigCurrentTime = vjsPlayer.currentTime.bind(vjsPlayer);
+        vjsPlayer.currentTime = function(val) {
+            if (val === undefined || val === null) {
+                return _vjsOrigCurrentTime() + _streamStartOffset;
+            }
+            return _vjsOrigCurrentTime(val);
+        };
 
         /* Restore volume/mute from localStorage with exponential curve (matching JMedia default player) */
         var savedVolume = Math.pow(parseFloat(localStorage.getItem(volumeKey) || '0.7'), 2);
@@ -261,7 +279,9 @@
          * the true content start at load so seek/broadcast/drift math stays on the
          * real timeline (mirrors the OPlayer adapter's loadeddata sampler). */
         vjsPlayer.on('loadeddata', function() {
-            var ct = vjsPlayer.currentTime() || 0;
+            /* F4: read raw element time (not the overridden vjsPlayer.currentTime()
+             * which adds _streamStartOffset) to correctly derive the content start. */
+            var ct = videoEl.currentTime || 0;
             var base = Math.max(0, _streamStartOffset - ct);
             if (Math.abs(base - _streamStartOffset) > 0.1) {
                 _streamStartOffset = base;
@@ -337,7 +357,7 @@
                  * into ?start=<abs>&quality=<q> so the element restarts at 0 relative
                  * to the position (previously the relative time was baked AND sought
                  * after reload, landing at 2x the position). */
-                var currentTime = (vjsPlayer.currentTime() || 0) + _streamStartOffset;
+                var currentTime = vjsPlayer.currentTime() || 0;
                 _currentQuality = quality;
                 _serverSeekTo(currentTime, true);
                 return;
@@ -351,14 +371,15 @@
         });
 
         /* Close menu when clicking outside */
-        document.addEventListener('click', function(e) {
+        var _onDocClick = function(e) {
             if (subtitleMenu.classList.contains('active') &&
                 !subtitleMenu.contains(e.target) &&
                 e.target !== settingsToggleBtn &&
                 !settingsToggleBtn.contains(e.target)) {
                 subtitleMenu.classList.remove('active');
             }
-        });
+        };
+        document.addEventListener('click', _onDocClick);
 
         /* ---------- Subtitle Timing Offset ---------- */
         var subMinus = document.getElementById('subMinusBtn');
@@ -483,16 +504,13 @@
             }
         }
 
-        document.addEventListener('fullscreenchange', function() {
+        var _onFullscreenChange = function() {
             if (_isCssFS) return;
             var isFS = document.fullscreenElement || document.webkitFullscreenElement;
             container.classList.toggle('is-fullscreen', !!isFS);
-        });
-        document.addEventListener('webkitfullscreenchange', function() {
-            if (_isCssFS) return;
-            var isFS = document.fullscreenElement || document.webkitFullscreenElement;
-            container.classList.toggle('is-fullscreen', !!isFS);
-        });
+        };
+        document.addEventListener('fullscreenchange', _onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', _onFullscreenChange);
 
         /* iOS native fullscreen events on the video element */
         videoEl.addEventListener('webkitbeginfullscreen', function() {
@@ -511,15 +529,15 @@
         if (backBtn) backBtn.addEventListener('click', function() { history.back(); });
 
         /* ---------- Keyboard shortcuts (capture phase to bypass Video.js internal handlers) ---------- */
-        document.addEventListener('keydown', function(e) {
+        var _onKeydown = function(e) {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             switch (e.key) {
                 case ' ':
                 case 'k': e.preventDefault(); if (vjsPlayer.paused()) vjsPlayer.play().catch(function() {}); else vjsPlayer.pause(); break;
                 case 'f': e.preventDefault(); toggleFullscreen(); break;
                 case 'm': e.preventDefault(); vjsPlayer.muted(!vjsPlayer.muted()); break;
-                case 'ArrowLeft': e.preventDefault(); _serverSeekTo(Math.max(0, (vjsPlayer.currentTime() || 0) + _streamStartOffset - 15)); break;
-                case 'ArrowRight': e.preventDefault(); var absDur = _knownDuration(); if (!isFinite(absDur)) absDur = (vjsPlayer.duration() || 0) + _streamStartOffset; _serverSeekTo(Math.min(absDur, (vjsPlayer.currentTime() || 0) + _streamStartOffset + 15)); break;
+                case 'ArrowLeft': e.preventDefault(); _serverSeekTo(Math.max(0, (vjsPlayer.currentTime() || 0) - 15)); break;
+                case 'ArrowRight': e.preventDefault(); var absDur = _knownDuration(); if (!isFinite(absDur)) absDur = (vjsPlayer.duration() || 0) + _streamStartOffset; _serverSeekTo(Math.min(absDur, (vjsPlayer.currentTime() || 0) + 15)); break;
                 case 'ArrowUp':
                     e.preventDefault();
                     vjsPlayer.volume(Math.min(1, (vjsPlayer.volume() || 0) + 0.1));
@@ -529,7 +547,8 @@
                     vjsPlayer.volume(Math.max(0, (vjsPlayer.volume() || 0) - 0.1));
                     break;
             }
-        }, true);
+        };
+        document.addEventListener('keydown', _onKeydown, true);
 
         /* ---------- Stream status reporting for live channels ---------- */
         var _liveChannelId = container.dataset.liveChannelId;
@@ -565,7 +584,7 @@
                             clearTimeout(_swapTimeout);
                             // Cache-bust the new source URL so the browser cannot serve the old episode from cache
                             var isExternalSwap = !!container.dataset.externalUrl;
-                            var newUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?trace=' + Date.now()));
+                            var newUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?trace=' + _traceId()));
                             videoId = newId;  // update the closure variable
                             container.dataset.videoId = newId;
                             /* Refresh data-duration for the new episode so the loadedmetadata
@@ -593,7 +612,7 @@
                             var noStartBake = isExternalSwap || _isDirectFile;
                             _streamStartOffset = noStartBake ? 0 : resumeTime;
                             var startParam = (!noStartBake && resumeTime > 0) ? 'start=' + Math.floor(resumeTime) + '&' : '';
-                            newUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + Date.now()));
+                            newUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(newId) + '.mp4?' + startParam + 'trace=' + _traceId()));
                             newType = newUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
                             _performSwapLoad(newUrl, newType, noStartBake ? resumeTime : 0, !!state.playing, _streamStartOffset);
                             return;  // still hits the finally block
@@ -630,10 +649,15 @@
                              * of the element's real position: a phantom behind it is stale
                              * server memory (e.g. selectVideo reset to 0 while the element is
                              * mid-play), and yanking backward to it is the seek/load bounce. */
-                            if (_yankEnabled && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= (videoEl.currentTime || 0) + _streamStartOffset && (!locked || converged)) {
+                            /* F1: only yank when element is NOT paused and progress is fresh
+                             * (progressAge < 8s) — mirrors simple-player.js gate. Clear
+                             * _yankEnabled after the check so the flag can't stick across
+                             * pause/stall boundaries. */
+                            if (_yankEnabled && !videoEl.paused && (Date.now() - _lastProgressTime) < 8000 && (Date.now() - _wsConnectedAt) >= 3000 && drift > 3 && state.currentTime >= (videoEl.currentTime || 0) + _streamStartOffset && (!locked || converged)) {
                                 console.warn('[VideojsAdapter] Drift-yank ' + (videoEl.currentTime || 0).toFixed(2) + ' -> ' + relTarget.toFixed(2) + ' (phantom ' + state.currentTime.toFixed(2) + ', offset ' + _streamStartOffset + ')');
                                 videoEl.currentTime = relTarget;
                             }
+                            _yankEnabled = false;
                         }
                     } finally {
                         _applyingServerState = false;
@@ -647,9 +671,13 @@
                     }
                     var ctype = cmd.type;
                     if (!vjsPlayer || _destroyed) return;
+                    // B3/D6: suppress broadcast echo — server-commanded play/pause/seek
+                    // must not trigger _broadcastState back to the server.
+                    var _prevApplying = _applyingServerState;
+                    _applyingServerState = true;
                     if (ctype === 'select-subtitle') {
                         var idx = cmd.payload && cmd.payload.index;
-                        if (idx == null) return;
+                        if (idx == null) { _applyingServerState = _prevApplying; return; }
                         var maxAttempts = 25;
                         var attempt = 0;
                         function trySelect() {
@@ -674,7 +702,7 @@
                         trySelect();
                     } else if (ctype === 'select-audio') {
                         var idx = cmd.payload && cmd.payload.index;
-                        if (idx == null) return;
+                        if (idx == null) { _applyingServerState = _prevApplying; return; }
                         var maxAttempts = 25;
                         var attempt = 0;
                         function trySelect() {
@@ -702,6 +730,7 @@
                             _serverSeekTo(t);
                         }
                     }
+                    _applyingServerState = _prevApplying;
                 }
             });
             _wsManager.connect();
@@ -731,7 +760,7 @@
                     setTimeout(function() {
                         if (_destroyed) return;
                         _swapInProgress = true;
-                        var retryUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?' + ((streamOffset && streamOffset > 0) ? 'start=' + Math.floor(streamOffset) + '&' : '') + 'trace=' + Date.now()));
+                        var retryUrl = _withNativeHevc(container.dataset.externalUrl || ('/api/video/stream/' + encodeURIComponent(videoId) + '.mp4?' + ((streamOffset && streamOffset > 0) ? 'start=' + Math.floor(streamOffset) + '&' : '') + 'trace=' + _traceId()));
                         _performSwapLoad(retryUrl, retryUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4', resumeTime, shouldPlay, streamOffset);
                     }, 1000);
                 } else {
@@ -784,12 +813,13 @@
 
         vjsPlayer.on('timeupdate', function() {
             _yankEnabled = true;
+            _lastProgressTime = Date.now();
             _broadcastState();
         });
 
         vjsPlayer.on('seeked', function() {
             _localSeekAt = Date.now();
-            _localSeekPos = (vjsPlayer.currentTime() || 0) + _streamStartOffset;
+                _localSeekPos = vjsPlayer.currentTime() || 0;
             _broadcastState();
             setTimeout(function() { _broadcastState(); }, 150);
         });
@@ -853,7 +883,7 @@
                     try { vjsPlayer.removeRemoteTextTrack(tracks[i]); } catch (e) {}
                 }
             },
-            getCurrentTime: function() { return (vjsPlayer.currentTime() || 0) + _streamStartOffset; },
+            getCurrentTime: function() { return vjsPlayer.currentTime() || 0; },
             setCurrentTime: function(t) { _serverSeekTo(t); },
             getDuration: function() {
                 var d = vjsPlayer.duration();
@@ -893,14 +923,20 @@
         console.log('[VideoJsAdapter] Initialized with videoId:', videoId);
 
         /* Re-acquire wake lock when page becomes visible again and video is playing */
-        document.addEventListener('visibilitychange', function() {
+        var _onVisibilityChange = function() {
             if (document.visibilityState === 'visible' && !vjsPlayer.paused()) {
                 PlayerUtils?.requestWakeLock?.();
             }
-        });
+        };
+        document.addEventListener('visibilitychange', _onVisibilityChange);
 
         window.destroyVideoJsAdapter = function() {
             _destroyed = true;
+            document.removeEventListener('click', _onDocClick);
+            document.removeEventListener('fullscreenchange', _onFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', _onFullscreenChange);
+            document.removeEventListener('keydown', _onKeydown, true);
+            document.removeEventListener('visibilitychange', _onVisibilityChange);
             // Send a FINAL state report so the server stops its playback timer when the player is torn down
             if (_wsManager && _wsManager.connected) {
                 try {

@@ -66,7 +66,15 @@
             var cb = this.onStateUpdate || this.onState;
             // Server sends {type:'state', payload:<ProfileSessionState>}. Adapters expect the
             // ProfileSessionState object directly (state.currentVideoId at top level), so pass payload.
-            if (cb) { try { cb(message.payload); } catch (e) { console.error('[VideoWebSocketManager] onStateUpdate error', e); } }
+            // Defense in depth: the server routes per-profile, but never apply a
+            // state that belongs to a different profile if one does slip through.
+            var payload = message.payload;
+            if (payload && payload.profileId != null && this.profileId != null
+                    && Number(payload.profileId) !== Number(this.profileId)) {
+                console.warn('[VideoWebSocketManager] Dropping foreign-profile state: payload.profileId=' + payload.profileId + ' this.profileId=' + this.profileId);
+                return;
+            }
+            if (cb) { try { cb(payload); } catch (e) { console.error('[VideoWebSocketManager] onStateUpdate error', e); } }
         }
     };
 

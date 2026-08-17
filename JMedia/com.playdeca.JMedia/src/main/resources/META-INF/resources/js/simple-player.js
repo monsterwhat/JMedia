@@ -22,7 +22,7 @@ if (typeof window.SimplePlayer === 'undefined') {
             // browser can play HEVC natively (e.g. Chrome with HEVC Video Extensions),
             // skip the server-side FFmpeg transcode and request the lightweight remux.
             const codec = (this.container.dataset.videoCodec || '').toLowerCase();
-            if ((this.needsTranscode || this.needsConversion) && (codec.includes('hevc') || codec.includes('h265'))) {
+            if ((this.needsTranscode || this.needsConversion) && (codec.includes('hevc') || codec.includes('h265') || codec.includes('hvc1') || codec.includes('hev1'))) {
                 if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport()) {
                     this.needsTranscode = false;
                     this.needsConversion = false;
@@ -64,6 +64,7 @@ if (typeof window.SimplePlayer === 'undefined') {
 
             this._cleanupOnUnload = () => {
                 this.progressReporter.saveNow();
+                this.progressReporter.stop();
                 if (this._hlsInstance) {
                     this._hlsInstance.destroy();
                     this._hlsInstance = null;
@@ -158,7 +159,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 };
                 this._setupStreamErrorHandler = setupStreamErrorHandler;
                 this.streamMgr._preloadSubtitleTracks().then(() => {
-                    this.video.addEventListener('error', this._setupStreamErrorHandler, { once: true });
+                    this.video.addEventListener('error', this._setupStreamErrorHandler);
                     setupStream();
                 });
             } else {
@@ -171,6 +172,27 @@ if (typeof window.SimplePlayer === 'undefined') {
                 params.push(`trace=${_traceId()}`);
                 this.video.src = `/api/video/stream/${this.videoId}.mp4?${params.join('&')}`;
                 this.subtitleController.loadSubtitles();
+                // F2a: Attach error handler for plain direct stream (was only on transcode path)
+                var self = this;
+                var _directStreamUrl = this.video.src;
+                this._setupStreamErrorHandler = function() {
+                    if (self._destroyed || !document.body.contains(self.container)) return;
+                    self._streamFallbackCount = (self._streamFallbackCount || 0) + 1;
+                    console.error('[SimplePlayer] Direct stream error (fallback ' + self._streamFallbackCount + '/' + self._maxStreamFallbacks + '):', self.video.error);
+                    if (self._streamFallbackCount < self._maxStreamFallbacks) {
+                        self._showLoading('Stream error, retrying...');
+                        setTimeout(function() {
+                            if (self._destroyed || !document.body.contains(self.container)) return;
+                            self.streamStartOffset = 0;
+                            self.video.src = _directStreamUrl;
+                            self.video.load();
+                            self.video.play().catch(function() {});
+                        }, 1000);
+                    } else {
+                        self._showLoading('Playback failed - try reloading');
+                    }
+                };
+                this.video.addEventListener('error', this._setupStreamErrorHandler);
                 this.video.play().then(() => {
                 }).catch(e => {
                     console.log('[SimplePlayer] Play requires user gesture:', e);
@@ -366,6 +388,11 @@ if (typeof window.SimplePlayer === 'undefined') {
                             if (!this.video.paused && progressAge < 8000) {
                                 // Server time is absolute; this element is relative (0-based) for ?start= streams.
                                 const target = state.currentTime - (this.streamStartOffset || 0);
+                                // S4: phantom-behind guard — when the server absolute
+                                // clock is behind this element's stream window start,
+                                // target goes negative; yanking currentTime backwards
+                                // past the buffer frontier stalls playback.
+                                if (target < 0) return;
                                 const dur = this.video.duration;
                                 const drift = Math.abs(this.video.currentTime - target);
                                 const lockAge = Date.now() - this._localSeekAt;
@@ -391,6 +418,12 @@ if (typeof window.SimplePlayer === 'undefined') {
                     }
                     var ctype = cmd.type;
                     if (this._destroyed) return;
+                    // B3: suppress local play/pause/seek event echo-back to the
+                    // server while handling a server-originated command (plain
+                    // save/restore — no try/finally spanning async select helpers).
+                    var prevAppState = this._applyingServerState;
+                    this._applyingServerState = true;
+                    try {
                     if (ctype === 'select-subtitle') {
                         const idx = cmd.payload && cmd.payload.index;
                         if (idx == null) return;
@@ -436,10 +469,14 @@ if (typeof window.SimplePlayer === 'undefined') {
                         if (this._destroyed) return;
                         const t = cmd.payload && cmd.payload.value;
                         if (typeof t === 'number' && isFinite(t)) {
-                            // Commands carry the absolute timeline; convert to the element's
-                            // relative (0-based) timebase for a ?start= stream (B11).
-                            try { this.video.currentTime = Math.max(0, t - (this.streamStartOffset || 0)); } catch (e) {}
+                            // S3: route through frontier-aware server-seek instead of
+                            // raw element seek — native-seeks in-buffer, reloads
+                            // via ?start= past-buffer (prevents stall on past-buffer targets).
+                            this.performServerSeek(t);
                         }
+                    }
+                    } finally {
+                        this._applyingServerState = prevAppState;
                     }
                 }
             });
@@ -512,7 +549,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this._hlsInstance.destroy();
                 this._hlsInstance = null;
             }
-            clearInterval(this._prog);
+            this.progressReporter.stop();
             this.progressReporter.setMusicSuspended(false);
             this.video.pause();
             this.video.src = "";
