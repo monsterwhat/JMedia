@@ -20,6 +20,7 @@ import java.util.Map;
 public class SubtitleTrackService {
 
     private static final Logger LOG = LoggerFactory.getLogger(SubtitleTrackService.class);
+    private static final int MAX_SUBTITLE_BASE64_LENGTH = 40_000_000;
 
     @Inject
     SubtitleDownloadService downloadService;
@@ -86,11 +87,15 @@ public class SubtitleTrackService {
             return UploadResult.badRequest("Unsupported subtitle format: " + ext + ". Supported: srt, vtt, ass, ssa, sub, idx");
         }
 
+        String payload = content.contains(",") ? content.split(",")[1] : content;
+        if (payload.length() > MAX_SUBTITLE_BASE64_LENGTH) {
+            return UploadResult.badRequest("Subtitle file too large");
+        }
         byte[] fileBytes;
-        if (content.contains(",")) {
-            fileBytes = Base64.getDecoder().decode(content.split(",")[1]);
-        } else {
-            fileBytes = Base64.getDecoder().decode(content);
+        try {
+            fileBytes = Base64.getDecoder().decode(payload);
+        } catch (IllegalArgumentException e) {
+            return UploadResult.badRequest("Invalid subtitle file content");
         }
 
         String videoPathStr = video.path;

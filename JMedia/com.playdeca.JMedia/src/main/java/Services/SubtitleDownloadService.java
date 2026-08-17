@@ -380,20 +380,48 @@ public class SubtitleDownloadService {
         Video managedVideo = Video.findById(video.id);
         if (managedVideo == null) return;
 
-        Path path = Paths.get(filePath);
-        if (!Files.exists(path)) {
+        String ext = getFileExtension(filePath);
+        if (!List.of("srt", "vtt", "ass", "ssa", "sub", "idx").contains(ext)) {
+            throw new RuntimeException("Unsupported subtitle format: " + ext + ". Supported: srt, vtt, ass, ssa, sub, idx");
+        }
+
+        String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
+        Path videoPath = Paths.get(managedVideo.path);
+        if (!videoPath.isAbsolute()) {
+            videoPath = Paths.get(libraryPath, managedVideo.path);
+        }
+        Path videoDir = videoPath.toAbsolutePath().normalize().getParent();
+        if (videoDir == null) {
+            throw new RuntimeException("Cannot determine video directory");
+        }
+
+        Path candidate = Paths.get(filePath);
+        if (!candidate.isAbsolute()) {
+            candidate = videoDir.resolve(candidate);
+        }
+
+        Path path;
+        Path videoDirCanonical;
+        try {
+            path = candidate.toRealPath();
+            videoDirCanonical = Files.exists(videoDir) ? videoDir.toRealPath() : videoDir;
+        } catch (IOException e) {
             throw new RuntimeException("File does not exist: " + filePath);
+        }
+        if (!path.startsWith(videoDirCanonical)) {
+            throw new RuntimeException("Subtitle file must be located in the video directory");
         }
 
         // Check for duplicates
-        if (managedVideo.subtitleTracks != null && managedVideo.subtitleTracks.stream().anyMatch(t -> t.fullPath.equals(filePath))) {
+        if (managedVideo.subtitleTracks != null && managedVideo.subtitleTracks.stream()
+                .anyMatch(t -> filePath.equals(t.fullPath) || t.fullPath != null && t.fullPath.equals(path.toString()))) {
             return;
         }
 
         // Create manual track
         SubtitleTrack track = new SubtitleTrack();
         track.filename = path.getFileName().toString();
-        track.fullPath = filePath;
+        track.fullPath = path.toString();
         track.format = getFileExtension(track.filename);
         track.video = managedVideo;
         track.isManual = true;

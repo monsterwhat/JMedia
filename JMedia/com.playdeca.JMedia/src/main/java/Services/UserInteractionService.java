@@ -1,6 +1,7 @@
 package Services;
 
 import Models.Video.UserSubtitlePreferences;
+import Models.Video.UserPerVideoSubtitlePreference;
 import Models.Video.Video;
 import Models.Settings.User;
 import Models.Video.SubtitleTrack;
@@ -39,6 +40,26 @@ public class UserInteractionService {
     }
     
     // Video interaction methods
+    @Transactional
+    public SubtitleTrack getPerVideoPreferenceTrack(Long userId, Long videoId) {
+        UserPerVideoSubtitlePreference pref = UserPerVideoSubtitlePreference.findByUserAndVideo(userId, videoId);
+        if (pref == null || pref.trackId == null) return null;
+        return SubtitleTrack.findById(pref.trackId);
+    }
+
+    @Transactional
+    public void setPerVideoPreference(Long userId, Long videoId, Long trackId) {
+        if (videoId == null) return;
+        UserPerVideoSubtitlePreference pref = UserPerVideoSubtitlePreference.findByUserAndVideo(userId, videoId);
+        if (pref == null) {
+            pref = new UserPerVideoSubtitlePreference();
+            pref.userId = userId;
+            pref.videoId = videoId;
+        }
+        pref.trackId = trackId;
+        pref.persist();
+    }
+
     @Transactional
     public void markAsFavorite(Long videoId, Long userId) {
         Video video = Video.findById(videoId);

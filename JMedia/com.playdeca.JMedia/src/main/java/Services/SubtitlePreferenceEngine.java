@@ -181,9 +181,8 @@ public class SubtitlePreferenceEngine {
     }
     
     private SubtitleTrack getPerVideoPreference(Long videoId, Long userId) {
-        // In a real implementation, this would check a user preference table
-        // For now, return null to use auto-selection
-        return null;
+        if (videoId == null || userId == null) return null;
+        return userInteractionService.getPerVideoPreferenceTrack(userId, videoId);
     }
     
     public List<SubtitleTrack> sortTracksByPreference(List<SubtitleTrack> tracks, Long userId) {

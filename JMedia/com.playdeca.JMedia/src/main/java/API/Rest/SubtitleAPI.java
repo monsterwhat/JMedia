@@ -114,8 +114,9 @@ public class SubtitleAPI {
             List<SubtitleSearchResult> results = downloadService.searchSubtitles(video, language, query);
             return Response.ok(results).build();
         } catch (Exception e) {
+            LOGGER.error("Subtitle search failed", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Search failed: " + e.getMessage())).build();
+                    .entity(Map.of("error", "Subtitle search failed")).build();
         }
     }
     
@@ -153,8 +154,9 @@ public class SubtitleAPI {
             
             return Response.ok(response).build();
         } catch (Exception e) {
+            LOGGER.error("Subtitle download failed", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Download failed: " + e.getMessage())).build();
+                    .entity(Map.of("error", "Subtitle download failed")).build();
         }
     }
     
@@ -170,8 +172,9 @@ public class SubtitleAPI {
             List<Models.DTOs.LocalSubtitleFile> potentialTracks = downloadService.scanAllSubtitleFiles(video);
             return Response.ok(potentialTracks).build();
         } catch (Exception e) {
+            LOGGER.error("Failed to scan local subtitle files", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Failed to scan local files: " + e.getMessage())).build();
+                    .entity(Map.of("error", "Failed to scan local files")).build();
         }
     }
     
@@ -210,11 +213,9 @@ public class SubtitleAPI {
             
             return Response.ok(response).build();
         } catch (Exception e) {
-            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            System.err.println("API Error adding local subtitle: " + errorMsg);
-            e.printStackTrace();
+            LOGGER.error("Failed to add local subtitle", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Failed to add local subtitle: " + errorMsg)).build();
+                    .entity(Map.of("error", "Failed to add local subtitle")).build();
         }
     }
     
@@ -257,7 +258,7 @@ public class SubtitleAPI {
         } catch (Exception e) {
             LOGGER.error("Error uploading subtitle", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Upload failed: " + e.getMessage())).build();
+                    .entity(Map.of("error", "Subtitle upload failed")).build();
         }
     }
       
@@ -329,8 +330,9 @@ public class SubtitleAPI {
             return Response.ok(response).build();
             
         } catch (Exception e) {
+            LOGGER.error("Failed to load subtitle tracks", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", e.getMessage()))
+                    .entity(Map.of("error", "Failed to load subtitle tracks"))
                     .build();
         }
     }
@@ -378,7 +380,7 @@ public class SubtitleAPI {
                 java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
                 if (!java.nio.file.Files.exists(subtitlePath)) {
                     return Response.status(Response.Status.NOT_FOUND)
-                            .entity("Subtitle file not found at: " + track.fullPath)
+                            .entity("Subtitle file not found")
                             .build();
                 }
                 
@@ -409,7 +411,7 @@ public class SubtitleAPI {
         } catch (Exception e) {
             LOGGER.error("Error streaming subtitle track {}: {}", trackId, e.getMessage(), e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("Failed to stream subtitle: " + e.getMessage())
+                    .entity("Failed to stream subtitle")
                     .build();
         }
     }
@@ -441,7 +443,7 @@ public class SubtitleAPI {
                 java.nio.file.Path subtitlePath = java.nio.file.Paths.get(track.fullPath);
                 if (!java.nio.file.Files.exists(subtitlePath)) {
                     return Response.status(Response.Status.NOT_FOUND)
-                            .entity("Subtitle file not found at: " + track.fullPath)
+                            .entity("Subtitle file not found")
                             .build();
                 }
                 content = java.nio.file.Files.readString(subtitlePath, java.nio.charset.StandardCharsets.UTF_8);
@@ -467,7 +469,7 @@ public class SubtitleAPI {
         } catch (Exception e) {
             LOGGER.error("Error streaming raw subtitle track {}: {}", trackId, e.getMessage(), e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("Failed to stream raw subtitle: " + e.getMessage())
+                    .entity("Failed to stream raw subtitle")
                     .build();
         }
     }
@@ -600,8 +602,9 @@ public class SubtitleAPI {
             return Response.ok(response).build();
             
         } catch (Exception e) {
+            LOGGER.error("Error updating subtitle preferences", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("Error updating subtitle preferences: " + e.getMessage())
+                    .entity("Error updating subtitle preferences")
                     .build();
         }
     }
@@ -611,20 +614,37 @@ public class SubtitleAPI {
     @Consumes(MediaType.APPLICATION_JSON)
     public Response setPerVideoPreference(Map<String, Object> preference) {
         try {
-            Long userId = ((Number) preference.get("userId")).longValue();
-            Long videoId = ((Number) preference.get("videoId")).longValue();
-            Long trackId = preference.containsKey("trackId") ? 
-                           ((Number) preference.get("trackId")).longValue() : null;
-            
+            Number userIdNum = (Number) preference.get("userId");
+            Number videoIdNum = (Number) preference.get("videoId");
+            if (userIdNum == null || videoIdNum == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity("userId and videoId are required")
+                        .build();
+            }
+            Long userId = userIdNum.longValue();
+            Long videoId = videoIdNum.longValue();
+            Long trackId = preference.containsKey("trackId") && preference.get("trackId") != null
+                    ? ((Number) preference.get("trackId")).longValue() : null;
+            if (trackId != null) {
+                SubtitleTrack track = SubtitleTrack.findById(trackId);
+                if (track == null || track.video == null || !track.video.id.equals(videoId)) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity("trackId does not belong to the given video")
+                            .build();
+                }
+            }
+            userInteractionService.setPerVideoPreference(userId, videoId, trackId);
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Per-video preference stored");
-            
+
             return Response.ok(response).build();
-            
+
         } catch (Exception e) {
+            LOGGER.error("Error storing per-video preference", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity("Error storing per-video preference: " + e.getMessage())
+                    .entity("Error storing per-video preference")
                     .build();
         }
     }
