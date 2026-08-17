@@ -71,10 +71,10 @@ public class XtreamCodesAPI {
         if (vodId != null) allParams.put("vod_id", String.valueOf(vodId));
         if (liveStreamId != null) allParams.put("stream_id", String.valueOf(liveStreamId));
         if (epgLimit != null) allParams.put("limit", String.valueOf(epgLimit));
-        // Also dump raw query string to catch any params we don't have @QueryParam for
+        // Also dump raw query string to catch any params we don't have @QueryParam for (password redacted)
         try {
             String rawQuery = uriInfo.getRequestUri().getQuery();
-            log.infof("Xtream request: %s, rawQuery=%s", allParams, rawQuery);
+            log.infof("Xtream request: %s, rawQuery=%s", allParams, redactQuery(rawQuery));
         } catch (Exception e) {
             log.infof("Xtream request: %s (could not get raw query: %s)", allParams, e.getMessage());
         }
@@ -201,8 +201,10 @@ public class XtreamCodesAPI {
 
     @GET
     @Path("/movie/{username}/{password}/{videoId}.{ext}")
-    public Response streamMovie(@PathParam("videoId") Long videoId, @PathParam("ext") String ext,
+    public Response streamMovie(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
+                                @PathParam("videoId") Long videoId, @PathParam("ext") String ext,
                                 @HeaderParam("Range") String rangeHeader) {
+        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
         log.infof("Stream movie request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
         Video video = Video.findById(videoId);
         if (video == null) { log.warnf("Movie not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
@@ -211,8 +213,10 @@ public class XtreamCodesAPI {
 
     @GET
     @Path("/series/{username}/{password}/{videoId}.{ext}")
-    public Response streamSeries(@PathParam("videoId") Long videoId, @PathParam("ext") String ext,
+    public Response streamSeries(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
+                                 @PathParam("videoId") Long videoId, @PathParam("ext") String ext,
                                  @HeaderParam("Range") String rangeHeader) {
+        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
         log.infof("Stream series request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
         Video video = Video.findById(videoId);
         if (video == null) { log.warnf("Series episode not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
@@ -221,7 +225,9 @@ public class XtreamCodesAPI {
 
     @GET
     @Path("/{username}/{password}/{channelId}.m3u8")
-    public Response streamLive(@PathParam("channelId") Long channelId) {
+    public Response streamLive(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
+                               @PathParam("channelId") Long channelId) {
+        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
         log.infof("Stream live request: channelId=%d", channelId);
         LiveChannel ch = LiveChannel.findById(channelId);
         if (ch == null || ch.streamUrl == null || ch.streamUrl.isBlank()) {
@@ -229,7 +235,23 @@ public class XtreamCodesAPI {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
         log.infof("Proxying live stream: channelId=%d, url=%s", channelId, ch.streamUrl);
-        return proxyExternalStream(ch.streamUrl);
+        return proxyExternalStream(ch.streamUrl, pathUsername, pathPassword);
+    }
+
+    private boolean isValidStreamCredentials(String pathUsername, String pathPassword) {
+        if (pathUsername == null || pathUsername.isBlank() || pathPassword == null || pathPassword.isBlank()) {
+            log.warnf("Stream auth failed: missing credentials");
+            return false;
+        }
+        return authService.authenticate(pathUsername, pathPassword).isPresent();
+    }
+
+    private Response unauthorizedStreamResponse() {
+        java.util.Map<String, Object> authFail = new java.util.HashMap<>();
+        java.util.Map<String, Object> userInfo = new java.util.HashMap<>();
+        userInfo.put("auth", 0);
+        authFail.put("user_info", userInfo);
+        return Response.status(Response.Status.UNAUTHORIZED).entity(authFail).build();
     }
 
     private Response proxyLocalVideo(Video video, String ext, String rangeHeader) {
@@ -314,14 +336,63 @@ public class XtreamCodesAPI {
         return rb.build();
     }
 
-    private Response proxyExternalStream(String url) {
+    private boolean isBlockedSsrfUrl(String url) {
         try {
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            java.net.URI uri = java.net.URI.create(url);
+            String scheme = uri.getScheme();
+            if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
+                log.warnf("SSRF guard: blocked non-http(s) URL: %s", url);
+                return true;
+            }
+            String host = uri.getHost();
+            if (host == null) {
+                log.warnf("SSRF guard: blocked URL without host: %s", url);
+                return true;
+            }
+            for (java.net.InetAddress addr : java.net.InetAddress.getAllByName(host)) {
+                if (addr.isAnyLocalAddress() || addr.isLoopbackAddress()
+                        || addr.isLinkLocalAddress() || addr.isSiteLocalAddress()) {
+                    log.warnf("SSRF guard: blocked local/reserved address %s for host %s (url=%s)",
+                            addr.getHostAddress(), host, url);
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            log.warnf("SSRF guard: couldn't resolve host, blocking url=%s: %s", url, e.getMessage());
+            return true;
+        }
+    }
+
+    private java.net.HttpURLConnection openValidatedConnection(String url) throws Exception {
+        java.net.URL currentUrl = new java.net.URL(url);
+        java.net.HttpURLConnection conn = null;
+        for (int hop = 0; hop < 5; hop++) {
+            if (isBlockedSsrfUrl(currentUrl.toString())) {
+                throw new java.net.ConnectException("Blocked by SSRF guard: " + currentUrl);
+            }
+            conn = (java.net.HttpURLConnection) currentUrl.openConnection();
             conn.setRequestProperty("User-Agent", "JMedia/1.0");
-            conn.setInstanceFollowRedirects(true);
+            conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(10000);
             conn.setReadTimeout(30000);
             conn.connect();
+            int status = conn.getResponseCode();
+            if (status >= 300 && status < 400) {
+                String location = conn.getHeaderField("Location");
+                if (location == null) return conn;
+                conn.disconnect();
+                currentUrl = new java.net.URL(currentUrl, location);
+            } else {
+                return conn;
+            }
+        }
+        throw new java.net.ConnectException("Too many redirects: " + url);
+    }
+
+    private Response proxyExternalStream(String url, String pathUsername, String pathPassword) {
+        try {
+            java.net.HttpURLConnection conn = openValidatedConnection(url);
 
             int status = conn.getResponseCode();
             String contentType = conn.getContentType();
@@ -351,7 +422,10 @@ public class XtreamCodesAPI {
                         rewritten.append(line).append("\n");
                     } else {
                         String absoluteUrl = trimmed.startsWith("http") ? trimmed : baseUrl + trimmed;
-                        rewritten.append(proxyBase).append(java.net.URLEncoder.encode(absoluteUrl, java.nio.charset.StandardCharsets.UTF_8)).append("\n");
+                        rewritten.append(proxyBase).append(java.net.URLEncoder.encode(absoluteUrl, java.nio.charset.StandardCharsets.UTF_8))
+                                .append("&username=").append(java.net.URLEncoder.encode(pathUsername != null ? pathUsername : "", java.nio.charset.StandardCharsets.UTF_8))
+                                .append("&password=").append(java.net.URLEncoder.encode(pathPassword != null ? pathPassword : "", java.nio.charset.StandardCharsets.UTF_8))
+                                .append("\n");
                     }
                 }
                 return Response.ok(rewritten.toString())
@@ -377,8 +451,9 @@ public class XtreamCodesAPI {
             rb.entity(stream);
             return rb.build();
         } catch (Exception e) {
+            log.warnf("Proxy stream error: %s", e.getClass().getSimpleName());
             return Response.status(Response.Status.BAD_GATEWAY)
-                    .entity("{\"error\":\"Failed to connect to stream: " + e.getMessage() + "\"}")
+                    .entity("{\"error\":\"Failed to connect to stream\"}")
                     .type(MediaType.APPLICATION_JSON)
                     .build();
         }
@@ -388,7 +463,8 @@ public class XtreamCodesAPI {
     @Path("/proxy/stream")
     public Response proxyStream(@QueryParam("url") String url) {
         if (url == null || url.isBlank()) return Response.status(Response.Status.BAD_REQUEST).build();
-        return proxyExternalStream(url);
+        if (!isValidStreamCredentials(username, password)) return unauthorizedStreamResponse();
+        return proxyExternalStream(url, username, password);
     }
 
     private Response getSeriesInfo(String seriesId) {
@@ -399,10 +475,12 @@ public class XtreamCodesAPI {
         log.infof("getSeriesInfo: total episodes in DB=%d", episodes.size());
         log.infof("getSeriesInfo: episode seriesTitles sample (first 10): %s",
                 episodes.stream().filter(e -> e.seriesTitle != null).map(e -> e.seriesTitle).distinct().limit(10).collect(java.util.stream.Collectors.joining(", ")));
-        log.infof("getSeriesInfo: episode seriesTitle hashCodes (first 10): %s",
-                episodes.stream().filter(e -> e.seriesTitle != null).map(e -> e.seriesTitle).distinct().map(t -> t + "=" + t.hashCode() + "/abs=" + Math.abs(t.hashCode())).limit(10).collect(java.util.stream.Collectors.joining(", ")));
+        log.infof("getSeriesInfo: episode seriesTitle hashIds (first 10): %s",
+                episodes.stream().filter(e -> e.seriesTitle != null).map(e -> e.seriesTitle).distinct().map(t -> t + "=" + hashId(t)).limit(10).collect(java.util.stream.Collectors.joining(", ")));
         List<Video> seriesEpisodes = new ArrayList<Video>(episodes).stream()
-                .filter(e -> e.seriesTitle != null && (String.valueOf(e.seriesTitle.hashCode()).equals(seriesId) || String.valueOf(Math.abs(e.seriesTitle.hashCode())).equals(seriesId)))
+                .filter(e -> e.seriesTitle != null && (hashId(e.seriesTitle).equals(seriesId)
+                        || String.valueOf(e.seriesTitle.hashCode()).equals(seriesId)
+                        || String.valueOf(Math.abs(e.seriesTitle.hashCode())).equals(seriesId)))
                 .sorted(java.util.Comparator.comparing((Video e) -> e.seasonNumber != null ? e.seasonNumber : 0, java.util.Comparator.naturalOrder())
                         .thenComparing((Video e) -> e.episodeNumber != null ? e.episodeNumber : 0, java.util.Comparator.naturalOrder()))
                 .collect(Collectors.toList());
@@ -411,8 +489,8 @@ public class XtreamCodesAPI {
         if (seriesEpisodes.isEmpty()) {
             log.warnf("getSeriesInfo: no episodes found for seriesId=%s, dumping hash table:", seriesId);
             episodes.stream().filter(e -> e.seriesTitle != null).collect(Collectors.groupingBy(e -> e.seriesTitle))
-                    .forEach((title, eps) -> log.warnf("  title='%s', hashCode=%d, absHash=%d, episodeCount=%d",
-                            title, title.hashCode(), Math.abs(title.hashCode()), eps.size()));
+                    .forEach((title, eps) -> log.warnf("  title='%s', hashId=%s, episodeCount=%d",
+                            title, hashId(title), eps.size()));
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
@@ -528,11 +606,25 @@ public class XtreamCodesAPI {
         return Response.ok(categories).build();
     }
 
+    private java.util.Map<String, String> genreIdByName() {
+        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        for (Models.Video.Genre g : genres) {
+            map.put(g.name.toLowerCase(), g.id.toString());
+        }
+        return map;
+    }
+
     private Response getVodStreams(String catId) {
         List<Video> videos;
         if (catId != null && !catId.equals("0")) {
             // Find genre name from ID
-            Models.Video.Genre genre = Models.Video.Genre.findById(Long.parseLong(catId));
+            Models.Video.Genre genre = null;
+            try {
+                genre = Models.Video.Genre.findById(Long.parseLong(catId));
+            } catch (NumberFormatException e) {
+                genre = null;
+            }
             if (genre != null) {
                 videos = videoService.findByGenre(genre.name.toLowerCase(), 1, 1000);
             } else {
@@ -542,6 +634,7 @@ public class XtreamCodesAPI {
             videos = Video.find("type = 'movie'").list();
         }
 
+        java.util.Map<String, String> genreIds = genreIdByName();
         List<XtreamVodStream> streams = new ArrayList<>();
         int num = 1;
         for (Video v : videos) {
@@ -556,8 +649,7 @@ public class XtreamCodesAPI {
             s.containerExtension = "mp4";
             // Map the first genre ID if available
             if (v.genres != null && !v.genres.isEmpty()) {
-                Models.Video.Genre g = Models.Video.Genre.find("LOWER(name) = ?1", v.genres.get(0).toLowerCase()).firstResult();
-                s.categoryId = g != null ? g.id.toString() : "0";
+                s.categoryId = genreIds.getOrDefault(v.genres.get(0).toLowerCase(), "0");
             } else {
                 s.categoryId = "0";
             }
@@ -587,7 +679,7 @@ public class XtreamCodesAPI {
             for (LiveChannel ch : channels) {
                 String group = ch.groupTitle != null && !ch.groupTitle.isBlank() ? ch.groupTitle : null;
                 if (group != null && seenGroups.add(group)) {
-                    String groupCatId = "g_" + pl.id + "_" + group.hashCode();
+                    String groupCatId = "g_" + pl.id + "_" + hashId(group);
                     XtreamCategory groupCat = new XtreamCategory(groupCatId, group);
                     groupCat.parentId = Integer.parseInt(parentCategoryId);
                     categories.add(groupCat);
@@ -609,7 +701,8 @@ public class XtreamCodesAPI {
                     String groupHash = catId.substring(secondUnderscore + 1);
                     List<LiveChannel> playlistChannels = LiveChannel.find("playlist.id = ?1", playlistId).list();
                     channels = playlistChannels.stream()
-                            .filter(ch -> ch.groupTitle != null && String.valueOf(ch.groupTitle.hashCode()).equals(groupHash))
+                            .filter(ch -> ch.groupTitle != null && (hashId(ch.groupTitle).equals(groupHash)
+                                    || String.valueOf(ch.groupTitle.hashCode()).equals(groupHash)))
                             .collect(Collectors.toList());
                 } else {
                     channels = LiveChannel.listAll();
@@ -757,20 +850,21 @@ public class XtreamCodesAPI {
                 .collect(Collectors.groupingBy(e -> e.seriesTitle));
 
         log.infof("getSeries: found %d episode groups from %d total episodes", seriesGroups.size(), episodes.size());
+        java.util.Map<String, String> genreIds = genreIdByName();
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
         for (java.util.Map.Entry<String, List<Video>> entry : seriesGroups.entrySet()) {
             Video first = entry.getValue().get(0);
             String imageUrl = getImageUrl(first);
             log.infof("getSeries: series=%s, seriesId=%s, episodes=%d, tmdbId=%s, posterPath=%s, imageUrl=%s",
-                    entry.getKey(), Math.abs(entry.getKey().hashCode()), entry.getValue().size(),
+                    entry.getKey(), hashId(entry.getKey()), entry.getValue().size(),
                     first.tmdbId, first.posterPath, imageUrl);
             boolean hasSeries = first.series != null;
             Models.Video.Series ser = hasSeries ? first.series : null;
             XtreamSeries xs = new XtreamSeries();
             xs.num = num++;
             xs.name = entry.getKey();
-            xs.seriesId = String.valueOf(Math.abs(entry.getKey().hashCode()));
+            xs.seriesId = hashId(entry.getKey());
             xs.cover = imageUrl;
             xs.plot = (ser != null && ser.overview != null && !ser.overview.isBlank()) ? ser.overview : first.overview;
             Double seriesRating = (ser != null && ser.tmdbRating != null) ? ser.tmdbRating : first.imdbRating;
@@ -781,8 +875,7 @@ public class XtreamCodesAPI {
             List<String> seriesGenres = (ser != null && ser.genres != null && !ser.genres.isEmpty())
                 ? ser.genres : first.genres;
             if (seriesGenres != null && !seriesGenres.isEmpty()) {
-                Models.Video.Genre g = Models.Video.Genre.find("LOWER(name) = ?1", seriesGenres.get(0).toLowerCase()).firstResult();
-                xs.categoryId = g != null ? g.id.toString() : "0";
+                xs.categoryId = genreIds.getOrDefault(seriesGenres.get(0).toLowerCase(), "0");
             } else {
                 xs.categoryId = "0";
             }
@@ -808,6 +901,16 @@ public class XtreamCodesAPI {
         String url = getExternalBaseUri() + "player_api.php?action=get_thumbnail&vod_id=" + v.id + "&username=" + username + "&password=" + password;
         log.debugf("getImageUrl: video=%d, tmdbId=%s, posterPath=%s, thumbnail URL: %s", v.id, v.tmdbId, v.posterPath, url);
         return url;
+    }
+
+    private static String hashId(String value) {
+        if (value == null) return "";
+        return Integer.toUnsignedString(value.hashCode());
+    }
+
+    private String redactQuery(String rawQuery) {
+        if (rawQuery == null) return null;
+        return rawQuery.replaceAll("(?i)(password=)[^&]*", "$1***");
     }
 
     private Response getThumbnail(Long videoId) {
