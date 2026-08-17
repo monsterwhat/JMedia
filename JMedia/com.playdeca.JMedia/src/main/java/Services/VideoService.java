@@ -1373,6 +1373,34 @@ public class VideoService {
     // ========== PLAYBACK FRAGMENT (migrated from VideoUiApi.getPlaybackFragment) ==========
 
     /**
+     * Per-profile resume position for a video (VideoState.currentTime with a
+     * watchProgress fallback and a >=95%-watched reset). Single source of truth
+     * shared by the playback fragment (getPlaybackData), the metadata endpoint
+     * (VideoAPI.getVideoMetadata) and the session controller
+     * (VideoController.selectVideo), so every playback path — initial load,
+     * local select and WS/remote swap — agrees on where to resume.
+     */
+    @Transactional
+    public double getResumeTime(Video item) {
+        if (item == null) return 0;
+        double resumeTime = 0;
+        try {
+            VideoState progress = videoStateService.getOrCreate(item);
+            if (progress != null && progress.currentTime > 0) {
+                resumeTime = progress.currentTime;
+            } else if (progress != null && progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
+                resumeTime = progress.watchProgress * item.getDurationSeconds();
+            }
+            if (resumeTime > 0 && item.getDurationSeconds() > 0 && (resumeTime / item.getDurationSeconds()) >= 0.95) {
+                resumeTime = 0.0;
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Could not load resumeTime for video {}: {}", item.id, e.getMessage());
+        }
+        return resumeTime;
+    }
+
+    /**
      * Owns the ENTIRE playback-fragment data workflow inside ONE transaction: the
      * Video find + lazy-collection init, per-profile playback-state resume
      * computation, next/prev episode resolution, the web-transcode decision,
@@ -1388,21 +1416,8 @@ public class VideoService {
         Video item = find(videoId);
         if (item == null) return null;
 
-        // Per-profile resume time from VideoState (mirrors VideoAPI.getVideoMetadata).
-        double resumeTime = 0;
-        try {
-            Models.Video.VideoState progress = videoStateService.getOrCreate(item);
-            if (progress != null && progress.currentTime > 0) {
-                resumeTime = progress.currentTime;
-            } else if (progress != null && progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
-                resumeTime = progress.watchProgress * item.getDurationSeconds();
-            }
-            if (resumeTime > 0 && item.getDurationSeconds() > 0 && (resumeTime / item.getDurationSeconds()) >= 0.95) {
-                resumeTime = 0.0;
-            }
-        } catch (Exception e) {
-            LOGGER.warn("Could not load resumeTime for video {}: {}", videoId, e.getMessage());
-        }
+        // Per-profile resume time from VideoState (single source: getResumeTime).
+        double resumeTime = getResumeTime(item);
 
         Video nextEpisode = findNextEpisode(item);
         Video prevEpisode = findPreviousEpisode(item);

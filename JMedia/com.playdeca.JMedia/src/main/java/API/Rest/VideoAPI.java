@@ -125,20 +125,8 @@ public class VideoAPI {
         } catch (Exception e) {
             LOG.debug("Could not load series for video {}: {}", videoId, e.getMessage());
         }
-        // Populate per-profile resume time from VideoState
-        try {
-            Models.Video.VideoState progress = videoStateService.getOrCreate(video);
-            if (progress != null && progress.currentTime > 0) {
-                dto.resumeTime = progress.currentTime;
-            } else if (progress != null && progress.watchProgress != null && progress.watchProgress > 0 && progress.watchProgress < 0.95) {
-                dto.resumeTime = progress.watchProgress * (video.getDurationSeconds());
-            }
-            if (dto.resumeTime != null && video.getDurationSeconds() > 0 && (dto.resumeTime / video.getDurationSeconds()) >= 0.95) {
-                dto.resumeTime = 0.0;
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not load resumeTime for video {}: {}", videoId, e.getMessage());
-        }
+        // Populate per-profile resume time from VideoState (single source: VideoService.getResumeTime)
+        dto.resumeTime = videoService.getResumeTime(video);
         return Response.ok(API.ApiResponse.success(dto)).build();
     }
 

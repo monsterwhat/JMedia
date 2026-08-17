@@ -88,14 +88,30 @@ public class VideoConversionService {
     private static final long FFMPEG_STALL_TIMEOUT_MS = 15 * 60 * 1000L;
     private static final long FFMPEG_STALL_POLL_MS = 30_000L;
 
+    /* D17: maximum age (ms) for a QUEUED job before it is considered a zombie
+     * and evicted by cleanupOldJobs.  60 minutes covers even the longest
+     * transcodes; a genuinely in-flight job will be RUNNING, not QUEUED. */
+    private static final long QUEUED_JOB_TTL_MS = 60 * 60 * 1000L;
+
+    /* D20: maximum age (ms) for a pending finalize entry before it is evicted
+     * by cleanupOldJobs to prevent source+mp4+map-entry leaking forever. */
+    private static final long PENDING_FINALIZE_TTL_MS = 2 * 60 * 60 * 1000L;
+
+    /* D21: maximum age (ms) for a finished/inactive batch before it is evicted
+     * by cleanupOldJobs to prevent unbounded map growth. */
+    private static final long BATCH_TTL_MS = 30 * 60 * 1000L;
+
     private final ConcurrentHashMap<Long, Long> audioRemuxLastFailure = new ConcurrentHashMap<>();
 
     /** A completed conversion whose destructive finalize (old-file deletion +
      *  DB path swap) was deferred because the video was actively streaming.
      *  Completed by finalizePendingIfIdle once the video is idle. */
-    private record PendingFinalize(Path inputPath, Path outputPath) {}
+    private record PendingFinalize(Path inputPath, Path outputPath, long createdAt) {}
 
     private final ConcurrentHashMap<Long, PendingFinalize> pendingFinalizes = new ConcurrentHashMap<>();
+
+    // D18: per-videoId lock for the delete+update critical section in finalize
+    private final ConcurrentHashMap<Long, Object> finalizeLocks = new ConcurrentHashMap<>();
 
     // ── Job tracking ──────────────────────────────────────────────────────
 
@@ -258,6 +274,7 @@ public class VideoConversionService {
                 }
                 if (batch.processed() >= batch.total()) {
                     batch.active = false;
+                    batches.remove(batch.batchId);
                 }
                 break;
             }
@@ -379,8 +396,18 @@ public class VideoConversionService {
      * streams of the same file become -c:a copy. Idempotent: reuses any
      * existing QUEUED/RUNNING/COMPLETED job, with a cooldown after FAILED.
      */
-    public ConversionJob startAudioRemuxIfNeeded(Long videoId) {        Video video = videoService.findById(videoId);
+    public ConversionJob startAudioRemuxIfNeeded(Long videoId) {
+        Video video = videoService.findById(videoId);
         if (video == null || !isAudioRemuxCandidate(video)) {
+            return null;
+        }
+
+        // D17 fix: check cooldown BEFORE createOrGetConversionJob so a
+        // too-recent failure never registers a QUEUED job that blocks forever.
+        Long lastFailure = audioRemuxLastFailure.get(videoId);
+        if (lastFailure != null && System.currentTimeMillis() - lastFailure < AUDIO_REMUX_FAILED_COOLDOWN_MS) {
+            LOG.debug("Skipping audio remux for video {} (failed {}ms ago, cooldown active)",
+                    videoId, System.currentTimeMillis() - lastFailure);
             return null;
         }
 
@@ -388,13 +415,6 @@ public class VideoConversionService {
         ConversionJob job = start.job();
         if (job == null || !start.created()) {
             return job; // already queued/running/completed — nothing new to run
-        }
-
-        Long lastFailure = audioRemuxLastFailure.get(videoId);
-        if (lastFailure != null && System.currentTimeMillis() - lastFailure < AUDIO_REMUX_FAILED_COOLDOWN_MS) {
-            LOG.debug("Skipping audio remux for video {} (failed {}ms ago, cooldown active)",
-                    videoId, System.currentTimeMillis() - lastFailure);
-            return job;
         }
 
         conversionExecutor.submit(() -> {
@@ -458,12 +478,14 @@ public class VideoConversionService {
             }
         }
 
-        // Build output path
+        // Build output path — include videoId to prevent basename collisions
+        // (D19: different sources like movie.mkv and movie.avi both producing
+        // movie.mp4 would silently overwrite each other).
         String baseName = video.filename != null
                 ? video.filename.replaceFirst("\\.[^.]+$", "")
                 : inputFile.getName().replaceFirst("\\.[^.]+$", "");
-        Path outputPath = inputPath.getParent().resolve(baseName + ".mp4");
-        Path tempOutput = inputPath.getParent().resolve("." + baseName + ".tmp.mp4");
+        Path outputPath = inputPath.getParent().resolve(baseName + "-" + video.id + ".mp4");
+        Path tempOutput = inputPath.getParent().resolve("." + baseName + "-" + video.id + ".tmp.mp4");
 
         // Determine hardware acceleration
         boolean useHardware = isHardwareAccelerationEnabled();
@@ -588,7 +610,7 @@ public class VideoConversionService {
         // from 0. finalizePendingIfIdle completes the swap once the video is
         // idle (on the next stream request).
         if (transcodingService.hasActiveTranscodesForVideo(video.id)) {
-            pendingFinalizes.put(video.id, new PendingFinalize(inputPath, outputPath));
+            pendingFinalizes.put(video.id, new PendingFinalize(inputPath, outputPath, System.currentTimeMillis()));
             job.status = ConversionJob.Status.COMPLETED;
             job.progressPercent = 100;
             job.message = "Converted; finalize deferred until video is no longer streaming";
@@ -604,14 +626,19 @@ public class VideoConversionService {
         // Use normalize() instead of toRealPath() because the input file may have been
         // overwritten by the ATOMIC_MOVE above (when inputPath == outputPath), so toRealPath()
         // would fail with IOException.
-        if (!inputPath.toAbsolutePath().normalize().equals(outputPath.toAbsolutePath().normalize())) {
-            deleteOldFileWithRetry(inputPath);
-        } else {
-            LOG.info("Input and output paths are identical, skipping old file deletion: {}", inputPath);
-        }
+        // D18 fix: wrap delete+update in a per-videoId lock so a concurrent
+        // stream-open cannot observe the file mid-transition.
+        Object finalizeLock = finalizeLocks.computeIfAbsent(video.id, k -> new Object());
+        synchronized (finalizeLock) {
+            if (!inputPath.toAbsolutePath().normalize().equals(outputPath.toAbsolutePath().normalize())) {
+                deleteOldFileWithRetry(inputPath);
+            } else {
+                LOG.info("Input and output paths are identical, skipping old file deletion: {}", inputPath);
+            }
 
-        // Update Video entity
-        updateVideoRecord(video, outputPath, inputPath);
+            // Update Video entity
+            updateVideoRecord(video, outputPath, inputPath);
+        }
 
         job.status = ConversionJob.Status.COMPLETED;
         job.progressPercent = 100;
@@ -645,11 +672,16 @@ public class VideoConversionService {
             if (current != null && current.equals(pending.outputPath().toAbsolutePath().normalize())) {
                 return false; // already swapped
             }
-            if (!pending.inputPath().toAbsolutePath().normalize()
-                    .equals(pending.outputPath().toAbsolutePath().normalize())) {
-                deleteOldFileWithRetry(pending.inputPath());
+            // D18 fix: wrap delete+update in a per-videoId lock so a concurrent
+            // stream-open cannot observe the file mid-transition.
+            Object finalizeLock = finalizeLocks.computeIfAbsent(videoId, k -> new Object());
+            synchronized (finalizeLock) {
+                if (!pending.inputPath().toAbsolutePath().normalize()
+                        .equals(pending.outputPath().toAbsolutePath().normalize())) {
+                    deleteOldFileWithRetry(pending.inputPath());
+                }
+                updateVideoRecord(video, pending.outputPath(), pending.inputPath());
             }
-            updateVideoRecord(video, pending.outputPath(), pending.inputPath());
             LOG.info("Completed deferred finalize for video {}: path={}", videoId, pending.outputPath());
             return true;
         } catch (Exception e) {
@@ -691,12 +723,13 @@ public class VideoConversionService {
         Path inputPath = resolveInputPath(video);
         File inputFile = inputPath.toFile();
 
-        // Build output path — same .tmp.mp4 → .mp4 swap as the full conversion
+        // Build output path — same .tmp.mp4 → .mp4 swap as the full conversion.
+        // Include videoId to prevent basename collisions (D19).
         String baseName = video.filename != null
                 ? video.filename.replaceFirst("\\.[^.]+$", "")
                 : inputFile.getName().replaceFirst("\\.[^.]+$", "");
-        Path outputPath = inputPath.getParent().resolve(baseName + ".mp4");
-        Path tempOutput = inputPath.getParent().resolve("." + baseName + ".tmp.mp4");
+        Path outputPath = inputPath.getParent().resolve(baseName + "-" + video.id + ".mp4");
+        Path tempOutput = inputPath.getParent().resolve("." + baseName + "-" + video.id + ".tmp.mp4");
 
         // Fresh per-track probe: copy-vs-transcode decided per track, not from the
         // default track's codec alone (a mixed English-AAC + Spanish-AC3 file must
@@ -843,6 +876,16 @@ public class VideoConversionService {
             }
         }
 
+        // True when decode frames stay on the device (-hwaccel_output_format matched
+        // the encoder vendor): no auto-inserted SOFTWARE filter may touch them, so a
+        // bare -pix_fmt would crash with "Impossible to convert ... src: cuda".
+        boolean hwFramesOnDevice = isHardwareAttempt && hardwareDecoder != null
+                && ((hardwareDecoder.contains("cuvid") && videoEncoder.contains("nvenc"))
+                    || (hardwareDecoder.contains("qsv") && videoEncoder.contains("qsv"))
+                    || (hardwareDecoder.contains("vaapi") && videoEncoder.contains("vaapi"))
+                    || (hardwareDecoder.contains("amf") && videoEncoder.contains("amf"))
+                    || (hardwareDecoder.contains("d3d11va") && videoEncoder != null && videoEncoder.contains("d3d11va")));
+
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
         command.add("-stats");
@@ -876,9 +919,20 @@ public class VideoConversionService {
                 command.add("-crf"); command.add("23");
             }
             if (videoEncoder.contains("h264")) {
-                // H.264 hardware encoders accept 8-bit only; force nv12 so
-                // 10-bit sources (x265/AV1 Main10) convert deterministically.
-                command.add("-pix_fmt"); command.add("nv12");
+                boolean addedGpuFmtFilter = false;
+                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, 1080, video.resolution) == null) {
+                    String fmtFilter = buildFormatFilter(hardwareDecoder, videoEncoder, video.resolution);
+                    if (fmtFilter != null) {
+                        command.add("-vf"); command.add(fmtFilter);
+                        addedGpuFmtFilter = true;
+                    } else {
+                        command.add("-vf"); command.add("hwdownload");
+                        addedGpuFmtFilter = true;
+                    }
+                }
+                if (!addedGpuFmtFilter) {
+                    command.add("-pix_fmt"); command.add("nv12");
+                }
             }
         } else {
             // Software libx264
@@ -1080,6 +1134,39 @@ public class VideoConversionService {
 
         // Cross-vendor fallback or software
         return "scale=" + targetW + ":" + targetH;
+    }
+
+    private String buildFormatFilter(String hardwareDecoder, String videoEncoder, String resolution) {
+        if (hardwareDecoder == null || videoEncoder == null) return null;
+
+        int w = 1920, h = 1080;
+        try {
+            if (resolution != null && resolution.contains("x")) {
+                String[] p = resolution.split("x");
+                w = Integer.parseInt(p[0]);
+                h = Integer.parseInt(p[1]);
+            }
+        } catch (Exception ignored) {}
+
+        boolean decoderIsCuda = hardwareDecoder.contains("cuvid");
+        boolean encoderIsNvenc = videoEncoder.contains("nvenc");
+        boolean decoderIsQsv = hardwareDecoder.contains("qsv");
+        boolean encoderIsQsv = videoEncoder.contains("qsv");
+        boolean decoderIsVaapi = hardwareDecoder.contains("vaapi");
+        boolean encoderIsVaapi = videoEncoder.contains("vaapi");
+        boolean decoderIsAmf = hardwareDecoder.contains("amf");
+        boolean encoderIsAmf = videoEncoder.contains("amf");
+
+        if (decoderIsCuda && encoderIsNvenc)
+            return "scale_cuda=" + w + ":" + h + ":format=nv12";
+        if (decoderIsQsv && encoderIsQsv)
+            return "scale_qsv=" + w + ":" + h + ":format=nv12";
+        if (decoderIsVaapi && encoderIsVaapi)
+            return "scale_vaapi=" + w + ":" + h + ":format=nv12";
+        if (decoderIsAmf && encoderIsAmf)
+            return "scale_amf=" + w + ":" + h + ":format=nv12";
+
+        return null;
     }
 
     // ── FFmpeg process execution with progress parsing ────────────────────
@@ -1311,8 +1398,32 @@ public class VideoConversionService {
                     return true;
                 }
             }
+            // D17 fix: evict zombie QUEUED jobs older than QUEUED_JOB_TTL_MS.
+            // A genuinely in-flight job will be RUNNING, not QUEUED.
+            if (job.status == ConversionJob.Status.QUEUED
+                    && now - job.startTime > QUEUED_JOB_TTL_MS) {
+                LOG.warn("Evicting zombie QUEUED job {} for video {} (queued {}ms ago, TTL exceeded)",
+                        job.jobId, job.videoId, now - job.startTime);
+                videoToJob.remove(job.videoId, job.jobId);
+                return true;
+            }
             return false;
         });
         audioRemuxLastFailure.entrySet().removeIf(entry -> now - entry.getValue() > AUDIO_REMUX_FAILED_COOLDOWN_MS);
+
+        // D20 fix: evict stale pendingFinalizes to prevent source+mp4+map-entry
+        // leaking forever when a converted video is never re-streamed.
+        pendingFinalizes.entrySet().removeIf(entry -> {
+            if (now - entry.getValue().createdAt() > PENDING_FINALIZE_TTL_MS) {
+                LOG.warn("Evicting stale pendingFinalize for video {} (age {}ms, TTL exceeded)",
+                        entry.getKey(), now - entry.getValue().createdAt());
+                return true;
+            }
+            return false;
+        });
+
+        // D21 safety net: remove any lingering inactive batches that were not
+        // caught by updateBatchForVideo (e.g. race during batch finalization).
+        batches.entrySet().removeIf(entry -> !entry.getValue().active);
     }
 }
