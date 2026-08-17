@@ -44,6 +44,10 @@ public class VideoMetadataService {
 
     /** Video IDs currently being text-enriched — dedups concurrent batched UI requests. */
     private static final Set<Long> ENRICHING_VIDEOS = ConcurrentHashMap.newKeySet();
+
+    /** Cache of video IDs where IntroDB returned no data, to avoid repeated API calls. */
+    private static final Map<Long, Long> INTRODB_NO_DATA_CACHE = new ConcurrentHashMap<>();
+    private static final long INTRODB_NO_DATA_TTL_MS = 24 * 60 * 60 * 1000L; // 24 hours
     
     @Inject
     SettingsService settingsService;
@@ -216,6 +220,11 @@ public class VideoMetadataService {
         final Models.Video.Video managedVideo = Models.Video.Video.findById(video.id);
         if (managedVideo == null) return;
 
+        Long noDataExpiry = INTRODB_NO_DATA_CACHE.get(managedVideo.id);
+        if (noDataExpiry != null && System.currentTimeMillis() < noDataExpiry) {
+            return;
+        }
+
         // 1. Ensure we have Show IMDb ID (Required for IntroDB TV lookups)
         if (managedVideo.showImdbId == null || managedVideo.showImdbId.isBlank()) {
             managedVideo.showImdbId = findSeriesImdbId(managedVideo);
@@ -229,6 +238,7 @@ public class VideoMetadataService {
             
             introDbService.fetchAllMetadata(managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber)
                 .ifPresentOrElse(m -> {
+                    INTRODB_NO_DATA_CACHE.remove(managedVideo.id);
                     m.intro.ifPresent(ts -> {
                         managedVideo.introStart = ts.start;
                         managedVideo.introEnd = ts.end;
@@ -244,7 +254,10 @@ public class VideoMetadataService {
                         managedVideo.recapEnd = ts.end;
                         LOG.info("Updated recap for video {}: {}-{}", managedVideo.id, ts.start, ts.end);
                     });
-                }, () -> LOG.warn("IntroDB returned no data for series {} S{}E{}", managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber));
+                }, () -> {
+                    LOG.warn("IntroDB returned no data for series {} S{}E{}", managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber);
+                    INTRODB_NO_DATA_CACHE.put(managedVideo.id, System.currentTimeMillis() + INTRODB_NO_DATA_TTL_MS);
+                });
             
             managedVideo.persistAndFlush();
         } else {

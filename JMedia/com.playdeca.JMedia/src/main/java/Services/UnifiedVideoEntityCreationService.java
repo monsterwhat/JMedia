@@ -61,6 +61,13 @@ public class UnifiedVideoEntityCreationService {
         String preservedThumbnailPath = preserveMetadata ? video.thumbnailPath : null;
         String preservedPosterPath = preserveMetadata ? video.posterPath : null;
         
+        Double preservedIntroStart = preserveMetadata ? video.introStart : null;
+        Double preservedIntroEnd = preserveMetadata ? video.introEnd : null;
+        Double preservedOutroStart = preserveMetadata ? video.outroStart : null;
+        Double preservedOutroEnd = preserveMetadata ? video.outroEnd : null;
+        Double preservedRecapStart = preserveMetadata ? video.recapStart : null;
+        Double preservedRecapEnd = preserveMetadata ? video.recapEnd : null;
+        
         // Apply discovered metadata
         video.filename = extractFilenameFromPath(mediaFile.path);
         video.type = result.mediaType;
@@ -172,6 +179,12 @@ public class UnifiedVideoEntityCreationService {
             if (preservedTmdbRating != null && preservedTmdbRating > 0) video.tmdbRating = preservedTmdbRating;
             if (preservedThumbnailPath != null) video.thumbnailPath = preservedThumbnailPath;
             if (preservedPosterPath != null) video.posterPath = preservedPosterPath;
+            if (preservedIntroStart != null && preservedIntroStart > 0) video.introStart = preservedIntroStart;
+            if (preservedIntroEnd != null && preservedIntroEnd > 0) video.introEnd = preservedIntroEnd;
+            if (preservedOutroStart != null && preservedOutroStart > 0) video.outroStart = preservedOutroStart;
+            if (preservedOutroEnd != null && preservedOutroEnd > 0) video.outroEnd = preservedOutroEnd;
+            if (preservedRecapStart != null && preservedRecapStart > 0) video.recapStart = preservedRecapStart;
+            if (preservedRecapEnd != null && preservedRecapEnd > 0) video.recapEnd = preservedRecapEnd;
         }
         
         return videoService.persist(video);
