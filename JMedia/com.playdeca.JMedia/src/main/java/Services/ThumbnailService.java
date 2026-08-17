@@ -67,6 +67,9 @@ public class ThumbnailService {
     
     private final ConcurrentHashMap<Long, String> thumbnailCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> showThumbnailCache = new ConcurrentHashMap<>();
+    // Paths whose hardware decode already failed (e.g. cuvidCreateDecoder CUDA_ERROR_INVALID_VALUE
+    // on certain 360p files): skip the doomed HW attempt and go straight to software next time.
+    private final java.util.Set<String> hwDecodeFailedPaths = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final BlockingQueue<ThumbnailJob> thumbnailQueue = new LinkedBlockingQueue<>();
     private ThumbnailProcessingStatus processingStatus = new ThumbnailProcessingStatus();
     
@@ -448,12 +451,13 @@ public class ThumbnailService {
 
             // Try hardware decoder first, fall back to software
             String hwDecoder = discoveryService.getHardwareDecoder(video != null ? video.videoCodec : "h264");
-            boolean useHardware = hwDecoder != null;
+            boolean useHardware = hwDecoder != null && !hwDecodeFailedPaths.contains(videoPath);
 
             if (useHardware) {
                 if (runFfmpegFrameExtract(ffmpegPath, videoPath, outputPath, seekSeconds, hwDecoder)) {
                     return true;
                 }
+                hwDecodeFailedPaths.add(videoPath);
                 LOGGER.warn("Hardware decoder failed for thumbnail, falling back to software: {}", videoPath);
             }
 
@@ -495,7 +499,11 @@ public class ThumbnailService {
             command.add("85");
             command.add("-vf");
             if (hwDecoder != null && hwDecoder.contains("cuvid")) {
-                command.add("hwdownload,format=nv12,scale=480:-1");
+                // hwdownload downloads device frames in their native format (nv12 or
+                // P010 for 10-bit sources); scale then converts to the thumbnail size.
+                // hwdownload itself cannot convert formats ("Invalid output format
+                // nv12 for hwframe download" on 10-bit CUDA frames).
+                command.add("hwdownload,scale=480:-1");
             } else {
                 command.add("scale=480:-1");
             }
@@ -721,14 +729,14 @@ public class ThumbnailService {
     
     public Path getThumbnailDirectory() {
         try {
-            Path dir = Paths.get(THUMBNAIL_DIR);
+            Path dir = Paths.get(System.getProperty("user.home"), ".jmedia", THUMBNAIL_DIR);
             if (!Files.exists(dir)) {
                 Files.createDirectories(dir);
             }
             return dir;
         } catch (IOException e) {
             LOGGER.error("Error creating thumbnail directory: " + e.getMessage());
-            return Paths.get(".");
+            return Paths.get(System.getProperty("user.home"), ".jmedia");
         }
     }
     
