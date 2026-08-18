@@ -1,6 +1,8 @@
 package Models.Xtream;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.ArrayList;
+import java.util.List;
 
 public class XtreamVodStream {
     @JsonProperty("num")
@@ -8,9 +10,6 @@ public class XtreamVodStream {
 
     @JsonProperty("name")
     public String name;
-
-    @JsonProperty("stream_type")
-    public String streamType = "movie";
 
     @JsonProperty("stream_id")
     public Long streamId;
@@ -39,12 +38,9 @@ public class XtreamVodStream {
     @JsonProperty("direct_source")
     public String directSource = "";
 
-    @JsonProperty("epg_channel_id")
-    public String epgChannelId = "";
+    @JsonProperty("stream_type")
+    public String streamType;
 
-    @JsonProperty("tv_archive")
-    public int tvArchive = 0;
-
-    @JsonProperty("tv_archive_duration")
-    public int tvArchiveDuration = 0;
+    @JsonProperty("category_ids")
+    public List<Integer> categoryIds = new ArrayList<>();
 }

@@ -1,7 +1,7 @@
 package Models.Xtream;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.util.Map;
+import java.util.List;
 
 public class XtreamLoginResponse {
     @JsonProperty("user_info")
@@ -17,17 +17,17 @@ public class XtreamLoginResponse {
         public int auth;
         public String status;
         @JsonProperty("exp_date")
-        public long expDate;
+        public String expDate;
         @JsonProperty("is_trial")
-        public int isTrial;
+        public String isTrial;
         @JsonProperty("active_cons")
-        public int activeCons;
+        public String activeCons;
         @JsonProperty("created_at")
-        public long createdAt;
+        public String createdAt;
         @JsonProperty("max_connections")
-        public int maxConnections;
+        public String maxConnections;
         @JsonProperty("allowed_output_formats")
-        public java.util.List<String> allowedOutputFormats;
+        public List<String> allowedOutputFormats;
     }
 
     public static class ServerInfo {
@@ -44,6 +44,6 @@ public class XtreamLoginResponse {
         public long timestampNow;
         @JsonProperty("time_now")
         public String timeNow;
-        public String process;
+        public Boolean process;
     }
 }

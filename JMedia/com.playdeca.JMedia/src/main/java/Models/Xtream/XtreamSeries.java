@@ -1,6 +1,8 @@
 package Models.Xtream;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.ArrayList;
+import java.util.List;
 
 public class XtreamSeries {
     @JsonProperty("num")
@@ -14,6 +16,9 @@ public class XtreamSeries {
 
     @JsonProperty("cover")
     public String cover;
+
+    @JsonProperty("cover_big")
+    public String coverBig;
 
     @JsonProperty("plot")
     public String plot;
@@ -42,15 +47,15 @@ public class XtreamSeries {
     @JsonProperty("category_id")
     public String categoryId;
 
-    @JsonProperty("stream_type")
-    public String streamType = "series";
+    @JsonProperty("category_ids")
+    public List<Integer> categoryIds = new ArrayList<>();
 
-    @JsonProperty("epg_channel_id")
-    public String epgChannelId = "";
+    @JsonProperty("year")
+    public String year;
 
-    @JsonProperty("tv_archive")
-    public int tvArchive = 0;
+    @JsonProperty("backdrop_path")
+    public List<String> backdropPath = new ArrayList<>();
 
-    @JsonProperty("tv_archive_duration")
-    public int tvArchiveDuration = 0;
+    @JsonProperty("youtube_trailer")
+    public String youtubeTrailer = "";
 }

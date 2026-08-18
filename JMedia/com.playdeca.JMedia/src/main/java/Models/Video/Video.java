@@ -4,6 +4,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -175,6 +176,7 @@ public class Video extends PanacheEntity {
     public String stillPath;
     
     // Subtitle Information
+    @JsonIgnore
     @OneToMany(mappedBy = "video", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     public List<SubtitleTrack> subtitleTracks;
     
@@ -184,6 +186,7 @@ public class Video extends PanacheEntity {
     public boolean autoSelectSubtitles; // Enable auto-selection based on audio
     
     // Audio Track Information
+    @JsonIgnore
     @OneToMany(mappedBy = "video", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     public List<AudioTrack> audioTracks;
     
