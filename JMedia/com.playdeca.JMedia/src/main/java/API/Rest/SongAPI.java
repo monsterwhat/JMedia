@@ -127,9 +127,7 @@ public class SongAPI {
 
             int exitCode = process.waitFor();
 
-            // Delete the folder "-" that Whisper creates
-            File outDir = new File("-");
-            deleteDirectory(outDir);
+            // Whisper --output_dir - writes to stdout, nothing to clean up
 
             System.out.println("Whisper process finished with exit code: " + exitCode);
 
@@ -187,8 +185,11 @@ public class SongAPI {
         }
 
         if (dir.isDirectory()) {
-            for (File f : dir.listFiles()) {
-                deleteDirectory(f);
+            File[] children = dir.listFiles();
+            if (children != null) {
+                for (File f : children) {
+                    deleteDirectory(f);
+                }
             }
         }
         dir.delete();

@@ -96,7 +96,7 @@ public class HlsResource {
     @Path("/media/{sessionId}/{variant}/init.mp4")
     @Produces("video/mp4")
     public Response getInitSegment(@PathParam("sessionId") String sessionId, @PathParam("variant") String variant) {
-        long deadline = System.currentTimeMillis() + 15000;
+        long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
             java.nio.file.Path initPath = hlsService.getInitSegmentPath(sessionId, variant);
             if (initPath != null && Files.exists(initPath)) {

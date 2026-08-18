@@ -63,8 +63,14 @@ public class PlaybackAPI {
     public Response getState(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
         if (userProfile == null) return Response.status(401).build();
-        PlaybackState state = playbackController.getState(userProfile.id);
-        return Response.ok(ApiResponse.success(state)).build();
+        try {
+            PlaybackState state = playbackController.getState(userProfile.id);
+            return Response.ok(ApiResponse.success(state)).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(ApiResponse.error(e.getMessage()))
+                    .build();
+        }
     }
 
     @POST
@@ -229,9 +235,9 @@ public class PlaybackAPI {
     @Path("/crossfade/{profileId}")
     public Response getCrossfade(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
-        Long targetProfileId = userProfile != null ? userProfile.id : profileId;
+        if (userProfile == null) return Response.status(401).build();
         
-        int crossfade = playbackController.getCrossfadeDuration(targetProfileId);
+        int crossfade = playbackController.getCrossfadeDuration(userProfile.id);
         return Response.ok(ApiResponse.success(crossfade)).build();
     }
 
@@ -239,9 +245,9 @@ public class PlaybackAPI {
     @Path("/crossfade/{profileId}/{seconds}")
     public Response setCrossfade(@PathParam("profileId") Long profileId, @PathParam("seconds") int seconds, @Context HttpHeaders headers) {
         Profile userProfile = getUserProfile(headers);
-        Long targetProfileId = userProfile != null ? userProfile.id : profileId;
+        if (userProfile == null) return Response.status(401).build();
         
-        playbackController.setCrossfadeDuration(seconds, targetProfileId);
+        playbackController.setCrossfadeDuration(seconds, userProfile.id);
         return Response.ok(ApiResponse.success("Crossfade set to " + seconds + " seconds")).build();
     }
 }

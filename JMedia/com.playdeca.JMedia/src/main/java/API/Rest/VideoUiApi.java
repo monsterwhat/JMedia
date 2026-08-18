@@ -1443,6 +1443,7 @@ public class VideoUiApi {
                 .data("carouselTitle", data.carouselTitle)
                 .data("hasCarousel", data.hasCarousel)
                 .data("collectionId", data.collectionId)
+                .data("collectionName", data.collectionName != null ? data.collectionName : "")
                 .data("infoSection", data.infoSection)
                 .data("formatDuration", (Function<Integer, String>) this::formatDuration)
                 .data("json", (ValueResolver) (ctx) -> {

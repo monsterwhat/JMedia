@@ -148,7 +148,7 @@ public class PlaybackController {
                         st.setCurrentTime(newTime);
                         broadcastStateIfNecessary(st, profileId);
                     }
-                } else if (crossfadeDuration > 0 && newTime >= crossfadeThreshold && st.getDuration() > 0) {
+                } else if (crossfadeDuration > 0 && st.getDuration() > crossfadeDuration && newTime >= crossfadeThreshold && st.getDuration() > 0) {
                     // Regular crossfade point reached
                     handleSongEnded(profileId);
                 } else if (newTime >= st.getDuration() && st.getDuration() > 0) {
@@ -412,7 +412,9 @@ public class PlaybackController {
             st.setPlaying(true);
             st.setCurrentTime(0);
             currentSettings.addLog("Song selected: " + (newSong != null ? newSong.getTitle() : "Unknown Title"));
-            playbackQueueController.songSelected(newSong.id, profileId);
+            if (newSong != null) {
+                playbackQueueController.songSelected(newSong.id, profileId);
+            }
 
             addSongToCueIfNotPresent(st, id, profileId);
 
@@ -785,7 +787,12 @@ public class PlaybackController {
                 // Set index to the next song (now at oldSongId's former position)
                 if (st.getCue() != null) {
                     int idx = st.getCue().indexOf(nextSongId);
-                    if (idx != -1) st.setCueIndex(idx);
+                    if (idx != -1) {
+                        st.setCueIndex(idx);
+                    } else {
+                        // nextSongId not in cue — reset to valid position
+                        st.setCueIndex(st.getCue().isEmpty() ? -1 : 0);
+                    }
                 }
                 
                 clearDjTransitionPlan(st);
@@ -1227,7 +1234,7 @@ public class PlaybackController {
 
         if (cue == null || cue.isEmpty() || cueIndex <= 0) {
             // If no previous song in queue, try to get from history
-            PlaybackHistory lastPlayed = PlaybackHistory.find("order by playedAt desc").firstResult(); // This needs to be profile-aware
+            PlaybackHistory lastPlayed = PlaybackHistory.find("profileId = ?1 order by playedAt DESC", profileId).firstResult();
             if (lastPlayed != null && lastPlayed.song != null) {
                 return lastPlayed.song;
             }

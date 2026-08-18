@@ -55,7 +55,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Playback toggled\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -93,7 +93,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Video playing\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -112,7 +112,7 @@ public class VideoPlaybackAPI {
             }
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -121,11 +121,14 @@ public class VideoPlaybackAPI {
     @Blocking
     public Response pauseVideo(@QueryParam("profileId") Long profileId) {
         try {
-            videoController.togglePlay(profileId); // toggle will pause if playing
+            var state = videoController.getState(profileId);
+            if (state != null && state.playing) {
+                videoController.togglePlay(profileId);
+            }
             return Response.ok("{\"success\":true,\"message\":\"Video paused\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -139,7 +142,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Next video\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -153,7 +156,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Previous video\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -169,7 +172,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Seeked to " + seconds + " seconds\",\"position\":" + seconds + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -188,7 +191,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Volume set to " + (level * 100) + "%\",\"volume\":" + level + "}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -231,7 +234,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -277,12 +280,30 @@ public class VideoPlaybackAPI {
             return Response.ok(response.toString()).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
     
     private String safeString(String str) {
-        return str != null ? str.replace("\"", "\\\"") : "";
+        if (str == null) return "";
+        StringBuilder sb = new StringBuilder(str.length());
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"':  sb.append("\\\""); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        return sb.toString();
     }
 
     @POST
@@ -301,7 +322,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true,\"message\":\"Audio preference updated\"}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -395,7 +416,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -427,7 +448,7 @@ public class VideoPlaybackAPI {
             return Response.ok("{\"success\":true}").build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -472,7 +493,7 @@ public class VideoPlaybackAPI {
             return Response.ok(sb.toString()).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 
@@ -515,7 +536,7 @@ public class VideoPlaybackAPI {
             return Response.ok(sb.toString()).build();
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                       .entity("{\"success\":false,\"error\":\"" + e.getMessage() + "\"}").build();
+                       .entity("{\"success\":false,\"error\":\"Internal server error\"}").build();
         }
     }
 }

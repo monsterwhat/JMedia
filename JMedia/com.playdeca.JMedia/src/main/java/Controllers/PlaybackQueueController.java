@@ -485,6 +485,11 @@ public void addToQueue(PlaybackState state, List<Long> songIds, boolean playNext
         state.setCurrentSongId(null);
         state.setPlaying(false);
         state.setCurrentTime(0);
+        state.setSecondaryCue(new ArrayList<>());
+        state.setSecondaryOriginalCue(new ArrayList<>());
+        state.setSecondaryCueIndex(-1);
+        state.setUsingSecondaryQueue(false);
+        state.setLastSongs(new ArrayList<>());
     }
 
     public void moveInQueue(PlaybackState state, int fromIndex, int toIndex, Long profileId) {

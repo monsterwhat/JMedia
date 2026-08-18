@@ -54,7 +54,14 @@ public class VideoExternalAPI {
         Integer seasonNumber = body.has("seasonNumber") && !body.get("seasonNumber").isNull() ? body.get("seasonNumber").asInt() : null;
         Integer episodeNumber = body.has("episodeNumber") && !body.get("episodeNumber").isNull() ? body.get("episodeNumber").asInt() : null;
         String episodeTitle = body.has("episodeTitle") ? body.get("episodeTitle").asText() : null;
-        ExistingVideo entryType = body.has("entryType") ? ExistingVideo.valueOf(body.get("entryType").asText()) : null;
+        ExistingVideo entryType = null;
+        if (body.has("entryType")) {
+            try {
+                entryType = ExistingVideo.valueOf(body.get("entryType").asText());
+            } catch (IllegalArgumentException e) {
+                entryType = null;
+            }
+        }
 
         if (url == null || url.isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
@@ -95,7 +102,15 @@ public class VideoExternalAPI {
         if (body.has("seasonNumber") && !body.get("seasonNumber").isNull()) ev.seasonNumber = body.get("seasonNumber").asInt();
         if (body.has("episodeNumber") && !body.get("episodeNumber").isNull()) ev.episodeNumber = body.get("episodeNumber").asInt();
         if (body.has("episodeTitle")) ev.episodeTitle = body.get("episodeTitle").asText();
-        if (body.has("entryType")) ev.entryType = ExistingVideo.valueOf(body.get("entryType").asText());
+        if (body.has("entryType")) {
+            try {
+                ev.entryType = ExistingVideo.valueOf(body.get("entryType").asText());
+            } catch (IllegalArgumentException e) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(mapper.createObjectNode().put("success", false).put("error", "Invalid entryType value: " + body.get("entryType").asText()))
+                        .build();
+            }
+        }
         ev.sourceType = externalVideoService.detectSourceType(ev.url);
         ev.persist();
 
@@ -211,7 +226,6 @@ public class VideoExternalAPI {
                 rb = Response.ok();
             }
 
-            rb.header("Access-Control-Allow-Origin", "*");
             rb.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
             rb.header("Access-Control-Allow-Headers", "Range");
             rb.header("Cache-Control", "public, max-age=86400");
@@ -252,7 +266,6 @@ public class VideoExternalAPI {
                 }
                 return Response.ok(rewritten.toString())
                         .type("application/vnd.apple.mpegurl")
-                        .header("Access-Control-Allow-Origin", "*")
                         .build();
             }
 

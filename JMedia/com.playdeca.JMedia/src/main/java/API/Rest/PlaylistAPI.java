@@ -102,8 +102,8 @@ public class PlaylistApi {
     }
 
     private String getExternalBaseUri() {
-        if (uriInfo.getBaseUri().getHost().equals("localhost")
-                || uriInfo.getBaseUri().getHost().equals("127.0.0.1")) {
+        String host = uriInfo.getBaseUri().getHost();
+        if (host != null && (host.equals("localhost") || host.equals("127.0.0.1"))) {
             return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost")
                     + ":" + uriInfo.getBaseUri().getPort() + "/";
         }

@@ -460,7 +460,10 @@ public class SettingsApi {
     // -----------------------------
     @GET
     @Path("/{profileId}")
-    public Response getSettings(@PathParam("profileId") Long profileId) {
+    public Response getSettings(@PathParam("profileId") Long profileId, @Context HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) {
+            return Response.status(Response.Status.FORBIDDEN).entity(ApiResponse.error("Admin access required")).build();
+        }
         Settings settings = settingsController.getOrCreateSettings();
         return Response.ok(ApiResponse.success(settings)).build();
     }

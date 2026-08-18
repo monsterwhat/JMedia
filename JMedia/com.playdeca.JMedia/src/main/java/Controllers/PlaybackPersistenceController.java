@@ -5,12 +5,14 @@ import Services.PlaybackStateService;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @ApplicationScoped
 public class PlaybackPersistenceController {
 
     private static final long MIN_SAVE_INTERVAL_MS = 1000;
-    private long lastSaveTime = 0;
+    private final Map<Long, Long> lastSaveTime = new ConcurrentHashMap<>();
 
     @Inject
     PlaybackStateService stateService;
@@ -29,13 +31,12 @@ public class PlaybackPersistenceController {
 
     public synchronized void persist(Long profileId, PlaybackState state, boolean force) {
         long now = System.currentTimeMillis();
-
-        // If not forced, apply throttling
-        if (!force && now - lastSaveTime < MIN_SAVE_INTERVAL_MS) {
+        Long lastSave = lastSaveTime.getOrDefault(profileId, 0L);
+        if (!force && now - lastSave < MIN_SAVE_INTERVAL_MS) {
             return;
         }
         stateService.saveState(profileId, state);
-        lastSaveTime = now;
+        lastSaveTime.put(profileId, now);
     }
 
     public void maybePersist(Long profileId, PlaybackState state) {

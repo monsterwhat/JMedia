@@ -405,7 +405,6 @@ public class SubtitleAPI {
             return Response.ok(webVTTContent)
                     .header("Content-Type", "text/vtt; charset=utf-8")
                     .header("Cache-Control", "public, max-age=3600")
-                    .header("Access-Control-Allow-Origin", "*")
                     .build();
 
         } catch (Exception e) {
@@ -463,7 +462,6 @@ public class SubtitleAPI {
             return Response.ok(content)
                     .header("Content-Type", "text/plain; charset=utf-8")
                     .header("Cache-Control", "public, max-age=3600")
-                    .header("Access-Control-Allow-Origin", "*")
                     .build();
 
         } catch (Exception e) {
@@ -574,8 +572,31 @@ public class SubtitleAPI {
     @Consumes(MediaType.APPLICATION_JSON)
     public Response setSubtitlePreference(Map<String, Object> preference) {
         try {
-            Long userId = ((Number) preference.get("userId")).longValue();
-            Long videoId = preference.get("videoId") != null ? ((Number) preference.get("videoId")).longValue() : null;
+            Object userIdObj = preference.get("userId");
+            if (userIdObj == null) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("{\"error\":\"userId is required\"}")
+                    .type(MediaType.APPLICATION_JSON).build();
+            }
+            Long userId;
+            try {
+                userId = ((Number) userIdObj).longValue();
+            } catch (ClassCastException e) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("{\"error\":\"userId must be a number\"}")
+                    .type(MediaType.APPLICATION_JSON).build();
+            }
+            Long videoId = null;
+            Object videoIdObj = preference.get("videoId");
+            if (videoIdObj != null) {
+                try {
+                    videoId = ((Number) videoIdObj).longValue();
+                } catch (ClassCastException e) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                        .entity("{\"error\":\"videoId must be a number\"}")
+                        .type(MediaType.APPLICATION_JSON).build();
+                }
+            }
             String languageCode = (String) preference.get("preferredLanguage");
             boolean enableAutoSelection = Boolean.TRUE.equals(preference.get("enableAutoSelection"));
             boolean preferForced = Boolean.TRUE.equals(preference.get("preferForcedSubtitles"));

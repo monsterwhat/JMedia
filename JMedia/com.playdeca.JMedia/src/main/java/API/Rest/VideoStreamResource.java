@@ -68,6 +68,10 @@ public class VideoStreamResource {
     private static final ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean> RESTART_IN_FLIGHT = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> RESTART_GENERATION = new ConcurrentHashMap<>();
 
+    // Segment writer lock map: keyed by absolute path string so concurrent requests
+    // for the same segment use the same lock even if Path object identity differs.
+    private static final ConcurrentHashMap<String, Object> segmentLocks = new ConcurrentHashMap<>();
+
     /** A cached unreadable-file failure: expires, and is invalidated when the file changes. */
     private static final class StreamFailure {
         final long expiresAt;
@@ -330,7 +334,6 @@ public class VideoStreamResource {
                     .header("Content-Range", "bytes 0-1/" + probeTotal)
                     .header("Content-Length", "0")
                     .header("Accept-Ranges", "bytes")
-                    .header("Access-Control-Allow-Origin", "*")
                     .header("ETag", etag)
                     .header("Cache-Control", "no-cache")
                     .build();
@@ -420,9 +423,9 @@ public class VideoStreamResource {
         // Prevent dual-writer race: two concurrent requests for the same ?start= would both
         // launch FFmpeg writers into the same cache file, interleaving moof+mdat and corrupting
         // output. Skip the launch when a writer is already active for this exact cache file.
-        // Synchronize on the interned path string so the check-and-launch is atomic:
-        // two threads with the same cacheFile path cannot both see false and both launch.
-        synchronized (cacheFile.toString().intern()) {
+        Object lock = segmentLocks.computeIfAbsent(
+                cacheFile.toAbsolutePath().normalize().toString(), k -> new Object());
+        synchronized (lock) {
             if (!transcodingService.isCacheBeingWritten(cacheFile)) {
                 launchSegmentWriter("direct-transcode-" + videoId, null, null,
                         video, videoFile, startSeconds, userAgent, audioTrackIndex, qualityHeight, cacheFile);
@@ -560,7 +563,6 @@ public class VideoStreamResource {
                     .header("Content-Length", "0")
                     .header("Accept-Ranges", "bytes")
                     .header("Content-Type", "video/mp4")
-                    .header("Access-Control-Allow-Origin", "*")
                     .build();
         }
 
@@ -755,6 +757,7 @@ public class VideoStreamResource {
             // The reader was acquired at method entry; release it only when this async
             // body finishes (the stream outlives the method call), so the merge pass
             // never deletes the segment mid-serve.
+            String segmentKey = null;
             try {
                 try (RandomAccessFile raf = new RandomAccessFile(tempFile.toFile(), "r")) {
                     byte[] buffer = new byte[65536];
@@ -795,7 +798,7 @@ public class VideoStreamResource {
                         raf.seek(finalBaseOffset + (payloadStart - finalInitLen));
                         // D4 fix: shared restart coordination across concurrent requests for the same
                         // segment tempFile, so thread B sees thread A's restart-in-flight flag.
-                        String segmentKey = tempFile.getFileName().toString();
+                        segmentKey = tempFile.getFileName().toString();
                         java.util.concurrent.atomic.AtomicBoolean restartInFlight = RESTART_IN_FLIGHT.computeIfAbsent(segmentKey, k -> new java.util.concurrent.atomic.AtomicBoolean(false));
                         java.util.concurrent.atomic.AtomicInteger restartGeneration = RESTART_GENERATION.computeIfAbsent(segmentKey, k -> new java.util.concurrent.atomic.AtomicInteger());
                         long noGrowthSince = 0;
@@ -870,6 +873,10 @@ public class VideoStreamResource {
             } finally {
                 segmentCacheService.releaseReader(tempFile);
                 transcodingService.releaseTranscode(videoId, segmentStart, audioTrackIndex, qualityHeight, false);
+                if (segmentKey != null) {
+                    RESTART_IN_FLIGHT.remove(segmentKey);
+                    RESTART_GENERATION.remove(segmentKey);
+                }
             }
         };
 
@@ -882,8 +889,7 @@ public class VideoStreamResource {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", "video/mp4")
                 .header("Cache-Control", cacheControl)
-                .header("ETag", "\"" + etag + "\"")
-                .header("Access-Control-Allow-Origin", "*");
+                .header("ETag", "\"" + etag + "\"");
 
         boolean isRangeRequest = rangeHeader != null;
         // growStream has no settled length (open-ended range on a still-growing segment)
@@ -1078,10 +1084,9 @@ public class VideoStreamResource {
                     return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
                             .header("Content-Range", "bytes */" + fileLength)
                             .header("Content-Length", "0")
-                            .header("Accept-Ranges", "bytes")
-                            .header("Content-Type", getMimeType(videoFile.getName()))
-                            .header("Access-Control-Allow-Origin", "*")
-                            .build();
+                    .header("Accept-Ranges", "bytes")
+                    .header("Content-Type", getMimeType(videoFile.getName()))
+                    .build();
                 }
             } catch (Exception e) {
                 LOG.warn("Invalid Range header '{}': {}", rangeHeader, e.getMessage());
@@ -1124,8 +1129,7 @@ public class VideoStreamResource {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Type", mimeType)
                 .header("Content-Length", contentLength)
-                .header("Cache-Control", "public, max-age=86400, immutable")
-                .header("Access-Control-Allow-Origin", "*");
+                .header("Cache-Control", "public, max-age=86400, immutable");
 
         if (rangeHeader != null) {
             responseBuilder.header("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);
