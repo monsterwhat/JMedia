@@ -17,8 +17,9 @@ import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.LoggerFactory;
 
-@ServerEndpoint("/api/video/ws/{profileId}") // Video WebSocket endpoint (per-profile isolation)
+@ServerEndpoint("/api/video/ws/{profileId}")
 @ApplicationScoped
 public class VideoSocket {
 
@@ -44,7 +45,7 @@ public class VideoSocket {
             webSocketManager.addVideoSession(session, profileId);
             sendCurrentState(session, profileId);
             viewSession.clientConnected(); // Still relevant for any client connection
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
 
     }
 
@@ -53,7 +54,7 @@ public class VideoSocket {
         CompletableFuture.runAsync(() -> {
             webSocketManager.removeVideoSession(session); // Remove from video sessions
             viewSession.clientDisconnected(); // Still relevant for any client disconnection
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     @OnError
@@ -62,7 +63,7 @@ public class VideoSocket {
         CompletableFuture.runAsync(() -> {
             webSocketManager.removeVideoSession(session);
             viewSession.clientDisconnected();
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     @OnMessage
@@ -113,7 +114,7 @@ public class VideoSocket {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     private void sendCurrentState(Session session, Long profileId) {
@@ -195,4 +196,5 @@ public class VideoSocket {
     public void broadcastCommand(String commandType, JsonNode commandPayload) {
         broadcastCommand(commandType, commandPayload, null);
     }
+
 }

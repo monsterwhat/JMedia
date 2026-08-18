@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import Services.SessionService;
 
 @ServerEndpoint("/ws/import-status/{profileId}")
 @ApplicationScoped
@@ -31,6 +32,9 @@ public class ImportStatusSocket {
 
     @Inject
     Vertx vertx;
+
+    @Inject
+    SessionService sessionService;
 
     WorkerExecutor executor;
 
@@ -47,7 +51,7 @@ public class ImportStatusSocket {
     }
   
     @OnOpen
-    public void onOpen(Session session, @PathParam("profileId") Long profileId) { // Modified signature
+    public void onOpen(Session session, @PathParam("profileId") Long profileId) {
         sessions.put(session.getId(), session);
         sessionProfileMap.put(session.getId(), profileId); // Store profile association
 
@@ -88,6 +92,7 @@ public class ImportStatusSocket {
     @OnError
     public void onError(Session session, Throwable throwable) {
         sessions.remove(session.getId());
+        sessionProfileMap.remove(session.getId());
         System.err.println("[ERROR] ImportStatusSocket: Error in session " + session.getId() + ": " + throwable.getMessage());
     }
 
@@ -147,6 +152,7 @@ public class ImportStatusSocket {
             }
         });
     }
+
 
     private static class ImportRequest {
 

@@ -17,6 +17,7 @@ import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.LoggerFactory;
 
 @ServerEndpoint("/api/music/ws/{profileId}")
 @ApplicationScoped
@@ -39,8 +40,7 @@ public class MusicSocket {
             webSocketManager.addSession(session, profileId);
             sendCurrentState(session, profileId);
             viewSession.clientConnected();
-        });
-
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     @OnClose
@@ -48,7 +48,7 @@ public class MusicSocket {
         CompletableFuture.runAsync(() -> {
             webSocketManager.removeSession(session);
             viewSession.clientDisconnected();
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     @OnError
@@ -57,7 +57,7 @@ public class MusicSocket {
         CompletableFuture.runAsync(() -> {
             webSocketManager.removeSession(session);
             viewSession.clientDisconnected();
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     @OnMessage
@@ -75,11 +75,13 @@ public class MusicSocket {
                 }
 
                 switch (type) {
-                    case "setProfile":
-                        Long newProfileId = payload.get("profileId").asLong();
-                        webSocketManager.setSessionProfile(session, newProfileId);
-                        sendCurrentState(session, newProfileId); // Send updated state for new profile
-                        break;
+                    // SECURITY: Disabled until proper user-owns-profile validation is implemented
+                    // Any authenticated user could hijack any profile's playback session
+                    // case "setProfile":
+                    //     Long newProfileId = payload.get("profileId").asLong();
+                    //     webSocketManager.setSessionProfile(session, newProfileId);
+                    //     sendCurrentState(session, newProfileId);
+                    //     break;
                     case "seek":
                         double seekValue = payload.get("value").asDouble();
                         playbackController.setSeconds(seekValue, profileId);
@@ -94,7 +96,7 @@ public class MusicSocket {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        });
+        }).exceptionally(ex -> { LoggerFactory.getLogger(getClass()).error("WebSocket async error", ex); return null; });
     }
 
     private void sendCurrentState(Session session, Long profileId) {
@@ -150,4 +152,5 @@ public class MusicSocket {
             e.printStackTrace();
         }
     }
+
 }
