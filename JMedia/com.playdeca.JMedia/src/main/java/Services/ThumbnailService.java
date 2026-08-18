@@ -195,7 +195,7 @@ public class ThumbnailService {
                     Optional<String> apiUrl = metadataService.fetchPosterUrl(type, title, video.releaseYear);
                     
                     // RATE LIMITING: Pause briefly to respect API limits (TMDb/TVMaze)
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
 
                     if (apiUrl.isPresent()) {
                         // Cache the API URL for this show
@@ -267,9 +267,26 @@ public class ThumbnailService {
     }
 
     private void downloadImage(String url, Path outputPath) throws IOException {
-        java.net.URL imageUrl = new java.net.URL(url);
-        try (java.io.InputStream in = imageUrl.openStream()) {
-            Files.copy(in, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "JMedia/1.0 (Thumbnail)")
+                .timeout(Duration.ofSeconds(15))
+                .GET()
+                .build();
+            HttpResponse<java.io.InputStream> response =
+                java.net.http.HttpClient.newHttpClient().send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() == 200) {
+                try (java.io.InputStream in = response.body()) {
+                    Files.copy(in, outputPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } else {
+                throw new IOException("HTTP " + response.statusCode() + " downloading image: " + url);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted downloading image: " + url, e);
         }
     }
 
@@ -341,7 +358,9 @@ public class ThumbnailService {
             completion.submit(() -> {
                 Video video = entityManager.find(Video.class, videoId);
                 if (video != null) {
-                    return generateThumbnailWithContext(videoId, video.path, isBatchMode);
+                    String path = generateThumbnailWithContext(videoId, video.path, isBatchMode);
+                    if (path != null) results.put(videoId, path);
+                    return path;
                 }
                 return null;
             });

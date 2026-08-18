@@ -32,6 +32,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -111,7 +113,7 @@ public class TranscodingService {
         volatile long lastAccessed = System.currentTimeMillis();
         volatile boolean completed;
         volatile boolean failed;
-        volatile boolean discontinuityDetected = false; // New flag for discontinuity
+        final AtomicBoolean discontinuityDetected = new AtomicBoolean(false); // New flag for discontinuity
         ScheduledFuture<?> cleanupFuture;
         volatile long lastFileGrowth = System.currentTimeMillis();
         volatile long lastFileSize = 0;
@@ -616,6 +618,7 @@ public class TranscodingService {
             result = true;
         }
         
+        if (transcodeNeededCache.size() > 10000) transcodeNeededCache.clear();
         transcodeNeededCache.put(cacheKey, result);
         return result;
     }
@@ -1220,6 +1223,7 @@ public class TranscodingService {
             activeTranscodes.compute(transcodeKey, (k, existing) -> {
                 return new ActiveTranscode(transcodeKey, process, cacheFile, effectiveCodecTag);
             });
+            if (videoCodecTags.size() > 10000) videoCodecTags.clear();
             videoCodecTags.put(video.id, effectiveCodecTag);
         }
 
@@ -1261,10 +1265,20 @@ public class TranscodingService {
             // resume detection already trimmed the partial trailing box left by the kill.
             LOG.info("Resuming transcode into existing segment {} ({} bytes, continuing at +{:.3f}s)",
                      cacheFile.getFileName(), Files.size(cacheFile), resumeDeltaSeconds);
-            fileOut = Files.newOutputStream(cacheFile,
-                    java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
+            try {
+                fileOut = Files.newOutputStream(cacheFile,
+                        java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                process.destroyForcibly();
+                throw e;
+            }
         } else {
-            fileOut = Files.newOutputStream(cacheFile);
+            try {
+                fileOut = Files.newOutputStream(cacheFile);
+            } catch (IOException e) {
+                process.destroyForcibly();
+                throw e;
+            }
         }
         // ffmpeg restarts with a fresh init (ftyp/moov) and a 0-based timeline; the appender
         // drops the duplicate init and shifts each appended fragment's per-track tfdt by
@@ -1645,9 +1659,7 @@ public class TranscodingService {
         String key = buildTranscodeKey(videoId, startSeconds, audioTrackIndex, qualityHeight);
         ActiveTranscode at = activeTranscodes.get(key);
         if (at == null) return false;
-        boolean result = at.discontinuityDetected;
-        // Clear the flag after reading so subsequent requests don't signal discontinuity
-        at.discontinuityDetected = false;
+        boolean result = at.discontinuityDetected.getAndSet(false);
         return result;
     }
 
@@ -1997,13 +2009,17 @@ public class TranscodingService {
                 gapStartSeconds, gapDurationSeconds, audioTrackIndex, qualityHeight, useHardware);
         Future<Path> future = gapExecutor.submit(() -> runGapProcess(command, tempFile, videoFile, gapStartSeconds));
         try {
-            return future.get();
+            return future.get(60, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
         } catch (ExecutionException e) {
             LOG.warn("Gap transcode for {} failed: {}", videoFile.getName(),
                     e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+            return null;
+        } catch (TimeoutException e) {
+            LOG.warn("Gap transcode for {} timed out after 60s, cancelling", videoFile.getName());
+            future.cancel(true);
             return null;
         }
     }

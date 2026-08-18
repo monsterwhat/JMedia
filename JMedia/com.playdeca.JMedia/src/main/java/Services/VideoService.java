@@ -5,6 +5,8 @@ import Models.Video.MediaFile;
 import Models.DTOs.TvShowDTO;
 import Models.Video.Genre;
 import Models.Video.VideoGenre;
+import Models.Video.VideoHistory;
+import Models.Video.CollectionEntry;
 import Models.Video.SubtitleTrack;
 import Models.Video.UserSubtitlePreferences;
 import Models.Video.AudioTrack;
@@ -356,15 +358,7 @@ public class VideoService {
         if (ids == null || ids.isEmpty()) {
             return Collections.emptyList();
         }
-        
-        List<Video> videos = new ArrayList<>();
-        for (Long id : ids) {
-            Video video = Video.findById(id);
-            if (video != null) {
-                videos.add(video);
-            }
-        }
-        return videos;
+        return Video.find("id IN ?1", ids).list();
     }
 
     @Transactional
@@ -389,6 +383,11 @@ public class VideoService {
         if (seriesTitle == null || seriesTitle.isBlank()) return;
         List<Video> episodes = findEpisodesForSeries(seriesTitle);
         for (Video v : episodes) {
+            VideoHistory.delete("mediaFile.path = ?1", v.path);
+            CollectionEntry.delete("video.id = ?1", v.id);
+            VideoState.delete("video.id = ?1", v.id);
+            VideoGenre.delete("video.id = ?1", v.id);
+
             MediaFile mf = MediaFile.find("path", v.path).firstResult();
             if (mf != null) {
                 mf.delete();
@@ -1445,6 +1444,7 @@ public class VideoService {
         List<Map<String, Object>> carouselItems = new ArrayList<>();
         int currentCarouselIndex = 0;
         String carouselTitle = "";
+        String collectionName = null;
         Map<String, Object> infoSection = new LinkedHashMap<>();
 
         buildInfoSection(infoSection, item);
@@ -1452,6 +1452,7 @@ public class VideoService {
         if (collectionId != null) {
             Models.Video.MediaCollection coll = collectionService.getCollection(collectionId);
             if (coll != null) {
+                collectionName = coll.name;
                 carouselTitle = coll.name;
                 List<Models.Video.CollectionEntry> entries = collectionService.getEntries(collectionId);
                 int idx = 0;
@@ -1542,7 +1543,7 @@ public class VideoService {
             nextEpisode != null ? nextEpisode.id : null,
             prevEpisode != null ? prevEpisode.id : null,
             autoSkipIntro, autoSkipRecap, autoSkipOutro, defaultPlayer,
-            carouselItems, currentCarouselIndex, carouselTitle, hasCarousel, collectionId, infoSection);
+            carouselItems, currentCarouselIndex, carouselTitle, hasCarousel, collectionId, collectionName, infoSection);
     }
 
     /**
@@ -1622,13 +1623,15 @@ public class VideoService {
         public final String carouselTitle;
         public final boolean hasCarousel;
         public final Long collectionId;
+        public final String collectionName;
         public final Map<String, Object> infoSection;
 
         public PlaybackData(Video item, double resumeTime, boolean needsTranscoding, boolean needsConversion,
                             String conversionJobId, String conversionStatus, Long nextEpisodeId, Long prevEpisodeId,
                             boolean autoSkipIntro, boolean autoSkipRecap, boolean autoSkipOutro, String defaultPlayer,
                             List<Map<String, Object>> carouselItems, int currentCarouselIndex, String carouselTitle,
-                            boolean hasCarousel, Long collectionId, Map<String, Object> infoSection) {
+                            boolean hasCarousel, Long collectionId, String collectionName,
+                            Map<String, Object> infoSection) {
             this.item = item;
             this.resumeTime = resumeTime;
             this.needsTranscoding = needsTranscoding;
@@ -1646,6 +1649,7 @@ public class VideoService {
             this.carouselTitle = carouselTitle;
             this.hasCarousel = hasCarousel;
             this.collectionId = collectionId;
+            this.collectionName = collectionName;
             this.infoSection = infoSection;
         }
     }
@@ -1686,7 +1690,6 @@ public class VideoService {
         // Discover and associate subtitle tracks
         List<SubtitleTrack> subtitleTracks = subtitleMatcher.discoverSubtitleTracks(
                 java.nio.file.Path.of(mediaFile.path), video);
-        updateSubtitleTracks(video.id, subtitleTracks);
         
         // Set defaults
         if (video.dateAdded == null) {
@@ -1695,6 +1698,7 @@ public class VideoService {
         video.dateModified = LocalDateTime.now();
         
         video.persist();
+        updateSubtitleTracks(video.id, subtitleTracks);
         return video;
     }
 

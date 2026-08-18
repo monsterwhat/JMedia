@@ -11,9 +11,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ApplicationScoped
 public class AiSubtitleJobService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AiSubtitleJobService.class);
 
     @Inject
     ParakeetService parakeetService;
@@ -41,6 +45,7 @@ public class AiSubtitleJobService {
         public volatile double overallProgress = 0.0;
         public final String languageCode;
         public final List<String> errors = new ArrayList<>();
+        public volatile String errorMessage;
         public volatile long startTime;
 
         public AiSubtitleJob(int id, List<Long> videoIds, String languageCode) {
@@ -93,7 +98,13 @@ public class AiSubtitleJobService {
         currentJob = job;
 
         // Start processing in background
-        CompletableFuture.runAsync(() -> processJob(job));
+        CompletableFuture.runAsync(() -> processJob(job))
+            .exceptionally(ex -> {
+                LOG.error("AI subtitle job {} failed", job.id, ex);
+                job.status = "failed";
+                job.errorMessage = ex.getMessage() != null ? ex.getMessage() : "Unknown error";
+                return null;
+            });
 
         return jobId;
     }

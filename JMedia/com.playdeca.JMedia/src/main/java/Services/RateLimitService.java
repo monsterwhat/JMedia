@@ -9,9 +9,9 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @ApplicationScoped
 public class RateLimitService {
@@ -57,6 +57,9 @@ public class RateLimitService {
         
         if (record.attempts.size() >= MAX_FAILED_ATTEMPTS) {
             record.blockedUntil = now.plus(BLOCK_DURATION_MINUTES, ChronoUnit.MINUTES);
+            // Also block by IP-only key so isBlocked(ip, null) triggers
+            FailedLoginRecord ipOnlyRecord = failedAttempts.computeIfAbsent(getRateLimitKey(ip, null), k -> new FailedLoginRecord());
+            ipOnlyRecord.blockedUntil = record.blockedUntil;
             LOG.error("SECURITY: IP {} blocked for {} minutes after {} failed attempts for user '{}'", 
                       ip, BLOCK_DURATION_MINUTES, record.attempts.size(), username);
         }
@@ -74,7 +77,7 @@ public class RateLimitService {
 
     private static class FailedLoginRecord {
         public Instant blockedUntil;
-        public final List<Instant> attempts = new ArrayList<>();
+        public final List<Instant> attempts = new CopyOnWriteArrayList<>();
     }
     
     // Simple periodic cleanup could be added with @Scheduled

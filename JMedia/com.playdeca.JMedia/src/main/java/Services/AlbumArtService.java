@@ -99,6 +99,14 @@ public class AlbumArtService {
      * Downloads image data from URL with proper headers and timeout.
      */
     private byte[] downloadImage(String imageUrl) {
+        return downloadImage(imageUrl, 0);
+    }
+
+    private byte[] downloadImage(String imageUrl, int depth) {
+        if (depth > 5) {
+            LOGGER.warn("Too many redirects downloading album art from: {}", imageUrl);
+            return null;
+        }
         try {
             URI uri = URI.create(imageUrl);
             HttpRequest request = HttpRequest.newBuilder()
@@ -129,7 +137,7 @@ public class AlbumArtService {
                 LOGGER.warn("Redirect {} to: {} for album art: {}", response.statusCode(), location, imageUrl);
                 // Try the redirect location if available
                 if (location != null && !location.equals(imageUrl)) {
-                    return downloadImage(location);
+                    return downloadImage(location, depth + 1);
                 }
                 return null;
             } else {

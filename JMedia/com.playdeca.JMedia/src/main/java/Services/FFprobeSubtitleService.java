@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.concurrent.TimeUnit;
 
 import Models.Settings.Settings;
 
@@ -88,26 +89,33 @@ public class FFprobeSubtitleService {
                 videoPath
             );
             
+            pb.redirectErrorStream(true);
             Process process = pb.start();
-            JsonNode root = objectMapper.readTree(process.getInputStream());
-            JsonNode streams = root.path("streams");
-            
-            if (streams.isArray()) {
-                int subtitleNum = 1;
-                for (JsonNode stream : streams) {
-                    String codecType = stream.path("codec_type").asText();
-                    if ("subtitle".equals(codecType)) {
-                        SubtitleTrack track = parseSubtitleStream(stream, video, subtitleNum);
-                        if (track != null) {
-                            subtitleTracks.add(track);
+            try {
+                JsonNode root = objectMapper.readTree(process.getInputStream());
+                JsonNode streams = root.path("streams");
+
+                if (streams.isArray()) {
+                    int subtitleNum = 1;
+                    for (JsonNode stream : streams) {
+                        String codecType = stream.path("codec_type").asText();
+                        if ("subtitle".equals(codecType)) {
+                            SubtitleTrack track = parseSubtitleStream(stream, video, subtitleNum);
+                            if (track != null) {
+                                subtitleTracks.add(track);
+                            }
+                            subtitleNum++;
                         }
-                        subtitleNum++;
                     }
                 }
+
+                if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+        } finally {
+            if (process != null) process.destroyForcibly();
             }
-            
-            process.waitFor();
-            
+
         } catch (IOException | InterruptedException e) {
             LOGGER.error("Error extracting subtitles with FFprobe", e);
         }
@@ -258,12 +266,14 @@ public class FFprobeSubtitleService {
 
         try {
             stderrDrain.join(5000);
-            if (process.waitFor() != 0) {
+            if (!process.waitFor(30, TimeUnit.SECONDS) || process.exitValue() != 0) {
                 throw new IOException("FFmpeg failed to extract subtitle track " + track.trackIndex + " (exit " + process.exitValue() + "): " + stderrBuffer);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Extraction interrupted");
+        } finally {
+            process.destroyForcibly();
         }
 
         return output.toString();
@@ -306,6 +316,7 @@ public class FFprobeSubtitleService {
         }
 
         Path tempFile = Files.createTempFile("subs_", ".ass");
+        Process process = null;
         try {
             List<String> command = new ArrayList<>();
             command.add(ffmpegPath);
@@ -322,7 +333,7 @@ public class FFprobeSubtitleService {
 
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            process = pb.start();
 
             StringBuilder processOutput = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
@@ -332,7 +343,7 @@ public class FFprobeSubtitleService {
                 }
             }
 
-            if (process.waitFor() != 0) {
+            if (!process.waitFor(30, TimeUnit.SECONDS) || process.exitValue() != 0) {
                 throw new IOException("FFmpeg failed to extract raw subtitle track " + track.trackIndex + " (exit " + process.exitValue() + "): " + processOutput);
             }
 
@@ -341,6 +352,7 @@ public class FFprobeSubtitleService {
             Thread.currentThread().interrupt();
             throw new IOException("Extraction interrupted");
         } finally {
+            process.destroyForcibly();
             try {
                 Files.deleteIfExists(tempFile);
             } catch (IOException e) {

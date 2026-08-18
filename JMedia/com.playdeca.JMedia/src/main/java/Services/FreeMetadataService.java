@@ -303,8 +303,8 @@ public class FreeMetadataService {
         
         // Extract artist
         JsonNode artist = track.path("artist");
-        if (artist.isArray() && artist.size() > 0) {
-            result.setArtist(artist.get(0).path("name").asText());
+        if (!artist.isMissingNode()) {
+            result.setArtist(artist.path("name").asText());
         }
         
         // Extract genres

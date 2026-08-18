@@ -130,10 +130,12 @@ public class HlsService {
             }
         }
 
-        activeSessions.put(sessionId, session);
         int qh = (qualityHeight != null && qualityHeight > 0) ? qualityHeight : 0;
         List<VariantConfig> variants = determineVariants(video, qh);
         session.variants = variants;
+
+        activeSessions.put(sessionId, session);
+
         for (VariantConfig variant : variants) {
             startVariantEncoder(session, variant, profileId);
         }
@@ -1250,9 +1252,8 @@ public class HlsService {
 
     private void deleteDirectory(Path dir) {
         if (dir == null || !Files.exists(dir)) return;
-        try {
-            Files.walk(dir)
-                .sorted(java.util.Comparator.reverseOrder())
+        try (java.util.stream.Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder())
                 .forEach(p -> {
                     try { Files.deleteIfExists(p); } catch (IOException ignored) {}
                 });
@@ -1333,7 +1334,7 @@ public class HlsService {
         public final Path sessionDir;
         public final double startSeconds;
         public final long createdAt;
-        public final List<String> audioPlaylistNames = new ArrayList<>();
+        public final List<String> audioPlaylistNames = new java.util.concurrent.CopyOnWriteArrayList<>();
         public volatile long lastAccessed;
         private final Map<String, Process> processes = new ConcurrentHashMap<>();
         private final Map<String, Integer> restartAttempts = new ConcurrentHashMap<>();

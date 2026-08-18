@@ -79,7 +79,13 @@ public class GpuDetectionService {
             // nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader,nounits
             ProcessBuilder pb = new ProcessBuilder("nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", "--format=csv,noheader,nounits");
             Process process = pb.start();
-            if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
+            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                LOG.warn("nvidia-smi timed out, process destroyed");
+                return gpus;
+            }
+            if (process.exitValue() == 0) {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -217,7 +223,13 @@ public class GpuDetectionService {
             try {
                 ProcessBuilder pb = new ProcessBuilder("ffmpeg.exe", "-version");
                 Process process = pb.start();
-                if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
+            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                LOG.warn("ffmpeg.exe timed out, process destroyed");
+                return null;
+            }
+            if (process.exitValue() == 0) {
                     return "ffmpeg.exe";
                 }
             } catch (Exception e) {

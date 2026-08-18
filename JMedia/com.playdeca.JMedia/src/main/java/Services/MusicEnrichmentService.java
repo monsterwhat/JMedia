@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @ApplicationScoped
 public class MusicEnrichmentService {
@@ -71,12 +73,12 @@ public class MusicEnrichmentService {
             List<String> sources
     ) {}
 
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    @Transactional(Transactional.TxType.REQUIRED)
     public void enrichSong(Song song) {
         enrichSong(song, false);
     }
 
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    @Transactional(Transactional.TxType.REQUIRED)
     public void enrichSong(Song song, boolean overwriteBasicInfo) {
         if (song == null) {
             return;
@@ -273,6 +275,8 @@ public class MusicEnrichmentService {
         int resultBpm = 0;
         boolean isEnriched = false;
 
+        String mbid = null;
+
         Settings settings = settingsService.getOrCreateSettings();
         if (!Boolean.TRUE.equals(settings.getEnableMetadataEnrichment())) {
             LOGGER.info("Metadata enrichment disabled by user settings, skipping for: {} - {}", parsedArtist, parsedTitle);
@@ -284,6 +288,7 @@ public class MusicEnrichmentService {
                 MusicBrainzResult mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
                 if (mbResult != null) {
                     if (mbResult.mbid() != null) {
+                        mbid = mbResult.mbid();
                         sources.add("MusicBrainz");
                     }
                     if (mbResult.genre() != null && !mbResult.genre().isBlank()) {
@@ -349,20 +354,6 @@ public class MusicEnrichmentService {
                     LOGGER.error("Failed to query TheAudioDB for {} - {}", parsedArtist, parsedTitle, e);
                 }
             }
-        }
-
-        String mbid = null;
-        if (Boolean.TRUE.equals(settings.getMusicBrainzEnabled())) {
-            try {
-                MusicBrainzResult mbResult = searchMusicBrainz(parsedArtist, parsedTitle);
-                if (mbResult != null && mbResult.mbid() != null) {
-                    mbid = mbResult.mbid();
-                }
-            } catch (Exception e) {
-                LOGGER.error("Failed to get MBID for {} - {}", parsedArtist, parsedTitle, e);
-            }
-        } else {
-            LOGGER.info("MusicBrainz disabled by user settings, skipping MBID lookup for: {} - {}", parsedArtist, parsedTitle);
         }
 
         if (mbid != null) {
@@ -688,8 +679,11 @@ public MusicBrainzResult searchMusicBrainz(String artist, String title) {
         }
 
         try {
-            String base64 = albumArtService.convertUrlToBase64(artworkUrl).get();
+            String base64 = albumArtService.convertUrlToBase64(artworkUrl).get(30, TimeUnit.SECONDS);
             return base64;
+        } catch (TimeoutException e) {
+            LOGGER.error("Timeout downloading artwork from: {} (30s exceeded)", artworkUrl);
+            return null;
         } catch (Exception e) {
             LOGGER.error("Error downloading artwork from: {}", artworkUrl, e);
             return null;

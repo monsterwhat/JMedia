@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
 
 /**
@@ -43,8 +44,8 @@ public class EnhancedFreeMetadataService {
     private static final String THEAUDIODB_API = "https://www.theaudiodb.com/api/v1/json/2/search.php?s=%s";
 
     // API availability tracking
-    private final Map<String, Boolean> apiAvailability = new HashMap<>();
-    private final Map<String, Long> lastFailureTime = new HashMap<>();
+    private final Map<String, Boolean> apiAvailability = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastFailureTime = new ConcurrentHashMap<>();
 
     /**
      * Enriches metadata for a given artist and title combination with enhanced
@@ -595,8 +596,8 @@ public class EnhancedFreeMetadataService {
         result.setAlbum(track.path("album").path("title").asText());
 
         JsonNode artist = track.path("artist");
-        if (artist.isArray() && artist.size() > 0) {
-            result.setArtist(artist.get(0).path("name").asText());
+        if (!artist.isMissingNode()) {
+            result.setArtist(artist.path("name").asText());
         }
 
         // Extract album art

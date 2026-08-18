@@ -23,6 +23,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import jakarta.annotation.PreDestroy;
 import java.nio.file.Files;
 import Models.Settings.Settings;
@@ -48,6 +49,7 @@ public class DownloadService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private volatile Process currentProcess;
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private final AtomicBoolean isDownloading = new AtomicBoolean(false);
 
     // Rate limit information class
     private static class RateLimitInfo {
@@ -130,7 +132,6 @@ public class DownloadService {
     public DownloadResult download(String url, String format, Integer downloadThreads, Integer searchThreads,
             String downloadPath, Long profileId) throws Exception {
 
-        AtomicBoolean isDownloading = new AtomicBoolean(false);
         DownloadResult result = new DownloadResult();
 
         if (!isDownloading.compareAndSet(false, true)) {
@@ -793,7 +794,13 @@ public class DownloadService {
             }
         }
 
-        int exitCode = process.waitFor();
+        boolean finished = process.waitFor(30, TimeUnit.MINUTES);
+        if (!finished) {
+            process.destroyForcibly();
+            broadcast("\u274c SpotDL process timed out after 30 minutes and was killed.\n", profileId);
+            return fallbackResult;
+        }
+        int exitCode = process.exitValue();
         broadcast("Fallback process finished with exit code: " + exitCode + "\n", profileId);
 
         if (exitCode == 0 && hasProcessedSongs(fallbackResult)) {

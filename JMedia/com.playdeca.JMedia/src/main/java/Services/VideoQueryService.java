@@ -28,10 +28,15 @@ public class VideoQueryService {
 
     // ========== PAGINATION METHODS ==========
     
+    private static final java.util.Set<String> ALLOWED_SORT_FIELDS = java.util.Set.of(
+        "title", "dateAdded", "lastWatched", "type", "duration", "seriesTitle",
+        "episodeTitle", "seasonNumber", "episodeNumber", "filename"
+    );
+
     @Transactional
     public PaginatedVideos findPaginatedByMediaType(String mediaType, int page, int limit, String sortBy, String sortDirection, String search) {
         Sort.Direction direction = "desc".equalsIgnoreCase(sortDirection) ? Sort.Direction.Descending : Sort.Direction.Ascending;
-        String sortField = sortBy != null ? sortBy : "dateAdded";
+        String sortField = sortBy != null && ALLOWED_SORT_FIELDS.contains(sortBy) ? sortBy : "dateAdded";
         
         if (search == null || search.trim().isEmpty()) {
             List<Video> videos = Video.<Video>find("type = ?1 AND isActive = true",

@@ -409,8 +409,7 @@ public class ImportService {
     public void cancelImport() {
         if (isImporting.get()) {
             isCancelled.set(true);
-            // Clear the URLs list to stop processing immediately
-            currentUrls.clear();
+            currentUrls = new ArrayList<>();
             downloadService.cancelDownload();
             broadcast("Import cancelled by user.\n", null);
         }

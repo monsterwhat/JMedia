@@ -337,6 +337,10 @@ public class FFmpegDiscoveryService {
             Process p = pb.start();
             String output = new String(p.getInputStream().readAllBytes());
             boolean finished = p.waitFor(10, TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                LOG.debug("Hardware device probe timed out for '{}'", hwaccelType);
+            }
             boolean success = finished && p.exitValue() == 0;
 
             if (success) {

@@ -10,6 +10,8 @@ import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.MediaType;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
@@ -23,7 +25,9 @@ import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class UpdateService {
-    
+
+    private static final Logger LOG = LoggerFactory.getLogger(UpdateService.class);
+
     @Inject
     SettingsService settingsService;
     
@@ -78,6 +82,10 @@ public class UpdateService {
                     // Send update notification via WebSocket
                     notifyUpdateAvailable(updateInfo);
                 }
+            })
+            .exceptionally(ex -> {
+                LOG.error("Failed to check for updates", ex);
+                return null;
             });
     }
     

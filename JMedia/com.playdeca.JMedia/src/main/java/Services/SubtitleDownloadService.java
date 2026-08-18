@@ -18,6 +18,8 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,6 +33,12 @@ public class SubtitleDownloadService {
     private static final Logger LOG = LoggerFactory.getLogger(SubtitleDownloadService.class);
     private static final String OPENSUBTITLES_API_BASE = "https://api.opensubtitles.com/api/v1";
     private static final String USER_AGENT = "JMedia v1.0";
+    private static final ExecutorService SUBTITLE_EXECUTOR = 
+        Executors.newFixedThreadPool(2, r -> {
+            Thread t = new Thread(r, "subtitle-download");
+            t.setDaemon(true);
+            return t;
+        });
 
     @Inject
     SettingsService settingsService;
@@ -369,7 +377,7 @@ public class SubtitleDownloadService {
     }
 
     public CompletableFuture<String> downloadSubtitle(Video video, String fileId) {
-        return CompletableFuture.supplyAsync(() -> downloadSubtitleSync(video, fileId));
+        return CompletableFuture.supplyAsync(() -> downloadSubtitleSync(video, fileId), SUBTITLE_EXECUTOR);
     }
 
     public List<Models.DTOs.LocalSubtitleFile> scanAllSubtitleFiles(Video video) {

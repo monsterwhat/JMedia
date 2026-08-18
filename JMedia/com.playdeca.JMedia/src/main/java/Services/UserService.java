@@ -1,13 +1,18 @@
 package Services;
 
 import Models.Settings.Profile;
+import Models.Settings.Session;
 import Models.Settings.User;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.util.List;
 
 @ApplicationScoped
 public class UserService {
+    
+    @Inject
+    SessionService sessionService;
     
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public List<User> listAll() {
@@ -63,6 +68,7 @@ public class UserService {
         
         if (password != null && !password.isEmpty()) {
             user.setPassword(password);
+            Session.delete("userId = ?1", String.valueOf(id));
         }
         
         if (groupName != null && !groupName.isEmpty()) {
@@ -83,6 +89,8 @@ public class UserService {
             throw new RuntimeException("Cannot delete admin users");
         }
         
+        Profile.delete("userId = ?1", id);
+        Session.delete("userId = ?1", String.valueOf(id));
         user.delete();
     }
 }

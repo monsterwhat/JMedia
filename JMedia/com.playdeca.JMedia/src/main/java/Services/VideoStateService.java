@@ -25,7 +25,12 @@ public class VideoStateService {
 
     @Transactional
     public VideoState getOrCreate(Video video) {
-        Profile activeProfile = settingsService.getActiveProfile();
+        return getOrCreate(video, null);
+    }
+
+    @Transactional
+    public VideoState getOrCreate(Video video, Long profileId) {
+        Profile activeProfile = profileId != null ? settingsService.getActiveProfile(profileId) : settingsService.getActiveProfile();
         if (activeProfile == null || video == null) {
             return null;
         }
@@ -78,7 +83,7 @@ public class VideoStateService {
             return;
         }
 
-        VideoState state = getOrCreate(video);
+        VideoState state = getOrCreate(video, profileId);
         state.currentTime = currentTimeSeconds;
         state.lastUpdated = LocalDateTime.now();
 

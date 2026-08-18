@@ -446,6 +446,10 @@ public class SongService {
                 // Preserve the original ID and dateAdded
                 updatedSong.id = song.id;
                 updatedSong.setUpdatedAt(java.time.LocalDateTime.now());
+                // Preserve existing analysis to prevent orphanRemoval from deleting it
+                if (song.getAnalysis() != null && updatedSong.getAnalysis() == null) {
+                    updatedSong.setAnalysis(song.getAnalysis());
+                }
                 em.merge(updatedSong);
                 LOGGER.log(Level.INFO, "Successfully rescanned and updated song: {0}", song.getTitle());
             } else {

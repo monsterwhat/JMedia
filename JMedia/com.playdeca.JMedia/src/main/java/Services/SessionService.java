@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 public class SessionService {
     
     private static final Logger LOG = LoggerFactory.getLogger(SessionService.class);
-    private static final long SESSION_TIMEOUT_MINUTES = 30 * 24 * 60;
+    private static final long SESSION_TIMEOUT_MINUTES = 30 * 24 * 60; // 30 days (~1 month)
     
     @Transactional
     public Session createSession(String userId, String username, String ipAddress) {
@@ -41,6 +41,7 @@ public class SessionService {
         return Session.findBySessionId(sessionId);
     }
     
+    @Transactional
     public boolean validateSession(String sessionId, String ipAddress) {
         LOG.debug("Validating session {} from IP {}", sessionId, ipAddress);
         
@@ -69,7 +70,11 @@ public class SessionService {
         }
         
         LOG.debug("Session {} IP check: expected {}, got {}", sessionId, session.ipAddress, ipAddress);
-        
+        if (session.ipAddress != null && ipAddress != null && !session.ipAddress.equals(ipAddress)) {
+            LOG.warn("Session {} IP mismatch: expected {}, got {} — invalidating", sessionId, session.ipAddress, ipAddress);
+            invalidateSession(sessionId);
+            return false;
+        }
         session.lastActivity = Instant.now();
         session.active = true;
         

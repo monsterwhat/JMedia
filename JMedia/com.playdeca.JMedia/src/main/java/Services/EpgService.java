@@ -113,6 +113,15 @@ public class EpgService {
     }
 
     @Transactional
+    public List<EpgEntry> findCurrentAndUpcoming(String epgChannelId, int limit) {
+        LocalDateTime now = LocalDateTime.now();
+        return EpgEntry.find(
+            "epgChannelId = ?1 AND endTime > ?2 ORDER BY startTime",
+            epgChannelId, now
+        ).page(0, limit).list();
+    }
+
+    @Transactional
     public List<EpgEntry> findAllForChannel(String epgChannelId) {
         return EpgEntry.find("epgChannelId = ?1 ORDER BY startTime", epgChannelId).list();
     }

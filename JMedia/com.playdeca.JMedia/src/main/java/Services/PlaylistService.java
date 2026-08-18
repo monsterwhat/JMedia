@@ -71,7 +71,7 @@ public class PlaylistService {
         }
     }
 
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    @Transactional(Transactional.TxType.REQUIRED)
     public Playlist find(Long id) {
         Playlist playlist = em.find(Playlist.class, id);
         Profile activeProfile = settingsService.getActiveProfile();
@@ -353,6 +353,10 @@ public class PlaylistService {
                     em.merge(playlist);
                 }
             }
+            // Also remove from global playlists (they may contain the song)
+            em.createNativeQuery("DELETE FROM playlist_song WHERE song_id = :songId AND playlist_id IN (SELECT id FROM playlist WHERE is_global = true)")
+                .setParameter("songId", songId)
+                .executeUpdate();
         }
     }
 
