@@ -55,8 +55,12 @@ public class CsrfOriginFilter implements ContainerRequestFilter {
             if (host == null || host.isBlank() || !sameHost(referer, host)) {
                 reject(ctx);
             }
+        } else {
+            // Both Origin and Referer absent — allow (matches Javadoc and OWASP posture:
+            // modern browsers always send Origin on cross-site unsafe requests, so the
+            // worst case for "both absent" is a legacy same-origin client)
+            return;
         }
-        // Both absent: allow (legacy same-origin clients).
     }
 
     private static boolean sameHost(String originOrReferer, String hostHeader) {

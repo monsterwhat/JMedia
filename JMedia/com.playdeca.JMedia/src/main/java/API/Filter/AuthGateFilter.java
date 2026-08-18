@@ -20,10 +20,18 @@ public class AuthGateFilter implements ContainerRequestFilter {
     private static final Logger LOG = Logger.getLogger(AuthGateFilter.class);
     private static final String SESSION_COOKIE = "JMEDIA_SESSION";
     private static final String[] EXEMPT_PATHS = {
+        "/login.html",
         "/api/auth",
         "/api/setup",
         "/api/installation",
-        "/player_api.php"
+        "/player_api.php",
+        "/api/music/stream/",
+        "/api/video/stream/",
+        "/api/video/progress/",
+        "/api/video/storyboard/",
+        "/api/hls/master/",
+        "/api/hls/playlist/",
+        "/api/hls/media/"
     };
 
     @Context

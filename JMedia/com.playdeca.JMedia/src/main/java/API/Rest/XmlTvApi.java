@@ -33,6 +33,10 @@ public class XmlTvApi {
             @QueryParam("username") String username,
             @QueryParam("password") String password) {
 
+        if (username == null || password == null) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
+        }
+
         Optional<User> userOpt = authService.authenticate(username, password);
         if (userOpt.isEmpty()) {
             return Response.status(Response.Status.FORBIDDEN).build();
@@ -150,6 +154,23 @@ public class XmlTvApi {
                 xml.writeCharacters("    ");
                 xml.writeStartElement("language");
                 xml.writeCharacters(entry.language);
+                xml.writeEndElement();
+                xml.writeCharacters("\n");
+            }
+
+            if (entry.category != null && !entry.category.isBlank()) {
+                xml.writeCharacters("    ");
+                xml.writeStartElement("category");
+                xml.writeCharacters(entry.category);
+                xml.writeEndElement();
+                xml.writeCharacters("\n");
+            }
+
+            if (entry.episode != null && !entry.episode.isBlank()) {
+                xml.writeCharacters("    ");
+                xml.writeStartElement("episode-num");
+                xml.writeAttribute("system", "onscreen");
+                xml.writeCharacters(entry.episode);
                 xml.writeEndElement();
                 xml.writeCharacters("\n");
             }
