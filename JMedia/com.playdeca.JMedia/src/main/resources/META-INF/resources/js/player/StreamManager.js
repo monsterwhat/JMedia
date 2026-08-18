@@ -638,6 +638,25 @@
             p.video.addEventListener('playing', onSeekPlaying, { once: true });
             p.video.addEventListener('loadeddata', onSeekReady, { once: true });
             p.video.addEventListener('error', onSeekReady, { once: true });
+
+            // Mid-segment coverage serve lands the element clock at relTarget (segment
+            // timeline restarts at its head), not at the requested seek point — re-derive
+            // the true content start at load so subtitle ?start= matches the real timeline.
+            const onLoadedDataCorrectOffset = () => {
+                const ct = p.video.currentTime || 0;
+                const base = Math.max(0, p.streamStartOffset - ct);
+                if (Math.abs(base - p.streamStartOffset) > 0.1) {
+                    console.log(`[SimplePlayer] Correcting streamStartOffset from ${p.streamStartOffset} to ${base} (keyframe gap: ${ct}s)`);
+                    p.streamStartOffset = base;
+                    if (p.lastSelectedTrackId && p.lastSelectedTrackId !== 'off') {
+                        p.loadSubtitles(true).then(() => {
+                            const activeOpt = p.subtitleList?.querySelector(`.subtitle-option[data-id="${p.lastSelectedTrackId}"]`);
+                            if (activeOpt) activeOpt.click();
+                        });
+                    }
+                }
+            };
+            p.video.addEventListener('loadeddata', onLoadedDataCorrectOffset, { once: true });
             // F6: src+load resets playbackRate to 1.0 per HTML spec — re-apply stored value
             p.video.addEventListener('loadedmetadata', function() {
                 if (p.state.playbackRate && p.state.playbackRate !== 1) p.video.playbackRate = p.state.playbackRate;

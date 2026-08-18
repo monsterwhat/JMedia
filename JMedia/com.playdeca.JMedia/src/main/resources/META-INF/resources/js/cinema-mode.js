@@ -183,9 +183,13 @@ function createCardHTML(video) {
   const imgSrc = isTvCard && video.series?.id
     ? getSeriesImageUrl(video.series.id, 'poster')
     : getThumbnailUrl(id);
+  const progress = video.watchProgress || 0;
+  const watched = video.watched;
+  const statusClass = watched ? 'status-watched' : (progress > 0 ? 'status-partial' : '');
   return `
-    <div class="cinema-card" data-video-id="${id}" data-type="${video.type || 'movie'}" data-title="${title.replace(/"/g, '&quot;')}" data-click="${(video.type === 'episode' && video.seriesTitle) ? 'openSeriesDetailFromCard' : 'openDetailsFromCard'}"${(video.type === 'episode' && video.seriesTitle) ? ` data-series-title="${encodeURIComponent(video.seriesTitle || '')}"` : ''}>
+    <div class="cinema-card ${statusClass}" data-video-id="${id}" data-type="${video.type || 'movie'}" data-title="${title.replace(/"/g, '&quot;')}" data-click="${(video.type === 'episode' && video.seriesTitle) ? 'openSeriesDetailFromCard' : 'openDetailsFromCard'}"${(video.type === 'episode' && video.seriesTitle) ? ` data-series-title="${encodeURIComponent(video.seriesTitle || '')}"` : ''}>
       <div class="cinema-card-poster">
+        ${statusClass ? `<span class="card-progress-indicator ${statusClass}"></span>` : ''}
         <img src="${imgSrc}" alt="${title}" loading="lazy" onerror="this.src='/logo.png'">
         <div class="cinema-card-play-overlay">
           <div class="cinema-card-play-icon">
@@ -678,9 +682,13 @@ async function openCollectionDetail(collectionId) {
     const collection = (collectionData && collectionData.success ? collectionData.data : collectionData);
     const entries = (entriesData && entriesData.success ? entriesData.data : entriesData);
 
-    let html = '<div class="collection-detail-header" style="padding:1.5rem 0;">';
-    html += '<button onclick="showCollectionsGrid()" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:0.9rem;margin-bottom:0.5rem;"><i class="fa-solid fa-arrow-left"></i> Back to Collections</button>';
-    html += '<h2 style="font-size:1.5rem;font-weight:600;margin:0;">' + (collection.name || 'Collection') + '</h2>';
+    let html = '';
+    html += '<div style="padding:0 0 0.5rem 0;">';
+    html += '<button class="button is-ghost" onclick="showCollectionsGrid()" style="color:rgba(255,255,255,0.6);font-size:0.85rem;"><i class="fa-solid fa-arrow-left"></i> Back to Collections</button>';
+    html += '</div>';
+    html += '<section class="cinema-section" style="display:block;margin-bottom:1.5rem;">';
+    html += '<div class="cinema-section-header">';
+    html += '<h2 class="cinema-section-title">' + (collection.name || 'Collection') + '</h2>';
     if (collection.description) html += '<p style="color:rgba(255,255,255,0.5);margin:0.25rem 0 0 0;">' + collection.description + '</p>';
     html += '</div>';
 
@@ -688,24 +696,43 @@ async function openCollectionDetail(collectionId) {
     if (items.length === 0) {
       html += '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.3);">This collection is empty.</div>';
     } else {
-      html += '<div class="cinema-carousel scrollbar-hide" style="display:flex;gap:0.5rem;overflow-x:auto;padding:0 0 1rem 0;">';
-      for (const entry of items) {
-        const videoId = entry.videoId || entry.video?.id || entry.externalVideoId;
-        const title = entry.video?.title || entry.title || 'Untitled';
+      html += '<div class="collection-grid">';
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i];
+        const videoId = entry.videoId || entry.externalVideoId;
+        const title = entry.title || 'Untitled';
         const imgSrc = videoId ? `/api/video/thumbnail/${videoId}` : '';
-        html += '<div class="cinema-card" data-video-id="' + videoId + '" onclick="playVideo(' + videoId + ')" style="cursor:pointer;flex-shrink:0;">';
+        const notes = entry.notes || '';
+        const orderNum = i + 1;
+        const progress = entry.watchProgress || 0;
+        const watched = entry.watched;
+        const statusClass = watched ? 'status-watched' : (progress > 0 ? 'status-partial' : '');
+        const ratingValue = parseFloat(entry.imdbRating || entry.tmdbRating || '') || 0;
+        const ratingText = ratingValue > 0 ? ratingValue.toFixed(1) : '';
+        const starColor = ratingText ? ratingColor(ratingValue) : '';
+        const year = entry.releaseYear || '';
+        html += '<div class="cinema-card collection-card ' + statusClass + '" data-video-id="' + videoId + '" data-collection-id="' + collectionId + '" data-click="openDetailsFromCard">';
         html += '  <div class="cinema-card-poster">';
+        html += '    <span class="card-order-badge">' + orderNum + '</span>';
+        if (statusClass) {
+          html += '    <span class="card-progress-indicator ' + statusClass + '"></span>';
+        }
         html += '    <img src="' + imgSrc + '" alt="' + title + '" loading="lazy" onerror="this.src=\'/logo.png\'">';
         html += '    <div class="cinema-card-play-overlay"><div class="cinema-card-play-icon"><i class="fa-solid fa-play"></i></div></div>';
         html += '  </div>';
         html += '  <div class="cinema-card-title">' + title + '</div>';
+        html += '  <div class="cinema-card-meta">';
+        html += '    <span class="cinema-card-meta-text"><i class="fa-solid fa-star" style="font-size: 0.7rem;'+(starColor ? ' color: '+starColor+';' : '')+'"></i> <span style="color:'+(starColor || 'inherit')+'">'+ratingText+'</span> '+( year ? '· ' + year : '')+'</span>';
+        html += '  </div>';
         html += '</div>';
       }
       html += '</div>';
     }
+    html += '</section>';
 
     container.innerHTML = html;
   } catch(e) {
+    console.error('[cinema] Failed to load collection', e);
     container.innerHTML = '<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.5);">Error loading collection.</div>';
   }
 }
@@ -986,9 +1013,8 @@ async function loadCinemaData() {
     // Insert into the cinema-sections container (replacing any placeholder)
     const container = document.querySelector('.cinema-sections');
     if (container) {
-      container.innerHTML = html;
+    container.innerHTML = html;
     }
-    // Parse embedded hero data
     const scriptTag = document.getElementById('cinema-home-data');
     if (scriptTag) {
       try {
@@ -2556,7 +2582,7 @@ function createProfile() {
 // ============================================================
 // Actions
 // ============================================================
-async function openPlayerModal(videoId) {
+async function openPlayerModal(videoId, collectionId) {
   // B11: teardown before innerHTML — destroys the ghost from the previous episode
   if (typeof currentPlayerInstance !== 'undefined' && currentPlayerInstance) {
     currentPlayerInstance.destroy();
@@ -2585,7 +2611,9 @@ async function openPlayerModal(videoId) {
       await fetch('/api/video/playback/play/' + videoId, { method: 'POST' });
     }
 
-    const resp = await fetch(`/api/video/ui/playback-fragment?videoId=${videoId}&cinema=true`);
+    let fragmentUrl = `/api/video/ui/playback-fragment?videoId=${videoId}&cinema=true`;
+    if (collectionId) fragmentUrl += `&collectionId=${collectionId}`;
+    const resp = await fetch(fragmentUrl);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const html = await resp.text();
 
@@ -2676,14 +2704,29 @@ function closePlayerModal() {
 // ============================================================
 
 function getPlayerContainer() {
-  return document.querySelector('#player-modal-content [data-series-title]');
+  return document.querySelector('#player-modal-content [data-series-title], #player-modal-content [data-collection-id]');
+}
+
+function isCollectionContext() {
+  const container = getPlayerContainer();
+  return container && container.dataset.collectionId;
 }
 
 function initEpisodeSidebar() {
   const toggleBtn = document.getElementById('episode-sidebar-toggle');
   if (!toggleBtn) return;
   const container = getPlayerContainer();
-  if (container && container.dataset.seriesTitle && (container.dataset.type === 'episode' || container.dataset.type === 'Episode')) {
+  if (!container) {
+    toggleBtn.style.display = 'none';
+    closeEpisodeSidebar();
+    if (window.JMedia && window.JMedia.PageChrome) window.JMedia.PageChrome.setVideoHome();
+    return;
+  }
+
+  const isEpisode = container.dataset.seriesTitle && (container.dataset.type === 'episode' || container.dataset.type === 'Episode');
+  const isCollection = !!container.dataset.collectionId;
+
+  if (isEpisode || isCollection) {
     toggleBtn.style.display = '';
   } else {
     toggleBtn.style.display = 'none';
@@ -2750,6 +2793,11 @@ async function toggleEpisodeSidebar() {
   // Gather current video context from the player container
   const container = getPlayerContainer();
   if (!container) return;
+
+  if (container.dataset.collectionId) {
+    await openCollectionSidebar(container);
+    return;
+  }
 
   const seriesTitle = container.dataset.seriesTitle;
   const currentVideoId = container.dataset.videoId;
@@ -2818,9 +2866,95 @@ function closeEpisodeSidebar() {
   const sidebar = document.getElementById('episode-sidebar');
   const backdrop = document.getElementById('episode-sidebar-backdrop');
   const toggleBtn = document.getElementById('episode-sidebar-toggle');
-  if (sidebar) sidebar.classList.remove('open');
+  if (sidebar) {
+    sidebar.classList.remove('open');
+    const titleEl = sidebar.querySelector('.episode-sidebar-title');
+    if (titleEl) titleEl.textContent = 'Episodes';
+    const seasonsWrap = sidebar.querySelector('.episode-sidebar-seasons-wrap');
+    if (seasonsWrap) seasonsWrap.style.display = '';
+  }
   if (backdrop) backdrop.classList.remove('active');
   if (toggleBtn) toggleBtn.classList.remove('active');
+}
+
+// ============================================================
+// Collection Sidebar
+// ============================================================
+
+async function openCollectionSidebar(container) {
+  const sidebar = document.getElementById('episode-sidebar');
+  const backdrop = document.getElementById('episode-sidebar-backdrop');
+  const toggleBtn = document.getElementById('episode-sidebar-toggle');
+  if (!sidebar || !backdrop) return;
+
+  const collectionId = container.dataset.collectionId;
+  const collectionName = container.dataset.collectionName || 'Collection';
+  const currentVideoId = container.dataset.videoId;
+  if (!collectionId) return;
+
+  const titleEl = sidebar.querySelector('.episode-sidebar-title');
+  if (titleEl) titleEl.textContent = collectionName;
+
+  const seasonsWrap = sidebar.querySelector('.episode-sidebar-seasons-wrap');
+  if (seasonsWrap) seasonsWrap.style.display = 'none';
+
+  let entries;
+  try {
+    const resp = await fetch(`/api/collections/${collectionId}/entries`);
+    if (!resp.ok) return;
+    const body = await resp.json();
+    entries = (body && body.success ? body.data : body);
+    if (!Array.isArray(entries)) return;
+  } catch (e) {
+    return;
+  }
+  if (!entries.length) return;
+
+  renderCollectionSidebarList(entries, currentVideoId);
+
+  sidebar.classList.add('open');
+  backdrop.classList.add('active');
+  if (toggleBtn) toggleBtn.classList.add('active');
+}
+
+function renderCollectionSidebarList(entries, currentVideoId) {
+  const container = document.getElementById('episode-sidebar-list');
+  if (!container) return;
+
+  container.innerHTML = entries.map(entry => {
+    const videoId = entry.videoId || entry.externalVideoId;
+    const isCurrent = String(videoId) === String(currentVideoId);
+    const orderNum = entry.orderIndex != null ? entry.orderIndex : '';
+    const title = entry.title || `Entry ${orderNum}`;
+    const progressClass = entry.watched ? 'watched' : (entry.watchProgress > 0 ? 'partial' : '');
+    const progressDot = progressClass
+      ? `<span class="episode-sidebar-progress-dot ${progressClass}"></span>`
+      : '';
+
+    return `<button type="button" class="episode-sidebar-item${isCurrent ? ' active' : ''}" onclick="playSidebarCollectionEntry(${videoId})">
+      <div class="episode-sidebar-info" style="width:100%">
+        <div class="episode-sidebar-top-row">
+          <span class="episode-sidebar-ep-number">#${orderNum}</span>
+          ${progressDot}
+        </div>
+        <div class="episode-sidebar-ep-title">${title}</div>
+      </div>
+    </button>`;
+  }).join('');
+
+  const activeEl = container.querySelector('.episode-sidebar-item.active');
+  if (activeEl) {
+    const target = activeEl.offsetTop - container.clientHeight / 2 + activeEl.clientHeight / 2;
+    container.scrollTop = Math.max(0, target);
+  }
+}
+
+function playSidebarCollectionEntry(videoId) {
+  const container = getPlayerContainer();
+  const collectionId = container ? container.dataset.collectionId : null;
+  closeEpisodeSidebar();
+  closePlayerModal();
+  setTimeout(() => openPlayerModal(videoId, collectionId), 100);
 }
 
 // Audio language pill in sidebar header
@@ -2990,14 +3124,11 @@ function scrollSeasonsRight() {
 })();
 
 function playSidebarEpisode(videoId) {
-  // Close the sidebar
+  const container = getPlayerContainer();
+  const collectionId = container ? container.dataset.collectionId : null;
   closeEpisodeSidebar();
-
-  // Close the current player modal
   closePlayerModal();
-
-  // Open a new player for the clicked episode (small delay to let close animation finish)
-  setTimeout(() => openPlayerModal(videoId), 100);
+  setTimeout(() => openPlayerModal(videoId, collectionId), 100);
 }
 
 function togglePlayerExpand() {
@@ -3954,7 +4085,13 @@ function playContinueWatchingFromCard(el) {
 }
 function openDetailsFromCard(el) {
   var card = el.closest('[data-video-id]');
-  if (card && card.dataset.videoId) openDetails(parseInt(card.dataset.videoId));
+  if (card && card.dataset.videoId) {
+    if (card.dataset.collectionId) {
+      openPlayerModal(parseInt(card.dataset.videoId), parseInt(card.dataset.collectionId));
+    } else {
+      openDetails(parseInt(card.dataset.videoId));
+    }
+  }
 }
 function closeSearchByClick(el) {
   closeSearch();

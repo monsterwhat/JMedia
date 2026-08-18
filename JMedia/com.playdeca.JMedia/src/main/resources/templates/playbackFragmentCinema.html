@@ -38,7 +38,9 @@
       data-default-audio-track-id="{item.defaultAudioTrackId ?: ''}"
       data-auto-skip-intro="{autoSkipIntro}"
       data-auto-skip-recap="{autoSkipRecap}"
-      data-auto-skip-outro="{autoSkipOutro}">
+      data-auto-skip-outro="{autoSkipOutro}"
+      data-collection-id="{collectionId ?: ''}"
+      data-collection-name="{collectionName}">
     <div class="video-wrapper">
         <video id="videoElement" crossorigin="anonymous" playsinline autoplay></video>
         <canvas id="assCanvas" class="ass-canvas"></canvas>
@@ -116,7 +118,9 @@
       data-default-audio-track-id="{item.defaultAudioTrackId ?: ''}"
       data-auto-skip-intro="{autoSkipIntro}"
       data-auto-skip-recap="{autoSkipRecap}"
-      data-auto-skip-outro="{autoSkipOutro}">
+      data-auto-skip-outro="{autoSkipOutro}"
+      data-collection-id="{collectionId ?: ''}"
+      data-collection-name="{collectionName}">
 
     <div class="video-wrapper">
         {#if defaultPlayer == 'oplayer'}

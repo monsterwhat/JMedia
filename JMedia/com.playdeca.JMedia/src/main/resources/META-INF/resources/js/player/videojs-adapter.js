@@ -285,6 +285,12 @@
             var base = Math.max(0, _streamStartOffset - ct);
             if (Math.abs(base - _streamStartOffset) > 0.1) {
                 _streamStartOffset = base;
+                /* Re-fetch subtitles with the corrected offset so cues align
+                 * with the actual element clock (fixes forward-seek desync
+                 * where subs appeared ahead of audio by the keyframe gap). */
+                if (window.testPlayerFeatures && typeof window.testPlayerFeatures.reapplySubtitle === 'function') {
+                    window.testPlayerFeatures.reapplySubtitle();
+                }
             }
         });
 

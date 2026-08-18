@@ -510,3 +510,21 @@ Episode Sidebar Styles - Liquid Glass Redesign */
     border-radius: 0;
   }
 }
+
+.episode-sidebar-progress-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.episode-sidebar-progress-dot.watched {
+  background: #48c774;
+  box-shadow: 0 0 4px rgba(72, 199, 116, 0.5);
+}
+.episode-sidebar-progress-dot.partial {
+  background: #f5a623;
+  box-shadow: 0 0 4px rgba(245, 166, 35, 0.5);
+}
