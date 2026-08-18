@@ -115,9 +115,10 @@ public class XtreamCodesAPI {
                 return getLiveStreams(categoryId);
             case "get_live_stream_info":
                 return getLiveStreamInfo(liveStreamId);
-            case "get_epg":
             case "get_short_epg":
                 return getShortEpg(liveStreamId);
+            case "get_epg":
+                return getFullEpg(liveStreamId);
             case "get_simple_data_table":
                 return getFullEpg(liveStreamId);
             case "get_thumbnail":
@@ -153,7 +154,7 @@ public class XtreamCodesAPI {
         info.put("plot", v.overview != null ? v.overview : "");
         info.put("description", v.overview != null ? v.overview : "");
         info.put("rating", v.imdbRating != null ? v.imdbRating.toString() : "0");
-        info.put("rating_5based", v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0);
+        info.put("rating_5based", v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0.0);
         info.put("director", v.directors != null ? String.join(", ", v.directors) : "");
         info.put("actors", v.cast != null ? String.join(", ", v.cast) : "");
         info.put("cast", v.cast != null ? String.join(", ", v.cast) : "");
@@ -178,10 +179,15 @@ public class XtreamCodesAPI {
         
         response.put("info", info);
         
+        java.util.Map<String, String> genreIds = genreIdByName();
         String vodCategoryId = "0";
+        List<String> vodCategoryIds = new ArrayList<>();
         if (v.genres != null && !v.genres.isEmpty()) {
-            Models.Video.Genre g = Models.Video.Genre.find("LOWER(name) = ?1", v.genres.get(0).toLowerCase()).firstResult();
-            if (g != null) vodCategoryId = g.id.toString();
+            for (String g : v.genres) {
+                String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
+                if (!"0".equals(gid)) vodCategoryIds.add(gid);
+            }
+            vodCategoryId = vodCategoryIds.isEmpty() ? "0" : vodCategoryIds.get(0);
         }
 
         java.util.Map<String, Object> movieData = new java.util.HashMap<>();
@@ -189,7 +195,10 @@ public class XtreamCodesAPI {
         movieData.put("name", v.title);
         movieData.put("added", v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
         movieData.put("category_id", vodCategoryId);
-        movieData.put("container_extension", "mp4");
+        movieData.put("category_ids", vodCategoryIds.isEmpty() ? new ArrayList<>(List.of("0")) : vodCategoryIds);
+        movieData.put("stream_icon", getImageUrl(v));
+        movieData.put("year", v.releaseYear != null ? String.valueOf(v.releaseYear) : "");
+        movieData.put("container_extension", v.container != null ? v.container : "mp4");
         movieData.put("custom_sid", "");
         movieData.put("direct_source", "");
         
@@ -197,45 +206,6 @@ public class XtreamCodesAPI {
         
         log.infof("getVodInfo response for vodId=%d: %s", vodId, toJson(response));
         return Response.ok(response).build();
-    }
-
-    @GET
-    @Path("/movie/{username}/{password}/{videoId}.{ext}")
-    public Response streamMovie(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
-                                @PathParam("videoId") Long videoId, @PathParam("ext") String ext,
-                                @HeaderParam("Range") String rangeHeader) {
-        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
-        log.infof("Stream movie request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
-        Video video = Video.findById(videoId);
-        if (video == null) { log.warnf("Movie not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
-        return proxyLocalVideo(video, ext, rangeHeader);
-    }
-
-    @GET
-    @Path("/series/{username}/{password}/{videoId}.{ext}")
-    public Response streamSeries(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
-                                 @PathParam("videoId") Long videoId, @PathParam("ext") String ext,
-                                 @HeaderParam("Range") String rangeHeader) {
-        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
-        log.infof("Stream series request: videoId=%d, ext=%s, range=%s", videoId, ext, rangeHeader);
-        Video video = Video.findById(videoId);
-        if (video == null) { log.warnf("Series episode not found: videoId=%d", videoId); return Response.status(Response.Status.NOT_FOUND).build(); }
-        return proxyLocalVideo(video, ext, rangeHeader);
-    }
-
-    @GET
-    @Path("/{username}/{password}/{channelId}.m3u8")
-    public Response streamLive(@PathParam("username") String pathUsername, @PathParam("password") String pathPassword,
-                               @PathParam("channelId") Long channelId) {
-        if (!isValidStreamCredentials(pathUsername, pathPassword)) return unauthorizedStreamResponse();
-        log.infof("Stream live request: channelId=%d", channelId);
-        LiveChannel ch = LiveChannel.findById(channelId);
-        if (ch == null || ch.streamUrl == null || ch.streamUrl.isBlank()) {
-            log.warnf("Live channel not found or no URL: channelId=%d", channelId);
-            return Response.status(Response.Status.NOT_FOUND).build();
-        }
-        log.infof("Proxying live stream: channelId=%d, url=%s", channelId, ch.streamUrl);
-        return proxyExternalStream(ch.streamUrl, pathUsername, pathPassword);
     }
 
     private boolean isValidStreamCredentials(String pathUsername, String pathPassword) {
@@ -252,88 +222,6 @@ public class XtreamCodesAPI {
         userInfo.put("auth", 0);
         authFail.put("user_info", userInfo);
         return Response.status(Response.Status.UNAUTHORIZED).entity(authFail).build();
-    }
-
-    private Response proxyLocalVideo(Video video, String ext, String rangeHeader) {
-        String libraryPath = settingsService.getOrCreateSettings().getVideoLibraryPath();
-        java.nio.file.Path baseFilePath = java.nio.file.Paths.get(video.path);
-        java.nio.file.Path filePath = baseFilePath.isAbsolute()
-                ? baseFilePath : java.nio.file.Paths.get(libraryPath, video.path);
-
-        File videoFile = filePath.toFile();
-        if (!videoFile.exists() || !videoFile.isFile()) {
-            return Response.status(Response.Status.NOT_FOUND).build();
-        }
-
-        long fileLength = videoFile.length();
-        long start = 0;
-        long end = fileLength - 1;
-
-        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-            try {
-                String rangeValue = rangeHeader.substring(6).trim();
-                if (rangeValue.startsWith("-")) {
-                    long suffix = Long.parseLong(rangeValue.substring(1));
-                    start = Math.max(0, fileLength - suffix);
-                    end = fileLength - 1;
-                } else {
-                    String[] parts = rangeValue.split("-", -1);
-                    start = Long.parseLong(parts[0].trim());
-                    if (parts.length > 1 && !parts[1].trim().isEmpty()) {
-                        end = Long.parseLong(parts[1].trim());
-                    } else {
-                        end = fileLength - 1;
-                    }
-                }
-                if (end >= fileLength) end = fileLength - 1;
-                if (start > end) { start = 0; end = fileLength - 1; }
-            } catch (Exception e) {
-                start = 0;
-                end = fileLength - 1;
-            }
-        }
-
-        if (start >= fileLength) {
-            return Response.status(Response.Status.REQUESTED_RANGE_NOT_SATISFIABLE)
-                    .header("Content-Range", "bytes */" + fileLength)
-                    .build();
-        }
-
-        long contentLength = end - start + 1;
-        final long finalStart = start;
-        final long finalContentLength = contentLength;
-
-        String contentType = "video/mp4";
-        if ("mkv".equalsIgnoreCase(ext)) contentType = "video/x-matroska";
-        else if ("avi".equalsIgnoreCase(ext)) contentType = "video/x-msvideo";
-
-        final String ct = contentType;
-        jakarta.ws.rs.core.StreamingOutput stream = out -> {
-            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(videoFile, "r")) {
-                raf.seek(finalStart);
-                byte[] buf = new byte[65536];
-                long remaining = finalContentLength;
-                while (remaining > 0) {
-                    int read = raf.read(buf, 0, (int) Math.min(buf.length, remaining));
-                    if (read == -1) break;
-                    out.write(buf, 0, read);
-                    remaining -= read;
-                }
-            }
-        };
-
-        Response.ResponseBuilder rb = Response.status(rangeHeader != null ? Response.Status.PARTIAL_CONTENT : Response.Status.OK)
-                .entity(stream)
-                .header("Accept-Ranges", "bytes")
-                .header("Content-Type", ct)
-                .header("Content-Length", contentLength)
-                .header("Access-Control-Allow-Origin", "*");
-
-        if (rangeHeader != null) {
-            rb.header("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);
-        }
-
-        return rb.build();
     }
 
     private boolean isBlockedSsrfUrl(String url) {
@@ -406,7 +294,6 @@ public class XtreamCodesAPI {
 
             if (contentType != null) rb.type(contentType);
             if (contentLength > 0) rb.header("Content-Length", contentLength);
-            rb.header("Access-Control-Allow-Origin", "*");
 
             boolean isHls = (contentType != null && contentType.contains("mpegurl"))
                     || url.contains(".m3u8") || url.contains(".m3u");
@@ -430,7 +317,6 @@ public class XtreamCodesAPI {
                 }
                 return Response.ok(rewritten.toString())
                         .type("application/vnd.apple.mpegurl")
-                        .header("Access-Control-Allow-Origin", "*")
                         .build();
             }
 
@@ -459,6 +345,14 @@ public class XtreamCodesAPI {
         }
     }
 
+    private String getExternalBaseUri() {
+        String host = uriInfo.getBaseUri().getHost();
+        if (host != null && (host.equals("localhost") || host.equals("127.0.0.1"))) {
+            return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost") + ":" + uriInfo.getBaseUri().getPort() + "/";
+        }
+        return uriInfo.getBaseUri().toString();
+    }
+
     @GET
     @Path("/proxy/stream")
     public Response proxyStream(@QueryParam("url") String url) {
@@ -471,63 +365,81 @@ public class XtreamCodesAPI {
         log.infof("getSeriesInfo: seriesId=%s, username=%s", seriesId, username);
         if (seriesId == null) return Response.status(Response.Status.BAD_REQUEST).build();
         
-        List<Video> episodes = Video.find("type = 'episode'").list();
-        log.infof("getSeriesInfo: total episodes in DB=%d", episodes.size());
-        log.infof("getSeriesInfo: episode seriesTitles sample (first 10): %s",
-                episodes.stream().filter(e -> e.seriesTitle != null).map(e -> e.seriesTitle).distinct().limit(10).collect(java.util.stream.Collectors.joining(", ")));
-        log.infof("getSeriesInfo: episode seriesTitle hashIds (first 10): %s",
-                episodes.stream().filter(e -> e.seriesTitle != null).map(e -> e.seriesTitle).distinct().map(t -> t + "=" + hashId(t)).limit(10).collect(java.util.stream.Collectors.joining(", ")));
-        List<Video> seriesEpisodes = new ArrayList<Video>(episodes).stream()
-                .filter(e -> e.seriesTitle != null && (hashId(e.seriesTitle).equals(seriesId)
-                        || String.valueOf(e.seriesTitle.hashCode()).equals(seriesId)
-                        || String.valueOf(Math.abs(e.seriesTitle.hashCode())).equals(seriesId)))
-                .sorted(java.util.Comparator.comparing((Video e) -> e.seasonNumber != null ? e.seasonNumber : 0, java.util.Comparator.naturalOrder())
-                        .thenComparing((Video e) -> e.episodeNumber != null ? e.episodeNumber : 0, java.util.Comparator.naturalOrder()))
-                .collect(Collectors.toList());
-
-        log.infof("getSeriesInfo: matched %d episodes for seriesId=%s", seriesEpisodes.size(), seriesId);
-        if (seriesEpisodes.isEmpty()) {
-            log.warnf("getSeriesInfo: no episodes found for seriesId=%s, dumping hash table:", seriesId);
-            episodes.stream().filter(e -> e.seriesTitle != null).collect(Collectors.groupingBy(e -> e.seriesTitle))
-                    .forEach((title, eps) -> log.warnf("  title='%s', hashId=%s, episodeCount=%d",
-                            title, hashId(title), eps.size()));
+        Models.Video.Series matchedSeries = null;
+        for (Models.Video.Series sv : Models.Video.Series.<Models.Video.Series>listAll()) {
+            if (hashId(sv.title).equals(seriesId)) {
+                matchedSeries = sv;
+                break;
+            }
+        }
+        if (matchedSeries == null) {
+            log.warnf("getSeriesInfo: no series match for seriesId=%s", seriesId);
             return Response.status(Response.Status.NOT_FOUND).build();
         }
+        
+        List<Video> seriesEpisodes = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY seasonNumber, episodeNumber", matchedSeries).list();
 
-        // Construct complex Xtream response for series info
+        log.infof("getSeriesInfo: matched %d episodes for seriesId=%s", seriesEpisodes.size(), seriesId);
+
         java.util.Map<String, Object> response = new java.util.HashMap<>();
         
         java.util.Map<String, Object> info = new java.util.HashMap<>();
-        Video first = seriesEpisodes.get(0);
-        boolean hasSeries = first.series != null;
-        Models.Video.Series s = hasSeries ? first.series : null;
-        info.put("name", first.seriesTitle);
-        info.put("cover", getImageUrl(first));
-        info.put("cover_big", getImageUrl(first));
-        info.put("plot", (s != null && s.overview != null && !s.overview.isBlank()) ? s.overview : (first.overview != null ? first.overview : ""));
-        info.put("cast", (s != null && s.cast != null && !s.cast.isEmpty()) ? String.join(", ", s.cast) : (first.cast != null ? String.join(", ", first.cast) : ""));
-        info.put("director", (s != null && s.directors != null && !s.directors.isEmpty()) ? String.join(", ", s.directors) : (first.directors != null ? String.join(", ", first.directors) : ""));
-        List<String> seriesGenres = (s != null && s.genres != null && !s.genres.isEmpty())
-            ? s.genres : first.genres;
+        Models.Video.Series s = matchedSeries;
+        info.put("name", s.title);
+        if (s.posterPath != null && !s.posterPath.isBlank()) {
+            info.put("cover", "https://image.tmdb.org/t/p/w500" + s.posterPath);
+            info.put("cover_big", "https://image.tmdb.org/t/p/w1280" + s.posterPath);
+        } else if (!seriesEpisodes.isEmpty()) {
+            Video first = seriesEpisodes.get(0);
+            info.put("cover", getImageUrl(first));
+            info.put("cover_big", getImageUrl(first));
+        }
+        String plotText = (s.overview != null && !s.overview.isBlank()) ? s.overview : "";
+        info.put("plot", plotText);
+        info.put("description", plotText);
+        info.put("cast", (s.cast != null && !s.cast.isEmpty()) ? String.join(", ", s.cast) : "");
+        info.put("director", (s.directors != null && !s.directors.isEmpty()) ? String.join(", ", s.directors) : "");
+        List<String> seriesGenres = s.genres;
         info.put("genre", seriesGenres != null ? String.join(", ", seriesGenres) : "");
-        info.put("releaseDate", (s != null && s.releaseDate != null) ? s.releaseDate : first.releaseDate);
-        Double seriesRating = (s != null && s.tmdbRating != null) ? s.tmdbRating : first.imdbRating;
+        info.put("releaseDate", s.releaseDate);
+        Double seriesRating = s.tmdbRating;
         info.put("rating", seriesRating != null ? seriesRating.toString() : "0");
-        info.put("rating_5based", seriesRating != null ? Math.ceil(seriesRating / 2.0) : 0);
-        info.put("youtube_trailer", (s != null && s.trailerUrl != null) ? s.trailerUrl : (first.trailerUrl != null ? first.trailerUrl : ""));
-        info.put("episode_run_time", (s != null && s.runtimeMins != null) ? String.valueOf(s.runtimeMins) : (first.runtimeMins != null ? String.valueOf(first.runtimeMins) : ""));
-        info.put("backdrop_path", new ArrayList<>());
+        info.put("rating_5based", seriesRating != null ? Math.ceil(seriesRating / 2.0) : 0.0);
+        info.put("youtube_trailer", s.trailerUrl != null ? s.trailerUrl : "");
+        info.put("episode_run_time", s.runtimeMins != null ? String.valueOf(s.runtimeMins) : "");
+        if (s.backdropPath != null && !s.backdropPath.isBlank()) {
+            info.put("backdrop_path", new ArrayList<>(List.of("https://image.tmdb.org/t/p/w1280" + s.backdropPath)));
+        } else {
+            info.put("backdrop_path", new ArrayList<>());
+        }
         
         response.put("info", info);
 
         java.util.Set<Integer> seasonNumbers = seriesEpisodes.stream()
                 .map(e -> e.seasonNumber != null ? e.seasonNumber : 1)
                 .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+        java.util.Map<Integer, Long> episodeCountsBySeason = seriesEpisodes.stream()
+                .collect(Collectors.groupingBy(e -> e.seasonNumber != null ? e.seasonNumber : 1, Collectors.counting()));
         List<java.util.Map<String, Object>> seasonsArray = new ArrayList<>();
         for (Integer sn : seasonNumbers) {
             java.util.Map<String, Object> seasonObj = new java.util.HashMap<>();
             seasonObj.put("season_number", sn);
             seasonObj.put("name", "Season " + sn);
+            seasonObj.put("episode_count", episodeCountsBySeason.getOrDefault(sn, 0L).intValue());
+            Video firstEp = seriesEpisodes.stream()
+                    .filter(e -> (e.seasonNumber != null ? e.seasonNumber : 1) == sn)
+                    .findFirst().orElse(null);
+            if (firstEp != null) {
+                seasonObj.put("cover", getImageUrl(firstEp));
+                seasonObj.put("cover_big", getImageUrl(firstEp));
+                seasonObj.put("air_date", firstEp.releaseDate != null ? firstEp.releaseDate : "");
+                seasonObj.put("overview", firstEp.overview != null ? firstEp.overview : "");
+            } else {
+                seasonObj.put("cover", "");
+                seasonObj.put("cover_big", "");
+                seasonObj.put("air_date", "");
+                seasonObj.put("overview", "");
+            }
             seasonsArray.add(seasonObj);
         }
         response.put("seasons", seasonsArray);
@@ -539,19 +451,21 @@ public class XtreamCodesAPI {
             episodesBySeason.computeIfAbsent(seasonNum, k -> new ArrayList<>());
             
             java.util.Map<String, Object> ep = new java.util.HashMap<>();
-            ep.put("id", String.valueOf(e.id));
+            ep.put("id", e.id);
             ep.put("episode_num", e.episodeNumber);
             ep.put("title", e.title != null ? e.title : "Episode " + e.episodeNumber);
-            ep.put("container_extension", "mp4");
+            ep.put("container_extension", e.container != null ? e.container : "mp4");
             ep.put("season", e.seasonNumber != null ? e.seasonNumber : 1);
             ep.put("custom_sid", "");
             ep.put("added", e.dateAdded != null ? String.valueOf(e.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             ep.put("direct_source", "");
             
             java.util.Map<String, Object> epInfo = new java.util.HashMap<>();
+            epInfo.put("name", e.title != null ? e.title : "Episode " + e.episodeNumber);
             epInfo.put("movie_image", getImageUrl(e));
             epInfo.put("plot", e.overview != null ? e.overview : "");
             epInfo.put("rating", e.imdbRating != null ? e.imdbRating.toString() : "0");
+            epInfo.put("rating_5based", e.imdbRating != null ? Math.ceil(e.imdbRating / 2.0) : 0.0);
             epInfo.put("releasedate", e.releaseDate != null ? e.releaseDate : "");
             epInfo.put("duration_secs", e.getDurationSeconds());
             epInfo.put("duration", formatDuration(e.getDurationSeconds()));
@@ -577,12 +491,12 @@ public class XtreamCodesAPI {
         response.userInfo.message = "Welcome to JMedia";
         response.userInfo.auth = 1;
         response.userInfo.status = "Active";
-        response.userInfo.expDate = 4102444800L;
-        response.userInfo.isTrial = 0;
-        response.userInfo.activeCons = 0;
-        response.userInfo.createdAt = System.currentTimeMillis() / 1000;
-        response.userInfo.maxConnections = 5;
-        response.userInfo.allowedOutputFormats = List.of("mp4", "mkv", "m3u8");
+        response.userInfo.expDate = String.valueOf(4102444800L);
+        response.userInfo.isTrial = "0";
+        response.userInfo.activeCons = "0";
+        response.userInfo.createdAt = String.valueOf(System.currentTimeMillis() / 1000);
+        response.userInfo.maxConnections = "5";
+        response.userInfo.allowedOutputFormats = List.of("ts", "m3u8");
 
         response.serverInfo = new XtreamLoginResponse.ServerInfo();
         response.serverInfo.url = uriInfo.getBaseUri().getHost();
@@ -592,7 +506,9 @@ public class XtreamCodesAPI {
         response.serverInfo.rtmpPort = "";
         response.serverInfo.timezone = "UTC";
         response.serverInfo.timestampNow = System.currentTimeMillis() / 1000;
-        response.serverInfo.timeNow = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+        response.serverInfo.timeNow = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        response.serverInfo.process = true;
         
         return Response.ok(response).build();
     }
@@ -615,23 +531,30 @@ public class XtreamCodesAPI {
         return map;
     }
 
+    private java.util.Map<String, String> genreIdByNameReverse() {
+        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        for (Models.Video.Genre g : genres) {
+            map.put(g.id.toString(), g.name);
+        }
+        return map;
+    }
+
     private Response getVodStreams(String catId) {
         List<Video> videos;
         if (catId != null && !catId.equals("0")) {
-            // Find genre name from ID
-            Models.Video.Genre genre = null;
+            Long genreId = null;
             try {
-                genre = Models.Video.Genre.findById(Long.parseLong(catId));
+                genreId = Long.parseLong(catId);
             } catch (NumberFormatException e) {
-                genre = null;
             }
-            if (genre != null) {
-                videos = videoService.findByGenre(genre.name.toLowerCase(), 1, 1000);
+            if (genreId != null) {
+                videos = Video.<Video>find("SELECT DISTINCT v FROM Video v JOIN VideoGenre vg ON v.id = vg.video.id WHERE vg.genre.id = ?1 AND v.type = 'movie' ORDER BY v.popularityScore DESC", genreId).list();
             } else {
-                videos = Video.find("type = 'movie'").list();
+                videos = Video.<Video>find("type = 'movie'").list();
             }
         } else {
-            videos = Video.find("type = 'movie'").list();
+            videos = Video.<Video>find("type = 'movie'").list();
         }
 
         java.util.Map<String, String> genreIds = genreIdByName();
@@ -646,10 +569,15 @@ public class XtreamCodesAPI {
             s.rating = v.imdbRating != null ? v.imdbRating.toString() : "0";
             s.rating5based = v.imdbRating != null ? Math.ceil(v.imdbRating / 2.0) : 0;
             s.added = v.dateAdded != null ? String.valueOf(v.dateAdded.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
-            s.containerExtension = "mp4";
-            // Map the first genre ID if available
+            s.containerExtension = v.container != null ? v.container : "mp4";
+            s.streamType = "movie";
+            // Map genre IDs
             if (v.genres != null && !v.genres.isEmpty()) {
                 s.categoryId = genreIds.getOrDefault(v.genres.get(0).toLowerCase(), "0");
+                for (String g : v.genres) {
+                    String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
+                    if (!"0".equals(gid)) s.categoryIds.add(Integer.parseInt(gid));
+                }
             } else {
                 s.categoryId = "0";
             }
@@ -660,7 +588,12 @@ public class XtreamCodesAPI {
     }
 
     private Response getSeriesCategories() {
-        return getVodCategories();
+        List<XtreamCategory> categories = new ArrayList<>();
+        List<Models.Video.Genre> genres = Models.Video.Genre.list("isActive = true");
+        for (Models.Video.Genre g : genres) {
+            categories.add(new XtreamCategory(g.id.toString(), g.name));
+        }
+        return Response.ok(categories).build();
     }
 
     private Response getLiveCategories() {
@@ -692,8 +625,10 @@ public class XtreamCodesAPI {
 
     private Response getLiveStreams(String catId) {
         List<LiveChannel> channels;
+        String effectiveCategoryId = "0";
         if (catId != null && !catId.equals("0")) {
             if (catId.startsWith("g_")) {
+                effectiveCategoryId = catId;
                 int firstUnderscore = catId.indexOf('_');
                 int secondUnderscore = catId.indexOf('_', firstUnderscore + 1);
                 if (secondUnderscore > 0) {
@@ -701,8 +636,7 @@ public class XtreamCodesAPI {
                     String groupHash = catId.substring(secondUnderscore + 1);
                     List<LiveChannel> playlistChannels = LiveChannel.find("playlist.id = ?1", playlistId).list();
                     channels = playlistChannels.stream()
-                            .filter(ch -> ch.groupTitle != null && (hashId(ch.groupTitle).equals(groupHash)
-                                    || String.valueOf(ch.groupTitle.hashCode()).equals(groupHash)))
+                            .filter(ch -> ch.groupTitle != null && hashId(ch.groupTitle).equals(groupHash))
                             .collect(Collectors.toList());
                 } else {
                     channels = LiveChannel.listAll();
@@ -710,6 +644,7 @@ public class XtreamCodesAPI {
             } else {
                 try {
                     Long playlistId = Long.parseLong(catId);
+                    effectiveCategoryId = catId;
                     channels = LiveChannel.find("playlist.id = ?1", playlistId).list();
                 } catch (NumberFormatException e) {
                     channels = LiveChannel.listAll();
@@ -728,11 +663,18 @@ public class XtreamCodesAPI {
             s.put("name", ch.name);
             s.put("stream_type", "live");
             s.put("stream_id", ch.id);
-            s.put("stream_icon", ch.logoUrl != null ? ch.logoUrl : "");
+            s.put("stream_icon", getLiveChannelLogo(ch));
             s.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
             s.put("added", ch.createdAt != null ? String.valueOf(ch.createdAt.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             s.put("is_adult", "0");
-            s.put("category_id", ch.playlist != null ? String.valueOf(ch.playlist.id) : "0");
+            s.put("category_id", effectiveCategoryId);
+            java.util.List<Integer> liveCategoryIds = new java.util.ArrayList<>();
+            if (ch.groupTitle != null && !ch.groupTitle.isBlank()) {
+                java.util.Map<String, String> genreMap = genreIdByName();
+                String gid = genreMap.getOrDefault(ch.groupTitle.toLowerCase(), "0");
+                if (!"0".equals(gid)) liveCategoryIds.add(Integer.parseInt(gid));
+            }
+            s.put("category_ids", liveCategoryIds);
             s.put("custom_sid", "");
             s.put("tv_archive", 0);
             s.put("direct_source", "");
@@ -747,12 +689,17 @@ public class XtreamCodesAPI {
         LiveChannel ch = LiveChannel.findById(streamId);
         if (ch == null) return Response.status(Response.Status.NOT_FOUND).build();
 
-        String categoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
+        String categoryId;
+        if (ch.playlist != null && ch.groupTitle != null && !ch.groupTitle.isBlank()) {
+            categoryId = "g_" + ch.playlist.id + "_" + hashId(ch.groupTitle);
+        } else {
+            categoryId = ch.playlist != null ? String.valueOf(ch.playlist.id) : "0";
+        }
 
         java.util.Map<String, Object> response = new java.util.HashMap<>();
         java.util.Map<String, Object> info = new java.util.HashMap<>();
         info.put("name", ch.name);
-        info.put("stream_icon", ch.logoUrl != null ? ch.logoUrl : "");
+        info.put("stream_icon", getLiveChannelLogo(ch));
         info.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
         info.put("category", ch.playlist != null ? ch.playlist.name : "");
         info.put("tv_archive", 0);
@@ -765,7 +712,7 @@ public class XtreamCodesAPI {
         channel.put("name", ch.name);
         channel.put("stream_type", "live");
         channel.put("stream_id", ch.id);
-        channel.put("stream_icon", ch.logoUrl != null ? ch.logoUrl : "");
+        channel.put("stream_icon", getLiveChannelLogo(ch));
         channel.put("epg_channel_id", ch.tvgId != null ? ch.tvgId : "");
         channel.put("category_id", categoryId);
         channel.put("category_ids", new ArrayList<>(List.of(categoryId)));
@@ -785,13 +732,7 @@ public class XtreamCodesAPI {
         }
         
         int limit = (epgLimit != null && epgLimit > 0) ? epgLimit : 4;
-        List<Models.Video.EpgEntry> entries = epgService.findUpcoming(epgId, limit);
-        if (entries.isEmpty()) {
-            entries = epgService.findCurrentPrograms().stream()
-                .filter(e -> epgId.equals(e.epgChannelId))
-                .limit(limit)
-                .collect(java.util.stream.Collectors.toList());
-        }
+        List<Models.Video.EpgEntry> entries = epgService.findCurrentAndUpcoming(epgId, limit);
         
         return Response.ok(buildEpgResponse(entries, streamId, false)).build();
     }
@@ -828,7 +769,12 @@ public class XtreamCodesAPI {
             epg.put("stream_id", String.valueOf(streamId));
             epg.put("start_timestamp", entry.startTime != null ? String.valueOf(entry.startTime.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
             epg.put("stop_timestamp", entry.endTime != null ? String.valueOf(entry.endTime.toEpochSecond(java.time.ZoneOffset.UTC)) : "0");
-            epg.put("now_playing", (setNowPlaying && i == 1) ? 1 : 0);
+            if (setNowPlaying && entry.startTime != null && entry.endTime != null) {
+                java.time.LocalDateTime now = java.time.LocalDateTime.now();
+                epg.put("now_playing", (!now.isBefore(entry.startTime) && now.isBefore(entry.endTime)) ? 1 : 0);
+            } else {
+                epg.put("now_playing", 0);
+            }
             epg.put("has_archive", 0);
             epgList.add(epg);
         }
@@ -844,52 +790,69 @@ public class XtreamCodesAPI {
 
     private Response getSeries(String catId) {
         log.infof("getSeries: catId=%s", catId);
-        List<Video> episodes = Video.find("type = 'episode'").list();
-        java.util.Map<String, List<Video>> seriesGroups = episodes.stream()
-                .filter(e -> e.seriesTitle != null)
-                .collect(Collectors.groupingBy(e -> e.seriesTitle));
 
-        log.infof("getSeries: found %d episode groups from %d total episodes", seriesGroups.size(), episodes.size());
+        List<Models.Video.Series> allSeries;
+        if (catId != null && !catId.isBlank()) {
+            String genreName = genreIdByNameReverse().get(catId);
+            if (genreName != null) {
+                allSeries = Models.Video.Series.<Models.Video.Series>find("SELECT s FROM Series s JOIN s.genres g WHERE LOWER(g) LIKE ?1", "%" + genreName.toLowerCase() + "%").list();
+            } else {
+                allSeries = Models.Video.Series.<Models.Video.Series>listAll();
+            }
+        } else {
+            allSeries = Models.Video.Series.<Models.Video.Series>listAll();
+        }
+
+        log.infof("getSeries: found %d series from Series entity", allSeries.size());
         java.util.Map<String, String> genreIds = genreIdByName();
         List<XtreamSeries> seriesList = new ArrayList<>();
         int num = 1;
-        for (java.util.Map.Entry<String, List<Video>> entry : seriesGroups.entrySet()) {
-            Video first = entry.getValue().get(0);
-            String imageUrl = getImageUrl(first);
-            log.infof("getSeries: series=%s, seriesId=%s, episodes=%d, tmdbId=%s, posterPath=%s, imageUrl=%s",
-                    entry.getKey(), hashId(entry.getKey()), entry.getValue().size(),
-                    first.tmdbId, first.posterPath, imageUrl);
-            boolean hasSeries = first.series != null;
-            Models.Video.Series ser = hasSeries ? first.series : null;
+        for (Models.Video.Series ser : allSeries) {
             XtreamSeries xs = new XtreamSeries();
             xs.num = num++;
-            xs.name = entry.getKey();
-            xs.seriesId = hashId(entry.getKey());
-            xs.cover = imageUrl;
-            xs.plot = (ser != null && ser.overview != null && !ser.overview.isBlank()) ? ser.overview : first.overview;
-            Double seriesRating = (ser != null && ser.tmdbRating != null) ? ser.tmdbRating : first.imdbRating;
+            xs.name = ser.title;
+            xs.seriesId = hashId(ser.title);
+
+            // Cover: prefer series poster, fall back to first episode poster
+            if (ser.posterPath != null && !ser.posterPath.isBlank()) {
+                xs.cover = "https://image.tmdb.org/t/p/w500" + ser.posterPath;
+                xs.coverBig = "https://image.tmdb.org/t/p/w1280" + ser.posterPath;
+            } else {
+                Video firstEp = Video.<Video>find("series = ?1 AND type = 'episode' ORDER BY id", ser).firstResult();
+                xs.cover = firstEp != null ? getImageUrl(firstEp) : "";
+                xs.coverBig = xs.cover;
+            }
+
+            xs.plot = (ser.overview != null && !ser.overview.isBlank()) ? ser.overview : "";
+            Double seriesRating = ser.tmdbRating;
             xs.rating = seriesRating != null ? seriesRating.toString() : "0";
             xs.rating5based = seriesRating != null ? Math.ceil(seriesRating / 2.0) : 0;
-            xs.releaseDate = (ser != null && ser.releaseDate != null) ? ser.releaseDate : first.releaseDate;
+            xs.releaseDate = ser.releaseDate;
             xs.lastModified = String.valueOf(System.currentTimeMillis() / 1000);
-            List<String> seriesGenres = (ser != null && ser.genres != null && !ser.genres.isEmpty())
-                ? ser.genres : first.genres;
+            List<String> seriesGenres = ser.genres;
             if (seriesGenres != null && !seriesGenres.isEmpty()) {
                 xs.categoryId = genreIds.getOrDefault(seriesGenres.get(0).toLowerCase(), "0");
+                for (String g : seriesGenres) {
+                    String gid = genreIds.getOrDefault(g.toLowerCase(), "0");
+                    if (!"0".equals(gid)) xs.categoryIds.add(Integer.parseInt(gid));
+                }
             } else {
                 xs.categoryId = "0";
             }
+            xs.year = ser.releaseDate != null ? ser.releaseDate : "";
+            xs.cast = (ser.cast != null && !ser.cast.isEmpty())
+                ? String.join(", ", ser.cast) : "";
+            xs.director = (ser.directors != null && !ser.directors.isEmpty())
+                ? String.join(", ", ser.directors) : "";
+            xs.genre = seriesGenres != null ? String.join(", ", seriesGenres) : "";
+            xs.youtubeTrailer = ser.trailerUrl != null ? ser.trailerUrl : "";
+            if (ser.backdropPath != null && !ser.backdropPath.isBlank()) {
+                xs.backdropPath = new ArrayList<>(List.of("https://image.tmdb.org/t/p/w1280" + ser.backdropPath));
+            }
             seriesList.add(xs);
         }
-        log.infof("getSeries: returning %d series, sample: %s", seriesList.size(), seriesList.isEmpty() ? "empty" : toJson(seriesList.subList(0, Math.min(2, seriesList.size()))));
+        log.infof("getSeries: returning %d series", seriesList.size());
         return Response.ok(seriesList).build();
-    }
-
-    private String getExternalBaseUri() {
-        if (uriInfo.getBaseUri().getHost().equals("localhost") || uriInfo.getBaseUri().getHost().equals("127.0.0.1")) {
-            return "http://" + System.getenv().getOrDefault("EXTERNAL_HOST", "localhost") + ":" + uriInfo.getBaseUri().getPort() + "/";
-        }
-        return uriInfo.getBaseUri().toString();
     }
 
     private String getImageUrl(Video v) {
@@ -903,9 +866,19 @@ public class XtreamCodesAPI {
         return url;
     }
 
+    private String getLiveChannelLogo(LiveChannel ch) {
+        if (ch.logoUrl != null && !ch.logoUrl.isBlank()) {
+            if (ch.logoUrl.startsWith("http")) {
+                return ch.logoUrl;
+            }
+            return getExternalBaseUri() + "api/video/thumbnail/live/" + ch.id;
+        }
+        return "";
+    }
+
     private static String hashId(String value) {
         if (value == null) return "";
-        return Integer.toUnsignedString(value.hashCode());
+        return java.util.UUID.nameUUIDFromBytes(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
     }
 
     private String redactQuery(String rawQuery) {
@@ -940,14 +913,24 @@ public class XtreamCodesAPI {
 
     private int parseWidth(String resolution) {
         if (resolution == null || resolution.isEmpty()) return 0;
-        String[] parts = resolution.split("x");
-        return parts.length == 2 ? Integer.parseInt(parts[0].trim()) : 0;
+        try {
+            String[] parts = resolution.split("x");
+            return parts.length == 2 ? Integer.parseInt(parts[0].trim()) : 0;
+        } catch (NumberFormatException e) {
+            log.warnf("parseWidth: malformed resolution '%s'", resolution);
+            return 0;
+        }
     }
 
     private int parseHeight(String resolution) {
         if (resolution == null || resolution.isEmpty()) return 0;
-        String[] parts = resolution.split("x");
-        return parts.length == 2 ? Integer.parseInt(parts[1].trim()) : 0;
+        try {
+            String[] parts = resolution.split("x");
+            return parts.length == 2 ? Integer.parseInt(parts[1].trim()) : 0;
+        } catch (NumberFormatException e) {
+            log.warnf("parseHeight: malformed resolution '%s'", resolution);
+            return 0;
+        }
     }
 
     private static final com.fasterxml.jackson.databind.ObjectWriter jsonWriter = new com.fasterxml.jackson.databind.ObjectMapper()
