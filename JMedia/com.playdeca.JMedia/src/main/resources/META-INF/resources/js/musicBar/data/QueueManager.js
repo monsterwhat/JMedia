@@ -37,6 +37,7 @@
          * @param {Array} newQueue - New queue
          */
         handleQueueChange: function(oldQueue, newQueue) {
+            if (!newQueue) return;
             const queueChanged = this.hasQueueChanged(newQueue, oldQueue);
             const queueLengthChanged = (oldQueue?.length || 0) !== (newQueue?.length || 0);
             

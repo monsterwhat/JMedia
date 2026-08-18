@@ -71,13 +71,15 @@
         },
         
         /**
-         * Debug logging helper (enabled via localStorage flag 'musicbar_debug')
+         * Debug logging helper.
+         * ON by default; set localStorage 'musicbar_debug' = 'false' to silence.
          */
         log: function(...args) {
-            const DEBUG_MUSICBAR = (typeof window !== 'undefined' && window.localStorage) ? 
-                (localStorage.getItem('musicbar_debug') === 'true' || localStorage.getItem('musicbar_debug') === '1') : false;
-            
-            if (DEBUG_MUSICBAR) {
+            const enabled = (typeof window !== 'undefined' && window.localStorage)
+                ? localStorage.getItem('musicbar_debug') !== 'false'
+                : true;
+
+            if (enabled) {
                 console.log('[musicBar]', ...args);
             }
         },

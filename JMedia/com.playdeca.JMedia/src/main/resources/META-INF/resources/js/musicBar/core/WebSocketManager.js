@@ -11,9 +11,17 @@
         
         // Connection state
         connected: false,
+        wasConnected: false,
         
         // Reconnection timer
         reconnectTimer: null,
+        
+        reconnectAttempts: 0,
+        maxReconnectAttempts: 10,
+        baseReconnectDelay: 1000,
+        maxReconnectDelay: 30000,
+        pollTimer: null,
+        pollInterval: 5000,
         
         // Profile ID promise
         profileIdPromise: null,
@@ -24,6 +32,12 @@
         init: function() {
             this.setupEventListeners();
             this.connect();
+            setTimeout(() => {
+                if (!this.connected) {
+                    this.performResync();
+                    this.startPolling();
+                }
+            }, 3000);
             window.Helpers.log('WebSocketManager initialized');
         },
         
@@ -81,8 +95,8 @@
                     this.onOpen();
                 };
                 
-                this.ws.onclose = () => {
-                    this.onClose();
+                this.ws.onclose = (event) => {
+                    this.onClose(event);
                 };
                 
                 this.ws.onerror = (error) => {
@@ -95,7 +109,7 @@
                 
             } catch (error) {
                 console.error('[WebSocketManager] Failed to connect WebSocket:', error);
-                this.scheduleReconnect(2000);
+                this.scheduleReconnect();
             }
         },
         
@@ -127,9 +141,10 @@
          */
         onOpen: function() {
             this.connected = true;
+            this.reconnectAttempts = 0;
+            this.stopPolling();
             window.Helpers.log('WebSocketManager connected');
             
-            // Clear any reconnection timer
             if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
                 this.reconnectTimer = null;
@@ -140,10 +155,11 @@
                 window.StateManager.setOffline(false);
             }
             
-            // Show reconnect toast
-            if (window.showToast) {
+            // Show reconnect toast ONLY on reconnection, not first connect
+            if (this.wasConnected && window.showToast) {
                 window.showToast('🔗 Network connection restored', 'success', 3000);
             }
+            this.wasConnected = true;
             
             // Emit connection event
             window.dispatchEvent(new CustomEvent('websocketConnected', {
@@ -154,24 +170,30 @@
             this.performResync();
         },
         
-        /**
-         * Handle WebSocket close
-         */
-        onClose: function() {
+        onClose: function(event) {
             this.connected = false;
-            window.Helpers.log('WebSocketManager disconnected');
+            const code = event ? event.code : null;
+            const reason = event ? event.reason : '';
+            window.Helpers.log(`WebSocketManager disconnected (code: ${code}, reason: ${reason})`);
             
-            // Set offline status to true
             if (window.StateManager) {
                 window.StateManager.setOffline(true);
             }
             
-            // Schedule reconnection
-            this.scheduleReconnect(1000);
+            const authFailureCodes = [1008, 1003, 1012, 1013, 1014];
+            if (code && authFailureCodes.includes(code)) {
+                console.warn(`[WebSocketManager] Auth/policy failure (code ${code}): ${reason}. Falling back to HTTP polling.`);
+                this.startPolling();
+                window.dispatchEvent(new CustomEvent('websocketDisconnected', {
+                    detail: { timestamp: Date.now(), code, reason, permanent: true }
+                }));
+                return;
+            }
             
-            // Emit disconnection event
+            this.scheduleReconnect();
+            
             window.dispatchEvent(new CustomEvent('websocketDisconnected', {
-                detail: { timestamp: Date.now() }
+                detail: { timestamp: Date.now(), code, reason }
             }));
         },
         
@@ -390,8 +412,15 @@
             try {
                 const pid = window.globalActiveProfileId || null;
                 if (pid) {
+                    window.Helpers.log('WebSocketManager: performResync fetching state for profile', pid);
                     fetch(`/api/music/playback/state/${pid}`)
-                        .then(r => r.ok ? r.json() : null)
+                        .then(r => {
+                            if (!r.ok) {
+                                window.Helpers.log('WebSocketManager: resync fetch failed with status', r.status);
+                                return null;
+                            }
+                            return r.json();
+                        })
                         .then(data => {
                             // Normalize to a state payload if possible
                             let payload = null;
@@ -399,7 +428,16 @@
                                 payload = data.payload ?? data.state ?? data;
                             }
                             
-                            if (payload && typeof payload === 'object' && payload.timestamp) {
+                            if (!payload || typeof payload !== 'object') {
+                                window.Helpers.log('WebSocketManager: resync got empty/null payload');
+                                return;
+                            }
+                            
+                            // Java PlaybackState uses 'serverTime' (not 'timestamp')
+                            const serverTimestamp = payload.serverTime || payload.timestamp;
+                            window.Helpers.log('WebSocketManager: resync payload received, serverTime:', payload.serverTime, 'songName:', payload.songName, 'currentSongId:', payload.currentSongId);
+                            
+                            if (serverTimestamp) {
                                 // Get localStorage state for age comparison (per-profile key)
                                 const savedState = (window.StatePersistence && typeof window.StatePersistence.getSavedState === 'function')
                                     ? (window.StatePersistence.getSavedState() || {})
@@ -407,27 +445,32 @@
                                 
                                 if (savedState.timestamp) {
                                     const localStorageAge = Date.now() - savedState.timestamp;
-                                    const websocketAge = Date.now() - payload.timestamp;
+                                    const serverAge = Date.now() - serverTimestamp;
                                     
-                                    // Only use WebSocket state if it's newer than localStorage
-                                    if (websocketAge < localStorageAge) {
-                                        window.Helpers.log('WebSocketManager: WebSocket state is newer - overriding localStorage');
+                                    // Only use server state if it's newer than localStorage
+                                    if (serverAge < localStorageAge) {
+                                        window.Helpers.log('WebSocketManager: server state is newer - overriding localStorage');
                                         this.processStateMessage({ type: 'state', payload: payload });
                                     } else {
-                                        window.Helpers.log('WebSocketManager: WebSocket state is older - ignoring, using localStorage state');
+                                        window.Helpers.log('WebSocketManager: server state is older - using localStorage state');
                                     }
                                 } else {
-                                    // No localStorage state - use WebSocket state
+                                    // No localStorage state - use server state
+                                    window.Helpers.log('WebSocketManager: no localStorage state - applying server state');
                                     this.processStateMessage({ type: 'state', payload: payload });
                                 }
+                            } else {
+                                // No timestamp available - apply state anyway (first load / fresh state)
+                                window.Helpers.log('WebSocketManager: no timestamp on payload - applying server state directly');
+                                this.processStateMessage({ type: 'state', payload: payload });
                             }
                         })
-                        .catch(() => {
-                            // Ignore fetch errors on resync
+                        .catch((err) => {
+                            window.Helpers.log('WebSocketManager: resync fetch error:', err.message || err);
                         });
                 }
             } catch (e) {
-                // Ignore sync errors on reconnect
+                window.Helpers.log('WebSocketManager: resync error:', e.message || e);
             }
         },
         
@@ -456,6 +499,12 @@
          */
         reconnect: function() {
             window.Helpers.log('WebSocketManager reconnecting...');
+            this.reconnectAttempts = 0;
+            
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = null;
+            }
             
             if (this.ws) {
                 this.ws.close();
@@ -470,10 +519,23 @@
          * Schedule reconnection attempt
          * @param {number} delay - Delay in milliseconds
          */
-        scheduleReconnect: function(delay) {
+        scheduleReconnect: function() {
             if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
             }
+            
+            if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                console.warn(`[WebSocketManager] Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+                return;
+            }
+            
+            const delay = Math.min(
+                this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
+                this.maxReconnectDelay
+            );
+            this.reconnectAttempts++;
+            
+            window.Helpers.log(`WebSocketManager reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
             
             this.reconnectTimer = setTimeout(() => {
                 this.connect();
@@ -509,6 +571,22 @@
             
             this.connected = false;
             window.Helpers.log('WebSocketManager disconnected');
+        },
+        
+        startPolling: function() {
+            if (this.pollTimer) return;
+            window.Helpers.log('WebSocketManager: starting HTTP state polling fallback');
+            this.pollTimer = setInterval(() => {
+                this.performResync();
+            }, this.pollInterval);
+        },
+        
+        stopPolling: function() {
+            if (this.pollTimer) {
+                clearInterval(this.pollTimer);
+                this.pollTimer = null;
+                window.Helpers.log('WebSocketManager: stopped HTTP state polling');
+            }
         }
     };
     
