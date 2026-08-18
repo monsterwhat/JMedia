@@ -108,6 +108,12 @@ existingState.setRepeatMode(newState.getRepeatMode());
         existingState.setDjBpmMin(newState.getDjBpmMin() != null ? newState.getDjBpmMin() : 0);
         existingState.setDjBpmMax(newState.getDjBpmMax() != null ? newState.getDjBpmMax() : 0);
         existingState.setDjMaxConsecutiveByArtist(newState.getDjMaxConsecutiveByArtist() != null ? newState.getDjMaxConsecutiveByArtist() : 0);
+        existingState.setCrossfadeDuration(newState.getCrossfadeDuration() != null ? newState.getCrossfadeDuration() : 0);
+        existingState.setOriginalCrossfadeDuration(newState.getOriginalCrossfadeDuration() != null ? newState.getOriginalCrossfadeDuration() : 0);
+        existingState.setDjSkipsBeforeGenreChange(newState.getDjSkipsBeforeGenreChange() != null ? newState.getDjSkipsBeforeGenreChange() : 1);
+        existingState.setDjYearMin(newState.getDjYearMin() != null ? newState.getDjYearMin() : 0);
+        existingState.setDjYearMax(newState.getDjYearMax() != null ? newState.getDjYearMax() : 0);
+        existingState.setServerTime(newState.getServerTime());
 
         em.merge(existingState);
         em.flush();
@@ -148,6 +154,12 @@ state.setRepeatMode(defaultState.getRepeatMode());
         state.setDjBpmMin(defaultState.getDjBpmMin() != null ? defaultState.getDjBpmMin() : 0);
         state.setDjBpmMax(defaultState.getDjBpmMax() != null ? defaultState.getDjBpmMax() : 0);
         state.setDjMaxConsecutiveByArtist(defaultState.getDjMaxConsecutiveByArtist() != null ? defaultState.getDjMaxConsecutiveByArtist() : 0);
+        state.setCrossfadeDuration(defaultState.getCrossfadeDuration() != null ? defaultState.getCrossfadeDuration() : 0);
+        state.setOriginalCrossfadeDuration(defaultState.getOriginalCrossfadeDuration() != null ? defaultState.getOriginalCrossfadeDuration() : 0);
+        state.setDjSkipsBeforeGenreChange(defaultState.getDjSkipsBeforeGenreChange() != null ? defaultState.getDjSkipsBeforeGenreChange() : 1);
+        state.setDjYearMin(defaultState.getDjYearMin() != null ? defaultState.getDjYearMin() : 0);
+        state.setDjYearMax(defaultState.getDjYearMax() != null ? defaultState.getDjYearMax() : 0);
+        state.setServerTime(defaultState.getServerTime());
 
         em.merge(state);
         em.flush();
