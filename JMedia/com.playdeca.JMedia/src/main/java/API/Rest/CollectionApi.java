@@ -12,10 +12,14 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Path("/api/collections")
 @Produces(MediaType.APPLICATION_JSON)
 public class CollectionApi {
+
+    private static final Logger LOG = LoggerFactory.getLogger(CollectionApi.class);
 
     @Inject
     CollectionService collectionService;
@@ -124,7 +128,7 @@ public class CollectionApi {
     @GET
     @Path("/{id}/entries")
     public Response getEntries(@PathParam("id") Long id) {
-        var entries = collectionService.getEntries(id);
+        var entries = collectionService.getEntriesAsDTOs(id);
         return Response.ok(ApiResponse.success(entries)).build();
     }
 
@@ -237,7 +241,9 @@ public class CollectionApi {
                 Long eid = Long.parseLong(entry.getKey());
                 Integer order = ((Number) entry.getValue()).intValue();
                 orderMap.put(eid, order);
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                LOG.warn("Skipping malformed reorder entry: {}={}", entry.getKey(), entry.getValue());
+            }
         }
         if (collectionService.reorderEntries(id, orderMap))
             return Response.ok(ApiResponse.success("Reordered")).build();

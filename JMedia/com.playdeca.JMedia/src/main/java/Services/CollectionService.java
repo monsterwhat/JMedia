@@ -1,5 +1,6 @@
 package Services;
 
+import Models.DTOs.CollectionEntryDTO;
 import Models.Video.CollectionEntry;
 import Models.Video.ExternalVideo;
 import Models.ExistingVideo;
@@ -7,8 +8,10 @@ import Models.Video.MediaCollection;
 import Models.Settings.Profile;
 import Models.Video.Series;
 import Models.Video.Video;
+import Models.Video.VideoState;
 import io.quarkus.hibernate.orm.PersistenceUnit;
 import io.quarkus.panache.common.Page;
+import org.hibernate.Hibernate;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -121,6 +124,7 @@ public class CollectionService {
     /**
      * Returns the collection's entries with all lazy associations (video, externalVideo, series)
      * pre-fetched via LEFT JOIN FETCH so they can be safely read outside the persistence context.
+     * Used internally by getEntriesFragment() and getEntryVideoIds() which need full entities.
      */
     @Transactional
     public List<CollectionEntry> getEntriesWithDetails(Long collectionId) {
@@ -135,6 +139,50 @@ public class CollectionService {
                 CollectionEntry.class)
                 .setParameter("collection", c)
                 .getResultList();
+    }
+
+    /**
+     * Returns lightweight DTOs for collection entries, mapping inside the transaction
+     * so lazy video/externalVideo/series fields are safely accessed.
+     * Used by the REST API to avoid Jackson serializing the full entity graph.
+     */
+    @Transactional
+    public List<CollectionEntryDTO> getEntriesAsDTOs(Long collectionId) {
+        MediaCollection c = MediaCollection.findById(collectionId);
+        if (c == null) return List.of();
+        Profile profile = settingsService.getActiveProfile();
+        List<CollectionEntry> entries = em.createQuery(
+                "select e from CollectionEntry e "
+                + "left join fetch e.video "
+                + "left join fetch e.externalVideo "
+                + "left join fetch e.series "
+                + "where e.collection = :collection order by e.orderIndex asc",
+                CollectionEntry.class)
+                .setParameter("collection", c)
+                .getResultList();
+
+        List<Video> videos = new ArrayList<>();
+        for (CollectionEntry entry : entries) {
+            if (entry.video != null) videos.add(entry.video);
+        }
+
+        Map<Long, VideoState> stateMap = new HashMap<>();
+        if (profile != null && !videos.isEmpty()) {
+            List<VideoState> states = VideoState.list("profileId = ?1 AND video IN ?2", profile.id, videos);
+            for (VideoState vs : states) {
+                if (vs.video != null) stateMap.put(vs.video.id, vs);
+            }
+        }
+
+        return entries.stream().map(e -> {
+            CollectionEntryDTO dto = new CollectionEntryDTO(e);
+            if (e.video != null && stateMap.containsKey(e.video.id)) {
+                VideoState vs = stateMap.get(e.video.id);
+                dto.watchProgress = vs.watchProgress;
+                dto.watched = vs.watched != null && vs.watched;
+            }
+            return dto;
+        }).toList();
     }
 
     /**
