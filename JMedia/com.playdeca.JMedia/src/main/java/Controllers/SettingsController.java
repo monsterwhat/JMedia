@@ -91,7 +91,13 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                addLog("[ffmpeg] ERROR: ffprobe timed out for metadata on " + file.getName());
+                return null;
+            }
+            int exitCode = process.exitValue();
             if (exitCode == 0 && output.length() > 0) {
                 com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(output.toString());
                 com.fasterxml.jackson.databind.JsonNode tags = root.path("format").path("tags");
@@ -192,6 +198,9 @@ public class SettingsController implements Serializable {
             } catch (RuntimeException e) {
                 addLog("[org.jau.tag.id3] WARNING: Runtime error while reading tag for " + file.getName() + ": " + e.getMessage(), e);
             }
+
+            int trackLength = getVerifiedTrackLength(file, audioFile);
+            song.setDurationSeconds(trackLength);
 
             if (tag != null) {
                 song.setTitle(safeGet(tag, FieldKey.TITLE));
@@ -299,9 +308,6 @@ public class SettingsController implements Serializable {
             }
             song.setArtworkBase64(null); // Explicitly null if not found
 
-
-            int trackLength = getVerifiedTrackLength(file, audioFile);
-            song.setDurationSeconds(trackLength);
 
             if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
                     && song.getDurationSeconds() == 0) {
@@ -669,6 +675,9 @@ public class SettingsController implements Serializable {
                 addLog("[org.jau.tag.id3] WARNING: Runtime error while reading tag for " + file.getName() + ": " + e.getMessage(), e);
             }
 
+            int trackLength = getVerifiedTrackLength(file, audioFile);
+            song.setDurationSeconds(trackLength);
+
             if (tag != null) {
                 song.setTitle(safeGet(tag, FieldKey.TITLE));
                 song.setArtist(safeGet(tag, FieldKey.ARTIST));
@@ -779,7 +788,6 @@ public class SettingsController implements Serializable {
 
 
             // If not found by path, try to find by title, artist, and duration (after tags are read)
-            int trackLength = getVerifiedTrackLength(file, audioFile); // Call once and store
             
             if (isNewSong && song.getTitle() != null && !song.getTitle().isBlank() && song.getArtist() != null && !song.getArtist().isBlank()) {
                 // Ensure duration is also available before attempting to find by title/artist/duration
@@ -793,8 +801,6 @@ public class SettingsController implements Serializable {
                     }
                 }
             }
-
-            song.setDurationSeconds(trackLength);
 
             if (("Unknown Artist".equals(song.getArtist()) || song.getArtist() == null || song.getArtist().isBlank())
                     && song.getDurationSeconds() == 0) {
@@ -831,6 +837,7 @@ public class SettingsController implements Serializable {
         // Command: ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "input.mp3"
         try {
             ProcessBuilder pb = new ProcessBuilder("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file.getAbsolutePath());
+            pb.redirectErrorStream(true);
             Process process = pb.start();
             
             StringBuilder output = new StringBuilder();
@@ -841,7 +848,13 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                addLog("[ffmpeg] ERROR: ffprobe timed out for duration on " + file.getName());
+                return getDurationWithFFmpegLegacy(file);
+            }
+            int exitCode = process.exitValue();
             if (exitCode == 0 && output.length() > 0) {
                 try {
                     double durationSeconds = Double.parseDouble(output.toString().trim());
@@ -917,6 +930,7 @@ public class SettingsController implements Serializable {
                 "-of", "default=noprint_wrappers=1:nokey=1", 
                 file.getAbsolutePath()
             );
+            pb.redirectErrorStream(true);
             Process process = pb.start();
             
             StringBuilder output = new StringBuilder();
@@ -927,7 +941,13 @@ public class SettingsController implements Serializable {
                 }
             }
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                addLog("[ffmpeg] ERROR: ffprobe timed out for BPM on " + file.getName());
+                return 0;
+            }
+            int exitCode = process.exitValue();
             if (exitCode == 0 && output.length() > 0) {
                 String bpmStr = output.toString().trim();
                 // ffprobe returns "0" if BPM is not in tags
@@ -1072,9 +1092,9 @@ public class SettingsController implements Serializable {
             addLog("[org.jau.tag.id3] WARNING: Error reading initial duration for " + file.getName() + ": " + e.getMessage(), e);
         }
 
-        // Suspicious duration check (e.g., < 60 seconds, or > 7 minutes)
+        // Suspicious duration check (e.g., < 60 seconds, or > 60 minutes)
         final int MIN_REASONABLE_DURATION_SECONDS = 60;
-        final int MAX_REASONABLE_DURATION_SECONDS = 420; // 7 minutes
+        final int MAX_REASONABLE_DURATION_SECONDS = 3600; // 60 minutes
         if (duration < MIN_REASONABLE_DURATION_SECONDS || duration > MAX_REASONABLE_DURATION_SECONDS) {
             addLog("[org.jau.tag.id3] INFO: Suspicious duration (" + duration + "s) for " + file.getName() + ". Re-checking with jaudiotagger and ffmpeg.");
             
@@ -1148,7 +1168,7 @@ public class SettingsController implements Serializable {
 
         addLog(String.format("[org.jau.tag.id3] File scan completed. %d songs processed.", updatedCount));
         
-        addLog(String.format("[org.jau.tag.id3] Metadata reload completed.", updatedCount));
+        addLog(String.format("[org.jau.tag.id3] Metadata reload completed. %d songs updated.", updatedCount));
         
         // Count songs with BPM to analyze
         long songsWithBpm = allSongs.stream().filter(s -> {
@@ -1308,6 +1328,8 @@ public class SettingsController implements Serializable {
             if (song.getAlbum() == null || song.getAlbum().isBlank()) {
                 song.setAlbum("Unknown Album");
             }
+            if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle("Unknown Title");
+            if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist("Unknown Artist");
 
             int duration = getVerifiedTrackLength(songFile, audioFile);
             localLogs.add(String.format("[org.jau.tag.id3] Verified Duration = %d seconds for %s", duration, song.getPath()));
@@ -1447,6 +1469,8 @@ public class SettingsController implements Serializable {
             if (song.getAlbum() == null || song.getAlbum().isBlank()) {
                 song.setAlbum("Unknown Album");
             }
+            if (song.getTitle() == null || song.getTitle().isBlank()) song.setTitle("Unknown Title");
+            if (song.getArtist() == null || song.getArtist().isBlank()) song.setArtist("Unknown Artist");
 
             // Enrich metadata from external APIs if genre is missing (only if enabled in settings)
             boolean needsGenreEnrichment = (song.getGenre() == null || song.getGenre().isBlank());
@@ -1503,6 +1527,10 @@ public class SettingsController implements Serializable {
         if (mainMusicFolder.exists() && mainMusicFolder.isDirectory()) {
             List<File> mainFiles = new ArrayList<>();
             collectAudioFiles(mainMusicFolder, mainFiles);
+            File importDir = new File(mainMusicFolder, "import");
+            if (importDir.exists() && importDir.isDirectory()) {
+                mainFiles.removeIf(f -> f.toPath().startsWith(importDir.toPath()));
+            }
             for (File file : mainFiles) {
                 Song metadata = extractMetadataFromFile(file);
                 if (metadata != null) {
@@ -1542,9 +1570,9 @@ public class SettingsController implements Serializable {
         for (FileDetails fd : allFileDetails) {
             Song song = fd.songMetadata;
             String songIdentifier = (song.getTitle() == null ? "" : song.getTitle())
-                    + "-" + (song.getArtist() == null ? "" : song.getArtist())
-                    + "-" + (song.getAlbum() == null ? "" : song.getAlbum())
-                    + "-" + song.getDurationSeconds();
+                    + "\0" + (song.getArtist() == null ? "" : song.getArtist())
+                    + "\0" + (song.getAlbum() == null ? "" : song.getAlbum())
+                    + "\0" + song.getDurationSeconds();
             potentialDuplicates.computeIfAbsent(songIdentifier, k -> new ArrayList<>()).add(fd);
         }
 
@@ -1593,35 +1621,21 @@ public class SettingsController implements Serializable {
             }
         }));
         
-        // Also add unidentifiable files to the deletion process
-        unidentifiableFilesToDelete.forEach(file -> completion.submit(() -> {
-            try {
-                if (file.delete()) {
-                    // For unidentifiable files, we don't have metadata to find a DB entry easily.
-                    // Log it as deleted.
-                    return "Deleted unidentifiable file (metadata extraction failed): " + file.getAbsolutePath();
-                } else {
-                    return "Failed to delete unidentifiable file: " + file.getAbsolutePath();
-                }
-            } catch (Exception e) {
-                return "Error deleting unidentifiable file " + file.getAbsolutePath() + ": " + e.getMessage();
-            }
-        }));
+        // Log unidentifiable files as skipped (do NOT delete them — data loss risk)
+        for (File file : unidentifiableFilesToDelete) {
+            addLog("[DuplicateCheck] Skipping unidentifiable file (metadata extraction failed): " + file.getAbsolutePath());
+        }
 
         List<String> batchLogs = new ArrayList<>();
         int deletedCount = 0;
-        int unidentifiableDeletedCount = 0;
         
-        int totalFilesToProcess = filesToDelete.size() + unidentifiableFilesToDelete.size();
-        for (int i = 0; i < totalFilesToProcess; i++) {
+        for (int i = 0; i < filesToDelete.size(); i++) {
             try {
                 Future<String> future = completion.take();
                 String logMessage = future.get();
                 batchLogs.add(logMessage);
                 if (logMessage.startsWith("Deleted duplicate file")) {
                     deletedCount++;
-                } else if (logMessage.startsWith("Deleted unidentifiable file")) {
-                    unidentifiableDeletedCount++;
                 }
             } catch (Exception e) {
                 batchLogs.add("Error in deletion task: " + e.getMessage());
@@ -1629,8 +1643,7 @@ public class SettingsController implements Serializable {
         }
 
         addLogs(batchLogs);
-        addLog("Duplicate file deletion completed. " + deletedCount + " files deleted.");
-        addLog("Unidentifiable file deletion completed. " + unidentifiableDeletedCount + " files deleted.");
+        addLog("Duplicate file deletion completed. " + deletedCount + " duplicate files deleted.");
         musicSocket.broadcastLibraryUpdateToAllProfiles();
     }
 
