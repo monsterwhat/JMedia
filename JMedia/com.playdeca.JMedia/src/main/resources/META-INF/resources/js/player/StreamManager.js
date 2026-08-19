@@ -50,6 +50,43 @@
         }
 
         /**
+         * Check if browser has native AV1 support.
+         *
+         * Unlike HEVC, AV1 is supported by all major desktop browsers:
+         * Chrome 70+, Edge 79+, Firefox 67+, and Brave (Chromium-based).
+         * No browser exclusion is needed — a simple probe suffices.
+         * iOS Safari does NOT support AV1 (except iPhone 15 Pro+ for hardware decode).
+         */
+        static hasNativeAv1Support() {
+            var ua = (navigator.userAgent || '').toLowerCase();
+            if (ua.indexOf('iphone') !== -1 || ua.indexOf('ipad') !== -1 || ua.indexOf('ipod') !== -1) {
+                return false;
+            }
+            const video = document.createElement('video');
+            return MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"') ||
+                   MediaSource.isTypeSupported('video/mp4; codecs="av01.0.04M.08"') ||
+                   video.canPlayType('video/mp4; codecs="av01.0.08M.08"') !== '' ||
+                   video.canPlayType('video/mp4; codecs="av01.0.04M.08"') !== '';
+        }
+
+        /**
+         * Check if browser has native Opus audio support.
+         *
+         * Opus is supported in all modern browsers for both WebM and MP4 containers.
+         * Chrome 33+, Firefox 22+, Edge 17+, Safari 17.1+.
+         * This is used by COPYABLE_AUDIO_CODECS on the backend to decide whether
+         * to copy the Opus stream or transcode to AAC.
+         */
+        static hasNativeOpusSupport() {
+            var ua = (navigator.userAgent || '').toLowerCase();
+            if (ua.indexOf('iphone') !== -1 || ua.indexOf('ipad') !== -1 || ua.indexOf('ipod') !== -1) {
+                return false;
+            }
+            return MediaSource.isTypeSupported('audio/webm; codecs="opus"') ||
+                   MediaSource.isTypeSupported('audio/mp4; codecs="opus"');
+        }
+
+        /**
          * Initialize HEVC playback using hevc.js (WASM decoder + WebCodecs H.264 encoder)
          * This intercepts the HLS path and uses direct MP4 with client-side transcoding
          */

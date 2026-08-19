@@ -9,9 +9,11 @@ if (typeof window.ConversionGate === 'undefined') {
          * init, shows a converting overlay + progress toast, polls the conversion job,
          * and reloads the playback fragment when it completes.
          *
-         * The only exception is the native-HEVC override: if the codec is HEVC/H.265 and
-         * the browser can play it natively, we do NOT block — the players request the
-         * lightweight nativeHevc=1 remux instead.
+         * Exceptions:
+         *  - native-HEVC: if the codec is HEVC/H.265 and the browser can play it natively,
+         *    we do NOT block — the player requests the lightweight nativeHevc=1 remux.
+         *  - native-AV1:  if the codec is AV1 and the browser can play it natively,
+         *    we do NOT block — the player requests the lightweight nativeAv1=1 remux.
          */
         var POLL_INTERVAL_MS = 2000;
         var CONVERSION_TOAST_ID = 'video-conversion-toast';
@@ -48,6 +50,13 @@ if (typeof window.ConversionGate === 'undefined') {
             var codec = (state.container.dataset.videoCodec || '').toLowerCase();
             if (!(codec.indexOf('hevc') !== -1 || codec.indexOf('h265') !== -1)) return false;
             return !!(window.PlayerStreamManager && window.PlayerStreamManager.hasNativeHevcSupport());
+        }
+
+        function isNativeAv1Eligible() {
+            if (!state.container || state.container.dataset.needsConversion !== 'true') return false;
+            var codec = (state.container.dataset.videoCodec || '').toLowerCase();
+            if (!(codec.indexOf('av1') !== -1 || codec.indexOf('av01') !== -1)) return false;
+            return !!(window.PlayerStreamManager && window.PlayerStreamManager.hasNativeAv1Support());
         }
 
         function updateProgress(message, percent) {
@@ -276,7 +285,7 @@ if (typeof window.ConversionGate === 'undefined') {
 
             var needsConversion = container.dataset.needsConversion === 'true';
 
-            if (!needsConversion || isNativeHevcEligible()) {
+            if (!needsConversion || isNativeHevcEligible() || isNativeAv1Eligible()) {
                 state.blocking = false;
                 return;
             }

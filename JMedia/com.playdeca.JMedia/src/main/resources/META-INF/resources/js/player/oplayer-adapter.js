@@ -88,6 +88,32 @@
 
         function _withNativeHevc(url) {
             var param = _nativeHevcParam();
+            if (param && url.indexOf('/api/video/stream/') === 0) {
+                url = url.indexOf('?') !== -1 ? url + '&' + param : url + '?' + param;
+            }
+            var av1Param = _nativeAv1Param();
+            if (av1Param && url.indexOf('/api/video/stream/') === 0) {
+                url = url.indexOf('?') !== -1 ? url + '&' + av1Param : url + '?' + av1Param;
+            }
+            return url;
+        }
+
+        /* Native-AV1 remux override: when the backend flags a server-side transcode
+         * (data-needs-transcode or data-needs-conversion, e.g. AV1 on iOS) but the
+         * browser can play AV1 natively, request the lightweight remux instead of
+         * the transcode. */
+        function _nativeAv1Param() {
+            var needsTranscode = container.dataset.needsTranscode === 'true';
+            var needsConversion = container.dataset.needsConversion === 'true';
+            if (!(needsTranscode || needsConversion)) return '';
+            var codec = (container.dataset.videoCodec || '').toLowerCase();
+            if (codec.indexOf('av1') === -1 && codec.indexOf('av01') === -1) return '';
+            if (!(window.PlayerStreamManager && window.PlayerStreamManager.hasNativeAv1Support())) return '';
+            return 'nativeAv1=1';
+        }
+
+        function _withNativeAv1(url) {
+            var param = _nativeAv1Param();
             if (!param || url.indexOf('/api/video/stream/') !== 0) return url;
             return url.indexOf('?') !== -1 ? url + '&' + param : url + '?' + param;
         }

@@ -30,6 +30,18 @@ if (typeof window.SimplePlayer === 'undefined') {
                     console.log('[SimplePlayer] Browser supports HEVC natively — skipping server transcode');
                 }
             }
+            this._canNativeAv1 = false;
+            // Browser-native AV1 override: if the server flagged transcode but the
+            // browser can play AV1 natively (Chrome 70+, Edge 79+, Firefox 67+),
+            // skip the server-side FFmpeg transcode and request the lightweight remux.
+            if ((this.needsTranscode || this.needsConversion) && (codec.includes('av1') || codec.includes('av01'))) {
+                if (window.PlayerStreamManager && window.PlayerStreamManager.hasNativeAv1Support()) {
+                    this.needsTranscode = false;
+                    this.needsConversion = false;
+                    this._canNativeAv1 = true;
+                    console.log('[SimplePlayer] Browser supports AV1 natively — skipping server transcode');
+                }
+            }
             this.streamStartOffset = 0;
             this.lastKnownGoodPosition = 0;
             // Per-instance suppression window blocking stale broadcasts during an in-place WS source swap (B9).
@@ -169,6 +181,7 @@ if (typeof window.SimplePlayer === 'undefined') {
                 this.streamStartOffset = 0;
                 const params = [];
                 if (this._canNativeHevc) params.push('nativeHevc=1');
+                if (this._canNativeAv1) params.push('nativeAv1=1');
                 params.push(`trace=${_traceId()}`);
                 this.video.src = `/api/video/stream/${this.videoId}.mp4?${params.join('&')}`;
                 this.subtitleController.loadSubtitles();
