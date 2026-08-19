@@ -21,6 +21,9 @@ import be.tarsos.dsp.AudioProcessor;
 import be.tarsos.dsp.AudioEvent;
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Service for analyzing audio files to detect beats and build similarity mappings
@@ -43,6 +46,13 @@ public class AudioAnalysisService {
     private static final int BEATS_PER_BAR = 4; // Standard 4/4 time signature
     
     private static final int STARTUP_QUEUE_LIMIT = 50; // Max songs to queue on startup
+    private static final int ANALYSIS_POOL_SIZE = 3;
+    
+    private final ExecutorService analysisPool = Executors.newFixedThreadPool(ANALYSIS_POOL_SIZE, r -> {
+        Thread t = new Thread(r, "TarsosDSP-analysis");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * On application startup, queue all unanalyzed songs for background analysis.
@@ -95,7 +105,8 @@ public class AudioAnalysisService {
         
         // Check if analysis already exists
         SongAnalysis existing = SongAnalysis.find("song.id", song.id).firstResult();
-        if (existing != null && existing.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED) {
+        if (existing != null && existing.getStatus() == SongAnalysis.AnalysisStatus.COMPLETED
+                && existing.getBeatCount() != null && existing.getAverageBpm() != null) {
             LOG.info("Song {} already analyzed", song.getTitle());
             return existing;
         }
@@ -177,6 +188,10 @@ public class AudioAnalysisService {
         
         em.merge(analysis);
         return analysis;
+    }
+    
+    public CompletableFuture<SongAnalysis> analyzeSongAsync(Song song) {
+        return CompletableFuture.supplyAsync(() -> analyzeSong(song), analysisPool);
     }
 
     private record AnalysisResult(List<Double> beatTimes, double detectedBpm, List<Double> onsetTimes, Map<Double, double[]> spectralMap) {}

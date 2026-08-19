@@ -47,6 +47,9 @@ public class MetadataEnrichmentApi {
     @Inject
     AudioArtworkService audioArtworkService;
 
+    @Inject
+    Services.DjEnrichmentService djEnrichmentService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -270,6 +273,85 @@ public class MetadataEnrichmentApi {
 
         } catch (Exception e) {
             LOGGER.error("Error getting enrichment status", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                        .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                        .build();
+        }
+    }
+
+    @GET
+    @Path("/dj-enrichment-progress")
+    public Response getDjEnrichmentProgress() {
+        try {
+            var progress = djEnrichmentService.getProgress();
+            return Response.ok()
+                    .entity(objectMapper.writeValueAsString(progress))
+                    .build();
+        } catch (Exception e) {
+            LOGGER.error("Error getting DJ enrichment progress", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                        .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                        .build();
+        }
+    }
+
+    @GET
+    @Path("/library-status")
+    public Response getLibraryStatus() {
+        try {
+            List<Song> allSongs = songService.findAll();
+            long total = allSongs.size();
+
+            long missingArtwork = 0;
+            long missingGenre = 0;
+            long missingBpm = 0;
+            long noAnalysis = 0;
+            long fullyEnriched = 0;
+
+            for (Song song : allSongs) {
+                boolean hasArtwork = song.getArtworkBase64() != null;
+                boolean hasGenre = song.getGenre() != null && !song.getGenre().isBlank();
+                boolean hasBpm = song.getBpm() > 0;
+
+                Models.Music.SongAnalysis analysis = Models.Music.SongAnalysis.find("song.id", song.id).firstResult();
+                boolean hasCompletedAnalysis = analysis != null && analysis.getStatus() == Models.Music.SongAnalysis.AnalysisStatus.COMPLETED;
+
+                if (!hasArtwork) missingArtwork++;
+                if (!hasGenre) missingGenre++;
+                if (!hasBpm) missingBpm++;
+                if (!hasCompletedAnalysis) noAnalysis++;
+                if (hasArtwork && hasGenre && hasBpm && hasCompletedAnalysis) fullyEnriched++;
+            }
+
+            Map<String, Object> status = new HashMap<>();
+            status.put("totalSongs", total);
+            status.put("fullyEnriched", fullyEnriched);
+            status.put("missingArtwork", missingArtwork);
+            status.put("missingGenre", missingGenre);
+            status.put("missingBpm", missingBpm);
+            status.put("noAnalysis", noAnalysis);
+
+            return Response.ok()
+                    .entity(objectMapper.writeValueAsString(status))
+                    .build();
+        } catch (Exception e) {
+            LOGGER.error("Error getting library status", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                        .entity("{\"error\": \"" + e.getMessage() + "\"}")
+                        .build();
+        }
+    }
+
+    @POST
+    @Path("/dj-enrichment/queue-all")
+    public Response queueAllForDjEnrichment() {
+        try {
+            djEnrichmentService.queueAllUnenriched();
+            return Response.ok()
+                    .entity("{\"message\": \"Queued all unenriched songs for DJ enrichment\"}")
+                    .build();
+        } catch (Exception e) {
+            LOGGER.error("Error queueing songs for DJ enrichment", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                         .entity("{\"error\": \"" + e.getMessage() + "\"}")
                         .build();

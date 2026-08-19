@@ -37,6 +37,11 @@ public class MusicEnrichmentService {
     private static final Duration DEEZER_REQUEST_DELAY = Duration.ofMillis(100);
     private static final Duration THEAUDIODB_REQUEST_DELAY = Duration.ofMillis(100);
 
+    // Global rate limiter — enforces minimum interval between MusicBrainz API calls
+    // across all threads, preventing "Remote host terminated the handshake" errors
+    private static final long MUSICBRAINZ_MIN_INTERVAL_MS = 1000;
+    private volatile long lastMusicBrainzRequestTime = 0;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -387,7 +392,8 @@ public class MusicEnrichmentService {
 
 public MusicBrainzResult searchMusicBrainz(String artist, String title) {
         try {
-            // Encode artist and title values - replace + with %20 after encoding
+            rateLimitMusicBrainz();
+
             String encodedArtist = URLEncoder.encode(artist, StandardCharsets.UTF_8).replace("+", "%20");
             String encodedTitle = URLEncoder.encode(title, StandardCharsets.UTF_8).replace("+", "%20");
             
@@ -671,6 +677,15 @@ public MusicBrainzResult searchMusicBrainz(String artist, String title) {
         }
 
         return null;
+    }
+
+    private void rateLimitMusicBrainz() throws InterruptedException {
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastMusicBrainzRequestTime;
+        if (elapsed < MUSICBRAINZ_MIN_INTERVAL_MS) {
+            Thread.sleep(MUSICBRAINZ_MIN_INTERVAL_MS - elapsed);
+        }
+        lastMusicBrainzRequestTime = System.currentTimeMillis();
     }
 
     private String downloadArtwork(String artworkUrl) {
