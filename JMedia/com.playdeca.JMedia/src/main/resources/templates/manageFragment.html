@@ -75,7 +75,7 @@
                             <i class="pi pi-pencil"></i>
                         </button>
                         {#if video.container != 'mp4'}
-                        <button class="button is-small is-warning is-rounded" onclick="convertVideo({video.id})" title="Convert to MP4">
+                        <button class="button is-small is-warning is-rounded" onclick="openConvertDialog({video.id})" title="Convert">
                             <i class="pi pi-refresh"></i>
                         </button>
                         {/if}
@@ -121,6 +121,93 @@
     <p class="has-text-grey">No videos found matching your criteria</p>
 </div>
 {/if}
+
+<div id="convertModal" class="modal">
+    <div class="modal-background" onclick="closeConvertModal()"></div>
+    <div class="modal-card glass-modal" style="max-width: 480px; width: 95%;">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Convert Video</p>
+            <button class="delete" aria-label="close" onclick="closeConvertModal()"></button>
+        </header>
+        <section class="modal-card-body">
+            <div class="field">
+                <label class="label">Container</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="convertContainer" onchange="_updateAudioCodecOptions()">
+                            <option value="mp4">MP4</option>
+                            <option value="mkv">MKV (preserve all tracks)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Video Codec</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="convertVideoCodec">
+                            <!-- Populated dynamically from /api/system/codec-capabilities -->
+                        </select>
+                    </div>
+                </div>
+                <p class="help" id="convertVideoCodecHelp"></p>
+            </div>
+            <div class="field">
+                <label class="label">Audio Codec</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="convertAudioCodec">
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Quality (CRF): <span id="convertCrfValue">23</span></label>
+                <div class="control">
+                    <input id="convertCrf" type="range" min="18" max="28" value="23" class="slider is-fullwidth" oninput="document.getElementById('convertCrfValue').textContent = this.value">
+                </div>
+                <p class="help">Lower = better quality, larger file. 18=visually lossless, 23=default, 28=small file.</p>
+            </div>
+            <div class="field">
+                <label class="label">Speed Preset</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="convertPreset">
+                            <option value="">Auto (recommended)</option>
+                            <option value="ultrafast">Ultrafast</option>
+                            <option value="superfast">Superfast</option>
+                            <option value="veryfast">Very Fast</option>
+                            <option value="faster">Faster</option>
+                            <option value="fast">Fast</option>
+                            <option value="medium">Medium</option>
+                            <option value="slow">Slow (better quality)</option>
+                            <option value="slower">Slower (even better)</option>
+                            <option value="veryslow">Very Slow (best quality)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="field">
+                <label class="label">Max Resolution</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="convertMaxHeight">
+                            <option value="0">No limit</option>
+                            <option value="2160">4K (2160p)</option>
+                            <option value="1440">2K (1440p)</option>
+                            <option value="1080" selected>Full HD (1080p)</option>
+                            <option value="720">HD (720p)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-primary" onclick="startConvertFromDialog()">Convert</button>
+            <button class="button" onclick="closeConvertModal()">Cancel</button>
+        </footer>
+    </div>
+</div>
 
 <!-- Edit Modal -->
 <div id="editModal" class="modal">
@@ -171,9 +258,128 @@
         document.getElementById('editModal').classList.remove('is-active');
     }
 
-    async function convertVideo(videoId) {
+    var _convertVideoIds = [];
+    var _convertIsBatch = false;
+
+    var _mp4AudioCodecs = [
+        { value: 'aac', label: 'AAC (recommended)' },
+        { value: 'ac3', label: 'AC3 (Dolby Digital)' },
+        { value: 'eac3', label: 'EAC3 (Dolby Digital Plus)' },
+        { value: 'mp3', label: 'MP3' },
+        { value: 'copy', label: 'Copy (no re-encode)' }
+    ];
+    var _mkvAudioCodecs = [
+        { value: 'aac', label: 'AAC (recommended)' },
+        { value: 'opus', label: 'Opus (best quality/bitrate)' },
+        { value: 'vorbis', label: 'Vorbis (open source)' },
+        { value: 'flac', label: 'FLAC (lossless)' },
+        { value: 'ac3', label: 'AC3 (Dolby Digital)' },
+        { value: 'eac3', label: 'EAC3 (Dolby Digital Plus)' },
+        { value: 'mp3', label: 'MP3' },
+        { value: 'copy', label: 'Copy (no re-encode)' }
+    ];
+
+    function _updateAudioCodecOptions() {
+        var container = document.getElementById('convertContainer').value;
+        var select = document.getElementById('convertAudioCodec');
+        var codecs = container === 'mkv' ? _mkvAudioCodecs : _mp4AudioCodecs;
+        var prev = select.value;
+        select.innerHTML = '';
+        for (var i = 0; i < codecs.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = codecs[i].value;
+            opt.textContent = codecs[i].label;
+            select.appendChild(opt);
+        }
+        for (var j = 0; j < select.options.length; j++) {
+            if (select.options[j].value === prev) { select.value = prev; break; }
+        }
+    }
+
+    async function openConvertDialog(videoId) {
+        _convertVideoIds = [videoId];
+        _convertIsBatch = false;
+        await _initConvertDialog();
+    }
+
+    async function openBatchConvertDialog(videoIds) {
+        _convertVideoIds = videoIds;
+        _convertIsBatch = true;
+        await _initConvertDialog();
+    }
+
+    async function _initConvertDialog() {
         try {
-            const resp = await fetch('/api/video/manage/convert/' + videoId, { method: 'POST' });
+            const resp = await fetch('/api/system/codec-capabilities');
+            const data = await resp.json();
+            const caps = data.data || data;
+
+            const select = document.getElementById('convertVideoCodec');
+            select.innerHTML = '';
+
+            for (const [codec, capabilities] of Object.entries(caps)) {
+                if (!capabilities || capabilities.length === 0) continue;
+                const group = document.createElement('optgroup');
+                group.label = codec.toUpperCase();
+                for (const cap of capabilities) {
+                    const opt = document.createElement('option');
+                    opt.value = cap.encoder;
+                    const hwLabel = cap.hardware ? ' (HW)' : ' (SW)';
+                    opt.textContent = cap.encoder + hwLabel;
+                    group.appendChild(opt);
+                }
+                select.appendChild(group);
+            }
+        } catch (e) {
+            console.error('Failed to load codec capabilities:', e);
+            document.getElementById('convertVideoCodec').innerHTML = `
+                <option value="libx264">libx264 (SW)</option>
+                <option value="libx265">libx265 (SW)</option>
+                <option value="libsvtav1">libsvtav1 (SW)</option>
+            `;
+        }
+
+        _updateAudioCodecOptions();
+        document.getElementById('convertModal').classList.add('is-active');
+    }
+
+    function closeConvertModal() {
+        document.getElementById('convertModal').classList.remove('is-active');
+    }
+
+    async function startConvertFromDialog() {
+        const options = {
+            targetCodec: _deriveCodecFromEncoder(document.getElementById('convertVideoCodec').value),
+            targetContainer: document.getElementById('convertContainer').value,
+            targetAudioCodec: document.getElementById('convertAudioCodec').value,
+            crf: parseInt(document.getElementById('convertCrf').value),
+            preset: document.getElementById('convertPreset').value || null,
+            maxHeight: parseInt(document.getElementById('convertMaxHeight').value)
+        };
+
+        closeConvertModal();
+
+        if (_convertIsBatch) {
+            await _startBatchConvertWithOpts(_convertVideoIds, options);
+        } else {
+            await _startSingleConvertWithOpts(_convertVideoIds[0], options);
+        }
+    }
+
+    function _deriveCodecFromEncoder(encoder) {
+        if (encoder.startsWith('h264')) return 'h264';
+        if (encoder.startsWith('hevc') || encoder === 'libx265') return 'hevc';
+        if (encoder.startsWith('av1') || encoder === 'libsvtav1') return 'av1';
+        return 'h264';
+    }
+
+    async function _startSingleConvertWithOpts(videoId, options) {
+        try {
+            const resp = await fetch('/api/video/manage/convert/' + videoId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(options)
+            });
             if (!resp.ok) {
                 const err = await resp.text();
                 window.Toast.error('Convert failed: ' + (err.error || err));
@@ -189,34 +395,75 @@
                     const statusResp = await fetch('/api/video/manage/convert/status/' + jobId);
                     if (!statusResp.ok) { clearInterval(pollInterval); return; }
                     const status = await statusResp.json();
-
                     window.Toast.progress(status.message || 'Converting...', status.progressPercent || 0);
-
                     if (status.status === 'COMPLETED') {
                         clearInterval(pollInterval);
                         window.Toast.progress('Conversion completed!', 100);
-                        // Refresh the manage view after a short delay so user sees the toast
-                        setTimeout(() => {
-                            htmx.ajax('GET', '/api/video/manage', {
-                                target: '#spa-content',
-                                swap: 'innerHTML'
-                            });
-                        }, 1500);
+                        _refreshCurrentView();
                     } else if (status.status === 'FAILED') {
                         clearInterval(pollInterval);
                         window.Toast.hideToast('scan-progress-toast');
                         window.Toast.error('Conversion failed: ' + (status.errorMessage || 'Unknown error'));
                     }
-                } catch (e) {
-                    console.error('Poll error:', e);
-                }
+                } catch (e) { console.error('Poll error:', e); }
             }, 2000);
-
-            // Stop polling after 1 hour
             setTimeout(() => clearInterval(pollInterval), 3600000);
         } catch (e) {
             window.Toast.error('Error starting conversion: ' + e.message);
         }
+    }
+
+    async function _startBatchConvertWithOpts(videoIds, options) {
+        try {
+            const resp = await fetch('/api/video/manage/convert/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ videoIds: videoIds, options: options })
+            });
+            if (!resp.ok) {
+                const err = await resp.text();
+                window.Toast.error('Batch convert failed: ' + (err.error || err));
+                return;
+            }
+            const data = await resp.json();
+            const batchId = data.batchId;
+            if (!batchId) { window.Toast.error('No batch ID returned'); return; }
+
+            const total = data.total || videoIds.length;
+            window.Toast.progress('Converting 0 of ' + total + ' episodes...', 0);
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusResp = await fetch('/api/video/manage/convert/batch/status/' + batchId);
+                    if (!statusResp.ok) { clearInterval(pollInterval); return; }
+                    const status = await statusResp.json();
+                    const processed = (status.completed || 0) + (status.failed || 0);
+                    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+                    window.Toast.progress('Converted ' + processed + ' of ' + total + ' episodes...', pct);
+                    if (!status.active || status.remaining <= 0) {
+                        clearInterval(pollInterval);
+                        window.Toast.hideToast('scan-progress-toast');
+                        if (status.failed > 0 && status.completed > 0) {
+                            window.Toast.success('Conversion complete: ' + status.completed + ' done, ' + status.failed + ' failed.');
+                        } else if (status.failed > 0) {
+                            window.Toast.error('All ' + status.failed + ' conversions failed.');
+                        } else {
+                            window.Toast.progress('All ' + status.completed + ' episodes converted!', 100);
+                        }
+                        _refreshCurrentView();
+                    }
+                } catch (e) { console.error('Batch poll error:', e); }
+            }, 2000);
+            setTimeout(() => clearInterval(pollInterval), 7200000);
+        } catch (e) {
+            window.Toast.error('Error starting batch conversion: ' + e.message);
+        }
+    }
+
+    function _refreshCurrentView() {
+        htmx.ajax('GET', '/api/video/manage', {
+            target: '#spa-content', swap: 'innerHTML'
+        });
     }
     
     document.addEventListener('htmx:afterRequest', function(evt) {
