@@ -165,7 +165,8 @@ public class VideoStreamResource {
                                @QueryParam("audioTrack") @DefaultValue("-1") int audioTrackIndex,
                                @QueryParam("quality") @DefaultValue("0") int qualityHeight,
                                 @QueryParam("trace") String traceId,
-                                @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc) {
+                                @QueryParam("nativeHevc") @DefaultValue("false") boolean nativeHevc,
+                                @QueryParam("nativeAv1") @DefaultValue("false") boolean nativeAv1) {
         if (videoId == null || videoId <= 0) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid video ID").build();
         }
@@ -238,6 +239,14 @@ public class VideoStreamResource {
         if (nativeHevc && video.videoCodec != null &&
             (video.videoCodec.toLowerCase(Locale.ROOT).contains("hevc") ||
              video.videoCodec.toLowerCase(Locale.ROOT).contains("h265"))) {
+            transcodeNeeded = false;
+        }
+        // Client-side native AV1 support override: when the browser can play AV1
+        // natively (Chrome 70+, Edge 79+, Firefox 67+), skip the server-side
+        // FFmpeg transcode and serve the AV1 stream directly via the copy path.
+        if (nativeAv1 && video.videoCodec != null &&
+            (video.videoCodec.toLowerCase(Locale.ROOT).contains("av1") ||
+             video.videoCodec.toLowerCase(Locale.ROOT).contains("av01"))) {
             transcodeNeeded = false;
         }
         if (qualityHeight <= 0) {

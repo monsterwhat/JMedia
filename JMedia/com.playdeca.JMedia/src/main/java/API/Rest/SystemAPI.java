@@ -1,6 +1,7 @@
 package API.Rest;
 
 import API.ApiResponse;
+import Services.FFmpegDiscoveryService;
 import Services.GpuDetectionService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -15,6 +16,9 @@ public class SystemAPI {
     @Inject
     GpuDetectionService gpuDetectionService;
 
+    @Inject
+    FFmpegDiscoveryService ffmpegDiscoveryService;
+
     @GET
     @Path("/gpu-info")
     public Response getGpuInfo() {
@@ -23,6 +27,18 @@ public class SystemAPI {
         } catch (Exception e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Error retrieving GPU info: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
+    @Path("/codec-capabilities")
+    public Response getCodecCapabilities() {
+        try {
+            return Response.ok(ApiResponse.success(ffmpegDiscoveryService.getCodecCapabilities())).build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error retrieving codec capabilities: " + e.getMessage()))
                     .build();
         }
     }

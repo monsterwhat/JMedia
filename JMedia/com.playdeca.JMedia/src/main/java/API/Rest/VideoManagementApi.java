@@ -599,14 +599,26 @@ public class VideoManagementApi {
     @Consumes(MediaType.APPLICATION_JSON)
     @Blocking
     @Produces(MediaType.APPLICATION_JSON)
-    public Response startBatchConversion(List<Long> videoIds) {
-        if (videoIds == null || videoIds.isEmpty()) {
+    public Response startBatchConversion(BatchConversionRequest request) {
+        if (request == null || request.videoIds == null || request.videoIds.isEmpty()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("{\"error\":\"No video IDs provided\"}")
                     .build();
         }
 
-        String batchId = videoConversionService.startBatchConversion(videoIds);
+        VideoConversionService.ConversionOptions options = null;
+        if (request.options != null) {
+            options = new VideoConversionService.ConversionOptions(
+                request.options.targetCodec != null ? request.options.targetCodec : "h264",
+                request.options.targetContainer != null ? request.options.targetContainer : "mp4",
+                request.options.targetAudioCodec != null ? request.options.targetAudioCodec : "aac",
+                request.options.crf != null ? request.options.crf : 23,
+                request.options.preset,
+                request.options.maxHeight != null ? request.options.maxHeight : 1080
+            );
+        }
+
+        String batchId = videoConversionService.startBatchConversion(request.videoIds, options);
         if (batchId == null) {
             return Response.serverError()
                     .entity("{\"error\":\"Could not start batch conversion\"}")
@@ -614,7 +626,7 @@ public class VideoManagementApi {
         }
 
         VideoConversionService.BatchInfo batch = videoConversionService.getBatchInfo(batchId);
-        int total = batch != null ? batch.total() : videoIds.size();
+        int total = batch != null ? batch.total() : request.videoIds.size();
         return Response.ok(String.format(
                 "{\"batchId\":\"%s\",\"total\":%d}",
                 batchId, total
@@ -643,9 +655,10 @@ public class VideoManagementApi {
 
     @POST
     @Path("/convert/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
     @Blocking
     @Produces(MediaType.APPLICATION_JSON)
-    public Response startConversion(@PathParam("id") Long id) {
+    public Response startConversion(@PathParam("id") Long id, ConversionOptionsRequest body) {
         Video video = videoService.find(id);
         if (video == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -653,7 +666,19 @@ public class VideoManagementApi {
                     .build();
         }
 
-        VideoConversionService.ConversionJob job = videoConversionService.startConversion(id);
+        VideoConversionService.ConversionOptions options = VideoConversionService.ConversionOptions.defaults();
+        if (body != null) {
+            options = new VideoConversionService.ConversionOptions(
+                body.targetCodec != null ? body.targetCodec : "h264",
+                body.targetContainer != null ? body.targetContainer : "mp4",
+                body.targetAudioCodec != null ? body.targetAudioCodec : "aac",
+                body.crf != null ? body.crf : 23,
+                body.preset,
+                body.maxHeight != null ? body.maxHeight : 1080
+            );
+        }
+
+        VideoConversionService.ConversionJob job = videoConversionService.startConversion(id, options);
         if (job == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity("{\"error\":\"Could not start conversion\"}")
@@ -702,5 +727,21 @@ public class VideoManagementApi {
             LOG.error("Error clearing series override flags", e);
             return Response.serverError().entity("Failed to clear override flags").build();
         }
+    }
+
+    // ── Request DTOs ─────────────────────────────────────────────────────
+
+    public static class ConversionOptionsRequest {
+        public String targetCodec;
+        public String targetContainer;
+        public String targetAudioCodec;
+        public Integer crf;
+        public String preset;
+        public Integer maxHeight;
+    }
+
+    public static class BatchConversionRequest {
+        public List<Long> videoIds;
+        public ConversionOptionsRequest options;
     }
 }
