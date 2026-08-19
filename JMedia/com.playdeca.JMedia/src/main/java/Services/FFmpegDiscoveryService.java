@@ -10,7 +10,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -230,11 +234,11 @@ public class FFmpegDiscoveryService {
         }
 
         List<String> priorityEncoders = List.of(
-            "h264_nvenc", "hevc_nvenc",
+            "h264_nvenc", "hevc_nvenc", "av1_nvenc",
             "h264_videotoolbox", "hevc_videotoolbox",
-            "h264_amf", "hevc_amf",
-            "h264_qsv", "hevc_qsv",
-            "h264_vaapi", "hevc_vaapi",
+            "h264_amf", "hevc_amf", "av1_amf",
+            "h264_qsv", "hevc_qsv", "av1_qsv",
+            "h264_vaapi", "hevc_vaapi", "av1_vaapi",
             "h264_v4l2m2m", "h264_omx"
         );
 
@@ -270,6 +274,47 @@ public class FFmpegDiscoveryService {
             hardwareEncoder = "libx264";
         }
         return hardwareEncoder;
+    }
+
+    /** Returns available encoders grouped by codec family. Each entry contains
+     *  the encoder name and whether it is hardware-accelerated. */
+    public record CodecCapability(String encoder, boolean hardware) {}
+
+    public Map<String, List<CodecCapability>> getCodecCapabilities() {
+        List<String> hwEncoders = getAvailableHardwareEncoders();
+        Set<String> hwSet = new HashSet<>(hwEncoders);
+
+        Map<String, List<CodecCapability>> result = new LinkedHashMap<>();
+
+        result.put("h264", new ArrayList<>());
+        result.put("hevc", new ArrayList<>());
+        result.put("av1", new ArrayList<>());
+
+        for (String enc : hwEncoders) {
+            if (enc.startsWith("h264_")) {
+                result.get("h264").add(new CodecCapability(enc, true));
+            } else if (enc.startsWith("hevc_")) {
+                result.get("hevc").add(new CodecCapability(enc, true));
+            } else if (enc.startsWith("av1_")) {
+                result.get("av1").add(new CodecCapability(enc, true));
+            }
+        }
+
+        String ffmpeg = findFFmpegExecutable();
+        if (ffmpeg != null) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(ffmpeg, "-hide_banner", "-encoders");
+                Process process = pb.start();
+                String output = new String(process.getInputStream().readAllBytes());
+                process.waitFor();
+
+                if (output.contains("libx264")) result.get("h264").add(new CodecCapability("libx264", false));
+                if (output.contains("libx265")) result.get("hevc").add(new CodecCapability("libx265", false));
+                if (output.contains("libsvtav1")) result.get("av1").add(new CodecCapability("libsvtav1", false));
+            } catch (Exception ignored) {}
+        }
+
+        return result;
     }
 
     public String getBestNvidiaDeviceIndex() {

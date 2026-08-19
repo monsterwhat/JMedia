@@ -35,14 +35,28 @@ import java.util.regex.Pattern;
 @ApplicationScoped
 public class VideoConversionService {
 
+    public record ConversionOptions(
+        String targetCodec,      // "h264", "hevc", "av1" — default "h264"
+        String targetContainer,  // "mp4", "mkv" — default "mp4"
+        String targetAudioCodec, // "aac", "ac3", "eac3", "copy" — default "aac"
+        Integer crf,             // 18-28 — default 23
+        String preset,           // FFmpeg preset — default depends on encoder
+        Integer maxHeight        // 0 = no limit, or 720/1080/1440/2160 — default 1080
+    ) {
+        public static ConversionOptions defaults() {
+            return new ConversionOptions("h264", "mp4", "aac", 23, null, 1080);
+        }
+    }
+
     private static final Logger LOG = LoggerFactory.getLogger(VideoConversionService.class);
 
     /* Only codecs every browser can decode natively are safe to stream-copy into
-     * MP4. AC3/EAC3/DTS/etc. fit the container but Chrome/Firefox have no decoder
-     * for them — copying them produces an MP4 that plays with no audio. Anything
-     * not in this list gets transcoded to AAC. */
+     * MP4. AC3/EAC3 are decoded by Chrome/Edge on Windows, Firefox on Windows,
+     * and Safari — but NOT by Chrome on macOS or Firefox on Linux.  For the
+     * permanent-conversion path we include them (no UA context here); the live
+     * streaming path (TranscodingService.canCopyAudioForClient) gates them. */
     private static final List<String> MP4_COMPATIBLE_AUDIO_CODECS = List.of(
-        "aac", "mp3"
+        "aac", "mp3", "opus", "vorbis", "ac3", "eac3"
     );
 
     private static final List<String> TEXT_SUBTITLE_CODECS = List.of(
@@ -125,6 +139,7 @@ public class VideoConversionService {
         public final long startTime;
         public volatile long endTime;
         public volatile Process process;
+        public ConversionOptions options = ConversionOptions.defaults();
 
         public enum Status { QUEUED, RUNNING, COMPLETED, FAILED }
 
@@ -153,6 +168,7 @@ public class VideoConversionService {
     // ── Batch queue support ─────────────────────────────────────────────────
 
     private final ConcurrentLinkedQueue<Long> pendingQueue = new ConcurrentLinkedQueue<>();
+    private final ConcurrentHashMap<Long, ConversionOptions> pendingBatchOptions = new ConcurrentHashMap<>();
     private volatile boolean queueProcessing = false;
 
     public static class BatchInfo {
@@ -175,11 +191,15 @@ public class VideoConversionService {
 
     private final ConcurrentHashMap<String, BatchInfo> batches = new ConcurrentHashMap<>();
 
+    public String startBatchConversion(List<Long> videoIds) {
+        return startBatchConversion(videoIds, null);
+    }
+
     /**
      * Queues all eligible (non-MP4) videos for sequential conversion.
      * Returns a batch ID that can be polled for overall progress.
      */
-    public String startBatchConversion(List<Long> videoIds) {
+    public String startBatchConversion(List<Long> videoIds, ConversionOptions options) {
         if (videoIds == null || videoIds.isEmpty()) return null;
         String batchId = "batch-" + System.currentTimeMillis();
         // De-duplicate the input list so a single video can't be counted twice
@@ -200,6 +220,9 @@ public class VideoConversionService {
             // Avoid duplicate queue entries from overlapping batch requests
             if (!pendingQueue.contains(id)) {
                 pendingQueue.add(id);
+                if (options != null) {
+                    pendingBatchOptions.put(id, options);
+                }
             }
         }
         // Kick off processing if idle
@@ -218,10 +241,11 @@ public class VideoConversionService {
         // the next item and call startConversion.
         Long nextId = pendingQueue.poll();
         if (nextId == null) return;
+        ConversionOptions batchOptions = pendingBatchOptions.remove(nextId);
         queueProcessing = true;
         conversionExecutor.submit(() -> {
             try {
-                ConversionJob job = doStartConversion(nextId);
+                ConversionJob job = doStartConversion(nextId, batchOptions);
                 if (job != null) {
                     // Wait for completion so the executor thread stays occupied
                     // and processes one after another.
@@ -235,12 +259,15 @@ public class VideoConversionService {
         });
     }
 
-    private ConversionJob doStartConversion(Long videoId) {
+    private ConversionJob doStartConversion(Long videoId, ConversionOptions options) {
         ConversionStart start = createOrGetConversionJob(videoId);
         ConversionJob job = start.job();
         if (job == null) return null;
 
         if (start.created()) {
+            if (options != null) {
+                job.options = options;
+            }
             // This queue item owns the job — run it now (blocking) so the single
             // conversion executor processes batch items one after another.
             Video video = videoService.findById(videoId);
@@ -382,6 +409,35 @@ public class VideoConversionService {
         return job;
     }
 
+    /**
+     * Start a conversion with custom options (codec, container, CRF, etc.).
+     * Falls back to defaults when {@code options} is null.
+     */
+    public ConversionJob startConversion(Long videoId, ConversionOptions options) {
+        ConversionStart start = createOrGetConversionJob(videoId);
+        ConversionJob job = start.job();
+        if (job == null || !start.created()) {
+            return job;
+        }
+        job.options = options != null ? options : ConversionOptions.defaults();
+
+        conversionExecutor.submit(() -> {
+            try {
+                Video video = videoService.findById(videoId);
+                if (video == null) throw new IllegalStateException("Video " + videoId + " no longer exists");
+                runConversion(job, video);
+            } catch (Exception e) {
+                LOG.error("Conversion failed for video {}: {}", videoId, e.getMessage(), e);
+                job.status = ConversionJob.Status.FAILED;
+                job.errorMessage = e.getMessage();
+                job.endTime = System.currentTimeMillis();
+            }
+            updateBatchForVideo(videoId, job.status);
+        });
+
+        return job;
+    }
+
     public ConversionJob getJobStatus(String jobId) {
         return jobs.get(jobId);
     }
@@ -484,8 +540,9 @@ public class VideoConversionService {
         String baseName = video.filename != null
                 ? video.filename.replaceFirst("\\.[^.]+$", "")
                 : inputFile.getName().replaceFirst("\\.[^.]+$", "");
-        Path outputPath = inputPath.getParent().resolve(baseName + "-" + video.id + ".mp4");
-        Path tempOutput = inputPath.getParent().resolve("." + baseName + "-" + video.id + ".tmp.mp4");
+        String outputExt = job.options.targetContainer();
+        Path outputPath = inputPath.getParent().resolve(baseName + "." + outputExt);
+        Path tempOutput = inputPath.getParent().resolve("." + baseName + ".tmp." + outputExt);
 
         // Determine hardware acceleration
         boolean useHardware = isHardwareAccelerationEnabled();
@@ -494,14 +551,19 @@ public class VideoConversionService {
 
         // Build encoder attempt list (same pattern as TranscodingService: HW encoders first, libx264 last)
         List<String> attemptEncoders = new ArrayList<>();
+        String targetCodec = job.options.targetCodec();
         if (useHardware && hwEncoders != null) {
             for (String enc : hwEncoders) {
-                if (enc.startsWith("h264")) {
+                if (targetCodec.startsWith("hevc") ? enc.startsWith("hevc")
+                        : targetCodec.startsWith("av1") ? enc.startsWith("av1")
+                        : enc.startsWith("h264")) {
                     attemptEncoders.add(enc);
                 }
             }
         }
-        attemptEncoders.add("libx264");
+        attemptEncoders.add(targetCodec.startsWith("hevc") ? "libx265"
+                : targetCodec.startsWith("av1") ? "libsvtav1"
+                : "libx264");
 
         // Probe subtitle streams — text go into MP4, image get extracted as .sup
         String ffprobePath = discoveryService.findFFprobeExecutable();
@@ -514,12 +576,18 @@ public class VideoConversionService {
         Exception lastException = null;
         boolean conversionStarted = false;
 
+        String softwareEncoder = targetCodec.startsWith("hevc") ? "libx265"
+                : targetCodec.startsWith("av1") ? "libsvtav1"
+                : "libx264";
+
         for (String encoder : attemptEncoders) {
             if (conversionStarted) break; // successful, skip remaining
 
-            boolean isHardwareAttempt = !encoder.equals("libx264");
+            boolean isHardwareAttempt = !encoder.equals(softwareEncoder);
             String preset;
-            if (isHardwareAttempt) {
+            if (job.options.preset() != null) {
+                preset = job.options.preset();
+            } else if (isHardwareAttempt) {
                 if (encoder.contains("nvenc")) preset = "fast";
                 else if (encoder.contains("amf")) preset = "speed";
                 else if (encoder.contains("qsv") || encoder.contains("videotoolbox")) preset = "fast";
@@ -530,7 +598,7 @@ public class VideoConversionService {
 
             try {
                 List<String> command = buildFfmpegCommand(ffmpegPath, inputFile, tempOutput, video,
-                        encoder, isHardwareAttempt, hardwareDecoder, preset, textSubtitleStreams);
+                        encoder, isHardwareAttempt, hardwareDecoder, preset, textSubtitleStreams, job.options);
                 runFfmpegProcess(job, command, video, inputFile, outputPath, tempOutput);
                 conversionStarted = true; // FFmpeg completed successfully
             } catch (Exception e) {
@@ -541,8 +609,8 @@ public class VideoConversionService {
                 }
                 // Clean up partial temp file
                 try { Files.deleteIfExists(tempOutput); } catch (IOException ignored) {}
-                // If this was the last attempt (libx264), propagate the error
-                if (encoder.equals("libx264")) {
+                // If this was the last attempt (software fallback), propagate the error
+                if (encoder.equals(softwareEncoder)) {
                     throw e;
                 }
             }
@@ -821,7 +889,8 @@ public class VideoConversionService {
     private List<String> buildFfmpegCommand(String ffmpegPath, File inputFile, Path tempOutput,
                                              Video video, String videoEncoder,
                                              boolean isHardwareAttempt, String hardwareDecoder,
-                                             String preset, List<Integer> textSubtitleStreams) {
+                                             String preset, List<Integer> textSubtitleStreams,
+                                             ConversionOptions options) {
         List<String> command = new ArrayList<>();
         command.add(ffmpegPath);
 
@@ -886,6 +955,10 @@ public class VideoConversionService {
                     || (hardwareDecoder.contains("amf") && videoEncoder.contains("amf"))
                     || (hardwareDecoder.contains("d3d11va") && videoEncoder != null && videoEncoder.contains("d3d11va")));
 
+        boolean isMkv = "mkv".equalsIgnoreCase(options.targetContainer());
+        int crf = options.crf();
+        int maxHeight = options.maxHeight();
+
         command.add("-v"); command.add("error");
         command.add("-hide_banner");
         command.add("-stats");
@@ -895,32 +968,37 @@ public class VideoConversionService {
         command.add("-map"); command.add("0:v");
         command.add("-c:v"); command.add(videoEncoder);
 
-        if (!videoEncoder.equals("libx264")) {
+        String softwareEncoder = options.targetCodec().startsWith("hevc") ? "libx265"
+                : options.targetCodec().startsWith("av1") ? "libsvtav1"
+                : "libx264";
+
+        if (!videoEncoder.equals(softwareEncoder)) {
             // HW encoder quality settings
             if (videoEncoder.contains("nvenc")) {
                 command.add("-preset"); command.add(preset);
                 command.add("-rc"); command.add("vbr");
-                command.add("-cq"); command.add("23");
-                command.add("-profile:v"); command.add("high");
+                command.add("-cq"); command.add(String.valueOf(crf));
+                String profile = videoEncoder.contains("hevc") ? "main" : "high";
+                command.add("-profile:v"); command.add(profile);
             } else if (videoEncoder.contains("amf")) {
                 command.add("-preset"); command.add(preset);
                 command.add("-usage"); command.add("transcoding");
                 command.add("-quality"); command.add("quality");
             } else if (videoEncoder.contains("qsv")) {
                 command.add("-preset"); command.add(preset);
-                command.add("-global_quality"); command.add("23");
+                command.add("-global_quality"); command.add(String.valueOf(crf));
             } else if (videoEncoder.contains("videotoolbox")) {
                 command.add("-quality"); command.add("70");
             } else if (videoEncoder.contains("vaapi")) {
                 command.add("-rc_mode"); command.add("CQP");
-                command.add("-qp"); command.add("23");
+                command.add("-qp"); command.add(String.valueOf(crf));
             } else {
                 command.add("-preset"); command.add(preset);
-                command.add("-crf"); command.add("23");
+                command.add("-crf"); command.add(String.valueOf(crf));
             }
-            if (videoEncoder.contains("h264")) {
+            if (videoEncoder.contains("h264") || videoEncoder.contains("hevc")) {
                 boolean addedGpuFmtFilter = false;
-                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, 1080, video.resolution) == null) {
+                if (hwFramesOnDevice && buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution) == null) {
                     String fmtFilter = buildFormatFilter(hardwareDecoder, videoEncoder, video.resolution);
                     if (fmtFilter != null) {
                         command.add("-vf"); command.add(fmtFilter);
@@ -931,49 +1009,63 @@ public class VideoConversionService {
                     }
                 }
                 if (!addedGpuFmtFilter) {
-                    command.add("-pix_fmt"); command.add("nv12");
+                    command.add("-pix_fmt"); command.add(videoEncoder.contains("hevc") ? "nv12" : "nv12");
                 }
             }
         } else {
-            // Software libx264
-            command.add("-preset"); command.add("veryfast");
-            command.add("-crf"); command.add("23");
+            command.add("-preset"); command.add(preset);
+            command.add("-crf"); command.add(String.valueOf(crf));
             command.add("-pix_fmt"); command.add("yuv420p");
         }
 
-        // Scale filter — cap at 1080p, never upscale
-        String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, 1080, video.resolution);
-        if (scaleFilter != null) {
-            command.add("-vf"); command.add(scaleFilter);
+        // Scale filter — cap at configured max height, never upscale
+        if (maxHeight > 0) {
+            String scaleFilter = buildScaleFilter(hardwareDecoder, videoEncoder, maxHeight, video.resolution);
+            if (scaleFilter != null) {
+                command.add("-vf"); command.add(scaleFilter);
+            }
         }
 
-        // Audio: copy if MP4-compatible, otherwise transcode to AAC
+        // Audio
         command.add("-map"); command.add("0:a");
-        if (isAudioCodecMp4Compatible(video.audioCodec)) {
+        String audioCodec = options.targetAudioCodec();
+        if ("copy".equalsIgnoreCase(audioCodec)) {
+            command.add("-c:a"); command.add("copy");
+            if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
+                command.add("-bsf:a"); command.add("aac_adtstoasc");
+            }
+        } else if (!isMkv && isAudioCodecMp4Compatible(video.audioCodec)) {
             command.add("-c:a"); command.add("copy");
             if (video.audioCodec != null && video.audioCodec.equalsIgnoreCase("aac")) {
                 command.add("-bsf:a"); command.add("aac_adtstoasc");
             }
         } else {
-            LOG.info("Audio codec '{}' not MP4-compatible, transcoding to AAC", video.audioCodec);
-            command.addAll(List.of("-c:a", "aac", "-b:a", "192k", "-ac", "2"));
+            LOG.info("Audio codec '{}' being transcoded to {}", video.audioCodec, audioCodec);
+            command.addAll(List.of("-c:a", audioCodec, "-b:a", "192k", "-ac", "2"));
         }
-        // Subtitles: map only text-based streams (skip PGS/VOBSUB which crash mov_text)
-        if (textSubtitleStreams != null && !textSubtitleStreams.isEmpty()) {
+
+        // Subtitles
+        if (isMkv) {
+            // MKV supports all subtitle formats — map everything
+            command.add("-map"); command.add("0:s?");
+            command.add("-c:s"); command.add("copy");
+        } else if (textSubtitleStreams != null && !textSubtitleStreams.isEmpty()) {
             for (int subIdx : textSubtitleStreams) {
                 command.add("-map"); command.add("0:s:" + subIdx);
             }
             command.add("-c:s"); command.add("mov_text");
         } else {
-            command.add("-sn"); // no text subtitles — strip all
+            command.add("-sn");
         }
 
         // Chapters and metadata passthrough
         command.add("-map_chapters"); command.add("0");
         command.add("-map_metadata"); command.add("0");
 
-        // Web-optimized + sync
-        command.add("-movflags"); command.add("+faststart");
+        // Web-optimized only for MP4
+        if (!isMkv) {
+            command.add("-movflags"); command.add("+faststart");
+        }
         command.add("-avoid_negative_ts"); command.add("make_zero");
 
         command.add("-y"); // overwrite temp output

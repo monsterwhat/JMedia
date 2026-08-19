@@ -73,6 +73,9 @@ public class SettingsController implements Serializable {
     @Inject
     private Services.AudioAnalysisService audioAnalysisService;
 
+    @Inject
+    private Services.DjEnrichmentService djEnrichmentService;
+
     private final List<ScanResult> failedSongs = Collections.synchronizedList(new ArrayList<>());
     
     private record FFprobeMetadata(String title, String artist) {}
@@ -489,6 +492,14 @@ public class SettingsController implements Serializable {
             failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
         }
         musicSocket.broadcastLibraryUpdateToAllProfiles();
+
+        if (!processedSongs.isEmpty()) {
+            addLog("Queueing " + processedSongs.size() + " songs for DJ enrichment...");
+            for (Song song : processedSongs) {
+                djEnrichmentService.queueSong(song.id);
+            }
+        }
+
         return processedSongs;
     }
 
@@ -530,6 +541,14 @@ public class SettingsController implements Serializable {
             failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
         }
         musicSocket.broadcastLibraryUpdateToAllProfiles();
+
+        if (!processedSongs.isEmpty()) {
+            addLog("Queueing " + processedSongs.size() + " songs for DJ enrichment...");
+            for (Song song : processedSongs) {
+                djEnrichmentService.queueSong(song.id);
+            }
+        }
+
         return processedSongs;
     }
 
@@ -573,6 +592,14 @@ public class SettingsController implements Serializable {
             failedSongs.forEach(f -> addLog("- " + f.filePath + " (Reason: " + f.rejectedReason + ")"));
         }
         musicSocket.broadcastLibraryUpdateToAllProfiles();
+
+        if (!processedSongs.isEmpty()) {
+            addLog("Queueing " + processedSongs.size() + " songs for DJ enrichment...");
+            for (Song song : processedSongs) {
+                djEnrichmentService.queueSong(song.id);
+            }
+        }
+
         return processedSongs;
     }
 

@@ -43,7 +43,7 @@ public class TranscodingService {
     private static final Logger LOG = LoggerFactory.getLogger(TranscodingService.class);
 
     private static final List<String> MP4_COMPATIBLE_AUDIO_CODECS = List.of(
-        "aac", "mp3", "ac3", "eac3"
+        "aac", "mp3", "ac3", "eac3", "opus", "vorbis"
     );
 
     @Inject
@@ -375,14 +375,22 @@ public class TranscodingService {
     }
 
     // Only codecs that EVERY browser (Chrome/Edge/Firefox/Safari incl. iOS)
-    // decodes inside MP4 are bit-copied. Opus is not decodable in <video> on
-    // at least one major platform (iOS Safari) — copying it would yield silent
-    // audio. AC3/DTS/TrueHD were historically unsupported in some browsers but
-    // modern Safari (17+) now plays FLAC-in-MP4; these codecs fall into the
-    // existing !canCopyAudio branch below and are transcoded to AAC 192k, which
-    // is cheap compared to a video encode.
+    // Audio codecs that can be copied verbatim — all modern browsers decode
+    // these natively: AAC/MP3 (universal), FLAC (Safari 17+, others), and
+    // Opus/Vorbis (Chrome 33+/Firefox 22+/Edge 17+/Safari 17.1+).
+    // AC3/EAC3 are decoded natively by Chrome/Edge on Windows (OS codec),
+    // Firefox on Windows (OS codec), and Safari (VideoToolbox).  They are NOT
+    // decoded by Chrome on macOS or Firefox on Linux — those UAs fall through
+    // to audio transcode via canCopyAudioForClient().
+    // DTS/TrueHD are never natively decodable in browsers and stay transcoded.
     private static final java.util.Set<String> COPYABLE_AUDIO_CODECS = java.util.Set.of(
-        "aac", "mp3", "flac"
+        "aac", "mp3", "flac", "opus", "vorbis", "ac3", "eac3"
+    );
+
+    /** Codecs that need UA-based gating: the browser *can* decode them on some
+     *  platforms but not others.  If the UA check fails, audio is transcoded. */
+    private static final java.util.Set<String> UA_GATED_AUDIO_CODECS = java.util.Set.of(
+        "ac3", "eac3"
     );
 
     private boolean canCopyAudio(Video video) {
@@ -391,6 +399,31 @@ public class TranscodingService {
         }
         String codec = video.audioCodec.toLowerCase(Locale.ROOT);
         return COPYABLE_AUDIO_CODECS.contains(codec);
+    }
+
+    /** Like {@link #canCopyAudio(Video)} but also gates UA-sensitive codecs
+     *  (AC3/EAC3) on browsers that can't decode them. */
+    private boolean canCopyAudioForClient(Video video, String userAgent) {
+        if (video.audioCodec == null) {
+            return false;
+        }
+        String codec = video.audioCodec.toLowerCase(Locale.ROOT);
+        if (!COPYABLE_AUDIO_CODECS.contains(codec)) {
+            return false;
+        }
+        if (!UA_GATED_AUDIO_CODECS.contains(codec) || userAgent == null) {
+            return true;
+        }
+        String ua = userAgent.toLowerCase(Locale.ROOT);
+        // Chrome on macOS has limited AC3/EAC3 support — transcode to be safe.
+        if (ua.contains("macintosh") && ua.contains("chrome") && !ua.contains("edge")) {
+            return false;
+        }
+        // Firefox on Linux depends on gstreamer — transcode to be safe.
+        if (ua.contains("linux") && ua.contains("firefox")) {
+            return false;
+        }
+        return true;
     }
 
     private String getScaleFilter(boolean isNvidia, int qualityHeight, String resolution) {
@@ -662,7 +695,7 @@ public class TranscodingService {
             }
         }
 
-        boolean canCopyAudio = canCopyAudio(video);
+        boolean canCopyAudio = canCopyAudioForClient(video, userAgent);
 
         // Permanent audio fix: when the video stream is served as a pure remux but the
         // audio must be re-encoded on EVERY request, schedule a background job that
