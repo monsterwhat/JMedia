@@ -46,7 +46,8 @@ public class AudioAnalysisService {
     private static final int BEATS_PER_BAR = 4; // Standard 4/4 time signature
     
     private static final int STARTUP_QUEUE_LIMIT = 50; // Max songs to queue on startup
-    private static final int ANALYSIS_POOL_SIZE = 3;
+    // One at a time - each analysis buffers full PCM + FFT maps; concurrency caused heap exhaustion
+    private static final int ANALYSIS_POOL_SIZE = 1;
     
     private final ExecutorService analysisPool = Executors.newFixedThreadPool(ANALYSIS_POOL_SIZE, r -> {
         Thread t = new Thread(r, "TarsosDSP-analysis");

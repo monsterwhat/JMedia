@@ -39,7 +39,8 @@ public class DjEnrichmentService {
 
     private static final long POLL_TIMEOUT_SECONDS = 5;
     private static final int METADATA_THREADS = 1;
-    private static final int ANALYSIS_THREADS = 6;
+    // One at a time - concurrent TarsosDSP analyses caused JVM heap exhaustion
+    private static final int ANALYSIS_THREADS = 1;
 
     @Inject
     MusicEnrichmentService musicEnrichmentService;
