@@ -29,11 +29,17 @@ public class IntroDbService {
     // Source 2: OpenAPI v2 media endpoint
     private static final String API_URL_MEDIA = "https://api.theintrodb.org/v2/media";
     
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
-    
+    // Volatile + rebuilt on demand: the JDK client's selector thread can die permanently
+    // (e.g. killed by heap exhaustion) and never restarts on its own
+    private volatile HttpClient httpClient = buildHttpClient();
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static HttpClient buildHttpClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+    }
 
     public static class Timestamps {
         public Double start;
@@ -78,7 +84,20 @@ public class IntroDbService {
                     baseUrl, imdbId, season, episode);
             
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response;
+            try {
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (Exception e) {
+                if (e.getMessage() == null || !e.getMessage().contains("selector manager")) {
+                    throw e;
+                }
+                // Selector thread is dead - rebuild so this and future requests get a working client
+                LOG.warn("IntroDB: HTTP client selector died, recreating client and retrying once");
+                synchronized (this) {
+                    httpClient = buildHttpClient();
+                }
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            }
             
             if (response.statusCode() == 200) {
                 JsonNode root = objectMapper.readTree(response.body());
