@@ -69,12 +69,11 @@ public class SessionService {
             return false;
         }
         
-        LOG.debug("Session {} IP check: expected {}, got {}", sessionId, session.ipAddress, ipAddress);
-        if (session.ipAddress != null && ipAddress != null && !session.ipAddress.equals(ipAddress)) {
-            LOG.warn("Session {} IP mismatch: expected {}, got {} — invalidating", sessionId, session.ipAddress, ipAddress);
-            invalidateSession(sessionId);
-            return false;
-        }
+        // NOTE: Intentionally NOT checking IP address. Users with multiple ISPs,
+        // failover switching, VPNs, or dual-stack (IPv4/IPv6) networking will see
+        // their IP change frequently. Destroying sessions on IP mismatch causes
+        // constant re-authentication — unacceptable for a home media server with
+        // no sensitive data. Session expiry (30 days) is sufficient protection.
         session.lastActivity = Instant.now();
         session.active = true;
         
