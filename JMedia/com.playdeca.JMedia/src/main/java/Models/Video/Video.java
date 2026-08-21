@@ -229,10 +229,22 @@ public class Video extends PanacheEntity {
     
     // System Fields
     public boolean isActive = true;
-    
+
     // Manual Override Flags - prevent rescans from overwriting user edits
     public boolean seriesTitleManuallyEdited = false;
     public boolean titleManuallyEdited = false;
+
+    // Enrichment tracking — prevents redundant re-scans
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    public EnrichmentStatus enrichmentStatus = EnrichmentStatus.NOT_ATTEMPTED;
+
+    public enum EnrichmentStatus {
+        NOT_ATTEMPTED,   // Never scanned for metadata
+        ENRICHED,        // Found on TMDB, fields populated
+        NOT_FOUND,       // Searched TMDB, no match — don't retry
+        FAILED           // API error — eligible for retry after cooldown
+    }
     
     public void setThumbnailPath(String thumbnailPath) {
         this.thumbnailPath = thumbnailPath;
