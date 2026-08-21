@@ -75,6 +75,9 @@ public class VideoAPI {
     Services.VideoMetadataService videoMetadataService;
 
     @Inject
+    Services.VideoEnrichmentWorker videoEnrichmentWorker;
+
+    @Inject
     SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
 
     @Inject
@@ -582,7 +585,7 @@ public class VideoAPI {
                     LOG.info("Scan and create completed. Created {} videos.", videos.size());
                     
                     // Queue metadata enrichment for background processing
-                    executor.submit(() -> videoMetadataService.queueAllVideosForEnrichment());
+                    executor.submit(() -> videoEnrichmentWorker.queueAllUnenriched());
                     
                     // Queue thumbnails for background processing
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());

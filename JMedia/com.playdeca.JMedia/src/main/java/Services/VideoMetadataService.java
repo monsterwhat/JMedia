@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,11 +31,9 @@ import Models.DTOs.VerificationField;
 import Models.DTOs.VerificationPreview;
 import jakarta.annotation.PreDestroy;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.regex.Pattern;
 
 @ApplicationScoped
@@ -111,9 +110,7 @@ public class VideoMetadataService {
     // Cache for show IDs to avoid rate limits during batch reloads
     private final Map<String, String> seriesImdbIdCache = new ConcurrentHashMap<>();
     
-    // Queue for background metadata enrichment
-    private final BlockingQueue<Long> metadataQueue = new LinkedBlockingQueue<>();
-    private volatile boolean queueProcessing = false;
+
 
     // Dedicated 2-thread executor for background series text enrichment (NOT the shared managed pool — MAJOR-6)
     private final ExecutorService seriesEnrichmentExecutor = Executors.newFixedThreadPool(2);
@@ -156,113 +153,84 @@ public class VideoMetadataService {
         return true;
     }
 
-    /**
-     * Queue a single video for metadata enrichment
-     */
-    public void queueVideoForEnrichment(Long videoId) {
-        if (videoId != null) {
-            metadataQueue.offer(videoId);
-            LOG.debug("Queued video {} for metadata enrichment", videoId);
+    public static boolean isFullyEnriched(Video video) {
+        if (video.tmdbId == null || video.tmdbId.isBlank()) return false;
+        if (video.posterPath == null || video.backdropPath == null || video.logoPath == null || video.heroPath == null) return false;
+        if ("episode".equalsIgnoreCase(video.type) && video.stillPath == null) return false;
+        if (video.genres == null || video.genres.isEmpty()) return false;
+        if (video.overview == null || video.overview.isBlank()) return false;
+        if (video.releaseYear == null) return false;
+        if ("movie".equalsIgnoreCase(video.type)) {
+            if (video.directors == null || video.directors.isEmpty()) return false;
+            if (video.cast == null || video.cast.isEmpty()) return false;
+            if (video.productionCompanies == null || video.productionCompanies.isEmpty()) return false;
+            if (video.productionCountries == null || video.productionCountries.isBlank()) return false;
         }
-    }
-    
-    /**
-     * Queue all videos for metadata enrichment
-     */
-    @jakarta.enterprise.context.control.ActivateRequestContext
-    public void queueAllVideosForEnrichment() {
-        try {
-            List<Video> allVideos = Video.listAll();
-            for (Video video : allVideos) {
-                if (video != null && video.id != null) {
-                    metadataQueue.offer(video.id);
-                }
-            }
-            LOG.info("Queued {} videos for metadata enrichment", allVideos.size());
-        } catch (Exception e) {
-            LOG.error("Error queueing videos for enrichment: {}", e.getMessage());
+        if ("episode".equalsIgnoreCase(video.type)) {
+            if (video.originalLanguage == null || video.originalLanguage.isBlank()) return false;
         }
-    }
-    
-    /**
-     * Get the metadata queue
-     */
-    public BlockingQueue<Long> getMetadataQueue() {
-        return metadataQueue;
-    }
-    
-    /**
-     * Check if metadata queue is being processed
-     */
-    public boolean isQueueProcessing() {
-        return queueProcessing;
-    }
-    
-    /**
-     * Set queue processing flag
-     */
-    public void setQueueProcessing(boolean processing) {
-        this.queueProcessing = processing;
-    }
-    
-    /**
-     * Clear the metadata queue
-     */
-    public void clearMetadataQueue() {
-        metadataQueue.clear();
+        return true;
     }
 
-    @jakarta.transaction.Transactional
+    public boolean needsEnrichment(Video video) {
+        if (video == null || !video.isActive) return false;
+        if (video.enrichmentStatus == Video.EnrichmentStatus.ENRICHED) return false;
+        if (video.enrichmentStatus == Video.EnrichmentStatus.NOT_FOUND) return false;
+        if (video.titleManuallyEdited) return false;
+        return true;
+    }
+
     public void enrichVideoWithIntroData(Models.Video.Video video) {
         if (video == null || !"episode".equalsIgnoreCase(video.type)) return;
-        
-        // Ensure we are working with a managed entity
-        final Models.Video.Video managedVideo = Models.Video.Video.findById(video.id);
-        if (managedVideo == null) return;
 
-        Long noDataExpiry = INTRODB_NO_DATA_CACHE.get(managedVideo.id);
+        // Fresh snapshot by id; only scalar fields are touched here. Deliberately NOT
+        // transactional: the IntroDB HTTP lookup below must not hold database locks.
+        final Models.Video.Video loadedVideo = Models.Video.Video.findById(video.id);
+        if (loadedVideo == null) return;
+
+        Long noDataExpiry = INTRODB_NO_DATA_CACHE.get(loadedVideo.id);
         if (noDataExpiry != null && System.currentTimeMillis() < noDataExpiry) {
             return;
         }
 
         // 1. Ensure we have Show IMDb ID (Required for IntroDB TV lookups)
-        if (managedVideo.showImdbId == null || managedVideo.showImdbId.isBlank()) {
-            managedVideo.showImdbId = findSeriesImdbId(managedVideo);
+        if (loadedVideo.showImdbId == null || loadedVideo.showImdbId.isBlank()) {
+            loadedVideo.showImdbId = findSeriesImdbId(loadedVideo);
         }
         
         // 2. Fetch Intro/Outro/Recap data if we have the show ID
-        if (managedVideo.showImdbId != null && !managedVideo.showImdbId.isBlank() && 
-            managedVideo.seasonNumber != null && managedVideo.episodeNumber != null) {
+        if (loadedVideo.showImdbId != null && !loadedVideo.showImdbId.isBlank() && 
+            loadedVideo.seasonNumber != null && loadedVideo.episodeNumber != null) {
             
-            LOG.info("Refreshing IntroDB data for video {} (S{}E{}) using series ID: {}", managedVideo.id, managedVideo.seasonNumber, managedVideo.episodeNumber, managedVideo.showImdbId);
+            LOG.info("Refreshing IntroDB data for video {} (S{}E{}) using series ID: {}", loadedVideo.id, loadedVideo.seasonNumber, loadedVideo.episodeNumber, loadedVideo.showImdbId);
             
-            introDbService.fetchAllMetadata(managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber)
+            introDbService.fetchAllMetadata(loadedVideo.showImdbId, loadedVideo.seasonNumber, loadedVideo.episodeNumber)
                 .ifPresentOrElse(m -> {
-                    INTRODB_NO_DATA_CACHE.remove(managedVideo.id);
+                    INTRODB_NO_DATA_CACHE.remove(loadedVideo.id);
                     m.intro.ifPresent(ts -> {
-                        managedVideo.introStart = ts.start;
-                        managedVideo.introEnd = ts.end;
-                        LOG.info("Updated intro for video {}: {}-{}", managedVideo.id, ts.start, ts.end);
+                        loadedVideo.introStart = ts.start;
+                        loadedVideo.introEnd = ts.end;
+                        LOG.info("Updated intro for video {}: {}-{}", loadedVideo.id, ts.start, ts.end);
                     });
                     m.outro.ifPresent(ts -> {
-                        managedVideo.outroStart = ts.start;
-                        managedVideo.outroEnd = ts.end;
-                        LOG.info("Updated outro for video {}: {}-{}", managedVideo.id, ts.start, ts.end);
+                        loadedVideo.outroStart = ts.start;
+                        loadedVideo.outroEnd = ts.end;
+                        LOG.info("Updated outro for video {}: {}-{}", loadedVideo.id, ts.start, ts.end);
                     });
                     m.recap.ifPresent(ts -> {
-                        managedVideo.recapStart = ts.start;
-                        managedVideo.recapEnd = ts.end;
-                        LOG.info("Updated recap for video {}: {}-{}", managedVideo.id, ts.start, ts.end);
+                        loadedVideo.recapStart = ts.start;
+                        loadedVideo.recapEnd = ts.end;
+                        LOG.info("Updated recap for video {}: {}-{}", loadedVideo.id, ts.start, ts.end);
                     });
                 }, () -> {
-                    LOG.warn("IntroDB returned no data for series {} S{}E{}", managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber);
-                    INTRODB_NO_DATA_CACHE.put(managedVideo.id, System.currentTimeMillis() + INTRODB_NO_DATA_TTL_MS);
+                    LOG.warn("IntroDB returned no data for series {} S{}E{}", loadedVideo.showImdbId, loadedVideo.seasonNumber, loadedVideo.episodeNumber);
+                    INTRODB_NO_DATA_CACHE.put(loadedVideo.id, System.currentTimeMillis() + INTRODB_NO_DATA_TTL_MS);
                 });
             
-            managedVideo.persistAndFlush();
+            self.persistEnrichedVideo(loadedVideo);
         } else {
             LOG.debug("Cannot fetch IntroDB data: Missing ShowImdbId ({}), Season ({}), or Episode ({})", 
-                managedVideo.showImdbId, managedVideo.seasonNumber, managedVideo.episodeNumber);
+                loadedVideo.showImdbId, loadedVideo.seasonNumber, loadedVideo.episodeNumber);
         }
     }
 
@@ -360,12 +328,13 @@ public class VideoMetadataService {
         return key;
     }
 
-    @jakarta.transaction.Transactional
     public void fetchAndEnrichMetadata(Models.Video.Video video) {
         if (video == null) return;
-        
-        // Ensure we are working with a managed entity to avoid LazyInitializationException
-        video = Models.Video.Video.findById(video.id);
+
+        // Load a fully-initialized detached snapshot. Deliberately NOT transactional:
+        // the TMDB/OMDb/IMDb HTTP calls, ffprobe runs and image downloads below used to
+        // hold H2 row locks until commit and deadlocked concurrent workers.
+        video = self.loadVideoForEnrichment(video.id);
         if (video == null) return;
 
         String tmdbKey = getApiKey();
@@ -453,8 +422,8 @@ public class VideoMetadataService {
                 }
             }
 
-            // Ensure we merge the changes back to the database session
-            video.getEntityManager().merge(video);
+            // Flush enriched fields in a short transaction
+            self.persistEnrichedVideo(video);
 
             // 7. Download TMDB image URLs to local files (poster, logo, backdrop, hero)
             try {
@@ -478,7 +447,7 @@ public class VideoMetadataService {
                     if (paths.backdropPath() != null) video.backdropPath = paths.backdropPath();
                     if (paths.heroPath() != null) video.heroPath = paths.heroPath();
                     if (paths.stillPath() != null) video.stillPath = paths.stillPath();
-                    video.getEntityManager().merge(video);
+                    self.persistEnrichedVideo(video);
                 }
             } catch (Exception imgEx) {
                 LOG.warn("[Enrich] Failed to download local image files for {}: {}", video.id, imgEx.getMessage());
@@ -494,6 +463,13 @@ public class VideoMetadataService {
                 }
             }
 
+            if (video.tmdbId != null && !video.tmdbId.isBlank()) {
+                video.enrichmentStatus = Video.EnrichmentStatus.ENRICHED;
+            } else {
+                video.enrichmentStatus = Video.EnrichmentStatus.NOT_FOUND;
+            }
+            self.persistEnrichedVideo(video);
+
         } catch (Exception e) {
             if (e instanceof jakarta.persistence.OptimisticLockException
                     || (e.getCause() != null && e.getCause() instanceof jakarta.persistence.OptimisticLockException)
@@ -502,6 +478,12 @@ public class VideoMetadataService {
                 LOG.warn("Metadata enrichment skipped for '{}' - entity was likely deleted during database reset", video.title);
             } else {
                 LOG.error("DEBUG: Metadata enrichment FAILED for {}: {}", video.title, e.getMessage(), e);
+            }
+            video.enrichmentStatus = Video.EnrichmentStatus.FAILED;
+            try {
+                self.persistEnrichmentStatus(video.id, Video.EnrichmentStatus.FAILED);
+            } catch (Exception statusEx) {
+                LOG.warn("Failed to persist FAILED enrichment status for video {}: {}", video.id, statusEx.getMessage());
             }
         }
     }
@@ -560,12 +542,13 @@ public class VideoMetadataService {
             try {
                 Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
                 String searchUrl;
+                String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
                 if (isBearerToken(tmdbKey)) {
-                    searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s",
-                            URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
+                    searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s%s",
+                            URLEncoder.encode(seriesName, StandardCharsets.UTF_8), yearSuffix);
                 } else {
-                    searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey,
-                            URLEncoder.encode(seriesName, StandardCharsets.UTF_8));
+                    searchUrl = String.format(TMDB_SEARCH_TV + "%s", tmdbKey,
+                            URLEncoder.encode(seriesName, StandardCharsets.UTF_8), yearSuffix);
                 }
                 JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
                 if (searchRoot != null && searchRoot.path("results").isArray() && searchRoot.path("results").size() > 0) {
@@ -633,10 +616,11 @@ public class VideoMetadataService {
                 String query = URLEncoder.encode(video.title != null ? video.title : video.filename, StandardCharsets.UTF_8);
                 Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
                 String searchUrl;
+                String yearSuffix = video.releaseYear != null ? "&year=" + video.releaseYear : "";
                 if (isBearerToken(tmdbKey)) {
-                    searchUrl = String.format("https://api.themoviedb.org/3/search/movie?query=%s", query);
+                    searchUrl = String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", query, yearSuffix);
                 } else {
-                    searchUrl = String.format(TMDB_SEARCH_MOVIE, tmdbKey, query);
+                    searchUrl = String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, query, yearSuffix);
                 }
                 JsonNode root = fetchJson(searchUrl, authHeaders);
                 if (root != null && root.path("results").isArray() && root.path("results").size() > 0) {
@@ -966,13 +950,14 @@ public class VideoMetadataService {
         }
         if (video.tmdbId == null) {
             String query = URLEncoder.encode(video.title, StandardCharsets.UTF_8);
+            String yearSuffix = video.releaseYear != null ? "&year=" + video.releaseYear : "";
             Map<String, String> authHeaders = null;
             String url;
             if (isBearerToken(apiKey)) {
-                url = String.format("https://api.themoviedb.org/3/search/movie?query=%s", query);
+                url = String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", query, yearSuffix);
                 authHeaders = Map.of("Authorization", "Bearer " + apiKey);
             } else {
-                url = String.format(TMDB_SEARCH_MOVIE, apiKey, query);
+                url = String.format(TMDB_SEARCH_MOVIE + "%s", apiKey, query, yearSuffix);
             }
             JsonNode root = fetchJson(url, authHeaders);
             if (root != null && root.path("results").size() > 0) {
@@ -1040,6 +1025,57 @@ public class VideoMetadataService {
                 if (root.has("popularity")) video.popularityScore = root.get("popularity").asDouble();
                 if (root.has("runtime")) video.runtimeMins = root.get("runtime").asInt();
                 if (root.has("original_language")) video.originalLanguage = root.get("original_language").asText();
+                // Additional metadata: genres, credits, production info
+                if (video.genres == null || video.genres.isEmpty()) {
+                    if (root.has("genres") && root.get("genres").isArray()) {
+                        video.genres = new ArrayList<>();
+                        for (JsonNode g : root.path("genres")) {
+                            if (g.has("name")) video.genres.add(g.get("name").asText());
+                        }
+                    }
+                }
+                if (video.productionCompanies == null || video.productionCompanies.isEmpty()) {
+                    if (root.has("production_companies") && root.get("production_companies").isArray()) {
+                        video.productionCompanies = new ArrayList<>();
+                        for (JsonNode c : root.path("production_companies")) {
+                            if (c.has("name")) video.productionCompanies.add(c.get("name").asText());
+                        }
+                    }
+                }
+                if (video.productionCountries == null) {
+                    if (root.has("production_countries") && root.get("production_countries").isArray()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (JsonNode pc : root.path("production_countries")) {
+                            if (pc.has("iso_3166_1")) {
+                                if (sb.length() > 0) sb.append(", ");
+                                sb.append(pc.get("iso_3166_1").asText());
+                            }
+                        }
+                        if (sb.length() > 0) video.productionCountries = sb.toString();
+                    }
+                }
+                if (video.directors == null || video.directors.isEmpty()) {
+                    if (root.has("credits") && root.get("credits").has("crew") && root.get("credits").get("crew").isArray()) {
+                        video.directors = new ArrayList<>();
+                        for (JsonNode crew : root.get("credits").get("crew")) {
+                            if ("Director".equals(crew.path("job").asText())) {
+                                video.directors.add(crew.path("name").asText());
+                            }
+                        }
+                    }
+                }
+                if (video.cast == null || video.cast.isEmpty()) {
+                    if (root.has("credits") && root.get("credits").has("cast") && root.get("credits").get("cast").isArray()) {
+                        video.cast = new ArrayList<>();
+                        for (JsonNode actor : root.get("credits").get("cast")) {
+                            String name = actor.path("name").asText();
+                            if (name != null && !name.isBlank()) {
+                                video.cast.add(name);
+                                if (video.cast.size() >= 15) break;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1054,11 +1090,12 @@ public class VideoMetadataService {
         if (video.seriesTitle != null) {
             Map<String, String> authHeaders = null;
             String searchUrl;
+            String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
             if (isBearerToken(apiKey)) {
-                searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
+                searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8), yearSuffix);
                 authHeaders = Map.of("Authorization", "Bearer " + apiKey);
             } else {
-                searchUrl = String.format(TMDB_SEARCH_TV, apiKey, URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8));
+                searchUrl = String.format(TMDB_SEARCH_TV + "%s", apiKey, URLEncoder.encode(video.seriesTitle, StandardCharsets.UTF_8), yearSuffix);
             }
             JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
             if (searchRoot != null && searchRoot.path("results").size() > 0) {
@@ -1103,7 +1140,7 @@ public class VideoMetadataService {
                 LOG.warn("[EnrichEpisode] Failed to fetch show details for showTmdbId={}", showTmdbId);
             }
             if (showRoot != null) {
-                if (showRoot.has("backdrop_path") && !showRoot.get("backdrop_path").isNull() && video.backdropPath == null) {
+                if (showRoot.has("backdrop_path") && !showRoot.get("backdrop_path").isNull()) {
                     video.backdropPath = TMDB_IMAGE_W1280 + showRoot.get("backdrop_path").asText();
                     video.heroPath = TMDB_IMAGE_ORIGINAL + showRoot.get("backdrop_path").asText();
                     video.fanartPath = video.backdropPath;
@@ -1120,9 +1157,13 @@ public class VideoMetadataService {
                 if (showRoot.has("vote_count")) video.voteCount = showRoot.get("vote_count").asInt();
                 if (showRoot.has("popularity")) video.popularityScore = showRoot.get("popularity").asDouble();
                 if (showRoot.has("original_language")) video.originalLanguage = showRoot.get("original_language").asText();
+
+                if (video.series != null) {
+                    enrichSeriesFromShowRoot(video.series, showRoot, showTmdbId);
+                }
             }
             // Get show logo
-            if (video.logoPath == null) {
+            {
                 String imagesUrl;
                 if (isBearerToken(apiKey)) {
                     imagesUrl = String.format("https://api.themoviedb.org/3/tv/%s/images", showTmdbId);
@@ -1154,7 +1195,120 @@ public class VideoMetadataService {
                     }
                 }
             }
+            // Additional show/episode metadata
+            if (root != null) {
+                if (video.releaseDate == null && root.has("air_date") && !root.get("air_date").isNull()) {
+                    video.releaseDate = root.get("air_date").asText();
+                }
+                if (video.runtimeMins == null && root.has("runtime") && !root.get("runtime").isNull()) {
+                    video.runtimeMins = root.get("runtime").asInt();
+                }
+            }
+            if (video.releaseYear == null && showRoot.has("first_air_date") && !showRoot.get("first_air_date").isNull()) {
+                String d = showRoot.get("first_air_date").asText();
+                if (d != null && d.length() >= 4) {
+                    try { video.releaseYear = Integer.parseInt(d.substring(0, 4)); } catch (NumberFormatException ignored) {}
+                }
+            }
+            if (video.genres == null || video.genres.isEmpty()) {
+                if (showRoot.has("genres") && showRoot.get("genres").isArray()) {
+                    List<String> genres = new ArrayList<>();
+                    for (JsonNode g : showRoot.path("genres")) {
+                        if (g.has("name")) genres.add(g.get("name").asText());
+                    }
+                    if (!genres.isEmpty()) video.genres = genres;
+                }
+            }
+            if (video.originalLanguage == null && showRoot.has("original_language") && !showRoot.get("original_language").isNull()) {
+                video.originalLanguage = showRoot.get("original_language").asText();
+            }
+            if (video.productionCountries == null) {
+                if (showRoot.has("production_countries") && showRoot.get("production_countries").isArray()) {
+                    StringBuilder sb = new StringBuilder();
+                    for (JsonNode pc : showRoot.path("production_countries")) {
+                        if (pc.has("iso_3166_1")) {
+                            if (sb.length() > 0) sb.append(", ");
+                            sb.append(pc.get("iso_3166_1").asText());
+                        }
+                    }
+                    if (sb.length() > 0) video.productionCountries = sb.toString();
+                }
+            }
         }
+    }
+
+    private void enrichSeriesFromShowRoot(Series series, JsonNode showRoot, String showTmdbId) {
+        if (series.tmdbId == null) {
+            try { series.tmdbId = Integer.parseInt(showTmdbId); } catch (NumberFormatException ignored) {}
+        }
+        if (series.overview == null || series.overview.isBlank()) {
+            if (showRoot.has("overview") && !showRoot.get("overview").isNull()) {
+                series.overview = showRoot.get("overview").asText();
+            }
+        }
+        if (series.genres == null || series.genres.isEmpty()) {
+            if (showRoot.has("genres") && showRoot.get("genres").isArray()) {
+                List<String> genres = new ArrayList<>();
+                for (JsonNode g : showRoot.path("genres")) {
+                    if (g.has("name")) genres.add(g.get("name").asText());
+                }
+                if (!genres.isEmpty()) series.genres = genres;
+            }
+        }
+        if (series.networks == null || series.networks.isEmpty()) {
+            if (showRoot.has("networks") && showRoot.get("networks").isArray()) {
+                List<String> networks = new ArrayList<>();
+                for (JsonNode n : showRoot.path("networks")) {
+                    if (n.has("name")) networks.add(n.get("name").asText());
+                }
+                if (!networks.isEmpty()) series.networks = networks;
+            }
+        }
+        if (series.tmdbRating == null && showRoot.has("vote_average") && !showRoot.get("vote_average").isNull()) {
+            series.tmdbRating = showRoot.get("vote_average").asDouble();
+        }
+        if (series.voteCount == null && showRoot.has("vote_count")) {
+            series.voteCount = showRoot.get("vote_count").asInt();
+        }
+        if (series.popularityScore == null && showRoot.has("popularity") && !showRoot.get("popularity").isNull()) {
+            series.popularityScore = showRoot.get("popularity").asDouble();
+        }
+        if (series.status == null || series.status.isBlank()) {
+            if (showRoot.has("status") && !showRoot.get("status").isNull()) {
+                series.status = showRoot.get("status").asText();
+            }
+        }
+        if (series.tagline == null || series.tagline.isBlank()) {
+            if (showRoot.has("tagline") && !showRoot.get("tagline").isNull()) {
+                series.tagline = showRoot.get("tagline").asText();
+            }
+        }
+        if (series.originalLanguage == null || series.originalLanguage.isBlank()) {
+            if (showRoot.has("original_language") && !showRoot.get("original_language").isNull()) {
+                series.originalLanguage = showRoot.get("original_language").asText();
+            }
+        }
+        if (series.productionCountries == null) {
+            if (showRoot.has("production_countries") && showRoot.get("production_countries").isArray()) {
+                StringBuilder sb = new StringBuilder();
+                for (JsonNode pc : showRoot.path("production_countries")) {
+                    if (pc.has("iso_3166_1")) {
+                        if (sb.length() > 0) sb.append(", ");
+                        sb.append(pc.get("iso_3166_1").asText());
+                    }
+                }
+                if (sb.length() > 0) series.productionCountries = sb.toString();
+            }
+        }
+        if (series.releaseYear == null && showRoot.has("first_air_date") && !showRoot.get("first_air_date").isNull()) {
+            String d = showRoot.get("first_air_date").asText();
+            if (d != null && d.length() >= 4) {
+                try { series.releaseYear = Integer.parseInt(d.substring(0, 4)); } catch (NumberFormatException ignored) {}
+            }
+        }
+        // Series arrives as an initialized detached snapshot (see loadVideoForEnrichment).
+        // Do NOT persist/merge here — the caller flushes it via persistEnrichedVideo(), which
+        // merges the Series separately in its own short transaction.
     }
 
     private JsonNode fetchJson(String url) throws IOException, InterruptedException {
@@ -1198,15 +1352,19 @@ public class VideoMetadataService {
             try {
                 Map<String, String> authHeaders = null;
                 String searchUrl;
+                String yearSuffix = "";
+                if (year != null) {
+                    yearSuffix = "movie".equalsIgnoreCase(type) ? "&year=" + year : "&first_air_date_year=" + year;
+                }
                 if (isBearerToken(tmdbKey)) {
                     searchUrl = "movie".equalsIgnoreCase(type) ?
-                        String.format("https://api.themoviedb.org/3/search/movie?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8)) :
-                        String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8));
+                        String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix) :
+                        String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix);
                     authHeaders = Map.of("Authorization", "Bearer " + tmdbKey);
                 } else {
                     searchUrl = "movie".equalsIgnoreCase(type) ?
-                        String.format(TMDB_SEARCH_MOVIE, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8)) :
-                        String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8));
+                        String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix) :
+                        String.format(TMDB_SEARCH_TV + "%s", tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix);
                 }
                 
                 JsonNode root = fetchJson(searchUrl, authHeaders);
@@ -1251,7 +1409,7 @@ public class VideoMetadataService {
      *
      * @param type         "movie" or "tv"
      * @param title        search title
-     * @param year         optional release year for disambiguation (currently unused by TMDB search)
+     * @param year         optional release year for disambiguation
      * @param seriesTitle  series title for episode still lookup (null for movies)
      * @param seasonNumber season number for episode still lookup (null for movies)
      * @param episodeNumber episode number for episode still lookup (null for movies)
@@ -1276,15 +1434,19 @@ public class VideoMetadataService {
         try {
             String searchUrl;
             Map<String, String> authHeaders = null;
+            String yearSuffix = "";
+            if (year != null) {
+                yearSuffix = "movie".equalsIgnoreCase(type) ? "&year=" + year : "&first_air_date_year=" + year;
+            }
             if (isBearerToken(tmdbKey)) {
                 searchUrl = "movie".equalsIgnoreCase(type) ?
-                    String.format("https://api.themoviedb.org/3/search/movie?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8)) :
-                    String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(title, StandardCharsets.UTF_8));
+                    String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix) :
+                    String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix);
                 authHeaders = Map.of("Authorization", "Bearer " + tmdbKey);
             } else {
                 searchUrl = "movie".equalsIgnoreCase(type) ?
-                    String.format(TMDB_SEARCH_MOVIE, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8)) :
-                    String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8));
+                    String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix) :
+                    String.format(TMDB_SEARCH_TV + "%s", tmdbKey, URLEncoder.encode(title, StandardCharsets.UTF_8), yearSuffix);
             }
 
             JsonNode root = fetchJson(searchUrl, authHeaders);
@@ -1367,7 +1529,7 @@ public class VideoMetadataService {
             Optional<String> still = Optional.empty();
             if ("episode".equalsIgnoreCase(type) && seriesTitle != null && seasonNumber != null && episodeNumber != null) {
                 try {
-                    still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber);
+                    still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber, year);
                 } catch (Exception ex) {
                     LOG.warn("[FetchMediaImages] Episode still fetch failed for {} S{}E{}: {}", title, seasonNumber, episodeNumber, ex.getMessage());
                 }
@@ -1496,7 +1658,7 @@ public class VideoMetadataService {
             Optional<String> still = Optional.empty();
             if ("episode".equalsIgnoreCase(type) && seriesTitle != null && seasonNumber != null && episodeNumber != null) {
                 try {
-                    still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber, tmdbId);
+                    still = fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber, tmdbId, year);
                 } catch (Exception ex) {
                     LOG.warn("[FetchMediaImages] Episode still fetch failed for {} S{}E{}: {}", title, seasonNumber, episodeNumber, ex.getMessage());
                 }
@@ -1512,7 +1674,7 @@ public class VideoMetadataService {
     /**
      * Fetch episode-specific image URL from TMDB
      */
-    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber) {
+    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber, Integer year) {
         if (seriesTitle == null || seriesTitle.isBlank()) return Optional.empty();
         
         Settings settings = settingsService.getOrCreateSettings();
@@ -1527,11 +1689,12 @@ public class VideoMetadataService {
         
         try {
             Map<String, String> authHeaders = isBearerToken(tmdbKey) ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
+            String yearSuffix = year != null ? "&first_air_date_year=" + year : "";
             String searchUrl;
             if (isBearerToken(tmdbKey)) {
-                searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8));
+                searchUrl = String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8), yearSuffix);
             } else {
-                searchUrl = String.format(TMDB_SEARCH_TV, tmdbKey, URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8));
+                searchUrl = String.format(TMDB_SEARCH_TV + "%s", tmdbKey, URLEncoder.encode(seriesTitle, StandardCharsets.UTF_8), yearSuffix);
             }
             JsonNode searchResult = fetchJson(searchUrl, authHeaders);
             
@@ -1568,9 +1731,9 @@ public class VideoMetadataService {
      *
      * @param tmdbId pre-resolved TMDB TV show ID — when non-blank, skips search and uses it directly
      */
-    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber, String tmdbId) {
+    public Optional<String> fetchEpisodeImageUrl(String seriesTitle, int seasonNumber, int episodeNumber, String tmdbId, Integer year) {
         if (tmdbId == null || tmdbId.isBlank() || tmdbId.equals("null")) {
-            return fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber);
+            return fetchEpisodeImageUrl(seriesTitle, seasonNumber, episodeNumber, year);
         }
 
         if (seriesTitle == null || seriesTitle.isBlank()) return Optional.empty();
@@ -1616,14 +1779,15 @@ public class VideoMetadataService {
      *
      * @param videoId the Video entity ID
      */
-    @jakarta.transaction.Transactional
     public void ensureMediaTextMetadata(Long videoId) {
         if (videoId == null) {
             LOG.info("[EnsureTextMetadata] videoId is null, skipping");
             return;
         }
 
-        Video video = Video.findById(videoId);
+        // Detached snapshot with lazy collections initialized; runs without an open
+        // transaction so TMDB lookups below never hold database locks.
+        Video video = self.loadVideoForEnrichment(videoId);
         if (video == null) {
             LOG.warn("[EnsureTextMetadata] Video {} not found", videoId);
             return;
@@ -1671,9 +1835,10 @@ public class VideoMetadataService {
                     return;
                 }
 
+                String yearSuffix = video.releaseYear != null ? "&year=" + video.releaseYear : "";
                 String searchUrl = isBearerToken(tmdbKey)
-                        ? String.format("https://api.themoviedb.org/3/search/movie?query=%s", searchQuery)
-                        : String.format(TMDB_SEARCH_MOVIE, tmdbKey, searchQuery);
+                        ? String.format("https://api.themoviedb.org/3/search/movie?query=%s%s", searchQuery, yearSuffix)
+                        : String.format(TMDB_SEARCH_MOVIE + "%s", tmdbKey, searchQuery, yearSuffix);
                 JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
                 if (searchRoot == null || searchRoot.path("results").isEmpty()) {
                     LOG.info("[EnsureTextMetadata] No TMDB movie results for '{}'", video.title);
@@ -1734,9 +1899,10 @@ public class VideoMetadataService {
                         return;
                     }
 
+                    String yearSuffix = video.releaseYear != null ? "&first_air_date_year=" + video.releaseYear : "";
                     String searchUrl = isBearerToken(tmdbKey)
-                            ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", seriesSearchQuery)
-                            : String.format(TMDB_SEARCH_TV, tmdbKey, seriesSearchQuery);
+                            ? String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", seriesSearchQuery, yearSuffix)
+                            : String.format(TMDB_SEARCH_TV + "%s", tmdbKey, seriesSearchQuery, yearSuffix);
                     JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
                     if (searchRoot == null || searchRoot.path("results").isEmpty()) {
                         LOG.info("[EnsureTextMetadata] No TMDB TV results for '{}'", video.seriesTitle);
@@ -1799,7 +1965,7 @@ public class VideoMetadataService {
                 return;
             }
 
-            video.persist();
+            self.persistEnrichedVideo(video);
         } catch (Exception e) {
             LOG.warn("[EnsureTextMetadata] Failed for video {}: {}", videoId, e.getMessage());
         } finally {
@@ -1814,14 +1980,15 @@ public class VideoMetadataService {
      *
      * @param seriesId the Series entity ID
      */
-    @jakarta.transaction.Transactional
     public SeriesEnrichmentResult ensureSeriesTextMetadata(Long seriesId) {
         if (seriesId == null) {
             LOG.info("[EnsureSeriesTextMetadata] seriesId is null, skipping");
             return SeriesEnrichmentResult.SKIPPED;
         }
 
-        Series series = Series.findById(seriesId);
+        // Detached snapshot with lazy collections initialized; runs without an open
+        // transaction so TMDB lookups below never hold database locks.
+        Series series = self.loadSeriesForEnrichment(seriesId);
         if (series == null) {
             LOG.warn("[EnsureSeriesTextMetadata] Series {} not found", seriesId);
             return SeriesEnrichmentResult.SKIPPED;
@@ -1858,6 +2025,7 @@ public class VideoMetadataService {
             return SeriesEnrichmentResult.ALREADY_COMPLETE; // Everything already populated
         }
 
+        boolean updated = false;
         try {
             Map<String, String> authHeaders = isBearerToken(tmdbKey)
                     ? Map.of("Authorization", "Bearer " + tmdbKey) : null;
@@ -1873,9 +2041,10 @@ public class VideoMetadataService {
                     LOG.info("[EnsureSeriesTextMetadata] Series {} has no title, skipping", seriesId);
                     return SeriesEnrichmentResult.SKIPPED;
                 }
+                String yearSuffix = series.releaseYear != null ? "&first_air_date_year=" + series.releaseYear : "";
                 String searchUrl = isBearerToken(tmdbKey)
-                        ? String.format("https://api.themoviedb.org/3/search/tv?query=%s", searchQuery)
-                        : String.format(TMDB_SEARCH_TV, tmdbKey, searchQuery);
+                        ? String.format("https://api.themoviedb.org/3/search/tv?query=%s%s", searchQuery, yearSuffix)
+                        : String.format(TMDB_SEARCH_TV + "%s", tmdbKey, searchQuery, yearSuffix);
                 JsonNode searchRoot = fetchJson(searchUrl, authHeaders);
                 if (searchRoot == null) {
                     LOG.info("[EnsureSeriesTextMetadata] TMDB search failed (HTTP error) for '{}'", series.title);
@@ -1888,6 +2057,7 @@ public class VideoMetadataService {
                 // Save the tmdbId for future use
                 try {
                     series.tmdbId = Integer.parseInt(showId);
+                    updated = true;
                 } catch (NumberFormatException ignored) {}
             }
 
@@ -1900,8 +2070,6 @@ public class VideoMetadataService {
                 LOG.info("[EnsureSeriesTextMetadata] Failed to fetch TMDB details for series {}", seriesId);
                 return SeriesEnrichmentResult.FAILED;
             }
-
-            boolean updated = false;
 
             if (needsOverview && root.has("overview") && !root.get("overview").isNull()) {
                 series.overview = root.get("overview").asText();
@@ -2006,7 +2174,6 @@ public class VideoMetadataService {
             }
 
             if (updated) {
-                series.persist();
                 LOG.info("[EnsureSeriesTextMetadata] Updated metadata for '{}': overview={}, genres={}, networks={}, directors={}, writers={}, cast={}",
                         series.title,
                         series.overview != null ? "set" : "none",
@@ -2015,6 +2182,7 @@ public class VideoMetadataService {
                         series.directors != null ? series.directors.size() : 0,
                         series.writers != null ? series.writers.size() : 0,
                         series.cast != null ? series.cast.size() : 0);
+                self.persistEnrichedSeries(series);
             }
         } catch (Exception e) {
             LOG.warn("[EnsureSeriesTextMetadata] Failed for series '{}': {}", series.title, e.getMessage());
@@ -2056,6 +2224,111 @@ public class VideoMetadataService {
                 if (weActivated) requestContext.deactivate();
             }
         });
+    }
+
+    // =====================================================================================
+    // Short-transaction persistence helpers.
+    //
+    // Enrichment used to run inside ONE @Transactional method held open across TMDB/OMDb/
+    // IMDb HTTP calls, ffprobe subprocesses and image downloads. With H2 file storage every
+    // write in that window kept its row lock until COMMIT, so the background workers
+    // deadlocked each other on VIDEO/SERIES rows ("Timeout trying to lock table").
+    //
+    // The public entry points are therefore no longer transactional: they mutate detached
+    // snapshots from the load*ForEnrichment methods and flush through the tiny persist*
+    // transactions below. All external I/O now happens with NO open transaction.
+    // Call these through the CDI proxy (self.) so the interceptors actually apply.
+    // =====================================================================================
+
+    /**
+     * Loads a Video with every lazy {@code @ElementCollection} initialized so the detached
+     * instance can be read and mutated freely outside a session (in-place adds in
+     * fetchAkas/fetchCredits/fetchCompanyCredits require real collections).
+     *
+     * subtitleTracks/audioTracks are deliberately left UNINITIALIZED: they map to
+     * cascade=ALL + orphanRemoval=true, and merge() ignores uninitialized collections —
+     * so tracks written concurrently by updateAudioTracks/updateSubtitleTracks survive
+     * persistEnrichedVideo instead of being deleted as stale orphans.
+     */
+    @jakarta.transaction.Transactional
+    public Models.Video.Video loadVideoForEnrichment(Long videoId) {
+        if (videoId == null) return null;
+        Models.Video.Video v = Models.Video.Video.findById(videoId);
+        if (v == null) return null;
+        if (v.genres != null) v.genres.size();
+        if (v.directors != null) v.directors.size();
+        if (v.writers != null) v.writers.size();
+        if (v.cast != null) v.cast.size();
+        if (v.productionCompanies != null) v.productionCompanies.size();
+        if (v.networks != null) v.networks.size();
+        if (v.akas != null) v.akas.size();
+        if (v.keywords != null) v.keywords.size();
+        if (v.series != null) {
+            Hibernate.initialize(v.series);
+            if (v.series.genres != null) v.series.genres.size();
+            if (v.series.networks != null) v.series.networks.size();
+            if (v.series.directors != null) v.series.directors.size();
+            if (v.series.writers != null) v.series.writers.size();
+            if (v.series.cast != null) v.series.cast.size();
+            if (v.series.productionCompanies != null) v.series.productionCompanies.size();
+            if (v.series.akas != null) v.series.akas.size();
+            if (v.series.keywords != null) v.series.keywords.size();
+        }
+        return v;
+    }
+
+    /**
+     * Same contract as {@link #loadVideoForEnrichment(Long)} for a Series entity.
+     * The videos list stays uninitialized on purpose (never touched during enrichment).
+     */
+    @jakarta.transaction.Transactional
+    public Series loadSeriesForEnrichment(Long seriesId) {
+        if (seriesId == null) return null;
+        Series s = Series.findById(seriesId);
+        if (s == null) return null;
+        if (s.genres != null) s.genres.size();
+        if (s.directors != null) s.directors.size();
+        if (s.writers != null) s.writers.size();
+        if (s.cast != null) s.cast.size();
+        if (s.productionCompanies != null) s.productionCompanies.size();
+        if (s.networks != null) s.networks.size();
+        if (s.akas != null) s.akas.size();
+        if (s.keywords != null) s.keywords.size();
+        return s;
+    }
+
+    /**
+     * Persists an enriched detached Video in its own short transaction. A linked Series is
+     * merged separately (Video.series has no cascade — the merge resolves the FK by id),
+     * but only when it was initialized, i.e. actually loaded/mutated by episode enrichment.
+     */
+    @jakarta.transaction.Transactional
+    public void persistEnrichedVideo(Models.Video.Video enriched) {
+        if (enriched == null || enriched.id == null) return;
+        enriched.getEntityManager().merge(enriched);
+        if (enriched.series != null && Hibernate.isInitialized(enriched.series) && enriched.series.id != null) {
+            enriched.series.getEntityManager().merge(enriched.series);
+        }
+    }
+
+    /** Persists an enriched detached Series in its own short transaction. */
+    @jakarta.transaction.Transactional
+    public void persistEnrichedSeries(Series enriched) {
+        if (enriched == null || enriched.id == null) return;
+        enriched.getEntityManager().merge(enriched);
+    }
+
+    /**
+     * Best-effort failure-path write: marks the video FAILED in its own short transaction
+     * so an aborted enrichment never leaves a stale NOT_ATTEMPTED/ENRICHED state behind.
+     */
+    @jakarta.transaction.Transactional
+    public void persistEnrichmentStatus(Long videoId, Video.EnrichmentStatus status) {
+        if (videoId == null || status == null) return;
+        Models.Video.Video v = Models.Video.Video.findById(videoId);
+        if (v != null) {
+            v.enrichmentStatus = status; // managed inside this transaction — flushed at commit
+        }
     }
 
     @PreDestroy
