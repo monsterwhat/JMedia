@@ -143,6 +143,7 @@ public class VideoManagementApi {
                     .data("jsonEpisodes", jsonEpisodes)
                     .data("posterPath", representative.posterPath)
                     .data("backdropPath", representative.backdropPath)
+                    .data("showImdbId", representative.showImdbId)
                     .render();
         } catch (Exception e) {
             LOG.error("Error loading series episodes for '{}'", seriesTitle, e);
@@ -168,6 +169,26 @@ public class VideoManagementApi {
         
         videoService.updateSeriesMetadata(seriesTitle, posterPath, backdropPath, showImdbId);
         return Response.ok("Series updated successfully").build();
+    }
+
+    @POST
+    @Path("/series/update-and-refetch")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Blocking
+    public Response updateSeriesAndRefetch(
+            @FormParam("seriesTitle") String seriesTitle,
+            @FormParam("newTitle") String newTitle,
+            @FormParam("posterPath") String posterPath,
+            @FormParam("backdropPath") String backdropPath,
+            @FormParam("showImdbId") String showImdbId) {
+
+        if (newTitle != null && !newTitle.isBlank() && !newTitle.equals(seriesTitle)) {
+            videoService.updateSeriesTitle(seriesTitle, newTitle);
+            seriesTitle = newTitle;
+        }
+
+        int queued = videoService.updateSeriesAndRefetchMetadata(seriesTitle, posterPath, backdropPath, showImdbId);
+        return Response.ok("Queued " + queued + " episodes for background enrichment").build();
     }
 
     @POST

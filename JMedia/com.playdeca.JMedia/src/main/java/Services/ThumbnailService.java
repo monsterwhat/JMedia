@@ -421,7 +421,7 @@ public class ThumbnailService {
                 }
                 
                 Optional<String> episodeImage = metadataService.fetchEpisodeImageUrl(
-                    video.seriesTitle, video.seasonNumber, video.episodeNumber);
+                    video.seriesTitle, video.seasonNumber, video.episodeNumber, video.releaseYear);
                 if (episodeImage.isPresent()) {
                     episodeImageCache.put(episodeKey, episodeImage.get());
                     Path thumbnailDir = getThumbnailDirectory();
@@ -756,6 +756,19 @@ public class ThumbnailService {
         } catch (IOException e) {
             LOGGER.error("Error creating thumbnail directory: " + e.getMessage());
             return Paths.get(System.getProperty("user.home"), ".jmedia");
+        }
+    }
+
+    public void deleteMediaImages(Long videoId) {
+        try {
+            Path dir = getThumbnailDirectory();
+            String[] types = {"poster", "backdrop", "logo", "hero", "still"};
+            for (String type : types) {
+                Files.deleteIfExists(dir.resolve(videoId + "_" + type + ".webp"));
+                Files.deleteIfExists(dir.resolve(videoId + "_" + type + ".png"));
+            }
+        } catch (IOException e) {
+            LOGGER.error("Failed to delete media images for video {}: {}", videoId, e.getMessage());
         }
     }
     

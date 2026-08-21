@@ -152,7 +152,10 @@ public class UnifiedVideoEntityCreationService {
                 if (series == null) {
                     series = new Series();
                     series.title = result.showName;
+                    series.releaseYear = result.year;
                     series.persist();
+                } else if (series.releaseYear == null && result.year != null) {
+                    series.releaseYear = result.year;
                 }
                 video.series = series;
             }

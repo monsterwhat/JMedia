@@ -205,8 +205,16 @@
             <button class="delete" aria-label="close" onclick="closeSeriesSettingsModal()"></button>
         </header>
         <section class="modal-card-body">
-            <form id="seriesSettingsForm" hx-post="/api/video/manage/series/update" hx-swap="none">
+            <form id="seriesSettingsForm" hx-post="/api/video/manage/series/update-and-refetch" hx-swap="none">
                 <input type="hidden" name="seriesTitle" value="{seriesTitle}">
+
+                <div class="field">
+                    <label class="label">Series IMDb ID</label>
+                    <div class="control">
+                        <input class="input" type="text" name="showImdbId" value="{showImdbId ?: ''}" placeholder="e.g. tt0096697">
+                    </div>
+                    <p class="help has-text-grey">The IMDb ID for this TV series (e.g. tt0096697 for The Simpsons). Changing this will re-fetch all metadata.</p>
+                </div>
 
                 <div class="field">
                     <label class="label">Series Poster Path/URL</label>
@@ -223,7 +231,7 @@
                 </div>
 
                 <p class="help has-text-info mt-3">
-                    <i class="pi pi-info-circle mr-1"></i> These changes will be applied to <strong>all</strong> episodes in this series.
+                    <i class="pi pi-info-circle mr-1"></i> These changes will be applied to <strong>all</strong> episodes and metadata will be re-fetched.
                 </p>
 
                 <div class="field is-grouped is-justify-content-flex-end mt-5">
@@ -231,7 +239,10 @@
                         <button type="button" class="button" onclick="closeSeriesSettingsModal()">Cancel</button>
                     </div>
                     <div class="control">
-                        <button type="submit" class="button is-primary">Apply to All Episodes</button>
+                        <button type="submit" class="button is-primary" id="seriesSettingsSubmitBtn">
+                            <span class="icon"><i class="pi pi-save"></i></span>
+                            <span>Apply to All Episodes</span>
+                        </button>
                     </div>
                 </div>
             </form>
@@ -952,15 +963,29 @@
         }
     });
 
+    document.getElementById('seriesSettingsForm').addEventListener('htmx:beforeRequest', function(evt) {
+        const btn = document.getElementById('seriesSettingsSubmitBtn');
+        if (btn) {
+            btn.classList.add('is-loading');
+            btn.disabled = true;
+        }
+    });
+
     document.getElementById('seriesSettingsForm').addEventListener('htmx:afterRequest', function(evt) {
+        const btn = document.getElementById('seriesSettingsSubmitBtn');
+        if (btn) {
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        }
         if (evt.detail.successful) {
-            window.Toast.success("Series settings updated!");
+            window.Toast.success("Series settings updated! Metadata re-fetch queued in background.");
             closeSeriesSettingsModal();
-            // Refresh
             htmx.ajax('GET', '/api/video/manage/series/' + encodeURIComponent('{seriesTitle}'), {
                 target: '#spa-content',
                 swap: 'innerHTML'
             });
+        } else {
+            window.Toast.error("Failed to update series: " + (evt.detail.xhr.responseText || "Unknown error"));
         }
     });
 

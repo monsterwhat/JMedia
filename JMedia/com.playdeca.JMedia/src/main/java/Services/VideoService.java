@@ -50,6 +50,9 @@ public class VideoService {
     VideoMetadataService videoMetadataService;
 
     @Inject
+    VideoEnrichmentWorker videoEnrichmentWorker;
+
+    @Inject
     MediaAnalysisService mediaAnalysisService;
 
     @Inject
@@ -1781,6 +1784,37 @@ public class VideoService {
             v.persist();
         }
         LOGGER.info("Updated series metadata for '{}' ({} videos)", seriesTitle, videos.size());
+    }
+
+    @Transactional
+    public int updateSeriesAndRefetchMetadata(String seriesTitle, String posterPath, String backdropPath, String showImdbId) {
+        if (seriesTitle == null) return 0;
+        List<Video> videos = findEpisodesForSeries(seriesTitle);
+        int queued = 0;
+        for (Video v : videos) {
+            if (posterPath != null && !posterPath.isBlank()) v.posterPath = posterPath;
+            if (backdropPath != null && !backdropPath.isBlank()) v.backdropPath = backdropPath;
+            if (showImdbId != null && !showImdbId.isBlank()) v.showImdbId = showImdbId;
+            v.dateModified = LocalDateTime.now();
+            v.enrichmentStatus = Video.EnrichmentStatus.NOT_ATTEMPTED;
+            v.persist();
+            try {
+                thumbnailService.deleteMediaImages(v.id);
+                v.posterPath = null;
+                v.backdropPath = null;
+                v.logoPath = null;
+                v.heroPath = null;
+                v.stillPath = null;
+                v.fanartPath = null;
+                v.getEntityManager().merge(v);
+            } catch (Exception e) {
+                LOGGER.warn("Failed to delete media images for video {}: {}", v.id, e.getMessage());
+            }
+            videoEnrichmentWorker.queueVideo(v.id);
+            queued++;
+        }
+        LOGGER.info("Updated series metadata and queued {} episodes for background enrichment for '{}'", queued, seriesTitle);
+        return queued;
     }
 
     @Transactional
