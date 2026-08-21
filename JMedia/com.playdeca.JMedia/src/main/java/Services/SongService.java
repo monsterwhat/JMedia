@@ -446,8 +446,11 @@ public class SongService {
                 // Preserve the original ID and dateAdded
                 updatedSong.id = song.id;
                 updatedSong.setUpdatedAt(java.time.LocalDateTime.now());
-                // Preserve existing analysis to prevent orphanRemoval from deleting it
-                if (song.getAnalysis() != null && updatedSong.getAnalysis() == null) {
+                // Preserve existing analysis to prevent orphanRemoval from deleting it.
+                // A COMPLETED DB copy must win over a tag-restored copy: merging the
+                // restored transient entity would cascade-persist a duplicate row.
+                if (song.getAnalysis() != null
+                        && song.getAnalysis().getStatus() == Models.Music.SongAnalysis.AnalysisStatus.COMPLETED) {
                     updatedSong.setAnalysis(song.getAnalysis());
                 }
                 em.merge(updatedSong);

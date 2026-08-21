@@ -1,12 +1,26 @@
 package Services;
 
 import Models.Music.Song;
+import Models.Music.SongAnalysis;
+import Utils.SongAnalysisTagCodec;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
+import org.jaudiotagger.tag.flac.FlacTag;
+import org.jaudiotagger.tag.id3.AbstractID3v2Frame;
+import org.jaudiotagger.tag.id3.AbstractID3v2Tag;
+import org.jaudiotagger.tag.id3.ID3v23Frame;
+import org.jaudiotagger.tag.id3.ID3v24Frame;
+import org.jaudiotagger.tag.id3.ID3v24Tag;
+import org.jaudiotagger.tag.id3.framebody.FrameBodyTXXX;
+import org.jaudiotagger.tag.id3.valuepair.TextEncoding;
 import org.jaudiotagger.tag.images.Artwork;
 import org.jaudiotagger.tag.images.ArtworkFactory;
+import org.jaudiotagger.tag.mp4.Mp4Tag;
+import org.jaudiotagger.tag.mp4.field.Mp4TagReverseDnsField;
+import org.jaudiotagger.tag.vorbiscomment.VorbisCommentTag;
+import org.jaudiotagger.tag.wav.WavTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -142,7 +156,14 @@ public class MetadataWriteService {
             if (song.getArtworkBase64() != null && !song.getArtworkBase64().isBlank()) {
                 writeArtwork(tag, song.getArtworkBase64());
             }
-            
+
+            // Embed audio analysis data (TarsosDSP) into tags - must not fail the metadata write
+            try {
+                embedAnalysis(song, tag);
+            } catch (Exception e) {
+                LOGGER.debug("Error embedding analysis data: {}", e.getMessage());
+            }
+
             // Commit to file
             audioFile.commit();
             
@@ -152,6 +173,84 @@ public class MetadataWriteService {
         } catch (Exception e) {
             LOGGER.error("Error writing metadata to {}: {}", filePath, e.getMessage(), e);
             return false;
+        }
+    }
+
+    /**
+     * Embeds the song's audio analysis data into the tag as a gzip+base64 payload.
+     * Entities may be detached here (callers use raw queries), so the analysis is
+     * re-read via Panache inside the async worker thread.
+     */
+    private void embedAnalysis(Song song, Tag tag) throws Exception {
+        SongAnalysis analysis = SongAnalysis.find(
+                "select distinct a from SongAnalysis a left join fetch a.beatTimes where a.song.id = ?1",
+                song.id).firstResult();
+
+        String payload = SongAnalysisTagCodec.encode(analysis);
+        if (payload == null) {
+            LOGGER.debug("No analysis payload to embed for song {}", song.id);
+            return;
+        }
+
+        if (tag instanceof WavTag wavTag) {
+            AbstractID3v2Tag id3 = wavTag.getID3Tag();
+            if (id3 == null) {
+                LOGGER.debug("WAV file has no ID3 tag, skipping analysis embedding");
+                return;
+            }
+            writeId3Analysis(id3, payload);
+        } else if (tag instanceof AbstractID3v2Tag id3) {
+            writeId3Analysis(id3, payload);
+        } else if (tag instanceof FlacTag flacTag) {
+            setVorbisStyleField(flacTag, payload);
+        } else if (tag instanceof VorbisCommentTag vorbisTag) {
+            setVorbisStyleField(vorbisTag, payload);
+        } else if (tag instanceof Mp4Tag mp4Tag) {
+            try {
+                mp4Tag.deleteField(SongAnalysisTagCodec.MP4_FREEFORM_ID);
+            } catch (Exception ignored) {
+                // Field not present yet
+            }
+            Mp4TagReverseDnsField field = new Mp4TagReverseDnsField(
+                    SongAnalysisTagCodec.MP4_FREEFORM_ID,
+                    SongAnalysisTagCodec.MP4_ISSUER,
+                    SongAnalysisTagCodec.MP4_DESCRIPTOR,
+                    payload);
+            mp4Tag.setField(field);
+        } else {
+            LOGGER.debug("Analysis embedding unsupported for tag type {}", tag.getClass().getName());
+        }
+
+        LOGGER.debug("Embedded analysis payload ({} chars) for song {}", payload.length(), song.id);
+    }
+
+    /**
+     * Writes/updates our TXXX frame on an ID3v2 tag; setField replaces an existing
+     * frame with the same description instead of duplicating it.
+     */
+    private void writeId3Analysis(AbstractID3v2Tag id3, String payload) throws Exception {
+        FrameBodyTXXX body = new FrameBodyTXXX(
+                TextEncoding.ISO_8859_1, SongAnalysisTagCodec.ID3_TXXX_DESCRIPTION, payload);
+        AbstractID3v2Frame frame = id3 instanceof ID3v24Tag
+                ? new ID3v24Frame("TXXX")
+                : new ID3v23Frame("TXXX");
+        frame.setBody(body);
+        id3.setField(frame);
+    }
+
+    /**
+     * Writes/updates the analysis field on Vorbis-comment based tags (FLAC/OGG).
+     */
+    private void setVorbisStyleField(Tag vorbisStyleTag, String payload) throws Exception {
+        try {
+            vorbisStyleTag.deleteField(SongAnalysisTagCodec.FIELD_KEY);
+        } catch (Exception ignored) {
+            // Field not present yet
+        }
+        if (vorbisStyleTag instanceof FlacTag flacTag) {
+            flacTag.setField(flacTag.createField(SongAnalysisTagCodec.FIELD_KEY, payload));
+        } else if (vorbisStyleTag instanceof VorbisCommentTag vorbisTag) {
+            vorbisTag.setField(vorbisTag.createField(SongAnalysisTagCodec.FIELD_KEY, payload));
         }
     }
 

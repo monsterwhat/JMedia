@@ -1,6 +1,8 @@
 package Services;
 
 import Models.Music.Song;
+import Models.Music.SongAnalysis;
+import Utils.SongAnalysisTagCodec;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;
@@ -86,7 +88,18 @@ public class MetadataService {
                 
                 // If standard fields are empty, try extracting from COMMENT custom fields
                 fillMissingFromComment(tag, song);
-                
+
+                // Restore persisted audio analysis embedded in tags (attach-if-null:
+                // fresh imports restore from file; rescans keep the existing DB copy)
+                String analysisPayload = SongAnalysisTagCodec.readPayloadFromTag(tag);
+                if (analysisPayload != null) {
+                    SongAnalysis restoredAnalysis = SongAnalysisTagCodec.decode(analysisPayload);
+                    if (restoredAnalysis != null && song.getAnalysis() == null) {
+                        restoredAnalysis.setSong(song);
+                        song.setAnalysis(restoredAnalysis);
+                    }
+                }
+
                 // Skip artwork due to jaudiotagger compatibility issues
                 song.setArtworkBase64("");
                 song.setTitle(audioFile.getName().substring(0, audioFile.getName().lastIndexOf('.')));
