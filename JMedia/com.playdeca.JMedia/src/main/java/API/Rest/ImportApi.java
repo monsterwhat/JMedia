@@ -131,6 +131,23 @@ public class ImportApi {
         }
     }
 
+    // Alias so the settings page's generic /install/choco/{component} call resolves
+    @POST
+    @Path("/install/choco/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response installChoco(@PathParam("profileId") Long profileId) {
+        try {
+            importController.installPackageManger(profileId);
+            return Response.ok(ApiResponse.success("Package manager installation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error installing package manager: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error installing package manager: " + e.getMessage()))
+                    .build();
+        }
+    }
+
     @POST
     @Path("/install/python/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -196,6 +213,22 @@ public class ImportApi {
     }
 
     @POST
+    @Path("/install/ytdlp/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response installYtdlp(@PathParam("profileId") Long profileId) {
+        try {
+            importController.installYtdlp(profileId);
+            return Response.ok(ApiResponse.success("yt-dlp installation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error installing yt-dlp: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error installing yt-dlp: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
     @Path("/install/parakeet/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
     public Response installParakeet(@PathParam("profileId") Long profileId) {
@@ -223,6 +256,22 @@ public class ImportApi {
             e.printStackTrace();
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Error installing Tesseract: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/install/deno/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response installDeno(@PathParam("profileId") Long profileId) {
+        try {
+            importController.installDeno(profileId);
+            return Response.ok(ApiResponse.success("Deno installation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error installing Deno: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error installing Deno: " + e.getMessage()))
                     .build();
         }
     }
@@ -292,6 +341,22 @@ public class ImportApi {
     }
 
     @POST
+    @Path("/uninstall/ytdlp/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response uninstallYtdlp(@PathParam("profileId") Long profileId) {
+        try {
+            importController.uninstallYtdlp(profileId);
+            return Response.ok(ApiResponse.success("yt-dlp uninstallation started")).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error uninstalling yt-dlp: " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(ApiResponse.error("Error uninstalling yt-dlp: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
     @Path("/uninstall/parakeet/{profileId}")
     @Produces(MediaType.APPLICATION_JSON)
     public Response uninstallParakeet(@PathParam("profileId") Long profileId) {
@@ -320,6 +385,23 @@ public class ImportApi {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(ApiResponse.error("Error uninstalling Tesseract: " + e.getMessage()))
                     .build();
+        }
+    }
+
+    @POST
+    @Path("/update/{component}/{profileId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response updateComponent(@PathParam("component") String component, @PathParam("profileId") Long profileId) {
+        try {
+            boolean completed = importController.updateComponent(component.toLowerCase(), profileId);
+            if (!completed) return Response.status(Response.Status.CONFLICT).entity(ApiResponse.error("An update is already in progress")).build();
+            return Response.ok(ApiResponse.success(component + " updated successfully")).build();
+        } catch (IllegalArgumentException e) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(ApiResponse.error(e.getMessage())).build();
+        } catch (Exception e) {
+            System.err.println("[ERROR] Error updating " + component + ": " + e.getMessage());
+            e.printStackTrace();
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(ApiResponse.error("Error updating " + component + ": " + e.getMessage())).build();
         }
     }
 }

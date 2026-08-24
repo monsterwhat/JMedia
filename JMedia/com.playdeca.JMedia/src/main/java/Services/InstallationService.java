@@ -2,7 +2,6 @@ package Services;
 
 import API.WS.ImportStatusSocket;
 import Models.DTOs.ImportInstallationStatus;
-import Models.Settings.Settings;
 import Services.Platform.PlatformOperations;
 import Services.Platform.PlatformOperationsFactory;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -12,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @ApplicationScoped
@@ -23,11 +23,17 @@ public class InstallationService {
     private static final long CACHE_DURATION_MS = 24 * 60 * 60 * 1000L; // 24 hours
     private final AtomicReference<CachedStatus> statusCache = new AtomicReference<>();
     
+    // Guards against concurrent component updates (HTTP 409 when one is already running)
+    private final AtomicBoolean updateInProgress = new AtomicBoolean(false);
+    
     @Inject
     PlatformOperationsFactory platformOperationsFactory;
     
     @Inject
     ImportStatusSocket importStatusSocket;
+
+    @Inject
+    JsRuntimeResolver jsRuntimeResolver;
     
     /**
      * Gets the current installation status of all required tools.
@@ -57,6 +63,7 @@ public class InstallationService {
             boolean ffmpegInstalled = platformOps.isFFmpegInstalled();
             boolean parakeetInstalled = platformOps.isParakeetInstalled();
             boolean tesseractInstalled = platformOps.isTesseractInstalled();
+            boolean denoInstalled = platformOps.isDenoInstalled();
             
             String packageManagerMessage = packageManagerInstalled ? 
                 platformOps.getPackageManagerName() + " found" : 
@@ -82,6 +89,9 @@ public class InstallationService {
             String tesseractMessage = tesseractInstalled ? 
                 "Tesseract found" : 
                 platformOps.getTesseractInstallMessage();
+            String denoMessage = denoInstalled ? 
+                platformOps.getDenoVersion() != null ? platformOps.getDenoVersion() : "Deno found" : 
+                "Deno not found. Install via the import tools panel or https://deno.com";
             
             // Log final detection results
             LOGGER.info("Library installation status detection completed:");
@@ -93,9 +103,10 @@ public class InstallationService {
             LOGGER.info("  FFmpeg: {} - {}", ffmpegInstalled ? "INSTALLED" : "NOT INSTALLED", ffmpegMessage);
             LOGGER.info("  Parakeet: {} - {}", parakeetInstalled ? "INSTALLED" : "NOT INSTALLED", parakeetMessage);
             LOGGER.info("  Tesseract: {} - {}", tesseractInstalled ? "INSTALLED" : "NOT INSTALLED", tesseractMessage);
+            LOGGER.info("  Deno: {} - {}", denoInstalled ? "INSTALLED" : "NOT INSTALLED", denoMessage);
             
-            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, parakeetInstalled, tesseractInstalled, 
-                    packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, parakeetMessage, tesseractMessage);
+            ImportInstallationStatus status = new ImportInstallationStatus(packageManagerInstalled, pythonInstalled, nodeInstalled, spotdlInstalled, ytdlpInstalled, ffmpegInstalled, parakeetInstalled, tesseractInstalled, denoInstalled, 
+                    packageManagerMessage, pythonMessage, nodeMessage, spotdlMessage, ytdlpMessage, ffmpegMessage, parakeetMessage, tesseractMessage, denoMessage);
             
             // Update cache
             statusCache.set(new CachedStatus(now, status));
@@ -104,7 +115,7 @@ public class InstallationService {
         } catch (Exception e) {
             LOGGER.error("Critical error during installation status detection", e);
             return new ImportInstallationStatus(
-                    false, false, false, false, false, false, false, false,
+                    false, false, false, false, false, false, false, false, false,
                     "Error checking package manager: " + e.getMessage(),
                     "Error checking Python: " + e.getMessage(),
                     "Error checking Node.js: " + e.getMessage(),
@@ -112,7 +123,8 @@ public class InstallationService {
                     "Error checking yt-dlp: " + e.getMessage(),
                     "Error checking FFmpeg: " + e.getMessage(),
                     "Error checking Parakeet: " + e.getMessage(),
-                    "Error checking Tesseract: " + e.getMessage()
+                    "Error checking Tesseract: " + e.getMessage(),
+                    "Error checking Deno: " + e.getMessage()
             );
         }
     }
@@ -157,6 +169,14 @@ public class InstallationService {
                 if (!status.ytdlpInstalled) {
                     broadcast("Installing yt-dlp...\n", profileId);
                     platformOps.installYtdlp(profileId);
+                }
+
+                // yt-dlp's pip build requires an external JS runtime for YouTube extraction
+                jsRuntimeResolver.reset();
+                if (!jsRuntimeResolver.hasUsableRuntime()) {
+                    broadcast("No JavaScript runtime found — installing Deno (required for YouTube)\n", profileId);
+                    platformOps.installDeno(profileId);
+                    jsRuntimeResolver.reset();
                 }
             }
         }
@@ -247,59 +267,35 @@ public class InstallationService {
     }
     
     /**
-     * Updates yt-dlp to a specific channel (stable, nightly, or master).
+     * Updates a single component by delegating to its platform-specific update
+     * method. Only one update may run at a time across all components.
      *
-     * @param channel The update channel
-     * @throws Exception If update fails
+     * @param component One of: choco, python, node, ffmpeg, spotdl, ytdlp, parakeet, tesseract, deno
+     * @param profileId The profile ID for broadcasting status updates
+     * @return true if the update ran, false if another update is already in progress
+     * @throws Exception If the component is unknown or the update fails
      */
-    public void updateYtDlp(Settings.YtDlpUpdateChannel channel) throws Exception {
-        LOGGER.info("Updating yt-dlp to channel: {}", channel.getChannelName());
-        
-        PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
-        String pythonExecutable = platformOps.findPythonExecutable();
-        
-        if (pythonExecutable == null) {
-            throw new Exception("Python not found. Cannot update yt-dlp.");
-        }
-        
-        String channelArg = channel.getChannelName();
-        
-        // Build the command: python -m yt_dlp --update-to <channel>
-        ProcessBuilder processBuilder = new ProcessBuilder(
-            pythonExecutable, "-m", "yt_dlp", "--update-to", channelArg
-        );
-        processBuilder.redirectErrorStream(true);
-        
+    public boolean updateComponent(String component, Long profileId) throws Exception {
+        if (!updateInProgress.compareAndSet(false, true)) return false;
         try {
-            Process process = processBuilder.start();
-            
-            // Read output
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
-                    LOGGER.debug("yt-dlp update: {}", line);
-                }
+            PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+            switch (component) {
+                case "choco": platformOps.updatePackageManger(profileId); break;
+                case "python": platformOps.updatePython(profileId); break;
+                case "node": platformOps.updateNode(profileId); break;
+                case "ffmpeg": platformOps.updateFFmpeg(profileId); break;
+                case "spotdl": platformOps.updateSpotdl(profileId); break;
+                case "ytdlp": platformOps.updateYtdlp(profileId); break;
+                case "parakeet": platformOps.updateParakeet(profileId); break;
+                case "tesseract": platformOps.updateTesseract(profileId); break;
+                case "deno": platformOps.updateDeno(profileId); break;
+                default: throw new IllegalArgumentException("Unknown component: " + component);
             }
-            
-            boolean completed = process.waitFor(5, TimeUnit.MINUTES);
-            if (!completed) {
-                process.destroyForcibly();
-                throw new Exception("yt-dlp update timed out after 5 minutes");
-            }
-            
-            int exitCode = process.exitValue();
-            if (exitCode != 0) {
-                throw new Exception("yt-dlp update failed with exit code " + exitCode + ": " + output.toString());
-            }
-            
-            LOGGER.info("yt-dlp updated successfully to {} channel", channel.getChannelName());
-            
-        } catch (Exception e) {
-            LOGGER.error("Failed to update yt-dlp", e);
-            throw new Exception("Failed to update yt-dlp: " + e.getMessage(), e);
-        }
+            clearCache();
+            broadcast("[" + component.toUpperCase() + "_UPDATE_FINISHED]\n", profileId);
+            LOGGER.info("Update of {} completed", component);
+            return true;
+        } finally { updateInProgress.set(false); }
     }
     
     /**
@@ -363,6 +359,19 @@ public class InstallationService {
         PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
         platformOps.installTesseract(profileId);
         clearCache();
+    }
+
+    /**
+     * Installs Deno.
+     *
+     * @param profileId The profile ID for broadcasting status updates
+     * @throws Exception If installation fails
+     */
+    public void installDeno(Long profileId) throws Exception {
+        PlatformOperations platformOps = platformOperationsFactory.getPlatformOperations();
+        platformOps.installDeno(profileId);
+        clearCache();
+        jsRuntimeResolver.reset();
     }
     
     /**

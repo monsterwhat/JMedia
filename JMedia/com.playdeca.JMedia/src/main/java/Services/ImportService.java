@@ -464,6 +464,18 @@ public class ImportService {
         installationService.installTesseract(profileId);
     }
 
+    public void installDeno(Long profileId) throws Exception {
+        installationService.installDeno(profileId);
+    }
+
+    public void installYtdlp(Long profileId) throws Exception {
+        installationService.installYtdlp(profileId);
+    }
+
+    public boolean updateComponent(String component, Long profileId) throws Exception {
+        return installationService.updateComponent(component, profileId);
+    }
+
     public void uninstallPython(Long profileId) throws Exception {
         installationService.uninstallPython(profileId);
     }
@@ -486,6 +498,10 @@ public class ImportService {
 
     public void uninstallTesseract(Long profileId) throws Exception {
         installationService.uninstallTesseract(profileId);
+    }
+
+    public void uninstallYtdlp(Long profileId) throws Exception {
+        installationService.uninstallYtdlp(profileId);
     }
 
     // Delegate metadata methods to MetadataService

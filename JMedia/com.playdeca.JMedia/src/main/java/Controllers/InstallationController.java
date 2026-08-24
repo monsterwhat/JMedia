@@ -62,6 +62,13 @@ public class InstallationController {
     }
 
     /**
+     * Installs Deno.
+     */
+    public void installDeno(Long profileId) throws Exception {
+        installationService.installDeno(profileId);
+    }
+
+    /**
      * Installs all required tools.
      */
     public void installAllRequirements(Long profileId) throws Exception {

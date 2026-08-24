@@ -99,6 +99,13 @@ public class ImportController {
     }
 
     /**
+     * Installs yt-dlp.
+     */
+    public void installYtdlp(Long profileId) throws Exception {
+        importService.installYtdlp(profileId);
+    }
+
+    /**
      * Installs Parakeet.
      */
     public void installParakeet(Long profileId) throws Exception {
@@ -110,6 +117,13 @@ public class ImportController {
      */
     public void installTesseract(Long profileId) throws Exception {
         importService.installTesseract(profileId);
+    }
+
+    /**
+     * Installs Deno.
+     */
+    public void installDeno(Long profileId) throws Exception {
+        importService.installDeno(profileId);
     }
 
     /**
@@ -141,6 +155,13 @@ public class ImportController {
     }
 
     /**
+     * Uninstalls yt-dlp.
+     */
+    public void uninstallYtdlp(Long profileId) throws Exception {
+        importService.uninstallYtdlp(profileId);
+    }
+
+    /**
      * Uninstalls Parakeet.
      */
     public void uninstallParakeet(Long profileId) throws Exception {
@@ -152,5 +173,15 @@ public class ImportController {
      */
     public void uninstallTesseract(Long profileId) throws Exception {
         importService.uninstallTesseract(profileId);
+    }
+
+    /**
+     * Updates a single component (choco, python, node, ffmpeg, spotdl, ytdlp,
+     * parakeet, tesseract).
+     *
+     * @return true if the update ran, false if another update is already in progress.
+     */
+    public boolean updateComponent(String component, Long profileId) throws Exception {
+        return importService.updateComponent(component, profileId);
     }
 }
