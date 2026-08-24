@@ -2,6 +2,8 @@ package Services;
 
 import Models.Music.Song;
 import Models.Music.SongAnalysis;
+import Models.Settings.Settings;
+import Utils.PoolSizeResolver;
 import io.quarkus.runtime.Startup;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -24,9 +26,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Background service that enriches songs for DJ mode.
  *
- * Architecture — two independent queues with separate thread pools:
- *   metadataQueue  → 1 thread  → API calls (MusicBrainz/Deezer/Artwork) — rate-limited, serialized
- *   analysisQueue  → 6 threads → TarsosDSP audio analysis — parallel, CPU-bound, no API calls
+ * Architecture — two independent queues with separately sized thread pools,
+ * both configurable via system settings (tri-state -1=off / 0=auto / N=manual):
+ *   metadataQueue → API calls (MusicBrainz/Deezer/Artwork) — rate-limited
+ *   analysisQueue → TarsosDSP audio analysis — parallel, CPU-bound, no API calls
  *
  * Songs flow:  queueSong() → metadataQueue → [metadata enrichment] → analysisQueue → [audio analysis] → done
  * Metadata enrichment never blocks audio analysis and vice versa.
@@ -38,12 +41,12 @@ public class DjEnrichmentService {
     private static final Logger LOG = LoggerFactory.getLogger(DjEnrichmentService.class);
 
     private static final long POLL_TIMEOUT_SECONDS = 5;
-    private static final int METADATA_THREADS = 1;
-    // One at a time - concurrent TarsosDSP analyses caused JVM heap exhaustion
-    private static final int ANALYSIS_THREADS = 1;
 
     @Inject
     MusicEnrichmentService musicEnrichmentService;
+
+    @Inject
+    SettingsService settingsService;
 
     @Inject
     AudioAnalysisService audioAnalysisService;
@@ -59,6 +62,10 @@ public class DjEnrichmentService {
     private ExecutorService metadataPool;
     private ExecutorService analysisPool;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
+    // Effective pool sizes as of the last start(); 0 means that stage is off
+    private volatile int metadataPoolSize = 0;
+    private volatile int analysisPoolSize = 0;
 
     // --- Progress counters ---
     private final AtomicInteger pending = new AtomicInteger(0);
@@ -94,26 +101,66 @@ public class DjEnrichmentService {
 
     public void start() {
         if (isRunning.compareAndSet(false, true)) {
-            // Metadata pool — 1 thread, API calls are serialized
-            metadataPool = Executors.newFixedThreadPool(METADATA_THREADS, r -> {
-                Thread t = new Thread(r, "DjEnrichment-metadata");
-                t.setDaemon(true);
-                return t;
-            });
-            metadataPool.submit(this::processMetadataQueue);
+            metadataPoolSize = resolveMetadataThreads();
+            analysisPoolSize = resolveAnalysisThreads();
 
-            // Analysis pool — 6 threads, parallel CPU-bound audio analysis
-            analysisPool = Executors.newFixedThreadPool(ANALYSIS_THREADS, r -> {
-                Thread t = new Thread(r, "DjEnrichment-analysis");
-                t.setDaemon(true);
-                return t;
-            });
-            for (int i = 0; i < ANALYSIS_THREADS; i++) {
-                analysisPool.submit(this::processAnalysisQueue);
+            if (metadataPoolSize > 0) {
+                metadataPool = Executors.newFixedThreadPool(metadataPoolSize, r -> {
+                    Thread t = new Thread(r, "DjEnrichment-metadata");
+                    t.setDaemon(true);
+                    return t;
+                });
+                for (int i = 0; i < metadataPoolSize; i++) {
+                    metadataPool.submit(this::processMetadataQueue);
+                }
+            } else {
+                metadataPool = null;
+                LOG.info("DjEnrichmentService: metadata worker disabled in system settings");
             }
 
-            LOG.info("DjEnrichmentService started — metadata={} thread, analysis={} threads",
-                METADATA_THREADS, ANALYSIS_THREADS);
+            if (analysisPoolSize > 0) {
+                analysisPool = Executors.newFixedThreadPool(analysisPoolSize, r -> {
+                    Thread t = new Thread(r, "DjEnrichment-analysis");
+                    t.setDaemon(true);
+                    return t;
+                });
+                for (int i = 0; i < analysisPoolSize; i++) {
+                    analysisPool.submit(this::processAnalysisQueue);
+                }
+            } else {
+                analysisPool = null;
+                LOG.info("DjEnrichmentService: analysis worker disabled in system settings");
+            }
+
+            LOG.info("DjEnrichmentService started — metadata={} threads, analysis={} threads",
+                metadataPoolSize, analysisPoolSize);
+        }
+    }
+
+    public void reconfigure() {
+        stop();
+        start();
+    }
+
+    private int resolveMetadataThreads() {
+        try {
+            Settings s = settingsService.getSettingsOrNull();
+            Integer configured = s != null ? s.getDjEnrichmentMetadataThreads() : null;
+            return PoolSizeResolver.resolve(configured, 1);
+        } catch (Exception e) {
+            LOG.warn("Failed to read djEnrichmentMetadataThreads setting, using default", e);
+            return 1;
+        }
+    }
+
+    private int resolveAnalysisThreads() {
+        try {
+            Settings s = settingsService.getSettingsOrNull();
+            Integer configured = s != null ? s.getDjEnrichmentAnalysisThreads() : null;
+            return PoolSizeResolver.resolve(configured, PoolSizeResolver.autoAudioAnalysisThreads());
+        } catch (Exception e) {
+            LOG.warn("Failed to read djEnrichmentAnalysisThreads setting, using default", e);
+            return PoolSizeResolver.autoAudioAnalysisThreads();
         }
     }
 
@@ -139,7 +186,7 @@ public class DjEnrichmentService {
     }
 
     // ----------------------------------------------------------------
-    // Metadata queue worker  (1 thread — API calls)
+    // Metadata queue worker  (API calls)
     // ----------------------------------------------------------------
 
     private void processMetadataQueue() {
@@ -195,8 +242,13 @@ public class DjEnrichmentService {
 
             // Hand off to analysis queue (analysis is independent of metadata)
             if (needsAnalysis(song)) {
-                analysisQueue.offer(songId);
-                LOG.debug("DjEnrichmentService [metadata]: '{}' queued for analysis", title);
+                if (analysisPoolSize > 0) {
+                    analysisQueue.offer(songId);
+                    LOG.debug("DjEnrichmentService [metadata]: '{}' queued for analysis", title);
+                } else {
+                    processed.incrementAndGet();
+                    LOG.debug("DjEnrichmentService [metadata]: '{}' needs analysis but analysis worker is disabled", title);
+                }
             } else {
                 // Already analyzed — mark as fully done
                 processed.incrementAndGet();
@@ -213,7 +265,7 @@ public class DjEnrichmentService {
     }
 
     // ----------------------------------------------------------------
-    // Analysis queue worker  (6 threads — parallel CPU work)
+    // Analysis queue worker  (parallel CPU work)
     // ----------------------------------------------------------------
 
     private void processAnalysisQueue() {
@@ -307,7 +359,7 @@ public class DjEnrichmentService {
                     // Metadata first — analysis will be queued after metadata completes
                     metadataQueue.offer(song.id);
                     metadataQueued++;
-                } else if (needsAna) {
+                } else if (needsAna && analysisPoolSize > 0) {
                     // Only analysis needed — go directly to analysis queue
                     analysisQueue.offer(song.id);
                     analysisQueued++;

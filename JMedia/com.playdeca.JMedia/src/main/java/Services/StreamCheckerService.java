@@ -62,6 +62,11 @@ public class StreamCheckerService {
     }
 
     private void checkChannelsBatched(List<LiveChannel> channels) {
+        if (streamCheckExecutor.isDisabled()) {
+            addLog("Stream checker: disabled in system settings (streamCheckThreads), skipping "
+                + channels.size() + " channels");
+            return;
+        }
         ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(streamCheckExecutor.getExecutor());
 
         HttpClient client = HttpClient.newBuilder()

@@ -3,6 +3,7 @@ package Services;
 import Controllers.PlaybackController;
 import Models.Music.Song;
 import Models.Music.SongAnalysis;
+import Models.Settings.Settings;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -16,7 +17,9 @@ import java.util.List;
 
 /**
  * Background worker that processes pending audio analysis records (SongAnalysis with status=PENDING).
- * Runs every 10 seconds, processes up to 2 songs per tick.
+ * Runs every 10 seconds, processing a configurable batch of songs per tick
+ * (analysisWorkerBatchSize setting, 1-10, default 2). Skips entirely when the
+ * audio analysis pool is disabled in system settings (audioAnalysisThreads = -1).
  *
  * Skips processing while video transcoding is active to avoid CPU contention
  * (both audio analysis and transcoding use FFmpeg) — but only for a bounded
@@ -32,7 +35,9 @@ public class AnalysisWorker {
 
     private static final Logger LOG = LoggerFactory.getLogger(AnalysisWorker.class);
 
-    private static final int MAX_PER_TICK = 2;
+    private static final int DEFAULT_BATCH_SIZE = 2;
+    private static final int MIN_BATCH_SIZE = 1;
+    private static final int MAX_BATCH_SIZE = 10;
     private static final long FAILED_RETRY_AFTER_MS = 300_000; // 5 minutes
     private static final long TICK_HANG_TIMEOUT_MS = 600_000;  // 10 minutes
     private static final long MAX_DEFER_MS = 120_000;          // 2 minutes
@@ -50,6 +55,9 @@ public class AnalysisWorker {
     AudioAnalysisService audioAnalysisService;
 
     @Inject
+    SettingsService settingsService;
+
+    @Inject
     TranscodingService transcodingService;
 
     @Inject
@@ -57,6 +65,19 @@ public class AnalysisWorker {
 
     @PersistenceContext(unitName = "music")
     EntityManager em;
+
+    private int resolveBatchSize() {
+        try {
+            Settings s = settingsService.getSettingsOrNull();
+            Integer configured = s != null ? s.getAnalysisWorkerBatchSize() : null;
+            if (configured == null) {
+                return DEFAULT_BATCH_SIZE;
+            }
+            return Math.max(MIN_BATCH_SIZE, Math.min(MAX_BATCH_SIZE, configured));
+        } catch (Exception e) {
+            return DEFAULT_BATCH_SIZE;
+        }
+    }
 
     @Scheduled(every = "10s")
     void processPendingAnalyses() {
@@ -76,6 +97,13 @@ public class AnalysisWorker {
         tickStartedAt = now;
 
         try {
+            if (!audioAnalysisService.isAnalysisEnabled()) {
+                LOG.debug("AnalysisWorker: audio analysis disabled in system settings, skipping");
+                return;
+            }
+
+            int batchSize = resolveBatchSize();
+
             // Skip while video transcoding is active to avoid FFmpeg CPU
             // contention — but only for a bounded window. If transcoding has been
             // running continuously for longer than MAX_DEFER_MS, process anyway
@@ -99,7 +127,7 @@ public class AnalysisWorker {
 
             // Phase 1: Process PENDING records
             List<SongAnalysis> pending = SongAnalysis.find("status", SongAnalysis.AnalysisStatus.PENDING)
-                .page(0, MAX_PER_TICK)
+                .page(0, batchSize)
                 .list();
 
             for (SongAnalysis sa : pending) {
@@ -123,7 +151,7 @@ public class AnalysisWorker {
                     "status = ?1 AND analysisTimestamp < ?2",
                     SongAnalysis.AnalysisStatus.FAILED,
                     cutoff
-                ).page(0, MAX_PER_TICK).list();
+                ).page(0, batchSize).list();
 
                 for (SongAnalysis sa : failed) {
                     Song song = sa.getSong();

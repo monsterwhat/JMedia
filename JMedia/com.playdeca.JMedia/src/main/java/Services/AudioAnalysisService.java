@@ -2,6 +2,8 @@ package Services;
 
 import Models.Music.Song;
 import Models.Music.SongAnalysis;
+import Models.Settings.Settings;
+import Utils.PoolSizeResolver;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -46,14 +48,55 @@ public class AudioAnalysisService {
     private static final int BEATS_PER_BAR = 4; // Standard 4/4 time signature
     
     private static final int STARTUP_QUEUE_LIMIT = 50; // Max songs to queue on startup
-    // One at a time - each analysis buffers full PCM + FFT maps; concurrency caused heap exhaustion
-    private static final int ANALYSIS_POOL_SIZE = 1;
-    
-    private final ExecutorService analysisPool = Executors.newFixedThreadPool(ANALYSIS_POOL_SIZE, r -> {
-        Thread t = new Thread(r, "TarsosDSP-analysis");
-        t.setDaemon(true);
-        return t;
-    });
+    // Each analysis buffers full PCM + FFT maps; concurrency caused heap exhaustion,
+    // so the default (auto) is 1 and scales only with generous heap - see PoolSizeResolver
+
+    private volatile ExecutorService analysisPool;
+
+    private ExecutorService pool() {
+        ExecutorService p = analysisPool;
+        if (p == null) {
+            synchronized (this) {
+                p = analysisPool;
+                if (p == null) {
+                    int size = resolvePoolSize();
+                    p = Executors.newFixedThreadPool(Math.max(1, size), r -> {
+                        Thread t = new Thread(r, "TarsosDSP-analysis");
+                        t.setDaemon(true);
+                        return t;
+                    });
+                    analysisPool = p;
+                }
+            }
+        }
+        return p;
+    }
+
+    private int resolvePoolSize() {
+        try {
+            Settings settings = settingsService.getSettingsOrNull();
+            Integer configured = settings != null ? settings.getAudioAnalysisThreads() : null;
+            return PoolSizeResolver.resolve(configured, PoolSizeResolver.autoAudioAnalysisThreads());
+        } catch (Exception e) {
+            LOG.warn("Failed to read audioAnalysisThreads setting, falling back to auto: {}", e.getMessage());
+            return PoolSizeResolver.autoAudioAnalysisThreads();
+        }
+    }
+
+    public boolean isAnalysisEnabled() {
+        return resolvePoolSize() > 0;
+    }
+
+    public void reconfigure() {
+        ExecutorService old;
+        synchronized (this) {
+            old = analysisPool;
+            analysisPool = null;
+        }
+        if (old != null) {
+            old.shutdown();
+        }
+    }
 
     /**
      * On application startup, queue all unanalyzed songs for background analysis.
@@ -192,7 +235,10 @@ public class AudioAnalysisService {
     }
     
     public CompletableFuture<SongAnalysis> analyzeSongAsync(Song song) {
-        return CompletableFuture.supplyAsync(() -> analyzeSong(song), analysisPool);
+        if (!isAnalysisEnabled()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return CompletableFuture.supplyAsync(() -> analyzeSong(song), pool());
     }
 
     private record AnalysisResult(List<Double> beatTimes, double detectedBpm, List<Double> onsetTimes, Map<Double, double[]> spectralMap) {}

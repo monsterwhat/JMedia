@@ -9,6 +9,8 @@ import io.quarkus.runtime.Startup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import Models.Video.Video;
+import Models.Settings.Settings;
+import Utils.PoolSizeResolver;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,7 +20,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Startup
 public class VideoEnrichmentWorker {
     private static final Logger LOG = LoggerFactory.getLogger(VideoEnrichmentWorker.class);
-    private static final int WORKER_THREADS = 6;
     private static final int POLL_TIMEOUT_SECONDS = 5;
     private static final int MAX_RETRIES = 2;
 
@@ -26,11 +27,17 @@ public class VideoEnrichmentWorker {
     VideoMetadataService videoMetadataService;
 
     @Inject
+    SettingsService settingsService;
+
+    @Inject
     RequestContextController requestContextController;
 
     private final LinkedBlockingQueue<Long> queue = new LinkedBlockingQueue<>();
     private ExecutorService workerPool;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
+    // Effective pool size as of the last start(); 0 means enrichment is off
+    private volatile int workerPoolSize = 0;
 
     private final AtomicInteger pending = new AtomicInteger(0);
     private final AtomicInteger processed = new AtomicInteger(0);
@@ -59,15 +66,37 @@ public class VideoEnrichmentWorker {
 
     public void start() {
         if (isRunning.compareAndSet(false, true)) {
-            workerPool = Executors.newFixedThreadPool(WORKER_THREADS, r -> {
-                Thread t = new Thread(r, "VideoEnrichment-worker");
-                t.setDaemon(true);
-                return t;
-            });
-            for (int i = 0; i < WORKER_THREADS; i++) {
-                workerPool.submit(this::processQueue);
+            workerPoolSize = resolveWorkerThreads();
+            if (workerPoolSize > 0) {
+                workerPool = Executors.newFixedThreadPool(workerPoolSize, r -> {
+                    Thread t = new Thread(r, "VideoEnrichment-worker");
+                    t.setDaemon(true);
+                    return t;
+                });
+                for (int i = 0; i < workerPoolSize; i++) {
+                    workerPool.submit(this::processQueue);
+                }
+            } else {
+                workerPool = null;
+                LOG.info("VideoEnrichmentWorker: enrichment workers disabled in system settings");
             }
-            LOG.info("VideoEnrichmentWorker started with {} threads", WORKER_THREADS);
+            LOG.info("VideoEnrichmentWorker started with {} threads", workerPoolSize);
+        }
+    }
+
+    public void reconfigure() {
+        stop();
+        start();
+    }
+
+    private int resolveWorkerThreads() {
+        try {
+            Settings s = settingsService.getSettingsOrNull();
+            Integer configured = s != null ? s.getVideoEnrichmentThreads() : null;
+            return PoolSizeResolver.resolve(configured, PoolSizeResolver.autoIoThreads(2, 8));
+        } catch (Exception e) {
+            LOG.warn("Failed to read videoEnrichmentThreads setting, using default", e);
+            return PoolSizeResolver.autoIoThreads(2, 8);
         }
     }
 
@@ -142,13 +171,17 @@ public class VideoEnrichmentWorker {
     }
 
     public void queueVideo(Long videoId) {
-        if (videoId == null) return;
+        if (videoId == null || workerPoolSize == 0) return;
         queue.offer(videoId);
         pending.incrementAndGet();
     }
 
     @jakarta.enterprise.context.control.ActivateRequestContext
     public void queueAllUnenriched() {
+        if (workerPoolSize == 0) {
+            LOG.debug("VideoEnrichmentWorker: enrichment disabled in system settings, skipping queue sweep");
+            return;
+        }
         LOG.info("VideoEnrichmentWorker: scanning library for unenriched videos...");
         try {
             List<Video> allVideos = Video.listAll();
