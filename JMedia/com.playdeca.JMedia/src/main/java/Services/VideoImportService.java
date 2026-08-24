@@ -181,6 +181,10 @@ public class VideoImportService {
 
     @ActivateRequestContext
     public List<Video> scan(Path directory, boolean metadataOnly, ScanProgressCallback callback, boolean forceFullScan) {
+        if (videoScanExecutor.isDisabled()) {
+            loggingService.addLog("Video scanning is disabled in system settings (videoScanThreads). Scan aborted.");
+            return new ArrayList<>();
+        }
         String scanType = forceFullScan ? "full" : "incremental";
         
         ScanState previousScan = getInterruptedScan();
