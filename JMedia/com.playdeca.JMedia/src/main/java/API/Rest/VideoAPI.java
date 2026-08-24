@@ -9,7 +9,6 @@ import Services.ThumbnailService;
 import Services.VideoImportService;
 import Services.VideoService;
 import Services.VideoScanExecutor;
-import Services.SubtitleDiscoveryQueueProcessor;
 import Services.ExternalVideoService;
 import jakarta.inject.Inject;
 import io.smallrye.common.annotation.Blocking;
@@ -76,9 +75,6 @@ public class VideoAPI {
 
     @Inject
     Services.VideoEnrichmentWorker videoEnrichmentWorker;
-
-    @Inject
-    SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
 
     @Inject
     ExternalVideoService externalVideoService;
@@ -589,9 +585,6 @@ public class VideoAPI {
                     
                     // Queue thumbnails for background processing
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
-                    
-                    // Discover subtitle tracks
-                    executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
                 }
             } catch (Exception e) {
                 LOG.error("Error during video scan: {}", e.getMessage(), e);
@@ -700,7 +693,6 @@ public class VideoAPI {
                     List<Models.Video.Video> videos = videoImportService.scanAndCreate(Paths.get(videoLibraryPath), true);
 
                     executor.submit(() -> thumbnailService.queueAllVideosForRegeneration());
-                    executor.submit(() -> subtitleDiscoveryProcessor.queueAllVideos());
                     LOG.info("Video metadata reload completed. Updated {} videos.", videos.size());
                 }
             } catch (Exception e) {

@@ -41,9 +41,6 @@ public class VideoService {
     EnhancedSubtitleMatcher subtitleMatcher;
 
     @Inject
-    SubtitleDiscoveryQueueProcessor subtitleDiscoveryProcessor;
-
-    @Inject
     SettingsService settingsService;
 
     @Inject
@@ -1655,15 +1652,6 @@ public class VideoService {
             this.collectionName = collectionName;
             this.infoSection = infoSection;
         }
-    }
-
-    /**
-     * Discover subtitle tracks for all videos that don't have any subtitle tracks.
-     * Now delegates to SubtitleDiscoveryQueueProcessor for background processing.
-     */
-    public void discoverSubtitleTracksForAllVideos() {
-        LOGGER.info("Delegating subtitle track discovery to background processor...");
-        subtitleDiscoveryProcessor.queueAllVideos();
     }
 
     // ========== IMPORT AND CREATION ==========
