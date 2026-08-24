@@ -1262,7 +1262,7 @@ public class HlsService {
         }
     }
 
-    private static final long SESSION_IDLE_TTL_MS = 90 * 1000L; // 90s — fast teardown after client disconnect
+    private static final long SESSION_IDLE_TTL_MS = 60 * 1000L; // 60s — stop segment generation ~1 min after the player closes
     private final ScheduledExecutorService hwRetryExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "hls-hw-retry");
         t.setDaemon(true);
@@ -1276,8 +1276,7 @@ public class HlsService {
 
     @PostConstruct
     public void init() {
-        // Schedule periodic cleanup of abandoned sessions
-        sessionCleanupExecutor.scheduleAtFixedRate(this::cleanupAbandonedSessions, 1, 1, TimeUnit.MINUTES);
+        sessionCleanupExecutor.scheduleAtFixedRate(this::cleanupAbandonedSessions, 20, 20, TimeUnit.SECONDS);
         LOG.info("HlsService initialized with periodic session cleanup (TTL: {} min)", SESSION_IDLE_TTL_MS / 60000);
     }
 
