@@ -126,3 +126,6 @@ package/
 /JMedia/com.playdeca.JMedia/.omo
 JMedia/com.playdeca.JMedia/docs/plan.md
 JMedia/com.playdeca.JMedia/plan.md
+/scripts
+movies_test.json
+cookies.txt
