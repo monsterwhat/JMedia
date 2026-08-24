@@ -4,10 +4,10 @@
     const JMedia = window.JMedia = window.JMedia || {};
 
     function getProfileId() {
-        return window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+        return window.globalActiveProfileId || localStorage.getItem('activeProfileId');
     }
 
-    window.componentStates = window.componentStates || { choco: false, python: false, ffmpeg: false, spotdl: false, parakeet: false, tesseract: false };
+    window.componentStates = window.componentStates || { choco: false, python: false, ffmpeg: false, spotdl: false, ytdlp: false, parakeet: false, tesseract: false, deno: false };
 
     document.body.addEventListener('htmx:configRequest', function(evt) {
         const profileId = getProfileId();
@@ -21,6 +21,11 @@
         const profileId = getProfileId();
         const isInstalled = window.componentStates[comp];
         const action = isInstalled ? 'uninstall' : 'install';
+        if (action === 'uninstall' && comp === 'choco') {
+            // There is no uninstall for the system package manager (apt/brew/choco)
+            if(window.showToast) window.showToast('The system package manager cannot be removed from here', 'warning');
+            return;
+        }
         btn.disabled = true;
         btn.classList.add('is-loading');
         try {
@@ -42,15 +47,42 @@
         }
     }
 
+    async function handleUpdateAction(comp, btn) {
+        const profileId = getProfileId();
+        btn.disabled = true;
+        btn.classList.add('is-loading');
+        try {
+            const res = await fetch(`/api/import/update/${comp}/${profileId}`, { method: 'POST' });
+            if (res.status === 409) { if(window.showToast) window.showToast('Another update is already running', 'warning'); }
+            else if (res.ok) {
+                if(window.showToast) window.showToast(`${comp} updated successfully`, 'success');
+                if (window.loadInstallationStatus) window.loadInstallationStatus();   // PRIMARY refresh — do not rely on WS sentinels alone
+            } else {
+                let msg = `Failed to update ${comp}`;
+                try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (e) {}
+                if(window.showToast) window.showToast(msg, 'error');
+            }
+        } catch (e) {
+            console.error(`Error updating ${comp}:`, e);
+            if(window.showToast) window.showToast(`Error updating ${comp}`, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('is-loading');
+        }
+    }
+
     function setupInstallationWebSocket() {
         const profileId = getProfileId();
         const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
         window.installationWebSocket = new WebSocket(`${protocol}${location.host}/ws/import-status/${profileId}`);
         window.installationWebSocket.onmessage = (e) => {
             const msg = e.data;
-            ['CHOCO', 'PYTHON', 'FFMPEG', 'SPOTDL', 'PARAKEET', 'TESSERACT'].forEach(c => {
+            ['CHOCO', 'PYTHON', 'FFMPEG', 'SPOTDL', 'YTDLP', 'PARAKEET', 'TESSERACT', 'DENO'].forEach(c => {
                 if (msg.includes(`[${c}_INSTALLATION_FINISHED]`) || msg.includes(`[${c}_UNINSTALLATION_FINISHED]`)) window.loadInstallationStatus();
+                if (msg.includes(`[${c}_UPDATE_FINISHED]`)) window.loadInstallationStatus();
             });
+            if (msg.includes('[DENO_INSTALL_FINISHED]') || msg.includes('[DENO_UNINSTALLATION_FINISHED]')) window.loadInstallationStatus();
+            if (msg.includes('[DENO_UPDATE_FINISHED]')) window.loadInstallationStatus();
         };
     }
 
@@ -389,7 +421,7 @@
 
         initSettingsView: async function() {
             console.log("Initializing Settings View");
-            window.globalActiveProfileId = localStorage.getItem('activeProfileId') || '1';
+            window.globalActiveProfileId = localStorage.getItem('activeProfileId');
             JMedia.Settings.fixHtmxSettingsEndpoints();
             await JMedia.Settings.checkAdminStatus();
 
@@ -437,9 +469,11 @@
                 };
             }
 
-            ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet', 'tesseract'].forEach(c => {
+            ['choco', 'python', 'ffmpeg', 'spotdl', 'ytdlp', 'parakeet', 'tesseract', 'deno'].forEach(c => {
                 const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
                 if (btn) btn.onclick = () => handleComponentAction(c, btn);
+                const ubtn = document.getElementById(`update${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
+                if (ubtn) ubtn.onclick = () => handleUpdateAction(c, ubtn);
             });
 
             ['Music', 'Video'].forEach(t => {
@@ -597,7 +631,7 @@
 
         saveMaxConcurrentTranscodes: async function () {
             const profileId = getProfileId();
-            const value = parseInt(document.getElementById('maxConcurrentTranscodesInput').value) || 0;
+            const value = readTriState('maxConcurrentTranscodes');
             try {
                 const res = await fetch(`/api/settings/${profileId}/max-concurrent-transcodes`, {
                     method: 'POST',
@@ -643,6 +677,42 @@
                     window.showToast('Failed to save hardware acceleration', 'error');
                 }
             } catch (e) {}
+        },
+
+        saveSystemPerformance: async function () {
+            const profileId = getProfileId();
+            const payload = {
+                audioAnalysisThreads: readTriState('audioAnalysisThreads'),
+                djEnrichmentAnalysisThreads: readTriState('djEnrichmentAnalysisThreads'),
+                djEnrichmentMetadataThreads: readTriState('djEnrichmentMetadataThreads'),
+                musicScanThreads: readTriState('musicScanThreads'),
+                videoScanThreads: readTriState('videoScanThreads'),
+                streamCheckThreads: readTriState('streamCheckThreads'),
+                videoEnrichmentThreads: readTriState('videoEnrichmentThreads'),
+                maxConcurrentTranscodes: readTriState('maxConcurrentTranscodes')
+            };
+            const batchRaw = parseInt(document.getElementById('analysisWorkerBatchSizeInput')?.value, 10);
+            if (!isNaN(batchRaw)) payload.analysisWorkerBatchSize = batchRaw;
+            const status = document.getElementById('systemPerformanceStatus');
+            try {
+                const res = await fetch(`/api/settings/${profileId}/system-performance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const json = await res.json();
+                if (res.ok && json.success !== false) {
+                    if (status) status.textContent = 'Applied.';
+                    if (window.showToast) window.showToast('Thread pool settings applied live', 'success');
+                } else {
+                    const msg = json.error || 'Failed to apply thread pool settings';
+                    if (status) status.textContent = msg;
+                    if (window.showToast) window.showToast(msg, 'error');
+                }
+            } catch (e) {
+                if (status) status.textContent = 'Connection error';
+                if (window.showToast) window.showToast('Error applying thread pool settings', 'error');
+            }
         },
 
         saveOpenSubtitlesSettings: async function () {
@@ -699,7 +769,7 @@
                 const json = await res.json();
                 const status = json.data || json;
                 if (status) {
-                    ['choco', 'python', 'ffmpeg', 'spotdl', 'parakeet', 'tesseract'].forEach(c => {
+                    ['choco', 'python', 'ffmpeg', 'spotdl', 'ytdlp', 'parakeet', 'tesseract'].forEach(c => {
                         const isInst = status[`${c}Installed`];
                         window.componentStates[c] = isInst;
                         const btn = document.getElementById(`install${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
@@ -714,7 +784,38 @@
                             stat.textContent = isInst ? 'Installed' : 'Not installed';
                             stat.className = `help ${isInst ? 'has-text-success' : 'has-text-danger'}`;
                         }
+                        const ub = document.getElementById(`update${c.charAt(0).toUpperCase() + c.slice(1)}Btn`);
+                        if (ub) ub.hidden = !isInst;
                     });
+                    const chocoLabel = document.getElementById('chocoLabel');
+                    if (chocoLabel) chocoLabel.textContent = (status.osName || '').toLowerCase().includes('win') ? 'Chocolatey' : 'Package Manager';
+                    const denoInst = status.denoInstalled === true;
+                    window.componentStates.deno = denoInst;
+                    const denoBtn = document.getElementById('installDenoBtn');
+                    const denoStat = document.getElementById('denoStatus');
+                    if (denoBtn) {
+                        denoBtn.disabled = status.denoInstalling === true;
+                        denoBtn.classList.remove('is-loading');
+                        if (status.denoInstalling === true) {
+                            denoBtn.innerHTML = `<i class="pi pi-spin pi-spinner mr-1"></i>Installing...`;
+                            denoBtn.className = 'button is-small is-rounded is-warning';
+                        } else {
+                            denoBtn.innerHTML = denoInst ? `<i class="pi pi-trash mr-1"></i>Remove` : `<i class="pi pi-download mr-1"></i>Install`;
+                            denoBtn.className = `button is-small is-rounded ${denoInst ? 'is-danger' : 'is-success'}`;
+                        }
+                    }
+                    if (denoStat) {
+                        if (status.denoInstalling === true) {
+                            const pct = (typeof status.denoInstallProgress === 'number') ? ` (${status.denoInstallProgress}%)` : '';
+                            denoStat.textContent = `Installing${pct}...`;
+                            denoStat.className = 'help has-text-warning';
+                        } else {
+                            denoStat.textContent = status.denoMessage || (denoInst ? 'Installed' : 'Not installed');
+                            denoStat.className = `help ${denoInst ? 'has-text-success' : 'has-text-danger'}`;
+                        }
+                    }
+                    const denoUpdateBtn = document.getElementById('updateDenoBtn');
+                    if (denoUpdateBtn) denoUpdateBtn.hidden = !denoInst || status.denoInstalling === true;
                 }
             } catch (e) {}
         },
@@ -735,7 +836,11 @@
                 setVal("outputFormat", d.outputFormat);
                 setVal("downloadThreads", d.downloadThreads);
                 setVal("searchThreads", d.searchThreads);
-                setVal("maxConcurrentTranscodesInput", d.maxConcurrentTranscodes);
+                ['audioAnalysisThreads', 'djEnrichmentAnalysisThreads', 'djEnrichmentMetadataThreads',
+                 'musicScanThreads', 'videoScanThreads', 'streamCheckThreads', 'videoEnrichmentThreads']
+                    .forEach(f => applyTriState(f, d[f]));
+                applyTriState('maxConcurrentTranscodes', d.maxConcurrentTranscodes);
+                setVal("analysisWorkerBatchSizeInput", d.analysisWorkerBatchSize);
                 setVal("maxCompleteCacheFilesInput", d.maxCompleteCacheFiles);
                 const hwEl = document.getElementById('hardwareAccelerationToggle');
                 if (hwEl) hwEl.checked = d.hardwareAccelerationEnabled === true;
@@ -936,6 +1041,35 @@
         }
     };
 
+    // Tri-state pool settings: -1 = off, 0 = auto, N = manual worker count
+    function applyTriState(field, value) {
+        const modeEl = document.getElementById(field + 'Mode');
+        const inputEl = document.getElementById(field + 'Input');
+        if (!modeEl || !inputEl) return;
+        const v = (value === null || value === undefined || isNaN(Number(value))) ? 0 : Number(value);
+        if (v < 0) {
+            modeEl.value = 'off';
+            inputEl.value = '';
+        } else if (v === 0) {
+            modeEl.value = 'auto';
+            inputEl.value = '';
+        } else {
+            modeEl.value = 'manual';
+            inputEl.value = String(v);
+        }
+        inputEl.disabled = modeEl.value !== 'manual';
+    }
+
+    function readTriState(field) {
+        const modeEl = document.getElementById(field + 'Mode');
+        const inputEl = document.getElementById(field + 'Input');
+        if (!modeEl || !inputEl) return 0;
+        if (modeEl.value === 'off') return -1;
+        if (modeEl.value === 'auto') return 0;
+        const n = parseInt(inputEl.value, 10);
+        return isNaN(n) ? 0 : n;
+    }
+
     // Backward-compatible window aliases
     window.resetLibrary = JMedia.Settings.resetLibrary;
     window.scanLibrary = JMedia.Settings.scanLibrary;
@@ -965,6 +1099,7 @@
     window.saveMaxConcurrentTranscodes = JMedia.Settings.saveMaxConcurrentTranscodes;
     window.saveMaxCompleteCacheFiles = JMedia.Settings.saveMaxCompleteCacheFiles;
     window.saveHardwareAcceleration = JMedia.Settings.saveHardwareAcceleration;
+    window.saveSystemPerformance = JMedia.Settings.saveSystemPerformance;
     window.saveOpenSubtitlesSettings = JMedia.Settings.saveOpenSubtitlesSettings;
     window.loadProfiles = JMedia.Settings.loadProfiles;
     window.loadInstallationStatus = JMedia.Settings.loadInstallationStatus;

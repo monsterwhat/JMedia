@@ -10,6 +10,7 @@ import Services.ImportService;
 import Services.MusicEnrichmentService;
 import Services.SettingsService;
 import Services.SongService;
+import Utils.PoolSizeResolver;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -130,8 +131,63 @@ public class SettingsController implements Serializable {
         ".mp3", ".flac", ".m4a", ".ogg", ".wav"
     );
 
-    private static final int THREADS = Math.max(4, Math.max(1, Runtime.getRuntime().availableProcessors() / 2));
-    private static final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+    // Music scan/maintenance pool sized from musicScanThreads (-1 off / 0 auto / N manual),
+    // rebuilt lazily when the setting changes
+    private volatile ExecutorService scanExecutor;
+    private volatile int scanExecutorSize;
+
+    private int resolveMusicScanThreads() {
+        try {
+            return PoolSizeResolver.resolve(
+                settingsService.getOrCreateSettings().getMusicScanThreads(),
+                autoMusicScanThreads());
+        } catch (Exception e) {
+            return autoMusicScanThreads();
+        }
+    }
+
+    private static int autoMusicScanThreads() {
+        return Math.max(4, Math.max(1, Runtime.getRuntime().availableProcessors() / 2));
+    }
+
+    public boolean isMusicScanningDisabled() {
+        return resolveMusicScanThreads() <= 0;
+    }
+
+    public synchronized ExecutorService getScanExecutor() {
+        int desired = resolveMusicScanThreads();
+        if (desired <= 0) {
+            throw new IllegalStateException("Music scanning is disabled in system settings (musicScanThreads)");
+        }
+        if (scanExecutor == null || scanExecutorSize != desired) {
+            ExecutorService old = scanExecutor;
+            scanExecutor = Executors.newFixedThreadPool(desired, r -> {
+                Thread t = new Thread(r, "music-scan");
+                t.setDaemon(true);
+                return t;
+            });
+            scanExecutorSize = desired;
+            shutdownQuietly(old);
+        }
+        return scanExecutor;
+    }
+
+    public void reconfigureMusicScanPool() {
+        getScanExecutor();
+    }
+
+    private static void shutdownQuietly(ExecutorService pool) {
+        if (pool == null) return;
+        pool.shutdown();
+        try {
+            if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                pool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            pool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 
     @PostConstruct
     public void init() {
@@ -142,15 +198,8 @@ public class SettingsController implements Serializable {
 
     @PreDestroy
     public void shutdownExecutor() {
-        try {
-            executor.shutdown();
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException ignored) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        shutdownQuietly(scanExecutor);
+        scanExecutor = null;
     }
 
     private static class ScanResult {
@@ -455,11 +504,15 @@ public class SettingsController implements Serializable {
     }
 
     private List<Song> performScan(File folderToScan, String scanType) {
+        if (isMusicScanningDisabled()) {
+            addLog("Music scanning is disabled in system settings (musicScanThreads). Scan aborted.");
+            return new ArrayList<>();
+        }
         List<File> audioFiles = new ArrayList<>();
         collectAudioFiles(folderToScan, audioFiles);
         addLog("Found " + audioFiles.size() + " audio files in " + scanType + ". Starting parallel metadata reading...");
 
-        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(getScanExecutor());
         audioFiles.forEach(f -> completion.submit(() -> processFile(f)));
 
         int totalAdded = 0;
@@ -504,9 +557,13 @@ public class SettingsController implements Serializable {
     }
 
     private List<Song> performTargetedScan(List<File> targetFiles, String scanType) {
+        if (isMusicScanningDisabled()) {
+            addLog("Music scanning is disabled in system settings (musicScanThreads). Scan aborted.");
+            return new ArrayList<>();
+        }
         addLog("Processing " + targetFiles.size() + " specific files from " + scanType + "...");
 
-        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(getScanExecutor());
         targetFiles.forEach(f -> completion.submit(() -> processFile(f)));
 
         int totalProcessed = 0;
@@ -553,11 +610,15 @@ public class SettingsController implements Serializable {
     }
 
     private List<Song> performIncrementalScan(File folderToScan, String scanType) {
+        if (isMusicScanningDisabled()) {
+            addLog("Music scanning is disabled in system settings (musicScanThreads). Scan aborted.");
+            return new ArrayList<>();
+        }
         List<File> audioFiles = new ArrayList<>();
         collectAudioFiles(folderToScan, audioFiles);
         addLog("Found " + audioFiles.size() + " audio files for " + scanType + ". Starting parallel metadata reading...");
 
-        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<Song> completion = new ExecutorCompletionService<>(getScanExecutor());
         audioFiles.forEach(f -> completion.submit(() -> processFile(f)));
 
         int totalProcessed = 0;
@@ -1162,6 +1223,10 @@ public class SettingsController implements Serializable {
     // Parallel reloadAllSongsMetadata (Phase 1: scan, Phase 2: sequential enrichment)
     // -------------------------------
     public void reloadAllSongsMetadata() {
+        if (isMusicScanningDisabled()) {
+            addLog("Music scanning is disabled in system settings (musicScanThreads). Metadata reload aborted.");
+            return;
+        }
         addLog("[org.jau.tag.id3] Reloading metadata for all songs...");
         List<Song> allSongs = songService.findAll();
         addLog("[org.jau.tag.id3] Found " + (allSongs == null ? 0 : allSongs.size()) + " songs to reload.");
@@ -1172,7 +1237,7 @@ public class SettingsController implements Serializable {
         }
 
         // Phase 1: Parallel file scanning (fast)
-        ExecutorCompletionService<List<String>> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<List<String>> completion = new ExecutorCompletionService<>(getScanExecutor());
         allSongs.forEach(song -> completion.submit(() -> reloadMetadataForSongNoEnrichment(song)));
 
         int updatedCount = 0;
@@ -1210,27 +1275,33 @@ public class SettingsController implements Serializable {
         
         // Trigger audio analysis for songs with BPM (EternalJukebox)
         if (songsWithBpm > 0) {
-            addLog("[AudioAnalysis] Starting background audio analysis...");
-            final int ANALYSIS_THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 4);
-            ExecutorService analysisExecutor = Executors.newFixedThreadPool(ANALYSIS_THREADS);
-            allSongs.stream()
-                .filter(song -> {
-                    try {
-                        return song.getBpm() > 0;
-                    } catch (Exception e) {
-                        return false;
-                    }
-                })
-                .forEach(song -> analysisExecutor.submit(() -> {
-                    try {
-                        addLog("[AudioAnalysis] Analyzing: " + song.getTitle());
-                        audioAnalysisService.analyzeSong(song);
-                    } catch (Exception e) {
-                        addLog("[AudioAnalysis] WARNING: Failed to analyze " + song.getPath() + ": " + e.getMessage());
-                    }
-                }));
-            analysisExecutor.shutdown();
-            addLog("[AudioAnalysis] Audio analysis tasks queued for " + songsWithBpm + " songs.");
+            int anaThreads = PoolSizeResolver.resolve(
+                settingsService.getOrCreateSettings().getAudioAnalysisThreads(),
+                PoolSizeResolver.autoAudioAnalysisThreads());
+            if (anaThreads <= 0) {
+                addLog("[AudioAnalysis] Audio analysis disabled in system settings, skipping background analysis");
+            } else {
+                addLog("[AudioAnalysis] Starting background audio analysis...");
+                ExecutorService analysisExecutor = Executors.newFixedThreadPool(anaThreads);
+                allSongs.stream()
+                    .filter(song -> {
+                        try {
+                            return song.getBpm() > 0;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .forEach(song -> analysisExecutor.submit(() -> {
+                        try {
+                            addLog("[AudioAnalysis] Analyzing: " + song.getTitle());
+                            audioAnalysisService.analyzeSong(song);
+                        } catch (Exception e) {
+                            addLog("[AudioAnalysis] WARNING: Failed to analyze " + song.getPath() + ": " + e.getMessage());
+                        }
+                    }));
+                analysisExecutor.shutdown();
+                addLog("[AudioAnalysis] Audio analysis tasks queued for " + songsWithBpm + " songs.");
+            }
         } else {
             addLog("[AudioAnalysis] No songs with BPM found. Enable BPM extraction in settings or ensure songs have BPM in metadata.");
         }
@@ -1543,6 +1614,10 @@ public class SettingsController implements Serializable {
     // Parallel deleteDuplicateSongs
     // -------------------------------
     public void deleteDuplicateSongs() {
+        if (isMusicScanningDisabled()) {
+            addLog("Music scanning is disabled in system settings (musicScanThreads). Duplicate cleanup aborted.");
+            return;
+        }
         addLog("Deleting duplicate songs...");
 
         // Step 1: Collect all audio files from both main and import folders
@@ -1626,7 +1701,7 @@ public class SettingsController implements Serializable {
 
         addLog("Found " + filesToDelete.size() + " duplicate files to delete. Deleting in parallel...");
 
-        ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(executor);
+        ExecutorCompletionService<String> completion = new ExecutorCompletionService<>(getScanExecutor());
         filesToDelete.forEach(fd -> completion.submit(() -> {
             try {
                 // Delete physical file

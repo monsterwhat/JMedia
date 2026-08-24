@@ -172,8 +172,14 @@
                         
                         <div class="field mb-5">
                             <div class="level is-mobile">
-                                <div class="level-left"><label class="label">Chocolatey</label></div>
-                                <div class="level-right"><button id="installChocoBtn" class="button is-success is-small is-rounded">Install</button></div>
+                                <div class="level-left"><label class="label" id="chocoLabel">Chocolatey</label></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateChocoBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installChocoBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
                             </div>
                             <p id="chocoStatus" class="help">Checking status...</p>
                         </div>
@@ -181,7 +187,13 @@
                         <div class="field mb-5">
                             <div class="level is-mobile">
                                 <div class="level-left"><label class="label">Python</label></div>
-                                <div class="level-right"><button id="installPythonBtn" class="button is-success is-small is-rounded">Install</button></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updatePythonBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installPythonBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
                             </div>
                             <p id="pythonStatus" class="help">Checking status...</p>
                         </div>
@@ -189,7 +201,13 @@
                         <div class="field mb-5">
                             <div class="level is-mobile">
                                 <div class="level-left"><label class="label">FFmpeg</label></div>
-                                <div class="level-right"><button id="installFfmpegBtn" class="button is-success is-small is-rounded">Install</button></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateFfmpegBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installFfmpegBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
                             </div>
                             <p id="ffmpegStatus" class="help">Checking status...</p>
                         </div>
@@ -197,15 +215,41 @@
                         <div class="field mb-5">
                             <div class="level is-mobile">
                                 <div class="level-left"><label class="label">SpotDL</label></div>
-                                <div class="level-right"><button id="installSpotdlBtn" class="button is-success is-small is-rounded">Install</button></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateSpotdlBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installSpotdlBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
                             </div>
                             <p id="spotdlStatus" class="help">Checking status...</p>
                         </div>
 
                         <div class="field mb-5">
                             <div class="level is-mobile">
+                                <div class="level-left"><label class="label">yt-dlp</label></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateYtdlpBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installYtdlpBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <p id="ytdlpStatus" class="help">Checking status...</p>
+                        </div>
+
+                        <div class="field mb-5">
+                            <div class="level is-mobile">
                                 <div class="level-left"><label class="label">Parakeet TDT</label></div>
-                                <div class="level-right"><button id="installParakeetBtn" class="button is-success is-small is-rounded">Install</button></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateParakeetBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installParakeetBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
                             </div>
                             <p id="parakeetStatus" class="help">Checking status...</p>
                         </div>
@@ -213,9 +257,29 @@
                         <div class="field mb-5">
                             <div class="level is-mobile">
                                 <div class="level-left"><label class="label">Tesseract OCR</label></div>
-                                <div class="level-right"><button id="installTesseractBtn" class="button is-success is-small is-rounded">Install</button></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateTesseractBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installTesseractBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
                             </div>
                             <p id="tesseractStatus" class="help">Checking status...</p>
+                        </div>
+
+                        <div class="field mb-5">
+                            <div class="level is-mobile">
+                                <div class="level-left"><label class="label">Deno</label></div>
+                                <div class="level-right">
+                                    <div class="buttons has-addons mb-0">
+                                        <button id="updateDenoBtn" class="button is-info is-small is-rounded" hidden
+                                                title="Update to the latest version"><span class="icon"><i class="pi pi-refresh"></i></span><span>Update</span></button>
+                                        <button id="installDenoBtn" class="button is-success is-small is-rounded">Install</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <p id="denoStatus" class="help">Checking status...</p>
                         </div>
                         
                         <hr>
@@ -675,10 +739,19 @@
                         <div class="field">
                             <label class="label">Max Concurrent Transcodes</label>
                             <div class="field has-addons">
-                                <div class="control is-expanded"><input type="number" id="maxConcurrentTranscodesInput" class="input is-small" min="0"></div>
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="maxConcurrentTranscodesMode" onchange="document.getElementById('maxConcurrentTranscodesInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="maxConcurrentTranscodesInput" class="input is-small" min="1" max="64" disabled></div>
                                 <div class="control"><button id="saveMaxConcurrentTranscodesBtn" class="button is-small is-success" onclick="window.saveMaxConcurrentTranscodes()">Save</button></div>
                             </div>
-                            <p class="help is-size-7">0 = automatic (CPU-based). Changes apply immediately without restart.</p>
+                            <p class="help is-size-7">Auto = CPU-based limit, Manual = fixed worker count, Off disables transcoding entirely (requests fail fast). Applies immediately without restart.</p>
                         </div>
 
                         <div class="field mt-4">
@@ -696,6 +769,144 @@
                             </label>
                             <div class="control"><button id="saveHardwareAccelerationBtn" class="button is-small is-success" onclick="window.saveHardwareAcceleration()">Save</button></div>
                             <p class="help is-size-7">Use GPU (NVENC/AMF/QSV) for transcoding when available.</p>
+                        </div>
+
+                        <hr>
+
+                        <h6 class="title is-6">Thread Pools</h6>
+                        <p class="help is-size-7 mb-2">Each pool can be Auto (sized from CPU cores/memory), Off (paused entirely), or Manual (your worker count). All values apply live without restart.</p>
+
+                        <div class="field mt-4">
+                            <label class="label">Audio Analysis Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="audioAnalysisThreadsMode" onchange="document.getElementById('audioAnalysisThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="audioAnalysisThreadsInput" class="input is-small" min="1" max="4" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Parallel TarsosDSP BPM/beat analyses. Auto scales with CPU cores and heap (max 4).</p>
+                            <p class="help is-size-7 has-text-warning">Needs heap: raise the server -Xmx (e.g. 4g or more) before increasing above 1.</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">Analysis Worker Batch Size</label>
+                            <div class="field has-addons">
+                                <div class="control is-expanded"><input type="number" id="analysisWorkerBatchSizeInput" class="input is-small" min="1" max="10"></div>
+                            </div>
+                            <p class="help is-size-7">Songs fetched per analysis worker tick (1-10).</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">DJ Enrichment - Analysis Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="djEnrichmentAnalysisThreadsMode" onchange="document.getElementById('djEnrichmentAnalysisThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="djEnrichmentAnalysisThreadsInput" class="input is-small" min="1" max="4" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Parallel TarsosDSP analyses while building DJ metadata. Auto mirrors the audio-analysis sizing (max 4).</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">DJ Enrichment - Metadata Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="djEnrichmentMetadataThreadsMode" onchange="document.getElementById('djEnrichmentMetadataThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="djEnrichmentMetadataThreadsInput" class="input is-small" min="1" max="8" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Parallel external-metadata lookups during DJ enrichment (Auto: CPU-based).</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">Music Scan Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="musicScanThreadsMode" onchange="document.getElementById('musicScanThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="musicScanThreadsInput" class="input is-small" min="1" max="16" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Workers scanning/importing music files (Auto: half the cores, at least 4). Off also blocks manual scan buttons.</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">Video Scan Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="videoScanThreadsMode" onchange="document.getElementById('videoScanThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="videoScanThreadsInput" class="input is-small" min="1" max="16" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Workers scanning video directories (Auto: half the cores, at least 2). Off disables video scanning.</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">Stream Check Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="streamCheckThreadsMode" onchange="document.getElementById('streamCheckThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="streamCheckThreadsInput" class="input is-small" min="1" max="16" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Background channel availability checks (Auto: CPU-based). Off pauses scheduled stream checks.</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <label class="label">Video Enrichment Threads</label>
+                            <div class="field has-addons">
+                                <div class="control">
+                                    <span class="select is-small">
+                                        <select id="videoEnrichmentThreadsMode" onchange="document.getElementById('videoEnrichmentThreadsInput').disabled = this.value !== 'manual'">
+                                            <option value="auto">Auto</option>
+                                            <option value="off">Off</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <div class="control is-expanded"><input type="number" id="videoEnrichmentThreadsInput" class="input is-small" min="1" max="16" disabled></div>
+                            </div>
+                            <p class="help is-size-7">Workers fetching external metadata for videos (Auto: 2-8 depending on cores).</p>
+                        </div>
+
+                        <div class="field mt-4">
+                            <button id="saveSystemPerformanceBtn" class="button is-success" onclick="window.saveSystemPerformance()"><i class="pi pi-save mr-1"></i> Apply Thread Pool Settings</button>
+                            <span id="systemPerformanceStatus" class="ml-3 help"></span>
                         </div>
                     </div>
                 </div>

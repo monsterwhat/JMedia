@@ -31,6 +31,11 @@ import org.slf4j.LoggerFactory;
 import Services.MediaDirectoryService;
 import Services.TranscodingService;
 import Services.VideoImportService;
+import Services.AudioAnalysisService;
+import Services.DjEnrichmentService;
+import Services.StreamCheckExecutor;
+import Services.VideoEnrichmentWorker;
+import Services.VideoScanExecutor;
 import java.nio.file.Paths;
 
 @Path("/api/settings")
@@ -75,6 +80,21 @@ public class SettingsApi {
 
     @Inject
     VideoImportService videoImportService;
+
+    @Inject
+    AudioAnalysisService audioAnalysisService;
+
+    @Inject
+    DjEnrichmentService djEnrichmentService;
+
+    @Inject
+    VideoEnrichmentWorker videoEnrichmentWorker;
+
+    @Inject
+    VideoScanExecutor videoScanExecutor;
+
+    @Inject
+    StreamCheckExecutor streamCheckExecutor;
 
     @GET
     @Path("/https/status")
@@ -611,8 +631,9 @@ public class SettingsApi {
             
             CompletableFuture.runAsync(() -> {
                 try {
-                    installationService.updateYtDlp(updateChannel);
-                    settingsController.addLog("yt-dlp updated to " + updateChannel.getChannelName() + " channel");
+                    // Channel is logged for traceability only; pip always delivers the latest stable
+                    installationService.updateComponent("ytdlp", profileId);
+                    settingsController.addLog("yt-dlp updated (requested channel: " + updateChannel.getChannelName() + ")");
                 } catch (Exception e) {
                     LOGGER.error("Failed to update yt-dlp", e);
                     settingsController.addLog("Failed to update yt-dlp: " + e.getMessage(), e);
@@ -1021,22 +1042,27 @@ public class SettingsApi {
             Object value = data.get("maxConcurrentTranscodes");
             if (!(value instanceof Number)) {
                 return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("'maxConcurrentTranscodes' must be an integer (0 = auto)"))
+                    .entity(ApiResponse.error("'maxConcurrentTranscodes' must be an integer (-1 = off, 0 = auto)"))
                     .build();
             }
             int max = ((Number) value).intValue();
-            if (max < 0) {
+            if (max < -1 || max > 64) {
                 return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(ApiResponse.error("'maxConcurrentTranscodes' must be >= 0 (0 = auto)"))
+                    .entity(ApiResponse.error("'maxConcurrentTranscodes' must be -1 (off), 0 (auto), or 1-64"))
                     .build();
             }
+            String display = max < 0 ? "off" : (max == 0 ? "auto" : String.valueOf(max));
             Settings settings = settingsController.getOrCreateSettings();
             settings.setMaxConcurrentTranscodes(max);
             settingsService.save(settings);
             transcodingService.updateMaxConcurrentTranscodes(max);
+            settingsController.addLog("Max concurrent transcodes set to " + display);
+            if (max < 0) {
+                return Response.ok(ApiResponse.success(
+                    "Max concurrent transcodes set to off. Transcoding requests will fail fast until re-enabled.")).build();
+            }
             int effective = transcodingService.getCurrentMaxConcurrentTranscodes();
-            settingsController.addLog("Max concurrent transcodes set to " + (max == 0 ? "auto" : String.valueOf(max)) + " (applied live: pool of " + effective + ")");
-            return Response.ok(ApiResponse.success("Max concurrent transcodes set to " + (max == 0 ? "auto" : String.valueOf(max))
+            return Response.ok(ApiResponse.success("Max concurrent transcodes set to " + display
                 + ". Applied immediately (pool size " + effective + ").")).build();
         } catch (Exception e) {
             LOGGER.error("Failed to update max concurrent transcodes setting", e);
@@ -1044,6 +1070,117 @@ public class SettingsApi {
                 .entity(ApiResponse.error("Failed to update max concurrent transcodes setting: " + e.getMessage()))
                 .build();
         }
+    }
+
+    // Tri-state knobs exposed by the System tab with accepted ranges;
+    // encoding is shared across all pool settings: -1 = off, 0 = auto,
+    // N = manual thread count. analysisWorkerBatchSize is a plain 1-10 int.
+    private static final Map<String, int[]> SYSTEM_PERF_RANGES = Map.of(
+        "audioAnalysisThreads", new int[]{-1, 4},
+        "analysisWorkerBatchSize", new int[]{1, 10},
+        "djEnrichmentAnalysisThreads", new int[]{-1, 4},
+        "djEnrichmentMetadataThreads", new int[]{-1, 8},
+        "musicScanThreads", new int[]{-1, 16},
+        "videoScanThreads", new int[]{-1, 16},
+        "streamCheckThreads", new int[]{-1, 16},
+        "videoEnrichmentThreads", new int[]{-1, 16});
+
+    @POST
+    @Path("/{profileId}/system-performance")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response setSystemPerformance(@PathParam("profileId") Long profileId, Map<String, Object> data, @Context HttpHeaders headers) {
+        if (!authService.isAdmin(headers)) return Response.status(Response.Status.FORBIDDEN).build();
+        try {
+            if (data == null || data.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(ApiResponse.error("No system performance fields provided"))
+                    .build();
+            }
+
+            // Validate everything up-front so the save is all-or-nothing
+            for (Map.Entry<String, Object> entry : data.entrySet()) {
+                String key = entry.getKey();
+                int[] range = SYSTEM_PERF_RANGES.get(key);
+                boolean isTranscodeKey = "maxConcurrentTranscodes".equals(key);
+                if (range == null && !isTranscodeKey) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("Unknown system performance field: " + key))
+                        .build();
+                }
+                if (!(entry.getValue() instanceof Number)) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("'" + key + "' must be an integer"))
+                        .build();
+                }
+                int v = ((Number) entry.getValue()).intValue();
+                if (range != null && (v < range[0] || v > range[1])) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("'" + key + "' must be between " + range[0] + " and " + range[1]))
+                        .build();
+                }
+                if (isTranscodeKey && (v < -1 || v > 64)) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(ApiResponse.error("'maxConcurrentTranscodes' must be -1 (off), 0 (auto), or 1-64"))
+                        .build();
+                }
+            }
+
+            Settings settings = settingsController.getOrCreateSettings();
+
+            for (Map.Entry<String, Object> entry : data.entrySet()) {
+                String key = entry.getKey();
+                int v = ((Number) entry.getValue()).intValue();
+                switch (key) {
+                    case "audioAnalysisThreads" -> settings.setAudioAnalysisThreads(v);
+                    case "analysisWorkerBatchSize" -> settings.setAnalysisWorkerBatchSize(v);
+                    case "djEnrichmentAnalysisThreads" -> settings.setDjEnrichmentAnalysisThreads(v);
+                    case "djEnrichmentMetadataThreads" -> settings.setDjEnrichmentMetadataThreads(v);
+                    case "musicScanThreads" -> settings.setMusicScanThreads(v);
+                    case "videoScanThreads" -> settings.setVideoScanThreads(v);
+                    case "streamCheckThreads" -> settings.setStreamCheckThreads(v);
+                    case "videoEnrichmentThreads" -> settings.setVideoEnrichmentThreads(v);
+                    case "maxConcurrentTranscodes" -> {
+                        settings.setMaxConcurrentTranscodes(v);
+                        transcodingService.updateMaxConcurrentTranscodes(v); // applied live incl. off
+                    }
+                    default -> throw new IllegalArgumentException("Unhandled field: " + key);
+                }
+            }
+            settingsService.save(settings);
+
+            // Live-apply pool changes where no restart is required.
+            // analysisWorkerBatchSize needs nothing here: workers re-read it each tick.
+            if (data.containsKey("audioAnalysisThreads")) audioAnalysisService.reconfigure();
+            if (data.containsKey("djEnrichmentAnalysisThreads") || data.containsKey("djEnrichmentMetadataThreads")) {
+                djEnrichmentService.reconfigure();
+            }
+            if (data.containsKey("videoEnrichmentThreads")) videoEnrichmentWorker.reconfigure();
+            if (data.containsKey("videoScanThreads")) videoScanExecutor.reconfigure();
+            if (data.containsKey("streamCheckThreads")) streamCheckExecutor.reconfigure();
+            if (data.containsKey("musicScanThreads")) settingsController.reconfigureMusicScanPool();
+
+            settingsController.addLog("System performance updated: " + data.keySet());
+            return Response.ok(ApiResponse.success(systemPerformanceSnapshot(settings))).build();
+        } catch (Exception e) {
+            LOGGER.error("Failed to update system performance settings", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(ApiResponse.error("Failed to update system performance settings: " + e.getMessage()))
+                .build();
+        }
+    }
+
+    private Map<String, Object> systemPerformanceSnapshot(Settings settings) {
+        Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("audioAnalysisThreads", settings.getAudioAnalysisThreads());
+        snapshot.put("analysisWorkerBatchSize", settings.getAnalysisWorkerBatchSize());
+        snapshot.put("djEnrichmentAnalysisThreads", settings.getDjEnrichmentAnalysisThreads());
+        snapshot.put("djEnrichmentMetadataThreads", settings.getDjEnrichmentMetadataThreads());
+        snapshot.put("musicScanThreads", settings.getMusicScanThreads());
+        snapshot.put("videoScanThreads", settings.getVideoScanThreads());
+        snapshot.put("streamCheckThreads", settings.getStreamCheckThreads());
+        snapshot.put("videoEnrichmentThreads", settings.getVideoEnrichmentThreads());
+        snapshot.put("maxConcurrentTranscodes", settings.getMaxConcurrentTranscodes());
+        return snapshot;
     }
 
     @POST

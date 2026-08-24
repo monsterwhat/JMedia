@@ -32,7 +32,7 @@
         if (importWebSocket && importWebSocket.readyState === WebSocket.OPEN) {
             return;
         }
-        const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+        const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
         const wsUrl = `${protocol}//${host}/ws/import-status/${profileId}`;
@@ -209,7 +209,7 @@
             }
             const downloadFolderInput = document.getElementById('downloadFolder');
             let currentDownloadPath = downloadFolderInput ? downloadFolderInput.value : '';
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             if (!currentDownloadPath) {
                 try {
                     console.log('[Import] Fetching default download path for Auto Find...');
@@ -283,7 +283,7 @@
                 return;
             }
 
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
 
             const fetchImportSettings = async () => {
                 try {
@@ -410,7 +410,7 @@
         },
 
         loadAdvancedConfiguration: async () => {
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             try {
                 const response = await fetch(`/api/settings/${profileId}`);
                 if (response.ok) {
@@ -446,7 +446,7 @@
         },
 
         loadYtDlpVersion: async () => {
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             try {
                 const response = await fetch(`/api/settings/${profileId}/install-status`);
                 if (response.ok) {
@@ -481,7 +481,7 @@
             const updateBtn = document.getElementById('updateYtDlpBtn');
             const statusElement = document.getElementById('ytdlpUpdateStatus');
             if (!updateBtn || !statusElement) return;
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             const channel = document.getElementById('youtubeUpdateChannel').value;
             updateBtn.disabled = true;
             updateBtn.classList.add('is-loading');
@@ -509,7 +509,7 @@
         },
 
         saveAdvancedConfiguration: async () => {
-            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId') || '1';
+            const profileId = window.globalActiveProfileId || localStorage.getItem('activeProfileId');
             try {
                 const configData = {
                     primarySource: document.getElementById('primarySource').value,

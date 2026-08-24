@@ -48,7 +48,11 @@ public class SettingsService {
             settings.persist();
             cachedSettingsId = settings.id;
         } else {
-            settings.persistAndFlush();
+            // Entity may be DETACHED here (e.g. loaded via getOrCreateSettings(), whose
+            // REQUIRES_NEW transaction already committed). persist() would throw
+            // "Detached entity passed to persist"; merge() re-attaches its state.
+            Settings managed = Settings.getEntityManager().merge(settings);
+            cachedSettingsId = managed.id;
         }
     }
 
